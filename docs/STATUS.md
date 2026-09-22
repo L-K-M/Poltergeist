@@ -7213,6 +7213,81 @@ Not in this slice: `diff.dart` (plan production), `rsync_export.dart`,
 the §7 preview UI, §9 `sync_state` persistence, purge UI,
 remote-pair integration tests.
 
+## M8 — sync plan view + savedSync bookmarks + activity-panel runs (2026-09-22)
+
+The third M8 slice mounts the §7 preview as a first-class pane tab and
+drives it scan → diff → override → rails → executor. Rail 1 holds: the
+reviewed plan is the only thing the executor ever runs.
+
+- `diff.dart` (sync package) — `diffScans(left, right, pair)` turns two
+  `ScanResult`s into the `SyncPlan` the view reviews: mode×direction
+  action selection, §6 rule-4 `typeDiffers` pre-delete semantics,
+  rule-8 subtree-exclusion mirroring, per-item hazard surfacing via
+  compare.dart's collision/invalid-name helpers, `destinationSubtree`
+  snapshots, mtime-degradation to size-only when §4 flags distrust.
+- `pair_id.dart` — §9's canonical `pairId` (endpoint-derived, rule
+  fields excluded) keys `sync_state` so a re-path or re-host re-keys
+  rather than carrying stale trust flags.
+- `saved_sync_codec.dart` — `SyncPair` ⇄ `BookmarkKind.savedSync`;
+  endpoint and rule fields serialize under `bookmark.sync`.
+- `sync_state.dart` — §9's per-pair state model + JSON codec
+  (mtime-trust flags, case-probe cache, trash cache, last-run stamps).
+  App-side `FileSyncStateStore` owns the dart:io — the package stays
+  I/O-free per §11.
+- Executor pause seam — `SyncRunPause` races `whenCancelled` at the
+  three phase boundaries; no mid-item interruption.
+- `SyncEnvironment` — the app-side composition root: journal dir,
+  device-id for runId prefixes, endpoint → `RemoteFileSystem`
+  resolution. Remote endpoints answer the honest `unsupported`
+  refusal — the same posture as the transfer queue (open item 23).
+- `SyncPlanController` — the view's state machine: scan/diff,
+  effective-action overrides with the §7 validity table, bulk apply
+  that reports `typeDiffers` skips, conflict resolution (newer-wins
+  hidden on untrusted clocks), rail 3/4 assessment recomputed on every
+  override, `run(deleteConfirmed:)`, retry-failed, restore-trashed,
+  heavy-directory exclude suggestion, stored case-override rescans.
+- `SyncQueueTasks` + `CompositeAppTransferQueue` — one sync run = one
+  activity-panel task with per-item rows; pause/resume/cancel route to
+  the run, retry routes to `retryFailed`, terminal rows are removable;
+  sync runs journal under `sync_runs/`, never the transfer journal.
+- `SyncPlanView` + `sync_plan_format.dart` — the §7 surface: mode
+  picker (Update/Mirror/Additive → direction×deletion), the verbatim
+  consequence sentence (Additive aggregates onto "both sides";
+  trash/permanent delete clauses distinct; "Nothing will be deleted."
+  only when true), warnings strip, conflict bar, filter chips +
+  text filter + only-actions default, grouped rows with glyph+color
+  (never color alone), tap-to-cycle and right-click override menus,
+  rail 3's typed-DELETE dialog, rail 4's refusal banner, run controls,
+  Copy Report.
+- `SyncPairEditorDialog` — §9's pair editor (name, endpoints, paths,
+  direction, deletions, backups, comparison, conflicts, excludes,
+  trash paths, mtime tolerance, maxDelete, fraction warn, concurrency,
+  per-side case overrides, include-hidden, preserve-mtime), shared by
+  `sync.newSavedSync` and the plan view's Edit Rules.
+- Wiring — `sync.synchronizePanes` (⌥⌘Y / Ctrl+Alt+Y) builds an ad-hoc
+  pair from both panes' committed locations and disables when either
+  side is unbound; `sync.newSavedSync` persists through
+  `bookmarkFromSyncPair`, preserving group/sortKey/createdAt on edit;
+  savedSync sidebar rows reopen the plan view and malformed payloads
+  report instead of no-oping; `main.dart` composes `SyncEnvironment` +
+  `SyncQueueTasks` and folds them into the transfer queue.
+
+Tests: 29 differ tests (mode table, hazards, rules 4/8, mtime
+degradation), pair-id + codec + state-store suites (163 sync-package
+tests total), 17 controller tests (lifecycle, rails, retry, restore,
+typed confirmation), facade/composite-queue tests, 11 copy-contract
+format tests, command registration/enablement tests, and 7 widget
+tests driving the real view — which surfaced and fixed two real bugs
+(a `Spacer` inside `Wrap` in the action bar, and a
+`TextEditingController` disposed before the delete dialog's exit
+animation finished). Six POLTERGEIST_CAPTURE artifacts live under
+`tasks/run3-task90/captures/` (grouped view, override menu, typed
+dialog, maxDelete refusal, running, retry-failed).
+
+Not in this slice (per the task bound): `rsync_export.dart`,
+remote-pair integration, chown UI, purge UI, engine changes beyond
+the small seams above.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

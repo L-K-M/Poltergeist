@@ -23,6 +23,8 @@ import 'services/session_state_store.dart';
 import 'services/settings_store.dart';
 import 'services/ssh_config_import_setup.dart';
 import 'services/sync_credentials.dart';
+import 'services/sync_environment.dart';
+import 'services/sync_queue_facade.dart';
 import 'services/sync_transport.dart';
 import 'services/sync_verdict_stores.dart';
 import 'services/transfer_queue_session.dart';
@@ -166,6 +168,22 @@ Future<void> main() async {
     onError: errorReporter.report,
   );
 
+  // The 05 sync seams (M8): one shared environment — sync_state under
+  // app support, sync_runs/ journals beside it, the enrollment device
+  // id for runId prefixes — plus the activity-panel registry every
+  // plan-view run reports through. The composite queue splices sync
+  // task rows into the same AppTransferQueue seam the panel, drop
+  // delegate, and quit guard already consume.
+  final syncTasks = SyncQueueTasks();
+  final syncEnvironment = SyncEnvironment.forSupportDirectory(
+    supportDirectory.path,
+    deviceId: () async => syncEnrollmentState.cachedDeviceId ?? 'local',
+  );
+  final transferQueue = transferQueueSession?.queue;
+  final composedQueue = transferQueue == null
+      ? null
+      : CompositeAppTransferQueue(transferQueue, syncTasks);
+
   // 06 §5.3's preview cache + produce seam (M7): an LRU store under
   // app-support `preview-cache/` seeded with the persisted cap, and a
   // QueuePreviewProducer over the same composed queue every other
@@ -279,7 +297,7 @@ Future<void> main() async {
       ),
       onPaneRatioChanged: preferences.savePaneRatio,
       onPaneRatioSaveError: errorReporter.report,
-      transferQueue: transferQueueSession?.queue,
+      transferQueue: composedQueue,
       checkoutSession: checkoutSession,
       editorRegistry: editorRegistry,
       initialActivityPanelHeight: activityPanelHeight,
@@ -305,6 +323,8 @@ Future<void> main() async {
       onPreviewCacheCapacityChanged:
           preferences.savePreviewCacheCapacityBytes,
       onPreviewThresholdChanged: preferences.savePreviewThresholdBytes,
+      syncEnvironment: syncEnvironment,
+      syncTasks: syncTasks,
       onContentSizeChanged: (size) {
         errorReporter.observe(windowLifecycle.calibrateMinimumSize(size));
       },

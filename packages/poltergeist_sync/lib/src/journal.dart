@@ -988,6 +988,7 @@ Map<String, Object?> _recordToJson(SyncRunRecord record) =>
             'path': warning.relativePath,
             'side': warning.side.name,
             'message': warning.message,
+            'kind': warning.kind.name,
           },
       ],
     };
@@ -1007,9 +1008,22 @@ SyncRunRecord _recordFromJson(Map<String, Object?> json) => SyncRunRecord(
           (warning as Map<String, Object?>)['side']! as String,
         ),
         message: warning['message']! as String,
+        // Older journals carry no kind; the informational fallback
+        // keeps replay honest (a listing failure is only meaningful
+        // to planning, which always sees a fresh scan).
+        kind: _warningKindFromJson(warning['kind']),
       ),
   ],
 );
+
+/// Tolerant kind decode: absent or unrecognized values land on the
+/// informational bucket rather than throwing inside replay.
+ScanWarningKind _warningKindFromJson(Object? value) {
+  for (final kind in ScanWarningKind.values) {
+    if (kind.name == value) return kind;
+  }
+  return ScanWarningKind.malformedName;
+}
 
 Map<String, Object?> _rulesToJson(SyncRuleSet rules) => <String, Object?>{
   'direction': rules.direction.name,

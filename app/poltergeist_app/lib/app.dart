@@ -28,6 +28,8 @@ import 'services/quit_guard.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
 import 'services/ssh_config_import_setup.dart';
+import 'services/sync_environment.dart';
+import 'services/sync_queue_facade.dart';
 import 'services/workspace_library.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
@@ -79,6 +81,8 @@ class PoltergeistApp extends StatefulWidget {
         defaultLargeDownloadThresholdBytes,
     this.onPreviewCacheCapacityChanged,
     this.onPreviewThresholdChanged,
+    this.syncEnvironment,
+    this.syncTasks,
   });
 
   final double initialPaneRatio;
@@ -223,6 +227,13 @@ class PoltergeistApp extends StatefulWidget {
   final int initialPreviewThresholdBytes;
   final FutureOr<void> Function(int bytes)? onPreviewCacheCapacityChanged;
   final FutureOr<void> Function(int bytes)? onPreviewThresholdChanged;
+
+  /// The 05 sync seams (M8): the environment plan-view sessions draw
+  /// filesystems/state/journals from, and the activity-panel registry
+  /// their runs report through. Both come from `main.dart`'s
+  /// composition; null unregisters the sync commands.
+  final SyncEnvironment? syncEnvironment;
+  final SyncQueueTasks? syncTasks;
 
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator. The session's coordinator and the
@@ -427,6 +438,8 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       onPreviewCacheCapacityChanged:
           widget.onPreviewCacheCapacityChanged,
       onPreviewThresholdChanged: widget.onPreviewThresholdChanged,
+      syncEnvironment: widget.syncEnvironment,
+      syncTasks: widget.syncTasks,
     );
     final callback = widget.onContentSizeChanged;
     if (callback == null) return workspace;

@@ -8,6 +8,7 @@ import 'pane_controller.dart';
 import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
 import 'session_state.dart';
+import 'sync_plan_controller.dart';
 import 'view_preferences.dart';
 import 'workspace_state.dart';
 
@@ -118,7 +119,11 @@ final class TabReplacementPermit {
 /// override, view mode, Quick Select session), so switching tabs is an
 /// atomic pointer change — nothing is copied or drained.
 final class PaneTab {
-  const PaneTab({required this.id, required this.controller});
+  const PaneTab({
+    required this.id,
+    required this.controller,
+    this.syncSession,
+  });
 
   /// The strip's stable id — doubles as the engine channel's paneTabId
   /// (`pane.left.tab3`), so channels and strip keys share one identity.
@@ -131,6 +136,14 @@ final class PaneTab {
 
   /// The tab's browsing state; owned and disposed by the strip.
   final PaneController controller;
+
+  /// A sync plan-view session (05 §7): the tab mounts the plan view
+  /// instead of the browsing view when set. The strip still owns the
+  /// controller — identity, close-guard, and listener plumbing — while
+  /// the session owns the sync lifecycle. Never persisted: a sync tab
+  /// is a session, not a location, so it ghosts nor restores through
+  /// neither ⇧⌘T nor the workspace document.
+  final SyncPlanController? syncSession;
 }
 
 /// What a closed tab can bring back through ⇧⌘T: the binding identity and
@@ -362,6 +375,30 @@ class PaneTabsController extends ChangeNotifier {
     return tab;
   }
 
+  /// `sync.synchronizePanes` / savedSync activation (05 §7): opens the
+  /// plan view as a first-class tab in THIS pane's strip. The session
+  /// arrives fully built (the shell composes it from the pair); the
+  /// strip owns a PaneController alongside it purely for identity and
+  /// close-guard plumbing — it never lists.
+  PaneTab openSyncPlanTab(SyncPlanController session) {
+    assert(!_disposed, 'openSyncPlanTab on a disposed PaneTabsController');
+    final controller = PaneController(
+      paneTabId: '$paneId.tab${_nextTabOrdinal++}',
+      lanes: _lanes,
+      onError: _onError,
+    );
+    controller.doubleClickAction = _doubleClickAction;
+    controller.addListener(_forwardTabChange);
+    final tab = PaneTab(
+      id: controller.paneTabId,
+      controller: controller,
+      syncSession: session,
+    );
+    _tabs.add(tab);
+    activateTab(tab);
+    return tab;
+  }
+
   void _bindNewTab(PaneTab tab, PaneTab? source, NewTabTarget target) {
     final controller = tab.controller;
     switch (target) {
@@ -440,34 +477,61 @@ class PaneTabsController extends ChangeNotifier {
   /// The strip's half of the session document (02 §3): the ordered
   /// tabs, the active index (-1 on the launcher), and the id counter —
   /// persisted so post-restore mints stay collision-free.
-  SessionPaneState captureSession() => SessionPaneState(
-    paneId: paneId,
-    activeTab: _activeIndex,
-    nextTabOrdinal: _nextTabOrdinal,
-    tabs: List.unmodifiable([
-      for (final tab in _tabs) tab.controller.captureSessionTab(),
-    ]),
-  );
+  SessionPaneState captureSession() {
+    // Sync tabs are sessions, not locations — they never persist.
+    final restorable = _browsableTabs();
+    return SessionPaneState(
+      paneId: paneId,
+      activeTab: _browsableActiveIndex(restorable),
+      nextTabOrdinal: _nextTabOrdinal,
+      tabs: List.unmodifiable([
+        for (final tab in restorable) tab.controller.captureSessionTab(),
+      ]),
+    );
+  }
+
+  List<PaneTab> _browsableTabs() =>
+      [for (final tab in _tabs) if (tab.syncSession == null) tab];
+
+  int _browsableActiveIndex(List<PaneTab> restorable) {
+    final active = activeTab;
+    if (active == null) return -1;
+    final index = restorable.indexOf(active);
+    // The active tab IS a sync session: point the persisted strip at
+    // its nearest browsable neighbor so restore lands somewhere real.
+    if (index >= 0) return index;
+    final activeRaw = _tabs.indexOf(active);
+    for (var i = activeRaw - 1; i >= 0; i--) {
+      final candidate = _tabs[i];
+      if (candidate.syncSession == null) {
+        return restorable.indexOf(candidate);
+      }
+    }
+    return restorable.isEmpty ? -1 : 0;
+  }
 
   /// The strip's half of a workspace snapshot (02 §3's "Save
   /// Workspace…"): everything [captureSession] records PLUS the
   /// transient per-tab lenses — filter, hidden override, view mode —
   /// which the session document excludes but a workspace must keep
   /// ("per-tab view state").
-  WorkspacePaneState captureWorkspacePane() => WorkspacePaneState(
-    paneId: paneId,
-    activeTab: _activeIndex,
-    tabs: List.unmodifiable([
-      for (final tab in _tabs)
-        WorkspaceTabState(
-          session: tab.controller.captureSessionTab(),
-          filterQuery: tab.controller.filterQuery,
-          filterFieldOpen: tab.controller.filterFieldOpen,
-          showHidden: tab.controller.showHidden,
-          viewMode: tab.controller.viewMode,
-        ),
-    ]),
-  );
+  WorkspacePaneState captureWorkspacePane() {
+    final restorable = _browsableTabs();
+    return WorkspacePaneState(
+      paneId: paneId,
+      activeTab: _browsableActiveIndex(restorable),
+      tabs: List.unmodifiable([
+        for (final tab in restorable)
+          WorkspaceTabState(
+            session: tab.controller.captureSessionTab(),
+            filterQuery: tab.controller.filterQuery,
+            filterFieldOpen: tab.controller.filterFieldOpen,
+            showHidden: tab.controller.showHidden,
+            viewMode: tab.controller.viewMode,
+          ),
+      ]),
+    );
+  }
 
   /// The workspace open's first phase (02 §3): asks [confirmClose] for
   /// every currently-triggered tab BEFORE anything closes — the
@@ -628,6 +692,9 @@ class PaneTabsController extends ChangeNotifier {
     return List.unmodifiable([
       for (final (trigger, probe) in _closeGuards)
         if (probe(controller)) trigger,
+      // A running sync session guards its tab under the same anchor
+      // trigger — the dialog's wording already names it.
+      if (tab.syncSession?.isRunning ?? false) TabCloseTrigger.syncAnchor,
     ]);
   }
 
@@ -698,7 +765,11 @@ class PaneTabsController extends ChangeNotifier {
   Future<void> _closeTab(PaneTab tab) async {
     final index = _tabs.indexOf(tab);
     if (index < 0) return;
-    _pushGhost(_ghostOf(tab));
+    // Sync sessions never ghost — ⇧⌘T restores locations, and a closed
+    // plan view's reviewed state is gone for good (a fresh scan is the
+    // only honest reopen).
+    if (tab.syncSession == null) _pushGhost(_ghostOf(tab));
+    tab.syncSession?.dispose();
     _tabs.removeAt(index);
     if (_activeIndex == index) {
       // The neighbor at the closed tab's slot slides in; closing the
@@ -872,6 +943,7 @@ class PaneTabsController extends ChangeNotifier {
     for (final tab in _tabs) {
       tab.controller.removeListener(_forwardTabChange);
       tab.controller.dispose();
+      tab.syncSession?.dispose();
     }
     _tabs.clear();
     _ghosts.clear();

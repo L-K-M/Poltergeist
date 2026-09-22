@@ -3571,6 +3571,833 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'MiB'**
   String get previewMiBSuffix;
+
+  /// Plan-view tab title (05 §7): the pair's name.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync: {name}'**
+  String syncTabTitle(String name);
+
+  /// Live scan progress line (05 §3's verbatim shape).
+  ///
+  /// In en, this message translates to:
+  /// **'Scanning… left {leftCount} entries · right {rightCount} entries'**
+  String syncScanning(int leftCount, int rightCount);
+
+  /// Scan-cancel and dialog-cancel verb in the sync plan view.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get syncCancel;
+
+  /// Run-control verb (05 §10): holds the running sync between items.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get syncPause;
+
+  /// Run-control verb (05 §10): releases a paused sync run.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get syncResume;
+
+  /// Label of the plan view's sync-mode picker (05 §5).
+  ///
+  /// In en, this message translates to:
+  /// **'Mode'**
+  String get syncModeLabel;
+
+  /// One-way copy mode (05 §5): copy new and newer files, never delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Update'**
+  String get syncModeUpdate;
+
+  /// One-way mirror mode (05 §5): make the destination match the source, deletions included.
+  ///
+  /// In en, this message translates to:
+  /// **'Mirror'**
+  String get syncModeMirror;
+
+  /// Bidirectional mode (05 §5): newest files travel both ways, nothing is deleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Additive'**
+  String get syncModeAdditive;
+
+  /// Plan header clause (05 §7): new-file copies landing on the destination.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Copy {count} new file ({bytes})} other{Copy {count} new files ({bytes})}}'**
+  String syncHeaderCopyNew(int count, String bytes);
+
+  /// Plan header clause (05 §7): directory creations landing on the destination.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{create {count} folder} other{create {count} folders}}'**
+  String syncHeaderCreateFolders(int count);
+
+  /// Plan header clause (05 §7): overwrite updates landing on the destination — the count renders bare per the spec's sentence pattern.
+  ///
+  /// In en, this message translates to:
+  /// **'update {count}'**
+  String syncHeaderUpdateFiles(int count);
+
+  /// Plan header tail (05 §7): the destination phrase closing the copy sentence — {destination} is '{favoriteLabel}:{path}', a shortened local path, or 'both sides' for Additive.
+  ///
+  /// In en, this message translates to:
+  /// **'on {destination}.'**
+  String syncHeaderOnDestination(String destination);
+
+  /// Additive's {destination} value (05 §7): the two-way aggregate renders 'on both sides.'
+  ///
+  /// In en, this message translates to:
+  /// **'both sides'**
+  String get syncHeaderBothSides;
+
+  /// Plan header sentence for a dirs-only plan (05 §7) — a plan with only directory creations must never show an empty headline.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Create {count} folder on {destination}.} other{Create {count} folders on {destination}.}}'**
+  String syncHeaderCreateOnly(int count, String destination);
+
+  /// Green plan-header tail (05 §7): rendered only when the plan holds no delete-phase items and no kind-change pre-deletes.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing will be deleted.'**
+  String get syncHeaderNothingDeleted;
+
+  /// Red plan-header clause (05 §7): delete-phase files headed for the side's trash root.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Delete {count} file on {side} (moved to trash at {trashLocation}).} other{Delete {count} files on {side} (moved to trash at {trashLocation}).}}'**
+  String syncHeaderDeleteTrash(int count, String side, String trashLocation);
+
+  /// Red plan-header clause (05 §7): delete-phase files under the permanent-deletion opt-in.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Delete {count} file on {side} permanently.} other{Delete {count} files on {side} permanently.}}'**
+  String syncHeaderDeletePermanent(int count, String side);
+
+  /// Red plan-header clause (05 §7): kind-change pre-deletes whose removed versions go to trash.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Replace {count} file of a different kind on {side} (previous version moved to trash at {trashLocation}).} other{Replace {count} files of a different kind on {side} (previous versions moved to trash at {trashLocation}).}}'**
+  String syncHeaderReplaceTrash(int count, String side, String trashLocation);
+
+  /// Red plan-header clause (05 §7): kind-change pre-deletes under the permanent-deletion opt-in.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Replace {count} file of a different kind on {side} (previous version deleted permanently).} other{Replace {count} files of a different kind on {side} (previous versions deleted permanently).}}'**
+  String syncHeaderReplacePermanent(int count, String side);
+
+  /// Plan-header tail (05 §8 rail 3): a plan whose only removals are zero-count directory cleanups never shows the green 'nothing deleted' sentence.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Remove {count} empty folder on {side}.} other{Remove {count} empty folders on {side}.}}'**
+  String syncHeaderRemoveEmptyFolders(int count, String side);
+
+  /// Amber plan-header clause (05 §7): unresolved conflict rows.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{{count} conflict needs a decision.} other{{count} conflicts need a decision.}}'**
+  String syncHeaderConflicts(int count);
+
+  /// Plan-header sentence for an equal pair (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Both sides match. Nothing to do.'**
+  String get syncHeaderNothingToDo;
+
+  /// The §4 sizeOnly fallback's own line under the header sentence (05 §7) — mtime trust is degraded, so the plan compares sizes only.
+  ///
+  /// In en, this message translates to:
+  /// **'Timestamps are unreliable on at least one side — comparing by size only.'**
+  String get syncHeaderSizeOnlyNotice;
+
+  /// Warnings-strip header in the plan view (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{{count} scan warning} other{{count} scan warnings}}'**
+  String syncWarningsTitle(int count);
+
+  /// Filter chip: every plan item (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'All ({count})'**
+  String syncFilterAll(int count);
+
+  /// Filter chip: create actions (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'New ({count})'**
+  String syncFilterNew(int count);
+
+  /// Filter chip: overwrite updates (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Updates ({count})'**
+  String syncFilterUpdates(int count);
+
+  /// Filter chip: deletions including per-file kind-change pre-delete tolls (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Deletes ({count})'**
+  String syncFilterDeletes(int count);
+
+  /// Filter chip: rows needing a decision (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Conflicts ({count})'**
+  String syncFilterConflicts(int count);
+
+  /// Filter chip: equal, excluded, and user-skipped rows (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Skipped ({count})'**
+  String syncFilterSkipped(int count);
+
+  /// Placeholder text inside the plan view's item text filter (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Filter items'**
+  String get syncFilterFieldHint;
+
+  /// Toggle hiding equal/excluded rows (05 §7; default on).
+  ///
+  /// In en, this message translates to:
+  /// **'Only show actions'**
+  String get syncFilterOnlyActions;
+
+  /// Plan row reason (05 §7): the entry exists on one side only.
+  ///
+  /// In en, this message translates to:
+  /// **'only exists here'**
+  String get syncReasonOnlyHere;
+
+  /// Plan row reason (05 §7): one side's copy is newer — both ages render like '2 min ago'.
+  ///
+  /// In en, this message translates to:
+  /// **'newer here ({sourceAge} vs {destinationAge})'**
+  String syncReasonNewerHere(String sourceAge, String destinationAge);
+
+  /// Plan row reason (05 §7): same name, different sizes.
+  ///
+  /// In en, this message translates to:
+  /// **'sizes differ ({leftSize} vs {rightSize})'**
+  String syncReasonSizesDiffer(String leftSize, String rightSize);
+
+  /// Plan row reason (05 §7): hashes disagree.
+  ///
+  /// In en, this message translates to:
+  /// **'contents differ'**
+  String get syncReasonContentsDiffer;
+
+  /// Plan row reason (05 §7): Additive's divergent-pair conflict.
+  ///
+  /// In en, this message translates to:
+  /// **'changed on both sides'**
+  String get syncReasonBothChanged;
+
+  /// Plan row reason (05 §7): file vs folder vs link at one path — kind labels like 'file here, folder there'.
+  ///
+  /// In en, this message translates to:
+  /// **'type differs ({leftKind} here, {rightKind} there)'**
+  String syncReasonTypeDiffers(String leftKind, String rightKind);
+
+  /// Plan row reason (05 §7): an ignore rule or the one-sided-symlink policy excluded the entry.
+  ///
+  /// In en, this message translates to:
+  /// **'excluded by rule'**
+  String get syncReasonExcluded;
+
+  /// Plan row reason (05 §7): case variants that would merge on the destination.
+  ///
+  /// In en, this message translates to:
+  /// **'names differ only by case'**
+  String get syncReasonCaseCollision;
+
+  /// Plan row reason (05 §7): NFC/NFD twins on one side.
+  ///
+  /// In en, this message translates to:
+  /// **'names differ only by Unicode form'**
+  String get syncReasonNormalizationCollision;
+
+  /// Plan row reason (05 §7): the destination's local-safety funnel rejects a component.
+  ///
+  /// In en, this message translates to:
+  /// **'name invalid on Windows'**
+  String get syncReasonInvalidName;
+
+  /// Plan row reason (05 §7): the other side failed to list this subtree (§6 rule 8).
+  ///
+  /// In en, this message translates to:
+  /// **'couldn\'t scan — subtree excluded'**
+  String get syncReasonScanError;
+
+  /// Plan row reason (05 §7): the most common row when 'only show actions' is off.
+  ///
+  /// In en, this message translates to:
+  /// **'identical'**
+  String get syncReasonEqual;
+
+  /// Plan row reason (05 §7): v1's SymlinkPolicy.skip rows.
+  ///
+  /// In en, this message translates to:
+  /// **'symbolic link — skipped'**
+  String get syncReasonSymlink;
+
+  /// Entry-kind label inside reason strings (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'file'**
+  String get syncKindFile;
+
+  /// Entry-kind label inside reason strings (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'folder'**
+  String get syncKindFolder;
+
+  /// Entry-kind label inside reason strings (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'symbolic link'**
+  String get syncKindSymlink;
+
+  /// Entry-kind label inside reason strings (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'other'**
+  String get syncKindOther;
+
+  /// Side label inside sync copy (05 §7) — the pane-A side.
+  ///
+  /// In en, this message translates to:
+  /// **'left'**
+  String get syncSideLeft;
+
+  /// Side label inside sync copy (05 §7) — the pane-B side.
+  ///
+  /// In en, this message translates to:
+  /// **'right'**
+  String get syncSideRight;
+
+  /// Per-item override menu verb (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Skip'**
+  String get syncOverrideSkip;
+
+  /// Per-item override menu verb (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Copy left → right'**
+  String get syncOverrideCopyLeftToRight;
+
+  /// Per-item override menu verb (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Copy right → left'**
+  String get syncOverrideCopyRightToLeft;
+
+  /// Per-item override menu verb (05 §7) — Mirror mode only.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get syncOverrideDelete;
+
+  /// Per-item override menu verb (05 §7): returns the row to its diff-suggested action.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset to suggested'**
+  String get syncOverrideReset;
+
+  /// Bulk-override result line (05 §7): in no-delete modes a bulk copy skips typeDiffers rows, reported never silent.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{{count} type-differs row skipped — replacing a different kind stays a per-item choice} other{{count} type-differs rows skipped — replacing a different kind stays a per-item choice}}'**
+  String syncOverrideSkippedTypeDiffers(int count);
+
+  /// Bulk conflict bar's leading label (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Resolve conflicts:'**
+  String get syncResolveConflictsLabel;
+
+  /// Bulk conflict resolution verb (05 §7) — hidden whenever the pair's mtimes are untrusted.
+  ///
+  /// In en, this message translates to:
+  /// **'Newer wins'**
+  String get syncResolveNewerWins;
+
+  /// Bulk conflict resolution verb (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Keep left'**
+  String get syncResolveKeepLeft;
+
+  /// Bulk conflict resolution verb (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Keep right'**
+  String get syncResolveKeepRight;
+
+  /// Bulk conflict resolution verb (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Skip all'**
+  String get syncResolveSkipAll;
+
+  /// Plan-view action-bar verb (05 §7/§9): persists the pair as a savedSync bookmark.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as Favorite…'**
+  String get syncSaveAsFavorite;
+
+  /// Run button with a copies-only consequence (05 §7's 'Copy 15 Files').
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Copy 1 File} other{Copy {count} Files}}'**
+  String syncRunCopyFiles(int count);
+
+  /// Run-button copy clause inside a multi-verb label (05 §7's 'Copy 12, Delete 5').
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Copy 1} other{Copy {count}}}'**
+  String syncRunCopyPart(int count);
+
+  /// Run-button mkdir clause (05 §7) — the dirs-only consequence.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Create {count} Folder} other{Create {count} Folders}}'**
+  String syncRunCreateFolders(int count);
+
+  /// Run-button delete clause inside a multi-verb label (05 §7's 'Copy 12, Delete 5').
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Delete 1} other{Delete {count}}}'**
+  String syncRunDeletePart(int count);
+
+  /// Disabled Run button for an all-equal plan (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to Do'**
+  String get syncRunNothingToDo;
+
+  /// First-run suggestion chip (05 §7): one known heavy directory contributes over half the plan.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} is {count} of these files — exclude?'**
+  String syncHeavySuggestion(String name, int count);
+
+  /// Typed-confirmation dialog title (05 §8 rail 3).
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm deletions'**
+  String get syncDeleteConfirmTitle;
+
+  /// Typed-confirmation body (05 §8 rail 3): the fraction clause tripped — {pct} renders the word 'half' at the 0.5 default and a numeric percentage otherwise.
+  ///
+  /// In en, this message translates to:
+  /// **'This will delete {count} of {total} files on {side} — more than {pct} of that side. Type DELETE to continue.'**
+  String syncDeleteConfirmFraction(
+    int count,
+    int total,
+    String side,
+    String pct,
+  );
+
+  /// Typed-confirmation body (05 §8 rail 3): the ≥90 % floor clause tripped — inclusive wording, never 'more than 90 %'.
+  ///
+  /// In en, this message translates to:
+  /// **'This will delete {count} of {total} files on {side} — 90 % or more of that side. Type DELETE to continue.'**
+  String syncDeleteConfirmFloor(int count, int total, String side);
+
+  /// Placeholder inside the typed-confirmation field (05 §8 rail 3).
+  ///
+  /// In en, this message translates to:
+  /// **'DELETE'**
+  String get syncDeleteConfirmFieldHint;
+
+  /// The {pct} slot of syncDeleteConfirmFraction at the default 0.5 threshold — the word, not a number (05 §8 rail 3).
+  ///
+  /// In en, this message translates to:
+  /// **'half'**
+  String get syncDeleteConfirmHalf;
+
+  /// Typed-confirmation dialog's confirm verb (05 §8 rail 3) — disabled until the field reads exactly DELETE.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get syncDeleteConfirmButton;
+
+  /// maxDelete refusal dialog title (05 §8 rail 4).
+  ///
+  /// In en, this message translates to:
+  /// **'Too many deletions'**
+  String get syncMaxDeleteTitle;
+
+  /// maxDelete refusal body (05 §8 rail 4): explains and points at the pair's rules — never an override button.
+  ///
+  /// In en, this message translates to:
+  /// **'This plan would delete {count} files on {side} — over the {cap}-file cap. Run stays disabled rather than silently diverging the destination. Raise the cap in the pair\'s rules to run it.'**
+  String syncMaxDeleteBody(int count, String side, int cap);
+
+  /// Ad-hoc pair's refusal escape (05 §8 rail 4): saves the pair and opens the editor on maxDelete, so Run-disabled is never a dead end.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as Favorite & Adjust Rules…'**
+  String get syncMaxDeleteSaveAdjust;
+
+  /// Summary-bar verb (05 §7): re-executes only the failed plan items.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry Failed'**
+  String get syncRetryFailed;
+
+  /// Summary-bar verb (05 §7/§8 rail 9): puts the run's trashed entries back.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore Trashed Files…'**
+  String get syncRestoreTrashed;
+
+  /// Summary-bar verb (05 §7): copies the run's per-item outcome table to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy Report'**
+  String get syncCopyReport;
+
+  /// Heavy-directory suggestion's accept verb (05 §9): adds the name to the pair's exclude rules.
+  ///
+  /// In en, this message translates to:
+  /// **'Exclude'**
+  String get syncHeavySuggestionAccept;
+
+  /// Restore dialog title (05 §8 rail 9).
+  ///
+  /// In en, this message translates to:
+  /// **'Restore Trashed Files'**
+  String get syncRestoreDialogTitle;
+
+  /// Restore dialog's count line — only journaled trash entries restore (05 §8 rail 9).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{{count} file will be restored from trash.} other{{count} files will be restored from trash.}}'**
+  String syncRestoreSummary(int count);
+
+  /// Restore dialog's confirm verb.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get syncRestoreButton;
+
+  /// Post-restore summary line: how many entries came back and how many were skipped.
+  ///
+  /// In en, this message translates to:
+  /// **'{restored, plural, =1{Restored {restored} file} other{Restored {restored} files}}{skipped, plural, =0{} =1{ — {skipped} skipped} other{ — {skipped} skipped}}'**
+  String syncRestoreResult(int restored, int skipped);
+
+  /// Pair-editor direction choice (05 §5): one-way, left feeds right.
+  ///
+  /// In en, this message translates to:
+  /// **'Left to right'**
+  String get syncDirectionLeftToRight;
+
+  /// Pair-editor direction choice (05 §5): one-way, right feeds left.
+  ///
+  /// In en, this message translates to:
+  /// **'Right to left'**
+  String get syncDirectionRightToLeft;
+
+  /// Pair-editor direction choice (05 §5): bidirectional — Additive's direction.
+  ///
+  /// In en, this message translates to:
+  /// **'Both ways'**
+  String get syncDirectionBothWays;
+
+  /// Pair editor's collapsible advanced-rules section title (05 §9).
+  ///
+  /// In en, this message translates to:
+  /// **'Options'**
+  String get syncEditorOptionsSection;
+
+  /// Pair editor dialog title (05 §9) — the saved-sync definition surface.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync pair'**
+  String get syncEditorTitle;
+
+  /// Pair name field label.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get syncEditorNameLabel;
+
+  /// Deletion-policy field label (05 §6): none / moved to trash / permanent.
+  ///
+  /// In en, this message translates to:
+  /// **'Deletions'**
+  String get syncEditorDeletionsLabel;
+
+  /// Deletion-policy choice (05 §6): no deletions — Update and Additive's fixed value.
+  ///
+  /// In en, this message translates to:
+  /// **'Never delete'**
+  String get syncEditorDeletionsNone;
+
+  /// Deletion-policy choice (05 §6, D15): deletions rename into .poltergeist-trash.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to trash'**
+  String get syncEditorDeletionsTrash;
+
+  /// Deletion-policy choice (05 §6): the explicit per-pair permanent opt-in.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete permanently'**
+  String get syncEditorDeletionsPermanent;
+
+  /// Backup-policy field label (05 §8 rail 5): whether overwritten files keep a trashed previous version.
+  ///
+  /// In en, this message translates to:
+  /// **'Overwrite backups'**
+  String get syncEditorBackupsLabel;
+
+  /// Backup-policy choice (05 §6): overwritten versions move to trash (default).
+  ///
+  /// In en, this message translates to:
+  /// **'Keep in trash'**
+  String get syncEditorBackupsTrash;
+
+  /// Backup-policy choice (05 §6): overwrites keep no previous version.
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get syncEditorBackupsNone;
+
+  /// Comparison-mode field label (05 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Compare by'**
+  String get syncEditorComparisonLabel;
+
+  /// Comparison-mode choice (05 §4, default).
+  ///
+  /// In en, this message translates to:
+  /// **'Size and modification time'**
+  String get syncEditorComparisonSizeMtime;
+
+  /// Comparison-mode choice (05 §4): never consults mtimes.
+  ///
+  /// In en, this message translates to:
+  /// **'Size only'**
+  String get syncEditorComparisonSizeOnly;
+
+  /// Comparison-mode choice (05 §4): size-equal pairs hash by streamed SHA-256.
+  ///
+  /// In en, this message translates to:
+  /// **'Content hash'**
+  String get syncEditorComparisonContentHash;
+
+  /// Conflict-default field label (05 §5): what the diff does with rows needing a decision.
+  ///
+  /// In en, this message translates to:
+  /// **'Conflicts'**
+  String get syncEditorConflictLabel;
+
+  /// Conflict-default choice (05 §6, default).
+  ///
+  /// In en, this message translates to:
+  /// **'Ask each time'**
+  String get syncEditorConflictAsk;
+
+  /// Conflict-default choice (05 §6) — degrades to ask whenever mtimes are untrusted (§4).
+  ///
+  /// In en, this message translates to:
+  /// **'Newer wins'**
+  String get syncEditorConflictNewerWins;
+
+  /// Conflict-default choice (05 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Keep left'**
+  String get syncEditorConflictKeepLeft;
+
+  /// Conflict-default choice (05 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Keep right'**
+  String get syncEditorConflictKeepRight;
+
+  /// Conflict-default choice (05 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Skip'**
+  String get syncEditorConflictSkip;
+
+  /// Hard deletion cap field label (05 §6/§8 rail 4, default 500).
+  ///
+  /// In en, this message translates to:
+  /// **'Deletion cap (maxDelete)'**
+  String get syncEditorMaxDeleteLabel;
+
+  /// deleteFractionWarn field label (05 §6/§8 rail 3): the fraction of one side whose deletion asks for typed DELETE.
+  ///
+  /// In en, this message translates to:
+  /// **'Typed-confirmation threshold'**
+  String get syncEditorFractionWarnLabel;
+
+  /// Gitignore-style exclude list field label (05 §3) — one pattern per line.
+  ///
+  /// In en, this message translates to:
+  /// **'Exclude rules'**
+  String get syncEditorExcludeLabel;
+
+  /// includeHidden toggle label (05 §3, default on).
+  ///
+  /// In en, this message translates to:
+  /// **'Include hidden files'**
+  String get syncEditorIncludeHidden;
+
+  /// trashPathLeft field label (05 §6): out-of-root trash for the left side, empty for in-root .poltergeist-trash.
+  ///
+  /// In en, this message translates to:
+  /// **'Left trash path'**
+  String get syncEditorTrashLeftLabel;
+
+  /// trashPathRight field label (05 §6): out-of-root trash for the right side.
+  ///
+  /// In en, this message translates to:
+  /// **'Right trash path'**
+  String get syncEditorTrashRightLabel;
+
+  /// Placeholder inside the pair editor's path fields (05 §9).
+  ///
+  /// In en, this message translates to:
+  /// **'/path'**
+  String get syncEditorPathHint;
+
+  /// mtimeToleranceSecs field label (05 §4, default 2).
+  ///
+  /// In en, this message translates to:
+  /// **'Modification-time tolerance (seconds)'**
+  String get syncEditorMtimeToleranceLabel;
+
+  /// preserveMtime toggle (05 §4, default on): off forces size-only comparison semantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Preserve modification times'**
+  String get syncEditorPreserveMtime;
+
+  /// transferConcurrency field label (05 §6, 1–8, default 4).
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer concurrency'**
+  String get syncEditorConcurrencyLabel;
+
+  /// Per-side case-sensitivity override (05 §3/§9) — the remote side's only sensitivity input.
+  ///
+  /// In en, this message translates to:
+  /// **'Left case sensitivity'**
+  String get syncEditorCaseLeftLabel;
+
+  /// Per-side case-sensitivity override (05 §3/§9).
+  ///
+  /// In en, this message translates to:
+  /// **'Right case sensitivity'**
+  String get syncEditorCaseRightLabel;
+
+  /// Case-sensitivity override choice: probe the local side / assume sensitive on remote.
+  ///
+  /// In en, this message translates to:
+  /// **'Detect automatically'**
+  String get syncEditorCaseAuto;
+
+  /// Case-sensitivity override choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Case-sensitive'**
+  String get syncEditorCaseSensitive;
+
+  /// Case-sensitivity override choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Case-insensitive'**
+  String get syncEditorCaseInsensitive;
+
+  /// Pair editor's save verb.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get syncEditorSave;
+
+  /// Pair editor's save verb when the editor opened from a plan view (05 §8 rail 4's 'saves the pair, opens the editor, rescans on close').
+  ///
+  /// In en, this message translates to:
+  /// **'Save & Rescan'**
+  String get syncEditorSaveAndRescan;
+
+  /// Command label: define a saved sync pair (05 §9, sync.newSavedSync).
+  ///
+  /// In en, this message translates to:
+  /// **'New Saved Sync…'**
+  String get syncNewSavedSync;
+
+  /// A sync pair's display name — each leg's endpoint label joined by the §7 direction glyph (tab title and favorite name).
+  ///
+  /// In en, this message translates to:
+  /// **'{left} ⇄ {right}'**
+  String syncPairLabel(String left, String right);
+
+  /// Command label: build an ad-hoc pair from the two panes and open its plan view (05 §7, sync.synchronizePanes, ⌥⌘Y).
+  ///
+  /// In en, this message translates to:
+  /// **'Synchronize Panes'**
+  String get syncSynchronizePanes;
+
+  /// Plan-view verb: re-run the scan and diff (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Rescan'**
+  String get syncRescan;
+
+  /// Plan-view error sentence when scanning or diffing fails before a plan exists.
+  ///
+  /// In en, this message translates to:
+  /// **'The scan could not complete — {error}'**
+  String syncScanFailed(String error);
+
+  /// Honest-absence error when a sync pair's endpoint is remote (STATUS item 23 — same posture the transfer queue takes).
+  ///
+  /// In en, this message translates to:
+  /// **'Remote sync pairs aren\'t available yet — remote filesystems arrive with the engine-protocol transfer verbs.'**
+  String get syncRemoteUnavailable;
+
+  /// Plan-view run-error sentence: the executor aborted before finishing.
+  ///
+  /// In en, this message translates to:
+  /// **'The run failed — {error}'**
+  String syncRunFailed(String error);
+
+  /// Post-run summary counts in the plan view's action bar (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'{done, plural, =1{{done} done} other{{done} done}} · {failed, plural, =1{{failed} failed} other{{failed} failed}} · {skipped, plural, =1{{skipped} skipped} other{{skipped} skipped}}'**
+  String syncSummaryCounts(int done, int failed, int skipped);
+
+  /// Endpoint label for a local side inside header copy — '{favoriteLabel}:{path}' renders as 'local:{path}' when the side has no bookmark label.
+  ///
+  /// In en, this message translates to:
+  /// **'local'**
+  String get syncPairLocalLabel;
+
+  /// Toast after the plan view's Save as Favorite persists the pair as a savedSync bookmark (05 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Saved sync \"{name}\" added to favorites'**
+  String syncSavedFavoriteToast(String name);
 }
 
 class _AppLocalizationsDelegate

@@ -356,11 +356,35 @@ class SyncItem {
   final Map<String, EntrySnapshot>? destinationSubtree;
 }
 
+/// Why a [ScanWarning] exists — the differ needs to tell subtree
+/// exclusions (which mirror onto the other side, §6 rule 8) apart from
+/// informational warnings, which cannot be done by matching message
+/// text.
+enum ScanWarningKind {
+  /// A directory listing failed; the subtree under [ScanWarning.relativePath]
+  /// is excluded on BOTH sides (05 §3/§6 rule 8).
+  listingFailure,
+
+  /// The case-sensitivity write probe could not run; the side is treated
+  /// as case-sensitive by assumption.
+  caseProbeFailed,
+
+  /// An entry's mtime is outside the SFTP v3 range and compares clamped.
+  mtimeClamped,
+
+  /// One aggregated line reporting this side's skipped symlink count.
+  symlinksSkipped,
+
+  /// A malformed entry name was skipped during the walk.
+  malformedName,
+}
+
 class ScanWarning {
   const ScanWarning({
     required this.relativePath,
     required this.side,
     required this.message,
+    required this.kind,
   });
 
   final String relativePath;
@@ -370,6 +394,9 @@ class ScanWarning {
 
   /// e.g. 'Could not list "logs/"…'.
   final String message;
+
+  /// The warning's category — see [ScanWarningKind].
+  final ScanWarningKind kind;
 }
 
 class SyncPlan {

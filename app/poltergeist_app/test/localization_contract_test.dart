@@ -87,6 +87,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // The engine-less pin-store fallback path — same machine path data.
     r"'${supportDirectory.path}${Platform.pathSeparator}'",
     r"'$kPinStoreFileName'",
+    // The runId device prefix when enrollment has no cached id — a
+    // machine identity string, never rendered.
+    "'local'",
   },
   // The production engine session's store file names and wiring literals
   // (paths inside the app-support directory, the review pane-tab id) —
@@ -905,6 +908,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // reported faults and machine data, never rendered copy.
     "'sidebar.region'",
     r"'sidebar.open: localFolder ${bookmark.id} has no path'",
+    r"'sidebar.open: savedSync ${bookmark.id} has no spec'",
     r"'sidebar.connOpen: no bookmark for ${server.serverId}'",
     // The status bar's sync chip widget key — plumbing, not copy.
     "'statusbar.syncChip'",
@@ -970,6 +974,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'newTab on a disposed PaneTabsController'",
     "'addTab on a disposed PaneTabsController'",
     "'restoreSession on a disposed PaneTabsController'",
+    "'openSyncPlanTab on a disposed PaneTabsController'",
   },
   // The pane controller's machine data: the home anchor the engine
   // expands, the dotfile filter prefix, the root path, the taxonomy
@@ -1018,6 +1023,44 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$anchor$separator'",
     r"'$anchor${rel.join(separator)}'",
     r"'$anchor$separator${rel.join(separator)}'",
+  },
+  // The sync environment's machine literals: the sync_runs directory
+  // name and its path joins under app support, the RemoteFileException
+  // operation name, and the remote-endpoint refusal detail — the plan
+  // view renders the ARB unsupported state for the error kind, never
+  // this message. Plumbing, never authored copy.
+  'lib/services/sync_environment.dart': {
+    "'sync_runs'",
+    r"'$supportDirectoryPath${Platform.pathSeparator}'",
+    r"'$kSyncStateDirectoryName'",
+    r"'$kSyncRunsDirectoryName'",
+    "'sync endpoint'",
+    "'remote sync endpoints are not available yet'",
+  },
+  // The plan controller's machine literals: the 'local' device-id
+  // default, §9's heavy-suggestion noise names + glob join, the
+  // relative-path separator split, and the ServerFsLocation fallback
+  // id for a config-less remote ref — plumbing and machine data, never
+  // authored copy.
+  'lib/services/sync_plan_controller.dart': {
+    "'local'",
+    r"'**/$name/'",
+    "'node_modules'",
+    "'.git'",
+    "'build'",
+    "'target'",
+    "'__pycache__'",
+    "'/'",
+    "'remote'",
+  },
+  // The facade matches the executor's machine error sentinel to pick
+  // the cancelled item state — protocol plumbing, never authored copy.
+  'lib/services/sync_queue_facade.dart': {"'Cancelled'"},
+  // The sync_state store's directory name and per-pair file-path join
+  // under app support — machine paths, never authored copy.
+  'lib/services/sync_state_store.dart': {
+    "'sync_state'",
+    r"'${directory.path}${Platform.pathSeparator}$pairId.json'",
   },
   // The inline-rename validator's grammar literals: the path separator
   // and the NTFS forbidden-character class — machine data, never
@@ -1107,6 +1150,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'entry-drop-${tab.id}'",
     // Root-path fallback in the remote tooltip — path data, not copy.
     "'/'",
+    // The sync tab's endpoint tooltip plumbing: the pair's two paths
+    // joined by the sync glyph and the config-less remote ref's
+    // fallback id — machine data inside a tooltip, never authored copy.
+    r"'${_endpointTooltip(session.pair.left)} ⇄ '",
+    r"'${_endpointTooltip(session.pair.right)}'",
+    r"'${server.identity?.host ?? server.serverConfigId ?? 'remote'}:$path'",
+    "'remote'",
   },
   'lib/ui/panes/pane_view.dart': {
     "'pane.footer'",
@@ -1743,6 +1793,86 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'preview.cacheLimitField'",
     "'preview.clearCache'",
     "'preview.thresholdField'",
+  },
+  // The sync command registry's stable ids — command plumbing, never
+  // rendered copy (labels resolve through l10n).
+  'lib/ui/sync/sync_commands.dart': {
+    "'sync.synchronizePanes'",
+    "'sync.newSavedSync'",
+  },
+  // The pair editor's machine literals: numeric TextField seeds, the
+  // 1–8 concurrency labels, and the decimal input-filter regex —
+  // plumbing and machine data, never authored copy.
+  'lib/ui/sync/sync_pair_editor.dart': {
+    "''",
+    r"'${rules.mtimeToleranceSecs}'",
+    r"'${rules.maxDelete}'",
+    r"'${rules.deleteFractionWarn}'",
+    "r'[0-9.]'",
+    r"'$i'",
+    "'\\n'",
+  },
+  // The plan view's machine literals: widget keys, the §8 typed-DELETE
+  // sentinel (input validation, never rendered), the side-label
+  // tooltip join over ARB values, the §7 ' · ' run-label joiner, and
+  // the report's tab/dash separators — plumbing and spec-verbatim
+  // grammar, never authored copy.
+  'lib/ui/sync/sync_plan_view.dart': {
+    "''",
+    "'sync.plan.table'",
+    r"'${group.items.length}'",
+    "'/'",
+    r"'sync.row.${item.relativePath}'",
+    "'DELETE'",
+    r"'${l10n.syncSideLeft} ⇄ ${l10n.syncSideRight}'",
+    "'sync.header.clause'",
+    "' · '",
+    r"'${item.relativePath}\t${item.effective.name}\t'",
+    r"'${item.status.name}${item.error != null ? '\t${item.error}' : ''}'",
+    r"'\t${item.error}'",
+    "'—'",
+  },
+  // The sync plan format layer's machine data: the rail-3 numeric
+  // percentage injected into the ARB {pct} slot, and the config-less
+  // remote ref's fallback id inside the ARB {destination} label —
+  // interpolation plumbing inside localized templates, never authored
+  // copy.
+  'lib/ui/sync/sync_plan_format.dart': {
+    r"'${(configuredThreshold * 100).round()} %'",
+    r"'${server.identity?.host ?? server.serverConfigId ?? server.identity?.username ?? 'server'}:'",
+    "'server'",
+    r"'${shortenRemotePath ? paneLastSegment(path) : path}'",
+    // The size formatter's numeric+unit join and its unit names —
+    // machine data inside the ARB {bytes} slot, never authored copy.
+    r"'${value.toStringAsFixed(value >= 100 ? 0 : 1)} ${units[unit]}'",
+    r"'$bytes B'",
+    "'KB'",
+    "'MB'",
+    "'GB'",
+    "'TB'",
+    // The reason column's age suffixes and absent-value dash — machine
+    // data inside the ARB {sourceAge}/{destinationAge} and size slots.
+    r"'${delta}s'",
+    r"'${delta ~/ 60}m'",
+    r"'${delta ~/ 3600}h'",
+    r"'${delta ~/ 86400}d'",
+    "'—'",
+    // 05 §7's verbatim sentence grammar — the spec fixes the English
+    // "X, and Y on Z" shape; the clause fragments themselves are ARB
+    // templates, these are the spec's connective joins.
+    r"'${parts.sublist(0, parts.length - 1).join(', ')}, '",
+    "', '",
+    r"'and ${parts.last}'",
+    r"'$joined ${l10n.syncHeaderOnDestination(destination)}'",
+    // 05 §7's action glyphs — spec-defined symbols, not text copy.
+    "'→'",
+    "'⇒'",
+    "'←'",
+    "'⇐'",
+    "'⊞'",
+    "'✕'",
+    "'↯'",
+    "'–'",
   },
 };
 
