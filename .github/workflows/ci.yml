@@ -386,8 +386,16 @@ jobs:
   # landed and calibrated against the CI fingerprint, and the evaluate
   # step forwards the BENCH_ENFORCE_A repo variable to the checker, so
   # tier-A budget overruns gate once that variable is set (tier-A drift
-  # skips stay exit-zero in every mode per 08 §6). Tier-B scenarios stay
-  # unlanded and trend-only until M9: no BENCH_ENFORCE_B is forwarded.
+  # skips stay exit-zero in every mode per 08 §6). M9 landed the tier-B
+  # trend gate: P1/P2/P4 are landed in budgets.json and the evaluate
+  # step forwards BENCH_ENFORCE_B, so a >25% regression against the
+  # committed tier-B baseline reddens main/dispatch runs once the
+  # variable is set; P6 stays unlanded (its suite only ever produced
+  # insufficient-frame error rows, so there is no honest median to
+  # trend against — the checker reports its rows but never judges them).
+  # The evaluate step also wires the 08 §6 drift-state store (restored
+  # from actions/cache before grading, saved on main-branch runs after
+  # it) and the one automatic tier-B rerun before red.
   # Calibration changes ride the dedicated baseline-refresh procedure
   # (08 §6), and PR runs never touch drift state — which is also why the
   # tier-B leg runs only on main pushes and manual dispatch, never on
@@ -416,8 +424,9 @@ jobs:
           export POLTERGEIST_BENCH_RUNNER_IMAGE="ubuntu-latest@${ImageVersion:-unreported}"
           test/integration/run.sh --lifecycle-only -- scripts/bench-tier-a.sh
       # Tier-B: profile-mode UI benchmarks under Xvfb (main/dispatch only
-      # — trend-only until M9, and PR invocations must not write drift
-      # state). !cancelled() so a failed tier-A leg does not silently drop
+      # — PR invocations must not write drift state, and frame-timing
+      # noise on shared runners must not gate PRs). !cancelled() so a
+      # failed tier-A leg does not silently drop
       # the tier-B evidence a main run is expected to produce, while a
       # cancelled run skips the leg instead of running it anyway.
       - name: Install Flutter toolchain
@@ -447,26 +456,98 @@ jobs:
         run: |
           export POLTERGEIST_BENCH_RUNNER_IMAGE="ubuntu-latest@${ImageVersion:-unreported}"
           scripts/bench-tier-b.sh
+      # Drift state (08 §6) rides an actions/cache entry: the restore
+      # resolves the newest `d12-drift-state-*` save via restore-keys (a
+      # cache is visible to the branch that wrote it and the default
+      # branch, so PRs read main's streaks but the save step below only
+      # ever runs on main). A missing entry means unknown history — the
+      # checker counts conservatively at the escalation threshold.
+      - name: Restore drift state
+        if: always()
+        uses: actions/cache/restore@v4
+        with:
+          path: bench-drift-state.json
+          key: d12-drift-state-${{ github.run_id }}
+          restore-keys: |
+            d12-drift-state-
       # if: always() so partial results flushed by a failed run are still
       # graded; a missing results file is a check.dart I/O failure, which
       # keeps a fixture-start failure red instead of skipping silently.
       # --tiers mirrors what the event ran: `a` on PRs (tier B never ran),
-      # `ab` on main pushes and dispatch.
+      # `ab` on main pushes and dispatch. The first evaluation is
+      # read-only so a failed run's automatic tier-B rerun cannot
+      # double-count one run's drift; the trailing pass on main regrades
+      # identical inputs with --update-drift-state and is the verdict
+      # (its exit equals the read-only one it re-runs).
       - name: Evaluate results
         if: always()
         env:
-          # Repo Actions variable; unset/empty reads as unenforced, and a
+          # Repo Actions variables; unset/empty reads as unenforced, and a
           # non-boolean value fails closed in the checker (usage exit).
           BENCH_ENFORCE_A: ${{ vars.BENCH_ENFORCE_A }}
-        # `bash` on Actions is -eo pipefail: the tee below captures the
+          BENCH_ENFORCE_B: ${{ vars.BENCH_ENFORCE_B }}
+          DRIFT_STATE: bench-drift-state.json
+        # `bash` on Actions is -eo pipefail: the tees below capture the
         # report for the annotation step without swallowing the checker's
         # exit code.
         shell: bash
-        run: >-
-          dart run test/benchmarks/check.dart
-          --results bench-results.json
-          --tiers ${{ github.event_name == 'pull_request' && 'a' || 'ab' }}
-          2>&1 | tee evaluate.log
+        run: |
+          tiers=ab
+          if [ "${{ github.event_name }}" = 'pull_request' ]; then
+            tiers=a
+          fi
+          evaluate() {
+            dart run test/benchmarks/check.dart \
+              --results bench-results.json \
+              --tiers "$tiers" \
+              --drift-state "$DRIFT_STATE" \
+              "$@"
+          }
+          evaluate 2>&1 | tee evaluate.log
+          rc=${PIPESTATUS[0]}
+          # 08 §6: one automatic tier-B rerun before red. The collector
+          # script clears every bench-results-*.json on entry, so the
+          # tier-A documents are held aside and re-merged afterwards;
+          # the rerun replaces tier-B rows wholesale (noise is what the
+          # retry exists to flush out).
+          if [ "$rc" -ne 0 ] && [ "$tiers" = ab ] && [ -f bench-results.json ]; then
+            echo "::warning::evaluation failed — re-running tier-B collectors once before red (08 §6)"
+            export LIBGL_ALWAYS_SOFTWARE=1
+            export POLTERGEIST_BENCH_RUNNER_IMAGE="ubuntu-latest@${ImageVersion:-unreported}"
+            for s in p3 p5 p7; do
+              [ -f "bench-results-$s.json" ] && mv "bench-results-$s.json" ".bench-results-$s.json.saved"
+            done
+            scripts/bench-tier-b.sh || true
+            inputs=()
+            for s in p1 p2 p4 p6 p3 p5 p7; do
+              if [ -f ".bench-results-$s.json.saved" ]; then
+                mv ".bench-results-$s.json.saved" "bench-results-$s.json"
+              fi
+              [ -f "bench-results-$s.json" ] && inputs+=("bench-results-$s.json")
+            done
+            if [ "${#inputs[@]}" -gt 0 ]; then
+              dart run scripts/merge_bench_results.dart \
+                --output bench-results.json "${inputs[@]}"
+            fi
+            evaluate 2>&1 | tee -a evaluate.log
+            rc=${PIPESTATUS[0]}
+          fi
+          # Main-branch runs record the outcome (08 §6): push to main or
+          # dispatch on main only — PR runs and dispatch on a side branch
+          # never write drift state.
+          if [ "${{ github.ref }}" = 'refs/heads/main' ]; then
+            evaluate --update-drift-state 2>&1 | tee -a evaluate.log
+            rc=${PIPESTATUS[0]}
+          fi
+          exit "$rc"
+      - name: Save drift state
+        if: >-
+          always() && github.ref == 'refs/heads/main' &&
+          hashFiles('bench-drift-state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: bench-drift-state.json
+          key: d12-drift-state-${{ github.run_id }}
       # A landed tier-A row that drift-skips is a green job with an inert
       # gate — the only signal would otherwise be text in the log. Surface
       # it as an annotation so a fingerprint rotation is visible without
@@ -492,6 +573,8 @@ jobs:
           path: |
             bench-results.json
             bench-results-*.json
+            bench-drift-state.json
+            evaluate.log
           if-no-files-found: error
           retention-days: 30
 

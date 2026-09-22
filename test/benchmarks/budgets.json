@@ -1,7 +1,7 @@
 {
   "schema": "poltergeist-d12-budgets-2",
   "calibratedFingerprint": {
-    "runnerImage": "ubuntu-latest@20260907.300.1",
+    "runnerImage": "ubuntu-latest@20260920.314.1",
     "arch": "linux_x64",
     "dartVersion": "3.13.4 (stable) (Tue Sep 15 01:01:15 2026 -0700) on \"linux_x64\"",
     "flutterVersion": null,
@@ -18,7 +18,7 @@
       "value": 150,
       "unit": "ms",
       "minimumRepetitions": 3,
-      "landed": false
+      "landed": true
     },
     {
       "id": "P2",
@@ -28,7 +28,7 @@
       "value": 1000,
       "unit": "ms",
       "minimumRepetitions": 3,
-      "landed": false
+      "landed": true
     },
     {
       "id": "P3",
@@ -49,7 +49,7 @@
       "value": 100,
       "unit": "ms",
       "minimumRepetitions": 3,
-      "landed": false
+      "landed": true
     },
     {
       "id": "P5",
@@ -60,7 +60,7 @@
       "unit": "ms",
       "minimumRepetitions": 3,
       "landed": true,
-      "calibratedScenarioConfig": "p5/v1;drop=/home/poltergeist/bench/fixtures/entries-10000;kind=directory;root-entries=10000;first-file=/home/poltergeist/bench/fixtures/entries-10000/entry-08368.txt;warmups=2;repetitions=5;start=lease+first-byte;hash=off"
+      "calibratedScenarioConfig": "p5/v1;drop=/home/poltergeist/bench/fixtures/entries-10000;kind=directory;root-entries=10000;first-file=/home/poltergeist/bench/fixtures/entries-10000/entry-02814.txt;warmups=2;repetitions=5;start=lease+first-byte;hash=off"
     },
     {
       "id": "P6",

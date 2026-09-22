@@ -31,6 +31,7 @@ import 'services/session_state.dart';
 import 'services/ssh_config_import_setup.dart';
 import 'services/sync_environment.dart';
 import 'services/sync_queue_facade.dart';
+import 'services/update_check_controller.dart';
 import 'services/workspace_library.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
@@ -85,6 +86,7 @@ class PoltergeistApp extends StatefulWidget {
     this.onPreviewThresholdChanged,
     this.syncEnvironment,
     this.syncTasks,
+    this.updateCheck,
   });
 
   final double initialPaneRatio;
@@ -241,6 +243,11 @@ class PoltergeistApp extends StatefulWidget {
   /// composition; null unregisters the sync commands.
   final SyncEnvironment? syncEnvironment;
   final SyncQueueTasks? syncTasks;
+
+  /// The D19 update check's session state (07 §3.10): non-null mounts
+  /// the link-only banner when a newer release exists and registers
+  /// `app.settings` for the opt-out toggle. Null leaves both unwired.
+  final UpdateCheckController? updateCheck;
 
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator. The session's coordinator and the
@@ -451,6 +458,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       onPreviewThresholdChanged: widget.onPreviewThresholdChanged,
       syncEnvironment: widget.syncEnvironment,
       syncTasks: widget.syncTasks,
+      updateCheck: widget.updateCheck,
     );
     final callback = widget.onContentSizeChanged;
     if (callback == null) return workspace;

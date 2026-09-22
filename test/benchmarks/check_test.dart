@@ -1120,7 +1120,7 @@ void main() {
       expect(calibration, isNotNull);
       expect(
         calibration!.runnerImage,
-        'ubuntu-latest@20260907.300.1',
+        'ubuntu-latest@20260920.314.1',
       );
       expect(calibration.arch, 'linux_x64');
       expect(
@@ -1154,17 +1154,21 @@ void main() {
               'budget was calibrated under',
         );
       }
-      for (final budget in catalog.scenarios.values) {
-        if (budget.tier == BenchTier.b) {
-          expect(
-            budget.landed,
-            isFalse,
-            reason:
-                '${budget.id} must stay unlanded until the real '
-                'harness/job introduction (07 §1)',
-          );
-        }
-      }
+      // Tier B landed with the M9 enforcement flip (2026-09-22) except
+      // P6, which stays unlanded: every tier-B leg so far produced only
+      // insufficient-frame error rows for it, so no honest median exists
+      // to trend against.
+      final tierBLanded = catalog.scenarios.values
+          .where((budget) => budget.tier == BenchTier.b && budget.landed)
+          .map((budget) => budget.id)
+          .toSet();
+      expect(tierBLanded, {'P1', 'P2', 'P4'});
+      expect(
+        catalog.scenarios['P6']!.landed,
+        isFalse,
+        reason: 'P6 stays unlanded while its suite only produces '
+            'insufficient-frame error rows',
+      );
     });
 
     test('records the per-scenario configs the pooled artifacts carried',
@@ -1187,7 +1191,7 @@ void main() {
         'p5/v1;drop=/home/poltergeist/bench/fixtures/entries-10000;'
         'kind=directory;root-entries=10000;'
         'first-file=/home/poltergeist/bench/fixtures/entries-10000/'
-        'entry-08368.txt;warmups=2;repetitions=5;start=lease+first-byte;'
+        'entry-02814.txt;warmups=2;repetitions=5;start=lease+first-byte;'
         'hash=off',
       );
       expect(
@@ -1297,19 +1301,19 @@ void main() {
       // Pin values too so an edited median, repetition count, or config
       // fails alongside a dropped or fabricated entry. The configs are
       // the ones the cited main-branch artifacts actually recorded.
-      expect(baseline.scenarios['P1']!.median, 1061.087);
-      expect(baseline.scenarios['P1']!.repetitions, 12);
+      expect(baseline.scenarios['P1']!.median, 1044.803);
+      expect(baseline.scenarios['P1']!.repetitions, 3);
       expect(
         baseline.scenarios['P1']!.scenarioConfig,
         'local-entries-10000-first-paint',
       );
-      expect(baseline.scenarios['P2']!.median, 10781.459);
-      expect(baseline.scenarios['P2']!.repetitions, 12);
+      expect(baseline.scenarios['P2']!.median, 11836.997);
+      expect(baseline.scenarios['P2']!.repetitions, 3);
       expect(
         baseline.scenarios['P2']!.scenarioConfig,
         'local-entries-100000-first-paint',
       );
-      expect(baseline.scenarios['P4']!.median, 35.398);
+      expect(baseline.scenarios['P4']!.median, 40.004);
       expect(baseline.scenarios['P4']!.repetitions, 5);
       expect(
         baseline.scenarios['P4']!.scenarioConfig,

@@ -26,6 +26,7 @@ const _sidebarHiddenKey = 'layout.sidebarHidden';
 const _sidebarCollapsedGroupsKey = 'sidebar.collapsedGroups';
 const _previewCacheCapacityKey = 'preview.cacheCapacityBytes';
 const _previewThresholdKey = 'preview.largeDownloadThresholdBytes';
+const _updateChecksEnabledKey = 'updates.checkEnabled';
 
 /// The activity panel's persisted height floor/default (02 §1's
 /// persistence block: default 200 px, min 120, max half the window).
@@ -232,6 +233,21 @@ class AppPreferences {
 
   Future<void> saveSidebarCollapsedGroups(Set<String> keys) =>
       _store.set(_sidebarCollapsedGroupsKey, List<String>.of(keys));
+
+  /// The D19 update check's opt-out (00 D19/D23, 01 §6): ON by default
+  /// — the check is a plain GET of a static URL carrying nothing — and
+  /// an unreadable store decodes to the default rather than disabling
+  /// a check the user never turned off.
+  Future<bool> loadUpdateChecksEnabled() async {
+    try {
+      return await _store.get<bool>(_updateChecksEnabledKey) ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> saveUpdateChecksEnabled(bool enabled) =>
+      _store.set(_updateChecksEnabledKey, enabled);
 
   /// The §8 "Preview & downloads" cache cap (06 §8): bytes, default
   /// 512 MiB. A missing or corrupt value decodes to the default.

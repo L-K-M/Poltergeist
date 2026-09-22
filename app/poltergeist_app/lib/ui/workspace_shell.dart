@@ -41,6 +41,7 @@ import '../services/sync_browsing_controller.dart';
 import '../services/sync_environment.dart';
 import '../services/sync_plan_controller.dart';
 import '../services/sync_queue_facade.dart';
+import '../services/update_check_controller.dart';
 import '../services/uuid.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
@@ -63,7 +64,9 @@ import 'panes/sync_browse_chip.dart';
 import 'pdf_preview.dart';
 import 'preview_panel.dart';
 import 'quick_open/quick_open_palette.dart';
+import 'settings/app_settings_command.dart';
 import 'settings/backup_settings_command.dart';
+import 'settings/general_settings.dart';
 import 'settings/preview_settings.dart';
 import 'sidebar/sidebar_view.dart';
 import 'sync/rsync_copy.dart';
@@ -71,6 +74,7 @@ import 'sync/sync_commands.dart';
 import 'sync/sync_pair_editor.dart';
 import 'sync/sync_plan_format.dart' show syncEndpointLabel;
 import 'top_toast.dart';
+import 'update_banner.dart';
 import 'workspace/workspace_commands.dart';
 
 /// The inline sidebar's width (02 §1: default 240, min 200, max 320 —
@@ -132,6 +136,7 @@ class WorkspaceShell extends StatefulWidget {
     this.onPreviewThresholdChanged,
     this.syncEnvironment,
     this.syncTasks,
+    this.updateCheck,
   });
 
   final double initialPaneRatio;
@@ -332,6 +337,12 @@ class WorkspaceShell extends StatefulWidget {
   /// keeps savedSync rows at their honest notice — never a dead verb.
   final SyncEnvironment? syncEnvironment;
   final SyncQueueTasks? syncTasks;
+
+  /// The D19 update check's session state (07 §3.10): non-null mounts
+  /// the dismissible banner above the panes when a newer tag exists and
+  /// registers `app.settings` (its General section hosts the opt-out).
+  /// Null leaves both unwired — tests and seam-less boots stay silent.
+  final UpdateCheckController? updateCheck;
 
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
@@ -1159,6 +1170,18 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
   }
 
+  /// The Settings → General rows behind `app.settings` — a lookup (not
+  /// a snapshot) so the dialog reads the live toggle at open. The sink
+  /// delegates to the controller's persist-first `setEnabled`, whose
+  /// throw is what the section's revert idiom keys on.
+  GeneralSettings _generalSettings() {
+    final updateCheck = widget.updateCheck!;
+    return GeneralSettings(
+      checkForUpdates: updateCheck.enabled,
+      onCheckForUpdatesChanged: updateCheck.setEnabled,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = AppLocalizations.of(context);
@@ -1186,6 +1209,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       if (widget.bookmarkBackup != null)
         buildOpenSettingsBackupCommand(
           service: widget.bookmarkBackup!,
+          enabled: () => !_commandSessionActive,
+        ),
+      // 02 §9's `app.settings` row registers while the update-check
+      // seam exists — its General section's only row today is D19's
+      // opt-out, so a seam-less boot has nothing to show there.
+      if (widget.updateCheck != null)
+        buildAppSettingsCommand(
+          settings: _generalSettings,
           enabled: () => !_commandSessionActive,
         ),
       if (workspace != null && widget.workspaces != null)
@@ -1305,6 +1336,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                   ),
                 ),
                 Divider(height: 1, color: colors.outlineVariant),
+                // D19's update banner (07 §3.10): mounts only while the
+                // controller reports a newer tag — dismiss is
+                // session-scoped, the opt-out lives in `app.settings`.
+                if (widget.updateCheck != null)
+                  ListenableBuilder(
+                    listenable: widget.updateCheck!,
+                    builder: (context, _) {
+                      final update = widget.updateCheck!.update;
+                      if (update == null) return const SizedBox.shrink();
+                      return UpdateBanner(
+                        info: update,
+                        onDismiss: widget.updateCheck!.dismiss,
+                      );
+                    },
+                  ),
                 Expanded(
                   // `view.toggleSecondPane` and the Sync Browsing link
                   // state ride the workspace listenable — a hide/show or

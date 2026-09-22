@@ -2709,25 +2709,48 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
                   _finishItem(runtime, item, TransferItemState.completed);
                   return;
                 }
-                await _pipe(
-                  source: srcFs,
-                  destination: dstFs,
-                  readLimiter: task.source is ServerFsLocation
-                      ? downloadLimiter
-                      : _localLimiter,
-                  writeLimiter: task.destination is ServerFsLocation
-                      ? uploadLimiter
-                      : _localLimiter,
-                  sourcePath: file.source.path,
-                  destinationPath: commitPath,
-                  length: file.source.size,
-                  overwrite: overwrite,
-                  expectedTarget: expectedTarget,
-                  preserveMode: file.source.mode,
-                  cancellation: attempt,
-                  onProgress: (transferred, total) =>
-                      _onFileProgress(runtime, item, transferred, total),
-                );
+                if (srcFs is LocalFileSystem && dstFs is LocalFileSystem) {
+                  // D26's local→local fast path (00 D26, 07 §3.10):
+                  // bytes move through the platform copy pump
+                  // (copy_file_range on Linux, streamed fallback
+                  // elsewhere) inside LocalFileSystem's own temp+rename
+                  // commit — the bounded pipe's job is bounding a REMOTE
+                  // leg, and a local hop through it pays a full
+                  // user-space round trip for nothing. Conflict and
+                  // cancellation semantics ride the same exception
+                  // taxonomy, so the retry/requeue logic below applies
+                  // unchanged.
+                  await srcFs.copyLocalFile(
+                    file.source.path,
+                    commitPath,
+                    overwrite: overwrite,
+                    preserveMode: file.source.mode,
+                    expectedTarget: expectedTarget,
+                    cancellation: attempt,
+                    onProgress: (transferred, total) =>
+                        _onFileProgress(runtime, item, transferred, total),
+                  );
+                } else {
+                  await _pipe(
+                    source: srcFs,
+                    destination: dstFs,
+                    readLimiter: task.source is ServerFsLocation
+                        ? downloadLimiter
+                        : _localLimiter,
+                    writeLimiter: task.destination is ServerFsLocation
+                        ? uploadLimiter
+                        : _localLimiter,
+                    sourcePath: file.source.path,
+                    destinationPath: commitPath,
+                    length: file.source.size,
+                    overwrite: overwrite,
+                    expectedTarget: expectedTarget,
+                    preserveMode: file.source.mode,
+                    cancellation: attempt,
+                    onProgress: (transferred, total) =>
+                        _onFileProgress(runtime, item, transferred, total),
+                  );
+                }
               } on RemoteFileException catch (error) {
                 // A stat-checked destination that appeared between decide
                 // and commit re-runs the policy on fresh reality — for

@@ -176,6 +176,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // large-download confirmation threshold — settings.json keys.
     "'preview.cacheCapacityBytes'",
     "'preview.largeDownloadThresholdBytes'",
+    // The D19 update-check opt-out (02 §5) — a settings.json key.
+    "'updates.checkEnabled'",
   },
   'lib/services/atomic_file.dart': {r"'.poltergeist-${uuidV4()}.tmp'"},
   // The session-state document's on-disk schema (02 §3): settings.json
@@ -308,6 +310,16 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The save dialog's name-field widget key — plumbing, not copy.
   'lib/ui/workspace/save_workspace_dialog.dart': {"'workspaceSave.name'"},
+  // The D19 banner's widget keys and the General dialog's keys/toggle
+  // key — plumbing for tests, never rendered.
+  'lib/ui/update_banner.dart': {"'update.viewRelease'", "'update.dismiss'"},
+  'lib/ui/settings/general_settings.dart': {
+    "'general.settings.dialog'",
+    "'general.settings.close'",
+    "'updates.checkEnabled'",
+  },
+  // The Settings command id (D21 plumbing) — registered, never rendered.
+  'lib/ui/settings/app_settings_command.dart': {"'app.settings'"},
   // The workspace command ids (D21 plumbing) — the open commands key
   // per-record to the persisted workspace id.
   'lib/ui/workspace/workspace_commands.dart': {

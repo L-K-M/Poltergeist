@@ -7476,6 +7476,59 @@ Deferred to the next M9 slice per the task split: the fast-path spike,
 the `ENFORCE_B` flip, the update check, and the D28 chown UI (open item
 30). No engine changes; no new features beyond the spec'd surfaces.
 
+## M9 — polish pass part 2: bench flip + audit, local fast path, update check (2026-09-22)
+
+The second M9 slice (07 §3.10; 08 §6; D26; D19). One PR; the full
+evidence record lives in `tasks/run3-task94/audit.md`.
+
+- **Tier-B enforcement flip (08 §6).** P1/P2/P4 are `landed: true` and
+  the bench job forwards `vars.BENCH_ENFORCE_B`: once the repo variable
+  is set, a > 25 % median regression against the committed tier-B
+  baseline reddens main/dispatch runs. P6 stays `landed: false` —
+  every leg so far produced only insufficient-frame error rows
+  (~827–829 of the ≥ 1800 frames llvmpipe can deliver in 30 s), so no
+  honest median exists; the checker reports its rows but never judges
+  them. The evaluate step now wires the §6 drift-state store
+  (`actions/cache`, restored before grading, saved on `refs/heads/main`
+  runs only) and the one automatic tier-B rerun before red — tier-A
+  per-scenario documents are held aside across the rerun's cleanup and
+  re-merged, and the first evaluation stays read-only so a rerun cannot
+  double-count one run's drift. The runner image rotated to
+  `ubuntu-latest@20260920.314.1`, so the tier-B baseline and tier-A
+  `calibratedFingerprint` were re-measured/recalibrated on run
+  35763533669 (the only new-image main run; P5's `first-file` config
+  tracks the readdir-order shift to `entry-02814.txt`). No larger
+  GitHub-hosted runner class is available to this repo; the committed
+  fingerprint is the §6 rotation-control instrument. Post-merge arming
+  order: merge with the variable unset so the first run seeds drift
+  state soft, then set `BENCH_ENFORCE_B=true` — unknown history counts
+  at the escalation threshold, so arming early would redden on the
+  first CPU-axis drift of the heterogeneous pool.
+- **Local fast path (D26).** Adopted: `copy_file_range(2)` on Linux
+  via the `LocalCopyPump` seam — measured ~6–15× the streamed path on
+  this host (3.2–3.3 GB/s vs ~0.3 GB/s at 64–256 MiB) with 16 MiB
+  chunks preserving per-chunk progress and between-chunk cancellation;
+  unsupported-filesystem errors decline to the streamed fallback.
+  Temp-file + atomic-rename commit, conflict checks, mode
+  preservation, and cross-device copy+delete durability are unchanged.
+  FICLONE returned EOPNOTSUPP on every filesystem here (recorded);
+  Windows CopyFileEx (progress-callback + pbCancel semantics) and
+  APFS clonefile are source-research notes pending their hosts.
+- **Link-only update check (D19).** `UpdateCheckController` wraps the
+  pinned `seance_core` `UpdateChecker` against `L-K-M/Poltergeist`'s
+  latest-release endpoint — a plain GET compared locally, never a
+  download or install. A dismissible banner in the workspace shell
+  names the newer tag and opens the releases page externally; the
+  opt-out `updates.checkEnabled` toggle lives in General settings
+  (`app.settings`, ⌘,/Ctrl+,) persisted via `AppPreferences`, reverts
+  on persist failure, and disables all network access when off.
+  Launch-time check is best-effort after `runApp`. All strings ARB.
+
+Verification: core analyze clean, 1441 core tests pass; benchmark
+suite 138 pass with the contract pins updated for the flip; app
+analyze clean; 17 targeted D19 tests pass. The first enforced tier-B
+main run is verified post-merge per the arming order.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
