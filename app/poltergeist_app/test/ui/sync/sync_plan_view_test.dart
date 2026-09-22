@@ -220,7 +220,7 @@ final class _SetTimesRefusingFs extends LocalFileSystem {
     String path, {
     DateTime? accessedAt,
     DateTime? modifiedAt,
-  }) => throw RemoteFileException(
+  }) async => throw RemoteFileException(
     kind: RemoteFileErrorKind.permissionDenied,
     operation: 'setTimes',
     path: path,
