@@ -274,13 +274,26 @@ void main() {
         bytes: 1,
       ),
     );
-    // Raw invalid bytes (a lone continuation byte) mid-file.
+    // Raw invalid bytes mid-file, then a valid record after them —
+    // replay must continue past the damage, not just tolerate EOF.
     final file = File(journal.path);
-    await file.writeAsBytes([0xFF, 0xFE, 0x0A], mode: FileMode.append);
+    await file.writeAsBytes([0xFF, 0xFE], mode: FileMode.append);
+    await journal.appendItem(
+      SyncJournalItemLine(
+        relativePath: 'after.txt',
+        side: SyncSide.right,
+        action: SyncActionType.deleteRight,
+        outcome: SyncItemStatus.done,
+        attempt: 1,
+        bytes: 1,
+      ),
+    );
 
     final replayed = await SyncRunJournal.open(journal.path);
-    expect(replayed.items, hasLength(1));
-    expect(replayed.items.single.relativePath, 'kept.txt');
+    expect(
+      replayed.items.map((i) => i.relativePath),
+      containsAll(<String>['kept.txt', 'after.txt']),
+    );
   });
 
   test('a duplicate header line is refused', () async {
