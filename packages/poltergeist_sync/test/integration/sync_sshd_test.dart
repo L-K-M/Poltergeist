@@ -215,6 +215,11 @@ Future<void> _runScenario({
   );
 
   final landed = await remoteFs.stat('$remoteDir/a.txt');
+  expect(
+    landed.modifiedAt,
+    isNotNull,
+    reason: 'stat must report an mtime after the copy',
+  );
   final landedSeconds = landed.modifiedAt!.millisecondsSinceEpoch ~/ 1000;
   final pinnedSeconds = _pinnedMtime.millisecondsSinceEpoch ~/ 1000;
 
