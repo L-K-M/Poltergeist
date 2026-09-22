@@ -30,6 +30,7 @@ import '../services/probe_settings_store.dart';
 import '../services/quick_look_channel.dart';
 import '../services/quit_guard.dart';
 import '../services/registered_command.dart';
+import '../services/rsync_endpoints.dart';
 import '../services/session_persistence.dart';
 import '../services/session_state.dart';
 import '../services/sidebar_controller.dart';
@@ -63,6 +64,7 @@ import 'preview_panel.dart';
 import 'settings/backup_settings_command.dart';
 import 'settings/preview_settings.dart';
 import 'sidebar/sidebar_view.dart';
+import 'sync/rsync_copy.dart';
 import 'sync/sync_commands.dart';
 import 'sync/sync_pair_editor.dart';
 import 'sync/sync_plan_format.dart' show syncEndpointLabel;
@@ -1204,8 +1206,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               _syncEndpointFor(workspace.right) != null,
           savedSyncEnabled: () =>
               !_commandSessionActive && widget.bookmarks != null,
+          copyRsyncEnabled: () =>
+              !_commandSessionActive &&
+              _activeSyncSession?.canExportRsync == true,
           synchronizePanes: (context) => _synchronizePanes(),
           newSavedSync: (context) => _newSavedSync(),
+          copyRsync: (context) => _copyRsyncCommand(context),
         ),
       // `queue.togglePause` registers unconditionally (D21): its menu
       // row stays visible-disabled while no queue seam is bound.
@@ -2421,6 +2427,33 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     };
   }
 
+  /// The focused strip's sync-plan session, when its active tab is
+  /// one — `sync.copyRsyncCommand` acts on this tab (05 §2.1: the
+  /// exporter is reachable only from the plan view).
+  SyncPlanController? get _activeSyncSession =>
+      _workspace?.activePane.activeTab?.syncSession;
+
+  /// Shared-mode catalog lookup for the export seam: a `serverConfigId`
+  /// resolves through the pulled Séance catalog; absent catalog or id
+  /// leaves the ref unresolved so the command disables rather than
+  /// emitting a wrong host.
+  ServerConfig? _serverConfigById(String id) {
+    for (final config in widget.bookmarkBackup?.catalog?.servers ??
+        const <ServerConfig>[]) {
+      if (config.id == id) return config;
+    }
+    return null;
+  }
+
+  /// `sync.copyRsyncCommand` (05 §2.1): the active plan's export to
+  /// the clipboard — the action-bar button and this menu row share the
+  /// one verb in rsync_copy.dart.
+  Future<void> _copyRsyncCommand(BuildContext context) async {
+    final session = _activeSyncSession;
+    if (session == null) return;
+    await copyRsyncCommand(context, session);
+  }
+
   /// The ad-hoc pair's display name — one label per leg so the tab
   /// reads as a direction, like §7's header does.
   String _syncPairLabel(
@@ -2617,6 +2650,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         syncTasks: syncTasks,
         deviceId: deviceId,
         caseOverrides: caseOverrides,
+        // 05 §2.1's export seam: shared-mode `serverConfigId` refs
+        // resolve through the pulled Séance catalog; embedded
+        // identities resolve directly (rsync_endpoints.dart).
+        rsyncEndpoints: (p) => resolveRsyncEndpoints(
+          p,
+          serverConfig: _serverConfigById,
+        ),
       ),
     );
     workspace.setActivePane(target);

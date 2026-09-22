@@ -1,0 +1,3 @@
+# note: uses your OpenSSH config and known_hosts, not Poltergeist's connections
+# note: rsync is single-stream
+# note: both endpoints are remote — rsync refuses a remote-to-remote transfer; Poltergeist routes such pairs through the local machine, so no runnable command is emitted

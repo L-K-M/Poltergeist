@@ -1,0 +1,3 @@
+# note: rsync is single-stream
+# Preview first (matches Poltergeist's plan):  rsync -n -i -r -p --size-only --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' -- '/home/me/site/' '/srv/site'
+rsync -r -p --size-only --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' -- '/home/me/site/' '/srv/site'

@@ -1,0 +1,5 @@
+# note: uses your OpenSSH config and known_hosts, not Poltergeist's connections
+# note: '.*' covers dot-prefixed names only — a Windows side's hidden-attribute files are not excludable this way
+# note: rsync is single-stream
+# Preview first (matches Poltergeist's plan):  rsync -n -i -r -p -t --modify-window=2 --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' -e 'ssh' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' --exclude='.*' -- '/home/me/site/' 'deploy@example.com:/var/www/site'
+rsync -r -p -t --modify-window=2 --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' -e 'ssh' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' --exclude='.*' -- '/home/me/site/' 'deploy@example.com:/var/www/site'

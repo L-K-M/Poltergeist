@@ -3436,6 +3436,18 @@
   "@syncCopyReport": {
     "description": "Summary-bar verb (05 §7): copies the run's per-item outcome table to the clipboard."
   },
+  "syncCopyRsyncCommand": "Copy as rsync Command",
+  "@syncCopyRsyncCommand": {
+    "description": "Plan-view action-bar verb and Commands-menu row (05 §2.1/§7): copies the plan's ruleset rendered as the equivalent rsync invocation."
+  },
+  "syncCopiedRsyncCommand": "Copied rsync command",
+  "@syncCopiedRsyncCommand": {
+    "description": "Toast after the rsync export lands on the clipboard (05 §2.1)."
+  },
+  "syncCopiedRsyncCommandPermanent": "Copied rsync command — deletions are permanent when pasted",
+  "@syncCopiedRsyncCommandPermanent": {
+    "description": "Toast variant for a deletions:permanent + backups:none plan (05 §2.1): the one lethal configuration warns at copy time."
+  },
   "syncHeavySuggestionAccept": "Exclude",
   "@syncHeavySuggestionAccept": {
     "description": "Heavy-directory suggestion's accept verb (05 §9): adds the name to the pair's exclude rules."

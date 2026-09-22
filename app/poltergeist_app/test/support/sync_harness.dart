@@ -3,6 +3,7 @@
 // (pairs, snapshots, items, plans) every sync test repeats.
 import 'dart:io';
 
+import 'package:poltergeist_app/services/rsync_endpoints.dart';
 import 'package:poltergeist_app/services/sync_environment.dart';
 import 'package:poltergeist_app/services/sync_plan_controller.dart';
 import 'package:poltergeist_app/services/sync_queue_facade.dart';
@@ -160,6 +161,7 @@ SyncPlanController testController({
   required FakeSyncDiffer differ,
   required SyncEnvironment environment,
   SyncQueueTasks? syncTasks,
+  RsyncEndpointResolver? rsyncEndpoints,
 }) => SyncPlanController(
   pair: pair,
   environment: environment,
@@ -167,6 +169,7 @@ SyncPlanController testController({
   scanner: scanner,
   differ: differ,
   deviceId: 'test-device',
+  rsyncEndpoints: rsyncEndpoints,
 );
 
 /// Pumps the microtask queue until [condition] holds or the deadline

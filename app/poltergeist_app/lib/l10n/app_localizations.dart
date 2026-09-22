@@ -4069,6 +4069,24 @@ abstract class AppLocalizations {
   /// **'Copy Report'**
   String get syncCopyReport;
 
+  /// Plan-view action-bar verb and Commands-menu row (05 §2.1/§7): copies the plan's ruleset rendered as the equivalent rsync invocation.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy as rsync Command'**
+  String get syncCopyRsyncCommand;
+
+  /// Toast after the rsync export lands on the clipboard (05 §2.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Copied rsync command'**
+  String get syncCopiedRsyncCommand;
+
+  /// Toast variant for a deletions:permanent + backups:none plan (05 §2.1): the one lethal configuration warns at copy time.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied rsync command — deletions are permanent when pasted'**
+  String get syncCopiedRsyncCommandPermanent;
+
   /// Heavy-directory suggestion's accept verb (05 §9): adds the name to the pair's exclude rules.
   ///
   /// In en, this message translates to:

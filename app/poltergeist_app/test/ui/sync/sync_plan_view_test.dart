@@ -707,4 +707,179 @@ void main() {
       expect(find.text('old.txt'), findsOneWidget);
     },
   );
+
+  // 05 §2.1's "Copy as rsync Command" — the action-bar surface of
+  // `sync.copyRsyncCommand`: clipboard write + the differentiated
+  // toast, disabled while nothing exportable exists.
+  group('rsync export button', () {
+    String? clipboardText;
+    Future<void> pumpAndCopy(
+      WidgetTester tester,
+      SyncPlanController controller,
+    ) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (message) async {
+          if (message.method == 'Clipboard.setData') {
+            clipboardText = (message.arguments as Map)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      await pumpSyncPlanView(tester, controller);
+      await pumpToReady(tester, controller);
+      await tester.tap(find.text('Copy as rsync Command'));
+      await tester.pump();
+    }
+
+    testWidgets('copies the rendered command and toasts', (tester) async {
+      final scratch = Directory.systemTemp.createTempSync('pg-view-');
+      addTearDown(() => scratch.deleteSync(recursive: true));
+      final pair = testSyncPair();
+      final controller = fakeController(
+        scratch,
+        pair: pair,
+        plan: testPlan(pair, [
+          testItem(
+            'a.txt',
+            left: testFile(size: 3, mtimeSecs: 10),
+            suggested: SyncActionType.copyLeftToRight,
+            reason: SyncReason.onlyOnLeft,
+          ),
+        ]),
+      );
+      addTearDown(controller.dispose);
+
+      await pumpAndCopy(tester, controller);
+      expect(clipboardText, isNotNull);
+      expect(clipboardText, contains('rsync '));
+      expect(clipboardText, contains('rsync -n -i'));
+      expect(find.text('Copied rsync command'), findsOneWidget);
+    });
+
+    testWidgets('permanent+none toasts the paste-time warning', (
+      tester,
+    ) async {
+      final scratch = Directory.systemTemp.createTempSync('pg-view-');
+      addTearDown(() => scratch.deleteSync(recursive: true));
+      final pair = testSyncPair(
+        rules: const SyncRuleSet(
+          deletions: DeletionPolicy.permanent,
+          backups: BackupPolicy.none,
+        ),
+      );
+      final controller = fakeController(
+        scratch,
+        pair: pair,
+        plan: testPlan(pair, [
+          testItem(
+            'old.txt',
+            right: testFile(),
+            suggested: SyncActionType.deleteRight,
+            reason: SyncReason.onlyOnRight,
+          ),
+        ]),
+      );
+      addTearDown(controller.dispose);
+
+      await pumpAndCopy(tester, controller);
+      expect(
+        find.text(
+          'Copied rsync command — deletions are permanent when pasted',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Copied rsync command'), findsNothing);
+      expect(clipboardText, contains('--delete-delay'));
+    });
+
+    testWidgets('an unresolvable remote side disables the button', (
+      tester,
+    ) async {
+      final scratch = Directory.systemTemp.createTempSync('pg-view-');
+      addTearDown(() => scratch.deleteSync(recursive: true));
+      // A shared-mode serverConfigId with no catalog bound (the
+      // harness's default resolver) — the command refuses rather
+      // than emitting a wrong host.
+      final pair = SyncPair(
+        id: 'pair-remote',
+        name: 'Remote',
+        left: const LocalEndpoint('/left'),
+        right: const RemoteEndpoint(
+          server: BookmarkServerRef(serverConfigId: 'srv-missing'),
+          path: '/srv/path',
+        ),
+        rules: const SyncRuleSet(),
+      );
+      final controller = fakeController(
+        scratch,
+        pair: pair,
+        plan: testPlan(pair, [
+          testItem(
+            'a.txt',
+            left: testFile(size: 3, mtimeSecs: 10),
+            suggested: SyncActionType.copyLeftToRight,
+            reason: SyncReason.onlyOnLeft,
+          ),
+        ]),
+      );
+      addTearDown(controller.dispose);
+      await pumpSyncPlanView(tester, controller);
+      await pumpToReady(tester, controller);
+
+      expect(controller.canExportRsync, isFalse);
+      final button = tester.widget<TextButton>(
+        find.ancestor(
+          of: find.text('Copy as rsync Command'),
+          matching: find.byType(TextButton),
+        ),
+      );
+      expect(button.onPressed, isNull);
+    });
+
+    testWidgets('an embedded-identity remote side exports its spec', (
+      tester,
+    ) async {
+      final scratch = Directory.systemTemp.createTempSync('pg-view-');
+      addTearDown(() => scratch.deleteSync(recursive: true));
+      final pair = SyncPair(
+        id: 'pair-remote',
+        name: 'Remote',
+        left: const LocalEndpoint('/left'),
+        right: const RemoteEndpoint(
+          server: BookmarkServerRef(
+            identity: EmbeddedHostIdentity(
+              host: 'example.com',
+              port: 2222,
+              username: 'deploy',
+              authMethod: AuthMethod.agent,
+            ),
+          ),
+          path: '/srv/site',
+        ),
+        rules: const SyncRuleSet(),
+      );
+      final controller = fakeController(
+        scratch,
+        pair: pair,
+        plan: testPlan(pair, [
+          testItem(
+            'a.txt',
+            left: testFile(size: 3, mtimeSecs: 10),
+            suggested: SyncActionType.copyLeftToRight,
+            reason: SyncReason.onlyOnLeft,
+          ),
+        ]),
+      );
+      addTearDown(controller.dispose);
+
+      await pumpAndCopy(tester, controller);
+      expect(clipboardText, contains("'deploy@example.com:/srv/site'"));
+      expect(clipboardText, contains('ssh -p 2222'));
+    });
+  });
 }

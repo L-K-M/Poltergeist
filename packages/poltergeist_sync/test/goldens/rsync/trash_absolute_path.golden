@@ -1,0 +1,5 @@
+# note: --delete-delay approximates the plan's delete-after-clean-copy gate — on a partial failure that is not an I/O error rsync may still delete where the executor would not
+# note: --max-delete=500 caps deletions per run — rsync performs up to the cap and stops with an error, where the plan refuses to start at all
+# note: rsync is single-stream
+# Preview first (matches Poltergeist's plan):  rsync -n -i -r -p -t --modify-window=2 --delete-delay --max-delete=500 --backup --backup-dir='/var/trash/site' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' -- '/home/me/site/' '/srv/site'
+rsync -r -p -t --modify-window=2 --delete-delay --max-delete=500 --backup --backup-dir='/var/trash/site' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' -- '/home/me/site/' '/srv/site'
