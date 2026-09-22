@@ -732,6 +732,17 @@ void main() {
           'sync-plan-sizeonly-notice',
           inRunAsync: true,
         );
+
+        // §4's automatic fallback: the flagged pair's next plan
+        // compares size-only, so the refused stamp no longer reads
+        // as an update — the row converges to equal.
+        await controller.rescan();
+        await pumpUntil(() => controller.phase == SyncPlanPhase.ready);
+        final replanned = controller.plan!.items.singleWhere(
+          (item) => item.relativePath == 'a.txt',
+        );
+        expect(replanned.effective, SyncActionType.skip);
+        expect(replanned.reason, SyncReason.equal);
       });
     },
   );

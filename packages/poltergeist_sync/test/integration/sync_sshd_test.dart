@@ -245,11 +245,21 @@ Future<void> _runScenario({
       SyncActionType.updateLeftToRight,
     );
 
-    // With it, 05 §4's fallback converges on size-only equality.
+    // With it, 05 §4's fallback converges on size-only equality. The
+    // flag lives in sync_state, outside SyncRuleSet — the app layer
+    // resolves the downgrade before calling the differ, so this
+    // asserts exactly what SyncPlanController feeds diffScans.
+    final flaggedPair = SyncPair(
+      id: pair.id,
+      name: pair.name,
+      left: pair.left,
+      right: pair.right,
+      rules: const SyncRuleSet(comparison: ComparisonMode.sizeOnly),
+    );
     final flagged = await diffScans(
       left: localRescan,
       right: remoteRescan,
-      pair: pair,
+      pair: flaggedPair,
       mtimeUnreliableRight: true,
     );
     final converged = flagged.items.singleWhere(

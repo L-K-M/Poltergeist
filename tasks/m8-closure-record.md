@@ -5,11 +5,14 @@ is CLOSED on evidence with bounded residuals recorded as open items
 27–30 (DoD item 8 PARTIAL; D28 chown deferred to M9). Audited against
 main head `187d5b7` (post-#177, the rsync
 exporter merge). One audit PR adds the missing setstat-ignoring
-integration leg and the sizeOnly-notice render proof, one narrow
-executor fix the new leg exposed (a server refusing `setstat` rejects
-the upload's mode stamp too — the copy now retries without
-`preserveMode` so `_stampAndVerify` reaches the designed
-flag+sizeOnly path), the STATUS sweep, and this record; no
+integration leg and the sizeOnly-notice render proof, two narrow
+fixes the new leg exposed (a server refusing `setstat` rejects the
+upload's mode stamp too — the copy now retries without `preserveMode`
+so `_stampAndVerify` reaches the designed flag+sizeOnly path; and
+§4's automatic `sizeOnly` plan downgrade existed only in the rsync
+exporter — `SyncPlanController` now resolves it before diffing so a
+flagged pair's next plan converges instead of re-proposing every
+refused stamp as an update), the STATUS sweep, and this record; no
 feature work, no pin bump, no Séance edits.
 
 ## What the audit PR changes
@@ -36,9 +39,10 @@ feature work, no pin bump, no Séance edits.
   widget test drives a refused `setTimes` (a `LocalFileSystem`
   subclass standing in for the restricted server) through the real
   `SyncPlanController` and asserts the run completes, the
-  `pairState.mtimeUnreliableRight` flag lands, and the header renders
+  `pairState.mtimeUnreliableRight` flag lands, the header renders
   05 §4's size-only notice (`comparing by size only`) — absent before
-  the run, present after.
+  the run, present after — and the post-flag `rescan()` converges
+  the row to `skip`/`equal` (the plan-level downgrade below).
 - `packages/poltergeist_sync/lib/src/executor.dart`: the restricted
   leg's first real Docker run caught a genuine engine defect —
   `RemoteFileSystem.upload` applies `preserveMode` via `setStat` on
@@ -51,6 +55,15 @@ feature work, no pin bump, no Séance edits.
   `setstatIgnored` as designed. `executor_test.dart` gains a
   `_SetstatDenyingFs` regression covering the retry, the flag, and
   the per-run skip.
+- `app/poltergeist_app/lib/services/sync_plan_controller.dart`: the
+  leg's second catch — §4's "from then on plans compare `sizeOnly`
+  automatically" was implemented for `rsyncExport` but not for the
+  plan diff itself, so a flagged pair would have re-proposed every
+  refused stamp as an `update` on each rescan while the header
+  claimed size-only. The controller now resolves the same downgrade
+  (`sizeAndMtime` + a recorded flag → `sizeOnly`; `contentHash`
+  never downgraded) before calling the differ. The widget test's
+  rescan assertion pins it.
 - `docs/STATUS.md`: header sweep, the missing dated section for #177,
   this audit's close section, open items 27–30.
 - `tasks/m8-closure-record.md`: this record.
