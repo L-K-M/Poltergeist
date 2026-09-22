@@ -4,25 +4,26 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-21. **M3, M4, M5, M6, and M7 are closed; M8 is
-next** — M7's managed checkouts (#169), built-in editor (#170),
-external editors (#171), and preview/Quick Look (#172) landed, and the
-§3.8 exit-criteria audit closed the milestone per the dated section
-below (record:
-[tasks/m7-closure-record.md](../tasks/m7-closure-record.md)); the
-audit itself added the missing 06 §3.7 resume/review surface it found.
-v0.2.0 remains the latest published pre-release (M3–M7 closed untagged
+_Last updated: 2026-09-22. **M3, M4, M5, M6, M7, and M8 are closed; M9
+is next** — M8's scanner core (#174), executor + safety rails (#175),
+plan view + savedSync + activity-panel runs (#176), and rsync exporter
+(#177) landed, and the §3.9 exit-criteria audit closed the milestone
+per the dated section below (record:
+[tasks/m8-closure-record.md](../tasks/m8-closure-record.md)) — with
+recorded residuals: the purge surface (open item 27), the docroot
+warning chip (28), the run-startup temp sweep and rail-8 resume
+post-state rule (29), and the D28 chown UI deferral (30).
+v0.2.0 remains the latest published pre-release (M3–M8 closed untagged
 per their closure records). M0, M1, and M2 stay closed per the Done
 table; **open item 4 (the M1/M2 overlap authorization) remains an OPEN
 owner decision**; open item 24 carries the AltGr/Ctrl+Alt-letter chord
 collision to a spec decision; open item 25's tag re-pin landed with
 M8's first slice — the shared-mode "Your Séance servers" surface is
-the recorded follow-up; new open item 26 carries M7's manual-QA
-residual (native macOS Quick Look runtime). Open item 23's remaining half (remote
-transfers fail honestly until the engine protocol grows transfer
-verbs) stays open for the engine-host slice. M8 is underway (sync,
-07 §3.9): the first slice re-pinned Séance to tag `v0.9.1` and landed
-`packages/poltergeist_sync`'s scanner core (see the dated section).
+the recorded follow-up; open item 26 carries M7's manual-QA
+residual (native macOS Quick Look runtime). Open item 23's remaining
+half (remote transfers — and remote *sync endpoints*, which share the
+engine-protocol gap — fail honestly until the engine grows
+filesystem/transfer verbs) stays open for the engine-host slice.
 
 ## Done
 
@@ -7288,6 +7289,96 @@ Not in this slice (per the task bound): `rsync_export.dart`,
 remote-pair integration, chown UI, purge UI, engine changes beyond
 the small seams above.
 
+## M8 — rsync exporter + Copy as rsync Command (2026-09-22)
+
+The fourth M8 slice (PR #177) lands 05 §2.1's text-only exporter —
+`buildRsyncCommand` renders the reviewed plan as a commented rsync
+invocation the user pastes into a shell; it never executes anything
+(the `Process` ban is machine-checked by the package invariants test).
+
+- `rsync_export.dart` — the §2.1 flag table: `-n -i` dry-run first,
+  `--size-only`/`--checksum`/`-t` per comparison mode, delete flags
+  per direction×policy (never `--delete-excluded`; the app-default
+  excludes land first so the in-root `.poltergeist-trash/` and
+  destination-only ignored files are protected from `--delete`),
+  `--backup --backup-dir` for trash policies, `# note:` caveat and
+  override comments, and POSIX-sh quoting (`'` → `'\''`) covering
+  spaces, quotes, `$`, glob metacharacters, and NFD names.
+- `services/rsync_endpoints.dart` — endpoint → host:path spec
+  resolution (embedded identities render `ssh -p`; a shared-mode
+  `serverConfigId` with no catalog binding refuses rather than
+  emitting a wrong host).
+- `sync.copyRsyncCommand` — the action-bar verb: clipboard write,
+  the differentiated toast (`Copied rsync command` vs the
+  permanent-deletion paste-time warning), disabled while nothing
+  exportable exists; `mtimeUnreliable` flags downgrade the emitted
+  comparison to `--size-only` with a comment naming the reason.
+
+Golden tests pin every §2.1 fixture row (flag table, quoting,
+negation-then-match exclude order, the Windows-local pair's
+adjust-note); controller tests cover the untrusted-clock downgrade;
+widget tests cover the verb, toasts, and the unresolvable-remote
+disabled state.
+
+## M8 — exit-criteria audit and close (2026-09-22)
+
+The §3.9 audit walked every 05 Definition-of-done item plus the three
+§3.9 remote-gated criteria against post-#177 main (`187d5b7`); the
+per-criterion evidence record is
+[tasks/m8-closure-record.md](../tasks/m8-closure-record.md). Verdicts:
+
+- **P7 (≥ 1 000 remote entries/s on LAN) — MET, enforced.** CI run
+  `35718273275` at the audit head measured a 5-sample median of
+  **2 336.627 entries/s** under `BENCH_ENFORCE_A` — an enforced pass
+  over the Docker sshd fixture, not a drift skip. The 1 000 budget
+  stands; no recalibration was needed (a recalibration would only
+  raise the bar the run already doubles).
+- **Setstat-ignoring leg + sizeOnly notice — MET after the audit's
+  gap fix.** `sshd-restricted` (`sftp-server -P setstat,fsetstat`)
+  was already in the Docker matrix and `run.sh` already exported it —
+  but no sync test exercised it, and no UI test proved the §4 notice
+  actually renders. This PR adds both:
+  `packages/poltergeist_sync/test/integration/sync_sshd_test.dart`
+  runs a real local→restricted pair end to end (scan → diff →
+  execute → journal → re-diff), asserting `setstatIgnored` on the
+  item line and in the replayed journal, `mtimeUnreliableRight` on
+  the run, that the next diff still sees the divergence *without* the
+  flag, and size-only convergence *with* it — plus an sshd-modern
+  control proving the stamp lands and the re-diff converges on mtime
+  alone. A new `sync_plan_view_test.dart` case drives a refused
+  `setTimes` through the real controller and asserts the header's
+  size-only notice appears after the run.
+- **chown UI (D28) — DEFERRED to M9 (open item 30).** The merged pin
+  (`v0.9.1`) does carry `setOwner`, so §3.9's conditional arm is
+  active; the audit task explicitly prefers a dated deferral over
+  new scope at close, and D28's own text allows M8/M9. No chown
+  surface exists on HEAD — recorded dated with reason.
+- **05 DoD — MET except the recorded residuals.** Every checklist row
+  audits to a satisfying test/golden/UI except: the rail-5 purge
+  surface (age-notice chip + `sync.purgeTrash` + its
+  cross-pair/cross-machine rules — journal substrate `markPurged`/
+  `hasUnpurgedTrash`/`prune` exists, the UI/command half does not;
+  open item 27), the rail-5 docroot warning chip in the pair editor
+  and plan view (item 28), and rail 6's run-startup temp-orphan sweep
+  plus rail 8's committed-but-unjournaled resume post-state rule (no
+  resume-from-journal entry point exists — connection loss fails the
+  item and Retry Failed is the recovery path; item 29).
+  Two mechanism deviations recorded in the record: §11's shared
+  `poltergeist_core/lib/testing.dart` `InMemoryFileSystem` never
+  landed (sync tests inject faults through `LocalFileSystem`
+  subclasses over real temp dirs — the fault matrix is covered, the
+  cross-package-shared fake is not), and the §3.3 invariants are
+  pinned by deterministic tests rather than seeded generators.
+
+Audit-scope additions: the two tests above, the STATUS sweep, and the
+closure record — no feature work, no pin bump, no Séance edits.
+§3.12 chores at this close: PORTS.md untouched (no ported file
+changed), no `TODO(pin)` markers, the mobile invariant re-verifies
+(the new legs are tests only; `poltergeist_sync` stays pure Dart),
+and the tag chore is not run, matching every prior untagged close.
+Docker is unavailable on this host — the new integration leg is
+CI-verified, and its env-gated skip keeps local runs honest.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -8022,6 +8113,54 @@ the small seams above.
     `FakeEditorRemoteFs` endpoint; the production engine's remote
     `checkout`/`upload` calls join open item 23's remaining half once
     the engine protocol grows transfer verbs.
+27. **2026-09-22: M8 — the rail-5 purge surface is unbuilt.** The
+    journal substrate exists (`markPurged`, `hasUnpurgedTrash`, the
+    live-trash retention exception in `SyncRunJournal.prune`, the §9
+    `trashCache` model), but nothing produces a purge: no plan-view
+    age-notice chip (`N trashed files from M runs older than 30 days`),
+    no `sync.purgeTrash` command, no confirm dialog stating the
+    cross-pair scope and the undo forfeit, no
+    own-prefix/foreign-prefix runId classification, no
+    absent-directory `purged: true` marking, no in-flight-run
+    exclusion. Until this lands, `.poltergeist-trash/<runId>`
+    directories and their guarding journals accumulate forever —
+    `Restore Trashed Files…` keeps working, but nothing ever releases
+    them. Spec: 05 §8 rail 5 (1096–1179); the surface is feature-sized
+    and was deferred at audit close rather than rushed.
+28. **2026-09-22: M8 — the rail-5 docroot warning chip is unbuilt.**
+    05 §8 (1083–1095) requires a warning — in the pair editor AND as a
+    persistent plan-view chip — when in-root trash will sit under a
+    path that looks like an HTTP docroot (`public_html`, `www`,
+    `htdocs`, `/var/www`), with a one-click out-of-root suggestion
+    (`~/.poltergeist-trash/<root-slug>`; ad-hoc pairs route through
+    rail 4's save-and-edit pattern). Neither surface exists: a
+    `Blog → webserver` pair's overwritten secrets sit web-retrievable
+    with no notice. Deferred with item 27's purge work — the chip's
+    action shares the same editor-focus machinery.
+29. **2026-09-22: M8 — rail 6's run-startup temp sweep and rail 8's
+    resume post-state rule are unbuilt.** §8 rail 6 asks each run to
+    sweep orphaned `.poltergeist-*.tmp` (and the adapter's
+    `.seance-upload-*.tmp`) siblings older than the longest plausible
+    prior run — the transfer queue sweeps its own destinations but no
+    sync-side sweep exists. Rail 8's committed-but-unjournaled rule
+    (a resumed item whose destination matches the intended post-state
+    journals done rather than conflicting, with the sizeOnly-path
+    signature for setstat-ignoring servers) has no entry point: no
+    `resume(journal)` API exists on `SyncExecutor` — connection loss
+    fails the affected item and `Retry Failed` (re-stat + attempt n+1)
+    is the shipped recovery. Both are recorded residuals; the
+    §11/§8-matrix language that presumes a resume leg should be read
+    against this item.
+30. **2026-09-22: M8 — D28 chown UI deferred to M9.** The §3.9
+    criterion's conditional arm is active — the merged Séance pin
+    `v0.9.1` carries `RemoteFileSystem.setOwner` — but no chown
+    surface exists on HEAD (the permissions editor covers mode only;
+    no `setOwner` wiring anywhere in the app). Deferred per the audit
+    task's close-scope rule and D28's own "ships with M8/M9" wording:
+    uid/gid editing needs ownership-semantics UI decisions (numeric vs
+    name resolution, per-platform legality, failure surfacing) that
+    belong to a feature slice, not an audit patch. The pin capability
+    is already proven by the pin itself; the work is UI + wiring.
 
 ## Independent audit
 
