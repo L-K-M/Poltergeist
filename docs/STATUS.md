@@ -4,8 +4,11 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-22. **M3–M9 are closed; M10 (v1.0 release) is
-next.** M9's two polish slices landed (#184 palette/import/a11y/i18n/
+_Last updated: 2026-09-22. **M3–M9 are closed; M10's release
+preparation is staged on its PR — the `v1.0.0` tag, the publish, and
+the "v1.0 shipped" flip are the owner's remaining step** (the dated
+M10 section below records what is prepared and what is deliberately
+held). M9's two polish slices landed (#184 palette/import/a11y/i18n/
 chrome, #185 tier-B flip + fast path + update check) and the §3.10
 exit-criteria audit closed the milestone per the dated section below
 (record: [tasks/m9-closure-record.md](../tasks/m9-closure-record.md)) —
@@ -7570,6 +7573,114 @@ moved), pin holds `v0.9.1` (still latest upstream tag), no `TODO(pin)`
 markers, mobile invariant row re-verified, tag chore not run per the
 standing untagged-close pattern. Local: dart/flutter analyze clean;
 190-test focused battery green.
+
+## M10 — v1.0 release preparation (2026-09-22)
+
+M10's docs-and-audit surface is PREPARED; the milestone itself closes
+only when the owner runs `scripts/release.sh 1.0.0 --push` — this pass
+deliberately holds the tag, the publish, the version-marker bump, and
+the "v1.0 shipped" STATUS flip for that step. Per §3.11, criterion by
+criterion:
+
+- **Distribution checklist (§4).** Every docs/code-preparable row is
+  done. `docs/INSTALL.md` is new: per-platform first-launch steps
+  (macOS ad-hoc — right-click → Open or `xattr -dr
+  com.apple.quarantine`; Windows — SmartScreen "More info → Run
+  anyway"; Linux — `.deb` line, AppImage `chmod +x`, tarball, plus the
+  libsecret/Secret Service runtime note for GNOME Keyring and KWallet),
+  SHA-256 verification commands per platform with the honest
+  integrity-not-origin boundary, the committed public APK-key caveat
+  (matching signature proves nothing about origin; key rotation breaks
+  in-place upgrades), and the Android/iOS rehearsal-artifact labels §4
+  requires from v0.1.0 on. The machine-bound rows stay open and are
+  marked **OWNER MANUAL QA** in `docs/qa/RELEASE-CHECKLIST.md`:
+  fresh-machine installs on macOS, Windows, and one GNOME + one KDE
+  Linux using only INSTALL.md, plus every native-surface row (chrome,
+  IME composition, VoiceOver/NVDA, the OS first-launch gates, trash UX,
+  drag/drop feel, theme/HiDPI, scroll, Quick Look, the reference
+  release-mode tier-B run). Nothing human-only is claimed done.
+- **README.** Carries the 01 §6 trust stance verbatim in spirit ("Your
+  servers are your business" — no account, no telemetry/analytics/crash
+  reporting/bundleware, the link-only update check that is on by
+  default and one setting from off, keychain-sealed secrets with the
+  no-keychain → no-save rule, TOFU host-key pinning, E2E-encrypted
+  bookmark backup, no paid tier), the install/releases links, and a
+  known-issues section that states the remote-transfer gap plainly
+  (item 23). The version marker stays `0.2.0` on purpose:
+  `tool/release_version` requires the marker to equal the pubspec
+  version, so the lockstep `1.0.0` bump is release.sh's own write at
+  tag time — flipping it here would leave the repo inconsistent.
+- **Human release notes (D24).** Drafted in `CHANGELOG.md` as
+  "## 1.0.0 — first stable release (prepared; ships with the v1.0.0
+  tag)": personality, not a commit dump, with the remote-transfer
+  limitation, the upstream a11y/IME caveats, unsigned-build
+  first-launch steps, and the mobile rehearsal-artifact labels included.
+- **PORTS.md swept** (§3.12 chore 2 + 04 §6): every entry re-verified
+  against the `v0.9.1` pin (`035b0d8`) and re-diffed against upstream
+  HEAD (`15d0fdd`); per-file drift dispositions recorded in the M10
+  sweep section. Nine ready port-back issues filed on `L-K-M/Seance`:
+  #114 (sync-token revocation endpoint — 04 §7.3's urgent item), #115
+  (local-name validator batch), #116 (master-key corrupt-entry
+  misreport + create race), #117 (identity-read normalization +
+  bounded audit), #118 (VFS additions behind items 10/12/13), #119
+  (managed-checkout lifecycle rails), #120 (persistent record store +
+  tombstones — 04 §6 priority 2, now proven), #121 (UX patterns),
+  #122 (small polish batch). Left open without issues, recorded in
+  PORTS: the conditional M5 sortKey/grouping offer, the conditional
+  safety-test port, and the narrowed mixed-EOL editor candidate.
+- **Pin check (chore 3).** `v0.9.1` is still the newest Séance tag —
+  the pin does not move; upstream HEAD drift is next-window material,
+  not pin fallout. `dartssh2` stays exactly 3.0.2.
+- **`TODO(pin)` grep (chore 3).** No markers in code, configs, or
+  scripts — remaining hits are the plan's and STATUS's own references
+  to the rule. Nothing to delete.
+- **Rehearsal-tag audit (chore 4).** Only `v0.1.0` and `v0.2.0` exist;
+  M3–M9 closed untagged per their closure records. **This is the
+  release's headline risk, flagged prominently on the prep PR: every
+  prior tag published as a pre-release, so v1.0.0 is the first
+  non-prerelease run `release.yml` has ever performed — the first
+  exercise of the Latest-release path, and the first full pipeline
+  exercise since v0.2.0.** The owner should watch the run and be
+  prepared to re-run jobs or patch the workflow if a stable-tag-only
+  branch misfires; this is preparation, not a prediction of failure.
+- **Mobile memo (chore 5 / §5's M10 row).** Re-read against the shipped
+  code. Holds: `poltergeist_core` stays pure Dart (`check-imports.sh`
+  guards it); the engine protocol stays plain data (the AST guard's
+  fixture suite runs in CI); two-pane assumptions live in
+  `WorkspaceController` layout, never in controllers, the queue, or
+  core; the queue is suspendable (pause-all + journal restart is the
+  working primitive — M4's row); sync/enrollment, editor, and scan
+  code take no pane, watcher, or window dependency (M6/M8/M9 rows);
+  bookmarks carry the device-local fields per-device grants need (M5
+  row). **Recorded deviations:** (a) `ScopedPathAccess` exists only as
+  the documented seam — no service class, no `scoped-bookmarks.json`,
+  no minted blobs; local access funnels through the engine-owned
+  `LocalFileSystem` and the `local_fs_safety` helpers instead. On
+  unsandboxed v1 desktop that is behavior-neutral (the pass-through
+  backend would grant nothing anyway), but the memo's "all local
+  access already flows through `ScopedPathAccess`" overstates it: the
+  mobile/sandbox milestone must build the service and plumb grants,
+  not merely swap a backend. (b) The iOS background-transfer
+  consequence ("every transfer interruptible and cheap to resume")
+  is designed-in for local work but unproven in production for remote
+  endpoints, because item 23 keeps remote verbs unwired — remote
+  suspend/resume evidence waits on that slice.
+
+**Exit-criteria state:** docs/code criteria prepared as above; the
+release command, the tag, `release.yml` green, the fresh-machine
+install tests, and the STATUS "shipped" flip remain — all owner-side
+by design. **Remaining QA:** the whole OWNER MANUAL QA set in
+`docs/qa/RELEASE-CHECKLIST.md`.
+
+**Fast-follows (§3.13) staged as the post-tag next-steps:** agent auth
++ ProxyJump first (D10/PR-S4); OS drag-out (D14, `super_drag_and_drop`
+spike); local archives (D27); FileZilla/WinSCP/Cyberduck importers
+(D22); deep links (04 §7.1) and the text-diff view as demand dictates;
+then the v1.x backlog (named skip rules, batch rename, custom keymap,
+native icons, Compare entry point, preview warming — and Sync Browsing
+if risk 8's cut line is ever exercised). None is started here. Item
+23's remote-transfer wiring is the de-facto headline fast-follow even
+though §3.13 predates naming it.
 
 ## Open items
 
