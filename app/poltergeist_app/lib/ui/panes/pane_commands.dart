@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart' show RemoteFileType;
 
 import '../../services/pane_controller.dart';
+import '../../services/pane_permissions.dart' show nameIsFlagged;
 import '../../services/preview_session.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
@@ -85,6 +86,7 @@ List<RegisteredCommand> buildPaneCommands({
       // Disabled at the trail's start (02 §2.1) and on a pane with no
       // live channel — canGoBack is the single definition of both.
       enabled: () => activeTab()?.canGoBack ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoBack,
       run: (_) async {
         activeTab()?.goBack();
       },
@@ -106,6 +108,7 @@ List<RegisteredCommand> buildPaneCommands({
         ],
       ),
       enabled: () => activeTab()?.canGoForward ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoForward,
       run: (_) async {
         activeTab()?.goForward();
       },
@@ -121,6 +124,7 @@ List<RegisteredCommand> buildPaneCommands({
         other: const [SingleActivator(LogicalKeyboardKey.arrowUp, alt: true)],
       ),
       enabled: () => activeTab()?.verbsEnabled ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
       run: (_) async {
         activeTab()?.goUp();
       },
@@ -144,6 +148,7 @@ List<RegisteredCommand> buildPaneCommands({
         ],
       ),
       enabled: () => activeTab()?.acceptsPathInput ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
       run: (_) async {
         activeTab()?.goToFolder();
       },
@@ -160,6 +165,7 @@ List<RegisteredCommand> buildPaneCommands({
         other: const [SingleActivator(LogicalKeyboardKey.keyL, control: true)],
       ),
       enabled: () => activeTab()?.acceptsPathInput ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
       run: (_) async {
         activeTab()?.editPath();
       },
@@ -189,6 +195,7 @@ List<RegisteredCommand> buildPaneCommands({
             cursor >= 0 &&
             cursor < pane.entries.length;
       },
+      disabledReason: (l10n) => l10n.commandDisabledNoSelection,
       run: (_) async {
         final pane = activeTab();
         final cursor = pane?.cursorIndex;
@@ -240,6 +247,7 @@ List<RegisteredCommand> buildPaneCommands({
         return type == RemoteFileType.file ||
             type == RemoteFileType.symbolicLink;
       },
+      disabledReason: (l10n) => l10n.commandDisabledNoSelection,
       run: (_) async {
         final pane = activeTab();
         final cursor = pane?.cursorIndex;
@@ -278,6 +286,7 @@ List<RegisteredCommand> buildPaneCommands({
         return pane != null &&
             (pane.infoTarget != null || workspace.activePane.infoPanelOpen);
       },
+      disabledReason: (l10n) => l10n.commandDisabledNoSelection,
       run: (_) async {
         // The inspector is pane chrome on the FOCUSED pane (02 §2.6):
         // the active strip toggles it over its own right edge.
@@ -322,6 +331,7 @@ List<RegisteredCommand> buildPaneCommands({
             cursor >= 0 &&
             cursor < pane.entries.length;
       },
+      disabledReason: (l10n) => l10n.commandDisabledNoSelection,
       run: (_) async {
         preview?.previewFocused();
       },
@@ -354,7 +364,23 @@ List<RegisteredCommand> buildPaneCommands({
             pane.verbsEnabled &&
             cursor != null &&
             cursor >= 0 &&
-            cursor < pane.entries.length;
+            cursor < pane.entries.length &&
+            // A flagged (U+FFFD) name can't round-trip to the wire —
+            // §13 withholds the verb rather than letting the command
+            // run and the controller refuse.
+            !nameIsFlagged(pane.entries[cursor].name);
+      },
+      disabledReason: (l10n) {
+        final pane = activeTab();
+        final cursor = pane?.cursorIndex;
+        final flagged = pane != null &&
+            cursor != null &&
+            cursor >= 0 &&
+            cursor < pane.entries.length &&
+            nameIsFlagged(pane.entries[cursor].name);
+        return flagged
+            ? l10n.paneFlaggedNameTooltip
+            : l10n.commandDisabledNoSelection;
       },
       run: (_) async {
         activeTab()?.startRename();
@@ -383,6 +409,7 @@ List<RegisteredCommand> buildPaneCommands({
             pane.phase == PanePhase.browsing &&
             !pane.connectionLost;
       },
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
       run: (_) async {
         activeTab()?.refresh();
       },
@@ -417,6 +444,7 @@ List<RegisteredCommand> buildPaneCommands({
       // the region is absent, not hidden). An unwired embedding fails
       // closed too: an enabled-but-inert entry is a fake affordance.
       enabled: sidebarAvailable ?? () => false,
+      disabledReason: (l10n) => l10n.commandDisabledNoSidebar,
       run: (context) async {
         // Below the stage-0 boundary the sidebar lives in the overlay
         // drawer — the toggle opens/closes it there rather than latching
@@ -503,6 +531,7 @@ List<RegisteredCommand> buildPaneCommands({
         ],
       ),
       enabled: () => preview != null,
+      disabledReason: (l10n) => l10n.commandDisabledNoPreview,
       run: (_) async {
         preview?.togglePanel();
       },
@@ -532,6 +561,7 @@ List<RegisteredCommand> buildPaneCommands({
       // stays live so the link can always be dropped.
       enabled: () =>
           workspace.syncBrowsing.enabled || workspace.syncBrowsing.canLink,
+      disabledReason: (l10n) => l10n.commandDisabledSyncAnchors,
       run: (_) async {
         workspace.syncBrowsing.toggle();
       },
@@ -613,6 +643,7 @@ List<RegisteredCommand> buildPaneCommands({
         other: const [SingleActivator(LogicalKeyboardKey.keyA, control: true)],
       ),
       enabled: () => activeTab()?.verbsEnabled ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
       run: (_) async {
         activeTab()?.selectAll();
       },
@@ -639,6 +670,7 @@ List<RegisteredCommand> buildPaneCommands({
         ],
       ),
       enabled: () => activeTab()?.verbsEnabled ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
       run: (_) async {
         activeTab()?.invertSelection();
       },
@@ -659,6 +691,7 @@ List<RegisteredCommand> buildPaneCommands({
         other: const [SingleActivator(LogicalKeyboardKey.keyE, control: true)],
       ),
       enabled: () => activeTab()?.verbsEnabled ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
       run: (_) async {
         activeTab()?.openQuickSelect();
       },
@@ -679,6 +712,7 @@ List<RegisteredCommand> buildPaneCommands({
         other: const [SingleActivator(LogicalKeyboardKey.keyF, control: true)],
       ),
       enabled: () => activeTab()?.verbsEnabled ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
       run: (_) async {
         activeTab()?.openFilter();
       },
@@ -720,6 +754,7 @@ List<RegisteredCommand> buildPaneCommands({
         other: const [SingleActivator(LogicalKeyboardKey.keyW, control: true)],
       ),
       enabled: () => workspace.activePane.activeTab != null,
+      disabledReason: (l10n) => l10n.commandDisabledNoTab,
       run: (_) async {
         // THE close operation: the guard and confirm live inside it, so
         // this chord and middle-click can never bypass them (02 §3).
@@ -747,6 +782,7 @@ List<RegisteredCommand> buildPaneCommands({
         ],
       ),
       enabled: () => workspace.activePane.canReopen,
+      disabledReason: (l10n) => l10n.commandDisabledNoClosedTab,
       run: (_) async {
         await workspace.activePane.reopenClosedTab();
       },
@@ -775,6 +811,7 @@ List<RegisteredCommand> buildPaneCommands({
         other: const [SingleActivator(LogicalKeyboardKey.tab, control: true)],
       ),
       enabled: () => workspace.activePane.tabs.length >= 2,
+      disabledReason: (l10n) => l10n.commandDisabledMultipleTabs,
       run: (_) async {
         workspace.activePane.activateNextTab();
       },
@@ -807,6 +844,7 @@ List<RegisteredCommand> buildPaneCommands({
         ],
       ),
       enabled: () => workspace.activePane.tabs.length >= 2,
+      disabledReason: (l10n) => l10n.commandDisabledMultipleTabs,
       run: (_) async {
         workspace.activePane.activatePreviousTab();
       },

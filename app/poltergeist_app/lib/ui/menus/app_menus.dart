@@ -210,6 +210,11 @@ List<List<AppMenuRow>> _menuGroups(
   return groups;
 }
 
+/// The localized title of one top-level menu — the palette prints it
+/// in a command row's "File ▸ Open" path line (02 §8.4).
+String appMenuTitle(AppMenuId id, AppLocalizations l10n) =>
+    _menuTitle(id, l10n);
+
 String _menuTitle(AppMenuId id, AppLocalizations l10n) => switch (id) {
   AppMenuId.app => l10n.appTitle,
   AppMenuId.file => l10n.menuFile,

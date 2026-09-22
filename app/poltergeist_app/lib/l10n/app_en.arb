@@ -817,6 +817,20 @@
     }
   },
   "paneRowSemantics": "{name}, {kind}, {size}, {modified}",
+  "paneRowSemanticsFlagged": "{name}, {kind}, {size}, {modified} — name not valid UTF-8",
+  "@paneRowSemanticsFlagged": {
+    "description": "Accessible label of a listing row whose decoded name carries U+FFFD (02 §13's flagged-name rule: the row's disabled reason is part of the node).",
+    "placeholders": {
+      "name": {"type": "String"},
+      "kind": {"type": "String"},
+      "size": {"type": "String"},
+      "modified": {"type": "String"}
+    }
+  },
+  "paneFlaggedNameTooltip": "Name is not valid UTF-8 — shown approximately",
+  "@paneFlaggedNameTooltip": {
+    "description": "Tooltip on the warning badge of a listing row whose decoded name carries U+FFFD (02 §13's flagged-name rule)."
+  },
   "@paneRowSemantics": {
     "description": "Screen-reader label of one listing row: announced name–kind–size–date in that order regardless of visual column order (D20, 02 §13).",
     "placeholders": {
@@ -1903,6 +1917,18 @@
         "type": "String"
       },
       "totalBytes": {
+        "type": "String"
+      }
+    }
+  },
+  "activityRowSemantics": "{label}, {state}",
+  "@activityRowSemantics": {
+    "description": "Accessible label of one transfer-task row (02 §13: label + state on a live region so completion and failure announce, while progress stays silent).",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "state": {
         "type": "String"
       }
     }
@@ -3695,6 +3721,157 @@
     "description": "Toast after the plan view's Save as Favorite persists the pair as a savedSync bookmark (05 §7).",
     "placeholders": {
       "name": {"type": "String"}
+    }
+  },
+  "quickOpenCommandLabel": "Quick Open…",
+  "@quickOpenCommandLabel": {
+    "description": "Command label: opens the Quick Open palette (02 §8.4, app.quickOpen, ⇧⌘P / Ctrl+Shift+P)."
+  },
+  "quickOpenTitle": "Quick Open",
+  "@quickOpenTitle": {
+    "description": "Semantics label of the Quick Open palette dialog (02 §8.4)."
+  },
+  "quickOpenFieldHint": "Type a command or location",
+  "@quickOpenFieldHint": {
+    "description": "Placeholder inside the Quick Open palette's filter field."
+  },
+  "quickOpenHintMacos": "Enter runs · ⌥Enter opens in the other pane · ⌘Enter opens in a new tab · Esc closes",
+  "@quickOpenHintMacos": {
+    "description": "Footer hint under the Quick Open palette's list on macOS (⌥/⌘ glyphs)."
+  },
+  "quickOpenHint": "Enter runs · Alt+Enter opens in the other pane · Ctrl+Enter opens in a new tab · Esc closes",
+  "@quickOpenHint": {
+    "description": "Footer hint under the Quick Open palette's list on Windows/Linux."
+  },
+  "quickOpenSectionCommands": "Commands",
+  "@quickOpenSectionCommands": {
+    "description": "Section header over the palette's registered-command rows (02 §8.4)."
+  },
+  "quickOpenSectionFavorites": "Favorites",
+  "@quickOpenSectionFavorites": {
+    "description": "Section header over the palette's bookmark rows (02 §8.4)."
+  },
+  "quickOpenSectionRecents": "Recents",
+  "@quickOpenSectionRecents": {
+    "description": "Section header over the palette's recently visited locations (02 §8.4)."
+  },
+  "quickOpenNoMatches": "No matches for “{query}”",
+  "@quickOpenNoMatches": {
+    "description": "The palette's filtered-empty state (02 §8.4) — the field's literal query.",
+    "placeholders": {
+      "query": {"type": "String"}
+    }
+  },
+  "quickOpenRowSemantics": "{label}, {section}",
+  "@quickOpenRowSemantics": {
+    "description": "Accessibility label of one palette row: the row's title and its section name.",
+    "placeholders": {
+      "label": {"type": "String"},
+      "section": {"type": "String"}
+    }
+  },
+  "quickOpenMenuPath": "{menu} ▸ {label}",
+  "@quickOpenMenuPath": {
+    "description": "A command row's subtitle: the menu path the command lives under (02 §8.4's 'Commands ▸ name' shape).",
+    "placeholders": {
+      "menu": {"type": "String"},
+      "label": {"type": "String"}
+    }
+  },
+  "quickOpenRecentUnavailable": "This server is no longer available",
+  "@quickOpenRecentUnavailable": {
+    "description": "Disabled-reason under a Recents row whose remote bookmark can no longer be resolved."
+  },
+  "commandDisabledNoBack": "No earlier location",
+  "@commandDisabledNoBack": {
+    "description": "Palette reason under a disabled Go Back row."
+  },
+  "commandDisabledNoForward": "No later location",
+  "@commandDisabledNoForward": {
+    "description": "Palette reason under a disabled Go Forward row."
+  },
+  "commandDisabledNoListing": "Requires a browsed folder",
+  "@commandDisabledNoListing": {
+    "description": "Palette reason under commands disabled while the pane has no live listing (verb/path commands)."
+  },
+  "commandDisabledNoSelection": "Requires a selected item",
+  "@commandDisabledNoSelection": {
+    "description": "Palette reason under commands disabled until a row is selected."
+  },
+  "commandDisabledNoPreview": "Previews are unavailable",
+  "@commandDisabledNoPreview": {
+    "description": "Palette reason under the preview commands while no preview session is bound."
+  },
+  "commandDisabledNoSidebar": "Requires the sidebar",
+  "@commandDisabledNoSidebar": {
+    "description": "Palette reason under Show/Hide Sidebar while no bookmark store is wired."
+  },
+  "commandDisabledSyncAnchors": "Requires browsed folders on both panes",
+  "@commandDisabledSyncAnchors": {
+    "description": "Palette reason under Sync Browsing / Synchronize Panes while either pane lacks a committed directory."
+  },
+  "commandDisabledNoTab": "Requires an open tab",
+  "@commandDisabledNoTab": {
+    "description": "Palette reason under commands disabled while the pane holds no tab."
+  },
+  "commandDisabledNoClosedTab": "No recently closed tab",
+  "@commandDisabledNoClosedTab": {
+    "description": "Palette reason under Reopen Closed Tab while the ghost ring is empty."
+  },
+  "commandDisabledMultipleTabs": "Requires at least two tabs",
+  "@commandDisabledMultipleTabs": {
+    "description": "Palette reason under tab-strip commands disabled on a single-tab strip."
+  },
+  "commandDisabledNoQueue": "Requires the transfer queue",
+  "@commandDisabledNoQueue": {
+    "description": "Palette reason under queue commands while no transfer-queue seam is bound."
+  },
+  "commandDisabledNoPlan": "Requires an open sync plan",
+  "@commandDisabledNoPlan": {
+    "description": "Palette reason under Copy rsync Command while the active tab is not a sync plan."
+  },
+  "commandDisabledNoBookmarks": "Requires saved favorites",
+  "@commandDisabledNoBookmarks": {
+    "description": "Palette reason under commands that need the bookmark store."
+  },
+  "commandDisabledBusy": "Unavailable while another command is running",
+  "@commandDisabledBusy": {
+    "description": "Palette reason under app-scope commands gated on an in-flight command session (the one-shot rule)."
+  },
+  "commandDisabledNoEditors": "Requires a configured external editor",
+  "@commandDisabledNoEditors": {
+    "description": "Palette reason under Open With rows while no editor registry is bound."
+  },
+  "commandDisabledNoWorkspaces": "No saved workspaces",
+  "@commandDisabledNoWorkspaces": {
+    "description": "Palette reason and submenu empty-state under Workspaces ▸ while the library is empty."
+  },
+  "sidebarImportSshConfig": "Import from ssh config…",
+  "@sidebarImportSshConfig": {
+    "description": "Button inside the sidebar's empty-favorites state: opens the ssh_config import preview (D22's adoption offer). Kept parallel to the command label sshImportCommandLabel."
+  },
+  "panePathSegmentGoTo": "Go to {segment}",
+  "@panePathSegmentGoTo": {
+    "description": "Accessible label of one clickable ancestor segment in the pane's path bar (02 §13: button semantics, \"Go to var\").",
+    "placeholders": {
+      "segment": {
+        "type": "String",
+        "example": "var"
+      }
+    }
+  },
+  "sidebarSectionSemantics": "{title}, {count}",
+  "@sidebarSectionSemantics": {
+    "description": "Accessible label of a collapsible sidebar group header (02 §13: expanded state rides the node's expanded flag, the count is spelled out). {count} is an item-count clause like \"3 items\".",
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Favorites"
+      },
+      "count": {
+        "type": "String",
+        "example": "3 items"
+      }
     }
   }
 }

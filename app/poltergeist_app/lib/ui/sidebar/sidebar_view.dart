@@ -41,6 +41,7 @@ class SidebarView extends StatelessWidget {
     this.onReviewBlocked,
     this.onUpdateWorkspace,
     this.onLocalEdits,
+    this.onImportSshConfig,
     super.key,
   });
 
@@ -85,6 +86,11 @@ class SidebarView extends StatelessWidget {
   /// checkout session owns no edits to review.
   final void Function(Bookmark bookmark)? onLocalEdits;
 
+  /// D22's adoption affordance inside the empty-favorites state: opens
+  /// the ssh_config import preview. Null (Windows in v1, or a shell
+  /// without the import seam) renders the empty copy alone.
+  final VoidCallback? onImportSshConfig;
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -120,6 +126,7 @@ class _SidebarBody extends StatelessWidget {
         _SectionHeader(
           sectionKey: _connectionsSectionKey,
           title: l10n.sidebarConnectionsSection,
+          itemCount: live.length,
           collapsed: collapsed,
           onToggle: () => controller.toggleCollapsed(_connectionsSectionKey),
         ),
@@ -189,11 +196,26 @@ class _SidebarBody extends StatelessWidget {
           children.add(
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Text(
-                l10n.sidebarEmptyFavorites,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall
-                    ?.copyWith(color: scheme.onSurfaceVariant),
+              child: Column(
+                children: [
+                  Text(
+                    l10n.sidebarEmptyFavorites,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                  // D22's adoption beat: an empty favorites list is the
+                  // moment the ssh_config import earns its keep.
+                  if (view.onImportSshConfig != null) ...[
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      key: const ValueKey('sidebar.importSshConfig'),
+                      onPressed: view.onImportSshConfig,
+                      icon: const Icon(Icons.download_outlined, size: 16),
+                      label: Text(l10n.sidebarImportSshConfig),
+                    ),
+                  ],
+                ],
               ),
             ),
           );
@@ -209,6 +231,7 @@ class _SidebarBody extends StatelessWidget {
               _SectionHeader(
                 sectionKey: section.key,
                 title: section.name ?? l10n.sidebarUngroupedSection,
+                itemCount: section.bookmarks.length,
                 collapsed: collapsed,
                 onToggle: () => controller.toggleCollapsed(section.key),
                 onAcceptBookmark: (bookmark) =>
@@ -292,6 +315,7 @@ class _SectionHeader extends StatefulWidget {
   const _SectionHeader({
     required this.sectionKey,
     required this.title,
+    required this.itemCount,
     required this.collapsed,
     required this.onToggle,
     this.onAcceptBookmark,
@@ -299,6 +323,10 @@ class _SectionHeader extends StatefulWidget {
 
   final String sectionKey;
   final String title;
+
+  /// The section's row count, spelled out in the semantics label
+  /// (02 §13's group-header rule).
+  final int itemCount;
   final bool collapsed;
   final VoidCallback onToggle;
   final void Function(Bookmark bookmark)? onAcceptBookmark;
@@ -359,53 +387,65 @@ class _SectionHeaderState extends State<_SectionHeader> {
       child: Builder(
         builder: (context) {
           final focused = Focus.of(context).hasFocus;
-          return Semantics(
-            header: true,
-            button: true,
-            expanded: !widget.collapsed,
-            label: widget.title,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              // The pointer moves focus with it, same as the rows —
-              // arrows and Enter act on the header last touched.
-              onTap: () {
-                _focusNode.requestFocus();
-                widget.onToggle();
-              },
-              child: Container(
-                key: ValueKey('sidebar.section.${widget.sectionKey}'),
-                height: 30,
-                padding: const EdgeInsetsDirectional.only(start: 8, end: 8),
-                decoration: BoxDecoration(
-                  color: _hovering
-                      ? scheme.primary.withValues(alpha: 0.12)
-                      : null,
-                  border: focused
-                      ? Border.all(color: scheme.primary, width: 1)
-                      : null,
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      widget.collapsed
-                          ? Icons.chevron_right
-                          : Icons.expand_more,
-                      size: 16,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        widget.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: text.labelMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w600,
+          // 02 §13's group-header shape: one merged node carrying the
+          // spelled-out title + count, with the expanded flag inside.
+          return MergeSemantics(
+            child: Semantics(
+              header: true,
+              button: true,
+              expanded: !widget.collapsed,
+              label: AppLocalizations.of(context).sidebarSectionSemantics(
+                widget.title,
+                AppLocalizations.of(context).paneItemCount(widget.itemCount),
+              ),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                // The pointer moves focus with it, same as the rows —
+                // arrows and Enter act on the header last touched.
+                onTap: () {
+                  _focusNode.requestFocus();
+                  widget.onToggle();
+                },
+                child: Container(
+                  key: ValueKey('sidebar.section.${widget.sectionKey}'),
+                  height: 30,
+                  padding: const EdgeInsetsDirectional.only(start: 8, end: 8),
+                  decoration: BoxDecoration(
+                    color: _hovering
+                        ? scheme.primary.withValues(alpha: 0.12)
+                        : null,
+                    border: focused
+                        ? Border.all(color: scheme.primary, width: 2)
+                        : null,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        widget.collapsed
+                            ? Icons.chevron_right
+                            : Icons.expand_more,
+                        size: 16,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        // The merged header node already announces the
+                        // full "title, N items" label; exclude the raw
+                        // text so screen readers don't read it twice.
+                        child: ExcludeSemantics(
+                          child: Text(
+                            widget.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.labelMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -581,10 +621,10 @@ class _FavoriteRowState extends State<_FavoriteRow> {
                             ? BorderSide(color: scheme.primary, width: 2)
                             : BorderSide.none,
                         left: focused
-                            ? BorderSide(color: scheme.primary, width: 1)
+                            ? BorderSide(color: scheme.primary, width: 2)
                             : BorderSide.none,
                         right: focused
-                            ? BorderSide(color: scheme.primary, width: 1)
+                            ? BorderSide(color: scheme.primary, width: 2)
                             : BorderSide.none,
                       ),
                       color: focused
@@ -1226,7 +1266,7 @@ class _ConnectionRowState extends State<_ConnectionRow> {
                 padding: const EdgeInsetsDirectional.fromSTEB(10, 8, 8, 8),
                 decoration: BoxDecoration(
                   border: _focusNode.hasFocus
-                      ? Border.all(color: scheme.primary, width: 1)
+                      ? Border.all(color: scheme.primary, width: 2)
                       : null,
                   color: _focusNode.hasFocus
                       ? scheme.primary.withValues(alpha: 0.08)

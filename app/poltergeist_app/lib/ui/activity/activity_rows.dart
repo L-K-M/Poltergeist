@@ -185,28 +185,41 @@ class _TaskRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            _taskTitle(task, l10n),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _taskStateLabel(task, l10n),
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(
-                                color: task.state ==
-                                        TransferTaskState.failed
-                                    ? colors.error
-                                    : colors.onSurfaceVariant,
+                    // 02 §13's activity row: one merged "label, state"
+                    // node on a live region — completion and failure
+                    // announce on the state flip while the progress
+                    // bar's percent stays silent.
+                    Semantics(
+                      liveRegion: true,
+                      label: l10n.activityRowSemantics(
+                        _taskTitle(task, l10n),
+                        _taskStateLabel(task, l10n),
+                      ),
+                      child: ExcludeSemantics(
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                _taskTitle(task, l10n),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodyMedium,
                               ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _taskStateLabel(task, l10n),
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                    color: task.state ==
+                                            TransferTaskState.failed
+                                        ? colors.error
+                                        : colors.onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                     Text(
                       formatTransferRoute(

@@ -98,6 +98,7 @@ class PaneTabsView extends StatelessWidget {
     this.onReviewLocalEdits,
     this.onSyncSaveAsFavorite,
     this.onSyncEditRules,
+    this.onImportSshConfig,
     this.clock,
   });
 
@@ -151,6 +152,11 @@ class PaneTabsView extends StatelessWidget {
   /// the session's pair.
   final void Function(SyncPlanController session)? onSyncEditRules;
 
+  /// The ssh_config import offer on the §2.7 launcher (D22) — the shell
+  /// routes it through the registered command so enablement and the
+  /// one-shot session rule apply. Null mounts no offer.
+  final VoidCallback? onImportSshConfig;
+
   /// Injectable clock forwarded to the tab view's date rendering.
   final DateTime Function()? clock;
 
@@ -176,6 +182,7 @@ class PaneTabsView extends StatelessWidget {
                   workspace: workspace,
                   focusNode: focusNode,
                   onSwapFocus: onSwapFocus,
+                  onImportSshConfig: onImportSshConfig,
                 );
               }
               final syncSession = activeTab.syncSession;
@@ -939,12 +946,14 @@ class _PaneLauncher extends StatefulWidget {
     required this.workspace,
     required this.focusNode,
     required this.onSwapFocus,
+    this.onImportSshConfig,
   });
 
   final PaneTabsController tabs;
   final WorkspaceController workspace;
   final FocusNode focusNode;
   final VoidCallback onSwapFocus;
+  final VoidCallback? onImportSshConfig;
 
   @override
   State<_PaneLauncher> createState() => _PaneLauncherState();
@@ -1040,6 +1049,7 @@ class _PaneLauncherState extends State<_PaneLauncher> {
           child: QuickConnectView(
             key: _quickConnectKey,
             focusNode: _addressFocus,
+            onImportSshConfig: widget.onImportSshConfig,
             onConnect: (bookmark, initialPath) {
               // Quick Connect binds a fresh tab through the existing
               // remote-connect seam: the tab opens immediately on the

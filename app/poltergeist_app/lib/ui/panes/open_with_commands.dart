@@ -79,6 +79,7 @@ RegisteredCommand buildOpenWithCommand({
         scope: CommandScope.selection,
         label: (_) => label,
         enabled: () => target() != null,
+        disabledReason: (l10n) => l10n.commandDisabledNoSelection,
         run: (_) async {
           final resolved = target();
           if (resolved == null) return;
@@ -113,6 +114,7 @@ RegisteredCommand buildOpenWithCommand({
         scope: CommandScope.selection,
         label: (l10n) => l10n.openWithOtherLabel,
         enabled: () => target() != null,
+        disabledReason: (l10n) => l10n.commandDisabledNoSelection,
         run: (context) async {
           final resolved = target();
           if (resolved == null) return;
@@ -127,6 +129,7 @@ RegisteredCommand buildOpenWithCommand({
         scope: CommandScope.selection,
         label: (l10n) => l10n.openWithConfigureLabel,
         enabled: () => registry != null,
+        disabledReason: (l10n) => l10n.commandDisabledNoEditors,
         run: (context) async {
           final controller = registry;
           if (controller == null) return;
@@ -150,6 +153,7 @@ RegisteredCommand buildOpenWithCommand({
     // exists: the per-editor rows gate on target() individually, and
     // Configure Editors… must stay reachable as the settings deep link.
     enabled: () => target() != null || registry != null,
+    disabledReason: (l10n) => l10n.commandDisabledNoSelection,
     // The non-menu invocation path (palette later; the §1 refusal
     // router today): the same rows as the submenu, as a chooser dialog.
     run: (context) async {
