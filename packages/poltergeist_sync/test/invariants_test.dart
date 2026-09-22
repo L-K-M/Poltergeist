@@ -19,6 +19,7 @@ void main() {
   const allowedDartIo = <String>{
     // journal.dart — crash-safe JSONL appends (05 §11/§8). Fails closed:
     // any other file importing dart:io breaks this test.
+    'journal.dart',
   };
 
   List<String> violations(Directory libDir) {

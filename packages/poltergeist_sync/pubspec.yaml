@@ -17,6 +17,8 @@ dependencies:
   # poltergeist_core re-exports the pinned seance_core surface itself.
   poltergeist_core:
     path: ../poltergeist_core
+  # sha256 — the runId's device-prefix digest (05 §6).
+  crypto: ^3.0.0
   # NFC/NFD name matching (05 §3). Dart ships no Unicode normalization;
   # pinned exactly — filename identity is correctness-critical.
   unorm_dart: 0.3.2

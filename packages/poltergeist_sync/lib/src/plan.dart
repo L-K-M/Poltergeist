@@ -314,6 +314,7 @@ class SyncItem {
     this.userOverridden = false,
     this.status = SyncItemStatus.pending,
     this.error,
+    this.destinationSubtree,
   });
 
   /// Relative to the sync root, '/'-separated, no trailing separator, byte
@@ -343,6 +344,16 @@ class SyncItem {
   /// failure, the local filesystem error's message (03 §2.2's funnel
   /// wording) for a local commit/trash failure.
   String? error;
+
+  /// For a `typeDiffers` item whose destination is a directory: the
+  /// scan-captured recursive contents of that directory — '/'-separated
+  /// paths strictly below [relativePath], mapped to their snapshots. The
+  /// differ subsumes those entries into this item (§6 rule 4) instead of
+  /// emitting child rows; the executor needs the snapshot for the
+  /// rail-7 "entry set still matches" precondition and to count every
+  /// removed file against `maxDelete` and the delete-fraction rail.
+  /// Null for every other item shape.
+  final Map<String, EntrySnapshot>? destinationSubtree;
 }
 
 class ScanWarning {
@@ -368,6 +379,8 @@ class SyncPlan {
     required this.items,
     required this.warnings,
     required this.totals,
+    this.leftFileCount,
+    this.rightFileCount,
   });
 
   final SyncPair pair;
@@ -381,6 +394,14 @@ class SyncPlan {
   /// still holds the scan maps — an ad-hoc walk over items cannot see the
   /// destination entries a rule-4 pre-delete subsumes (05 §6).
   final PlanTotals totals;
+
+  /// Non-directory entries the scan counted on each side — rail 3's
+  /// denominator (05 §8: planned deletions included, the trash root
+  /// already excluded by the scan). The differ fills these while it
+  /// holds the scan maps; null tolerates plans built without scan data,
+  /// where the executor derives a lower bound from the items.
+  final int? leftFileCount;
+  final int? rightFileCount;
 }
 
 class PlanTotals {

@@ -7137,6 +7137,82 @@ Not in this slice (per the task bound): `diff.dart`, `executor.dart`,
 `journal.dart`, `rsync_export.dart`, engine-side two-side concurrency,
 remote-pair scanning, `SyncPlan` preview UI, chown UI.
 
+## M8 — SyncPlan execution engine + the 05 §5/§8 safety rails (2026-09-22)
+
+The second M8 slice executes the plan the preview rendered — rail 1 in
+code: `SyncExecutor.run(SyncPlan)` is the only execute path; nothing
+re-scans or recomputes behavior.
+
+- `executor.dart` — §6's three phases over two injected
+  `RemoteFileSystem` roots (D3): makeDirs shallowest-first, copies/
+  updates under `transferConcurrency` with rule-4 pre-delete items as
+  drain-then-remove barriers, deletes deepest-first behind a clean
+  copy phase (failures *and* conflicts gate it — gated items land as
+  `skipped: earlier errors`). Rail 7 re-stats every destination
+  (kind → size → tolerant mtime, size-only when §4 flags distrust
+  clocks) plus the destination parent chain for since-scan links;
+  mismatches flip `conflicted`, a vanished source fails just that
+  item. Replaced directories verify the scan-captured recursive entry
+  set (`SyncItem.destinationSubtree`) before the pre-delete removes it
+  wholesale. Copies stream through a bounded chunk pipe (no whole-file
+  buffering); updates under `backups: none` use the adapter's
+  `expectedTarget` compare-and-swap, and every absent-target write is
+  `overwrite: false`. `setTimes` stamps atime+mtime then re-stats —
+  divergence beyond tolerance, or a refusing setTimes, journals
+  `setstatIgnored` and raises that side's `mtimeUnreliable` flag for
+  §9's sizeOnly fallback. Deletes and overwrite backups route through
+  `RemoteTrash` with D15 flat `<seq>-<basename>` names inside
+  `.poltergeist-trash/<runId>` (per-side `trashPath*` out-of-root
+  honored), and rail 5's copy-then-delete fallback on EXDEV-classified
+  local renames or any non-collision remote rename failure — fallback
+  copies journal their SHA-256 for restore verification.
+- Rails 3–4 in `assessDeletions`: per-side non-directory removals
+  (delete-phase items plus per-file pre-delete counts — never "one
+  item = one deletion") against the side's scanned file count
+  (`SyncPlan.leftFileCount`/`rightFileCount`, differ-supplied). The
+  ≥ 90 % floor wins over the `deleteFractionWarn`-and-≥ 10 clause, and
+  `maxDelete` refuses the whole run before any item executes — never a
+  stripped partial run. A delete item inside a no-delete plan fails
+  loudly rather than deleting.
+- `journal.dart` — the §8 rail-9 JSONL run journal under
+  `sync_runs/<runId>.jsonl`: `SyncRunRecord` header, per-item lines
+  (action/side/outcome/attempt/bytes/duration/override/
+  `trashLocation`/`trashBytes`/`trashContentSha256`/
+  `observedMtimeAfterWrite`/`setstatIgnored`), per-file `trash` and
+  `rmdir` lines for rule-4 pre-deletes, `remove` lines for permanent
+  deletions, a summary carrying the §4 flags, and the `purged` marker
+  that releases pruning. Appends flush per line — a torn tail is
+  dropped on replay. `Retry Failed` re-runs only `failed` items at
+  attempt n+1 under the same runId (a source whose stat no longer
+  matches the snapshot flips conflicted — a retried item never pushes
+  un-previewed content). `restoreTrashedFiles` reverses the recorded
+  renames after a post-state check — absence for deletions, the
+  written file's size+observed mtime for updates, the recorded
+  end-of-run entry set for created directories — skips and reports any
+  divergence, recreates emptied chains shallowest-first, and
+  hash-verifies copy-fallback trash entries. Pruning keeps the newest
+  20 per pair and never a journal guarding live trash.
+- Core seam: `SyncItem.destinationSubtree` added for rule-4
+  snapshots. Run ids reuse the `RemoteTrash` minter for their uuid
+  half — no `uuidV4` barrel re-export (it would collide with the
+  app's own `services/uuid.dart` under `ambiguous_import`).
+  `journal.dart` is the package's one `dart:io` user — the invariants
+  test's allowlist records exactly that.
+
+36 new red-first tests cover the three modes, both rail-3 clauses plus
+near-misses, `maxDelete` refusal, rail-7 conflict flips (dest changed,
+copy-new target appeared, subtree changed), vanished-source failure,
+the copy-phase delete barrier, mtime preservation + setstat-ignored
+flagging, EXDEV trash fallback with digest, D15 naming/runId shape,
+out-of-root trash, dir→file replace journaling and full revert,
+retry-attempt tracking, journal replay/torn-tail/purged/prune, and the
+restore post-state skips. 107 tests pass in the package; core analyze
+clean and 1440 tests pass.
+
+Not in this slice: `diff.dart` (plan production), `rsync_export.dart`,
+the §7 preview UI, §9 `sync_state` persistence, purge UI,
+remote-pair integration tests.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
