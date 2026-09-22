@@ -370,7 +370,18 @@ List<RegisteredCommand> buildPaneCommands({
             // run and the controller refuse.
             !nameIsFlagged(pane.entries[cursor].name);
       },
-      disabledReason: (l10n) => l10n.commandDisabledNoSelection,
+      disabledReason: (l10n) {
+        final pane = activeTab();
+        final cursor = pane?.cursorIndex;
+        final flagged = pane != null &&
+            cursor != null &&
+            cursor >= 0 &&
+            cursor < pane.entries.length &&
+            nameIsFlagged(pane.entries[cursor].name);
+        return flagged
+            ? l10n.paneFlaggedNameTooltip
+            : l10n.commandDisabledNoSelection;
+      },
       run: (_) async {
         activeTab()?.startRename();
       },
