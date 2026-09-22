@@ -19,8 +19,8 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'plan.dart';
 
-/// Schema version stamped on every line; replay refuses a newer major
-/// version rather than silently misreading it.
+/// Schema version stamped on every line; replay refuses any version
+/// other than this one rather than silently misreading it.
 const int syncJournalSchemaVersion = 1;
 
 /// Directory name under app-support (05 §8 rail 9).
@@ -199,6 +199,19 @@ final class SyncRunJournal {
     String syncRunsDirectory,
     SyncRunRecord record,
   ) async {
+    // runId becomes a file name — reject anything that could escape
+    // the runs directory.
+    if (record.runId.isEmpty ||
+        record.runId == '.' ||
+        record.runId == '..' ||
+        record.runId.contains('/') ||
+        record.runId.contains('\\')) {
+      throw ArgumentError.value(
+        record.runId,
+        'record.runId',
+        'must be a non-empty path-safe run id',
+      );
+    }
     final journal = SyncRunJournal._(
       '$syncRunsDirectory/${record.runId}.jsonl',
       record,
@@ -211,8 +224,9 @@ final class SyncRunJournal {
     return journal;
   }
 
-  /// Replays a journal file. A torn final line — the one a kill can
-  /// leave mid-write — is dropped, never misparsed.
+  /// Replays a journal file. Undecodable lines — the torn tail a kill
+  /// can leave mid-write, or one stranded mid-file when a resumed run
+  /// appended past it — are skipped, never misparsed.
   static Future<SyncRunJournal> open(String path) async {
     final file = File(path);
     final lines = await file.readAsLines();
@@ -224,10 +238,12 @@ final class SyncRunJournal {
       try {
         decoded = jsonDecode(raw);
       } on FormatException {
-        // The torn tail: a killed process lost the line it was writing.
-        break;
+        // A kill loses the line it was mid-writing — and a resumed
+        // run can append *after* the tear, so skip the torn line and
+        // keep replaying rather than truncating everything after it.
+        continue;
       }
-      if (decoded is! Map<String, Object?>) break;
+      if (decoded is! Map<String, Object?>) continue;
       final version = decoded['v'];
       if (version != syncJournalSchemaVersion) {
         throw FormatException(
@@ -236,6 +252,9 @@ final class SyncRunJournal {
       }
       switch (decoded['type']) {
         case 'header':
+          if (journal != null) {
+            throw FormatException('duplicate header line in $path');
+          }
           record = _recordFromJson(decoded);
           journal = SyncRunJournal._(path, record);
         case 'item':
@@ -279,7 +298,9 @@ final class SyncRunJournal {
   }
 
   Future<void> appendItem(SyncJournalItemLine line) async {
-    items.add(line);
+    // Durable first — a failed write must not leave in-memory state
+    // claiming lines the file never received (retention and
+    // lastAttempt read these lists).
     await _append(<String, Object?>{
       'type': 'item',
       'path': line.relativePath,
@@ -299,10 +320,10 @@ final class SyncRunJournal {
       if (line.setstatIgnored) 'setstatIgnored': true,
       if (line.error != null) 'error': line.error,
     });
+    items.add(line);
   }
 
   Future<void> appendTrash(SyncJournalTrashLine line) async {
-    trashLines.add(line);
     await _append(<String, Object?>{
       'type': 'trash',
       'parent': line.parentPath,
@@ -313,10 +334,10 @@ final class SyncRunJournal {
       if (line.trashContentSha256 != null)
         'trashContentSha256': line.trashContentSha256,
     });
+    trashLines.add(line);
   }
 
   Future<void> appendRemove(SyncJournalRemoveLine line) async {
-    removeLines.add(line);
     await _append(<String, Object?>{
       'type': 'remove',
       'parent': line.parentPath,
@@ -324,20 +345,20 @@ final class SyncRunJournal {
       'side': line.side.name,
       'bytes': line.bytes,
     });
+    removeLines.add(line);
   }
 
   Future<void> appendRmdir(SyncJournalRmdirLine line) async {
-    rmdirLines.add(line);
     await _append(<String, Object?>{
       'type': 'rmdir',
       'path': line.relativePath,
       'side': line.side.name,
       'parent': line.parentPath,
     });
+    rmdirLines.add(line);
   }
 
   Future<void> appendSummary(SyncJournalSummary value) async {
-    summary = value;
     await _append(<String, Object?>{
       'type': 'summary',
       'counts': {
@@ -348,24 +369,28 @@ final class SyncRunJournal {
       'mtimeUnreliableLeft': value.mtimeUnreliableLeft,
       'mtimeUnreliableRight': value.mtimeUnreliableRight,
     });
+    summary = value;
   }
 
   /// Rail 5's purge marker — releases the journal for pruning and makes
   /// the retention exception locally evaluable.
   Future<void> markPurged() async {
-    purged = true;
     await _append(const <String, Object?>{'type': 'purged'});
+    purged = true;
   }
 
   /// Appends one complete line with an immediate flush. A fresh open
   /// per append is deliberate (03 §4.6's pattern): no userspace
   /// buffering, so a kill loses at most the line it was mid-writing.
+  /// The record is preceded by `\n` too — a torn tail write has no
+  /// terminator of its own, and without the leading break it would
+  /// glue onto the next record and corrupt that line as well.
   Future<void> _append(Map<String, Object?> fields) {
     final line = jsonEncode(<String, Object?>{
       'v': syncJournalSchemaVersion,
       ...fields,
     });
-    return _file.writeAsString('$line\n', mode: FileMode.append);
+    return _file.writeAsString('\n$line\n', mode: FileMode.append);
   }
 
   /// Prunes [syncRunsDirectory] to the newest [keep] journals per pair —
@@ -572,6 +597,14 @@ Future<String?> _restoreOne({
   required Map<String, SyncJournalItemLine> created,
   required Map<String, String?> parentDecisions,
 }) async {
+  // A replace parent that already failed its revert skips this child
+  // before its trash copy is stat'd and digested again.
+  if (entry.parentPath != entry.relativePath) {
+    final cached =
+        parentDecisions['${entry.side.name}:${entry.parentPath}'];
+    if (cached != null) return cached;
+  }
+
   // Verify the trashed entry itself: size always; the recorded digest
   // for copy-fallback entries (05 §8 rail 9 — a rename cannot
   // truncate, an interrupted copy can, and Undo must never resurrect a
@@ -613,6 +646,11 @@ Future<String?> _restoreOne({
     final decision = parentDecisions[parentKey];
     if (decision != null) return decision;
   } else {
+    // Recreate the origin's directory chain shallowest-first — before
+    // clearing the destination, so a blocked chain can never strand an
+    // origin whose run-created entry was already deleted.
+    final chainError = await _ensureChain(fs, root, entry.relativePath);
+    if (chainError != null) return chainError;
     // Conflict-check the destination against the run's recorded
     // post-state, then clear it: absent for a deletion, the written
     // file's size + observedMtimeAfterWrite for an update or a
@@ -623,14 +661,13 @@ Future<String?> _restoreOne({
       origin: origin,
       createdLine: created['${entry.side.name}:${entry.relativePath}'],
       created: created,
-      journal: journal,
     );
     if (clearError != null) return clearError;
   }
 
-  // Recreate the origin's directory chain shallowest-first; a chain
-  // level now occupied by a file makes the child unplaceable — Undo
-  // never overwrites what took the directory's place.
+  // Replace children need their chain only after the parent tree was
+  // cleared (it lives inside it); for the self-path this re-check is
+  // an idempotent no-op.
   final chainError = await _ensureChain(fs, root, entry.relativePath);
   if (chainError != null) return chainError;
 
@@ -652,7 +689,6 @@ Future<String?> _clearOwnPostState({
   required String origin,
   required SyncJournalItemLine? createdLine,
   required Map<String, SyncJournalItemLine> created,
-  required SyncRunJournal journal,
 }) async {
   final live = await _statOrNull(fs, origin);
   if (createdLine == null) {
@@ -670,7 +706,6 @@ Future<String?> _clearOwnPostState({
     live: live,
     createdLine: createdLine,
     created: created,
-    journal: journal,
     displayPath: entry.relativePath,
   );
 }
@@ -697,7 +732,7 @@ Future<String?> _clearReplaceParent({
   final live = await _statOrNull(fs, remoteJoin(root, parentRelativePath));
   final probe = _TrashedEntry(
     relativePath: parentRelativePath,
-    side: SyncSide.left, // unused by _clearCreated's messages
+    side: side, // the real side — never a synthetic one
     trashLocation: '',
     bytes: 0,
     sha256: null,
@@ -709,7 +744,6 @@ Future<String?> _clearReplaceParent({
     live: live,
     createdLine: createdLine,
     created: created,
-    journal: journal,
     displayPath: parentRelativePath,
   );
 }
@@ -723,7 +757,6 @@ Future<String?> _clearCreated({
   required RemoteFileEntry? live,
   required SyncJournalItemLine createdLine,
   required Map<String, SyncJournalItemLine> created,
-  required SyncRunJournal journal,
   required String displayPath,
 }) async {
   if (live == null) {
@@ -738,15 +771,19 @@ Future<String?> _clearCreated({
       if (!live.isDirectory) {
         return '"$displayPath" changed since the run';
       }
+      final verified = <String, RemoteFileEntry>{};
       final mismatch = await _dirPostStateMismatch(
         created,
         live,
         fs,
         createdLine.side,
         displayPath,
+        verified,
       );
       if (mismatch != null) return mismatch;
-      await _removeCreatedTree(fs, live);
+      // Delete exactly the verified snapshot — a re-list could catch
+      // entries that arrived between check and removal.
+      await _removeVerifiedTree(fs, live, verified);
       return null;
     default:
       // Update/copy replace: the written file must still match its
@@ -771,6 +808,7 @@ Future<String?> _dirPostStateMismatch(
   RemoteFileSystem fs,
   SyncSide side,
   String relativePath,
+  Map<String, RemoteFileEntry> liveEntries,
 ) async {
   final prefix = '$relativePath/';
   final expected = <String, SyncJournalItemLine>{
@@ -778,7 +816,6 @@ Future<String?> _dirPostStateMismatch(
       if (e.key.startsWith('${side.name}:$prefix'))
         e.key.substring(side.name.length + 1): e.value,
   };
-  final liveEntries = <String, RemoteFileEntry>{};
   // Keys are plan-style relative paths — built from entry names, not
   // substring surgery on absolute paths (listed local paths carry
   // the platform separator, which must never leak into a key).
@@ -824,19 +861,23 @@ Future<String?> _dirPostStateMismatch(
   return null;
 }
 
-/// Removes a verified created directory together with its recorded
-/// entry set — the one place v1 undo removes run-created copies
-/// (05 §8 rail 9).
-Future<void> _removeCreatedTree(
+/// Removes a verified created directory together with exactly the
+/// entry set the post-state check verified — the one place v1 undo
+/// removes run-created copies (05 §8 rail 9). Deepest-first via
+/// descending path order (a child's path always sorts after its
+/// parent's); an entry already gone is fine.
+Future<void> _removeVerifiedTree(
   RemoteFileSystem fs,
   RemoteFileEntry live,
+  Map<String, RemoteFileEntry> verified,
 ) async {
-  final entries = await fs.listDirectory(live.path);
-  for (final child in entries) {
-    if (child.isDirectory) {
-      await _removeCreatedTree(fs, child);
-    } else {
-      await fs.delete(child);
+  final sorted = verified.values.toList()
+    ..sort((a, b) => b.path.compareTo(a.path));
+  for (final entry in sorted) {
+    try {
+      await fs.delete(entry);
+    } on RemoteFileException catch (error) {
+      if (error.kind != RemoteFileErrorKind.notFound) rethrow;
     }
   }
   await fs.delete(live);
@@ -864,7 +905,12 @@ Future<String?> _ensureChain(
           return 'could not recreate "${segments.take(i + 1).join('/')}"'
               ': ${error.message}';
         }
-        // EEXIST is success — something recreated the level already.
+        // EEXIST — but only a directory winner counts as success.
+        final winner = await _statOrNull(fs, current);
+        if (winner != null && !winner.isDirectory) {
+          return '"${segments.take(i + 1).join('/')}" is a file now; '
+              'cannot restore inside it';
+        }
       }
       continue;
     }
@@ -914,8 +960,9 @@ final class _HashNullSink implements StreamSink<List<int>> {
   Future<void> get done => Future<void>.value();
 }
 
-int? _seconds(DateTime? time) =>
-    time == null ? null : time.millisecondsSinceEpoch ~/ 1000;
+int? _seconds(DateTime? time) => time == null
+    ? null
+    : (time.millisecondsSinceEpoch / 1000).floor();
 
 // ── Serialization ──────────────────────────────────────────────────────
 

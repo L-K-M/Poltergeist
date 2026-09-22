@@ -18,7 +18,6 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'journal.dart';
 import 'plan.dart';
-import 'scan.dart';
 
 /// Which clause of the >50 % rail (05 §8 rail 3) tripped — the typed
 /// confirmation's copy differs per clause.
@@ -42,16 +41,16 @@ final class SyncRunClear extends SyncRunGate {
   const SyncRunClear();
 }
 
-/// Rail 3 tripped: the UI must collect a typed `DELETE` before running.
-final class SyncRunNeedsConfirmation extends SyncRunGate {
-  const SyncRunNeedsConfirmation({
+/// One side's rail-3 trigger — a bidirectional run can trip both, and
+/// the confirmation dialog must show every tripping side's numbers.
+final class SyncDeleteRailTrigger {
+  const SyncDeleteRailTrigger({
     required this.side,
     required this.deleteCount,
     required this.sideFileCount,
     required this.clause,
   });
 
-  /// The side whose deletion share tripped the rail.
   final SyncSide side;
   final int deleteCount;
 
@@ -59,6 +58,21 @@ final class SyncRunNeedsConfirmation extends SyncRunGate {
   /// planned deletions included; the trash root is never scanned).
   final int sideFileCount;
   final DeleteRailClause clause;
+}
+
+/// Rail 3 tripped: the UI must collect a typed `DELETE` before running.
+final class SyncRunNeedsConfirmation extends SyncRunGate {
+  const SyncRunNeedsConfirmation({required this.triggers});
+
+  /// Every tripping side, in `SyncSide` order — never empty.
+  final List<SyncDeleteRailTrigger> triggers;
+
+  /// The first tripping side's figures — kept as convenience getters
+  /// for single-side callers and the refusal message.
+  SyncSide get side => triggers.first.side;
+  int get deleteCount => triggers.first.deleteCount;
+  int get sideFileCount => triggers.first.sideFileCount;
+  DeleteRailClause get clause => triggers.first.clause;
 }
 
 /// Rail 4: deletions exceed `maxDelete`. The plan refuses to run at
@@ -223,7 +237,12 @@ int _removalWeight(EntrySnapshot? destination) =>
 int _preDeleteWeight(SyncItem item, EntrySnapshot destination) {
   if (destination.kind != EntryKind.directory) return 1;
   final subtree = item.destinationSubtree;
-  if (subtree == null) return 0;
+  if (subtree == null) {
+    // A stale plan can lack the rule-4 snapshot — a destructive rail
+    // must never under-count, and _removeDestination refuses the
+    // replace before any deletion happens.
+    return 1;
+  }
   var count = 0;
   for (final snapshot in subtree.values) {
     if (snapshot.kind != EntryKind.directory) count++;
@@ -248,6 +267,9 @@ SyncRunGate _evaluateRails(
       );
     }
   }
+  // Collect every tripping side — a bidirectional run can trip both,
+  // and the typed confirmation must render each.
+  final triggers = <SyncDeleteRailTrigger>[];
   for (final side in SyncSide.values) {
     final count = removals[side]!;
     if (count == 0) continue;
@@ -255,21 +277,29 @@ SyncRunGate _evaluateRails(
     // The ≥ 90 % floor trips at any threshold and wins over the
     // fraction clause (05 §8 rail 3).
     if (total > 0 && count >= 0.9 * total) {
-      return SyncRunNeedsConfirmation(
-        side: side,
-        deleteCount: count,
-        sideFileCount: total,
-        clause: DeleteRailClause.floor90,
+      triggers.add(
+        SyncDeleteRailTrigger(
+          side: side,
+          deleteCount: count,
+          sideFileCount: total,
+          clause: DeleteRailClause.floor90,
+        ),
       );
+      continue;
     }
     if (count >= 10 && count > plan.pair.rules.deleteFractionWarn * total) {
-      return SyncRunNeedsConfirmation(
-        side: side,
-        deleteCount: count,
-        sideFileCount: total,
-        clause: DeleteRailClause.fraction,
+      triggers.add(
+        SyncDeleteRailTrigger(
+          side: side,
+          deleteCount: count,
+          sideFileCount: total,
+          clause: DeleteRailClause.fraction,
+        ),
       );
     }
+  }
+  if (triggers.isNotEmpty) {
+    return SyncRunNeedsConfirmation(triggers: triggers);
   }
   return const SyncRunClear();
 }
@@ -327,7 +357,7 @@ final class SyncExecutor {
     required this.leftRoot,
     required this.rightRoot,
     required this.syncRunsDirectory,
-    this.deviceId = '',
+    required this.deviceId,
     this.mtimeUnreliableLeft = false,
     this.mtimeUnreliableRight = false,
     RemoteTrash? trash,
@@ -356,6 +386,10 @@ final class SyncExecutor {
   bool mtimeUnreliableRight;
 
   final RemoteTrash _trash;
+
+  /// One run at a time per executor — concurrent run/retry calls would
+  /// interleave journal appends and share mutable plan state.
+  var _runInProgress = false;
 
   /// `<first 8 hex of sha256(deviceId)>-<uuidV4>` (05 §6) — the uuid
   /// half comes from the RemoteTrash seam's minter so one injected
@@ -395,42 +429,50 @@ final class SyncExecutor {
     void Function(SyncRunEvent event)? onEvent,
     DateTime? startedAt,
   }) async {
-    plan.pair.rules.ensureSupported();
-    final gate = assessDeletions(plan).gate;
-    if (gate is SyncRunRefused) {
-      throw SyncRunRefusedException(gate);
+    if (_runInProgress) {
+      throw StateError('a sync run is already in progress on this executor');
     }
-    if (gate is SyncRunNeedsConfirmation &&
-        !deleteConfirmationAcknowledged) {
-      throw SyncConfirmationRequiredException(gate);
-    }
+    _runInProgress = true;
+    try {
+      plan.pair.rules.ensureSupported();
+      final gate = assessDeletions(plan).gate;
+      if (gate is SyncRunRefused) {
+        throw SyncRunRefusedException(gate);
+      }
+      if (gate is SyncRunNeedsConfirmation &&
+          !deleteConfirmationAcknowledged) {
+        throw SyncConfirmationRequiredException(gate);
+      }
 
-    final journal = await SyncRunJournal.create(
-      syncRunsDirectory,
-      SyncRunRecord(
-        runId: mintRunId(),
-        pairId: pairId,
-        startedAt: startedAt ?? DateTime.now(),
-        rules: plan.pair.rules,
-        totals: plan.totals,
-        warnings: plan.warnings,
-      ),
-    );
-    final session = _RunSession(
-      executor: this,
-      plan: plan,
-      journal: journal,
-      cancellation: cancellation,
-      onEvent: onEvent,
-    );
-    await session.execute();
-    return SyncRun(
-      journal: journal,
-      plan: plan,
-      mtimeUnreliableLeft: mtimeUnreliableLeft,
-      mtimeUnreliableRight: mtimeUnreliableRight,
-      cancelled: session.cancelled,
-    );
+      final journal = await SyncRunJournal.create(
+        syncRunsDirectory,
+        SyncRunRecord(
+          runId: mintRunId(),
+          pairId: pairId,
+          startedAt: startedAt ?? DateTime.now(),
+          rules: plan.pair.rules,
+          totals: plan.totals,
+          warnings: plan.warnings,
+        ),
+      );
+      final session = _RunSession(
+        executor: this,
+        plan: plan,
+        journal: journal,
+        cancellation: cancellation,
+        onEvent: onEvent,
+      );
+      await session.execute();
+      return SyncRun(
+        journal: journal,
+        plan: plan,
+        mtimeUnreliableLeft: mtimeUnreliableLeft,
+        mtimeUnreliableRight: mtimeUnreliableRight,
+        cancelled: session.cancelled,
+      );
+    } finally {
+      _runInProgress = false;
+    }
   }
 
   /// `Retry Failed` (05 §8 rail 8): re-executes only [previous]'s
@@ -444,6 +486,10 @@ final class SyncExecutor {
     RemoteTransferCancellation? cancellation,
     void Function(SyncRunEvent event)? onEvent,
   }) async {
+    if (_runInProgress) {
+      throw StateError('a sync run is already in progress on this executor');
+    }
+    previous.plan.pair.rules.ensureSupported();
     final session = _RunSession(
       executor: this,
       plan: previous.plan,
@@ -452,7 +498,12 @@ final class SyncExecutor {
       onEvent: onEvent,
       retry: true,
     );
-    await session.execute();
+    _runInProgress = true;
+    try {
+      await session.execute();
+    } finally {
+      _runInProgress = false;
+    }
     return SyncRun(
       journal: previous.journal,
       plan: previous.plan,
@@ -504,7 +555,38 @@ final class _RunSession {
   Future<void> execute() async {
     removalBudget[SyncSide.left] = rules.maxDelete;
     removalBudget[SyncSide.right] = rules.maxDelete;
+    try {
+      await _executePhases();
+    } finally {
+      // Whatever the phases left behind, the run still terminates
+      // honestly: pending items read as cancelled, an item abandoned
+      // mid-throw reads as failed, and the journal gets its summary
+      // line. A throwing _finish must not mask the original error.
+      if (cancelled) {
+        for (final item in plan.items) {
+          if (item.status == SyncItemStatus.pending) {
+            item.status = SyncItemStatus.skipped;
+            item.error = 'Cancelled';
+          }
+        }
+      }
+      for (final item in plan.items) {
+        if (item.status == SyncItemStatus.running) {
+          item.status = SyncItemStatus.failed;
+          item.error ??= 'Run aborted unexpectedly';
+        }
+      }
+      try {
+        await _finish();
+      } on Object {
+        // The summary line is the one record we could not write —
+        // never mask an in-flight exception for it.
+        _failed = true;
+      }
+    }
+  }
 
+  Future<void> _executePhases() async {
     // Skip/conflict items execute as skip — counted, never acted on
     // (05 §5: unresolved conflicts are surfaced, not silently
     // resolved). On retry they keep their settled status.
@@ -590,15 +672,6 @@ final class _RunSession {
         await _runItem(item);
       }
     }
-    if (cancelled) {
-      for (final item in plan.items) {
-        if (item.status == SyncItemStatus.pending) {
-          item.status = SyncItemStatus.skipped;
-          item.error = 'Cancelled';
-        }
-      }
-    }
-    await _finish();
   }
 
   bool _claim(SyncItem item) {
@@ -1012,8 +1085,17 @@ final class _RunSession {
     // A replaced directory: its files move to trash one flat entry at
     // a time (deepest-first), the emptied directories rmdir with their
     // own lines, then the husk itself.
-    final subtree = item.destinationSubtree ??
-        await _listSubtree(destFs, destAbs, item.relativePath);
+    var subtree = item.destinationSubtree;
+    if (subtree == null) {
+      // Without the scanned snapshot there is nothing to verify the
+      // wholesale removal against — under the permanent policy that
+      // means post-preview arrivals would die unplanned (rail 7). The
+      // trash fallback stays recoverable, so it may live-list.
+      if (!toTrash) {
+        throw const _ItemConflicted('changed since preview');
+      }
+      subtree = await _listSubtree(destFs, destAbs, item.relativePath);
+    }
     final sorted = subtree.entries.toList()
       ..sort((a, b) => b.key.split('/').length - a.key.split('/').length);
     _spendBudget(item, side, _preDeleteWeight(item, snapshot));
@@ -1132,6 +1214,10 @@ final class _RunSession {
       removedPaths.add(item.relativePath);
       return const _ItemOutcome();
     }
+    // Non-directory removals consume the per-side budget like any
+    // other deletion — the rail-4 upfront refusal bounds the plan,
+    // this binds the run.
+    _spendBudget(item, side, 1);
     if (rules.deletions == DeletionPolicy.permanent) {
       await destFs.delete(entry);
       removedPaths.add(item.relativePath);
@@ -1197,7 +1283,21 @@ final class _RunSession {
         length: entry.size,
         overwrite: false,
       );
-      await fs.delete(entry);
+      try {
+        await fs.delete(entry);
+      } on Object {
+        // The item will fail without a trash journal line — remove the
+        // uploaded copy so nothing unjournaled is left in trash.
+        final orphan = await _statOrNull(fs, target);
+        if (orphan != null) {
+          try {
+            await fs.delete(orphan);
+          } on Object {
+            // Best-effort — the original delete error still propagates.
+          }
+        }
+        rethrow;
+      }
       return (location: target, sha256: uploaded.contentSha256);
     }
   }
@@ -1342,9 +1442,11 @@ final class _RunSession {
       final stat = await _statOrNull(destFs, destAbs);
       return (observed: _seconds(stat?.modifiedAt), ignored: false);
     }
-    final requestedSecs = clampSftpMtimeSecs(
-      sourceMtime.millisecondsSinceEpoch ~/ 1000,
-    );
+    // Verify against what was actually sent — a filesystem that
+    // clamps an out-of-range mtime diverges and flags the side
+    // unreliable; one that stores it (POSIX local) verifies true.
+    final requestedSecs =
+        (sourceMtime.millisecondsSinceEpoch / 1000).floor();
     try {
       await destFs.setTimes(
         destAbs,
@@ -1439,7 +1541,11 @@ final class _RunSession {
   bool _distrustsMtimes(SyncRuleSet rules) => executor._distrustsMtimes(rules);
 
   void _emit(int kind, SyncItem? item, [int? transferred, int? total]) {
-    onEvent?.call(SyncRunEvent._(kind, item, transferred, total));
+    try {
+      onEvent?.call(SyncRunEvent._(kind, item, transferred, total));
+    } on Object {
+      // A progress-listener bug must never abort a run mid-item.
+    }
   }
 
   Future<void> _finish() async {
@@ -1518,25 +1624,28 @@ final class _BoundedPipe implements StreamSink<List<int>> {
   var _closed = false;
 
   /// The upload-side stream — completes when the sink closed and the
-  /// queue drained, errors when the download failed.
+  /// queue drained, errors when the download failed. A consumer that
+  /// cancels its subscription (an adapter bailing mid-upload) fails
+  /// the pipe so the producer's backpressure wait cannot hang.
   Stream<List<int>> get stream async* {
-    while (true) {
-      while (_queue.isEmpty && !_closed && _error == null) {
-        _data ??= Completer<void>();
-        await _data!.future;
+    try {
+      while (true) {
+        while (_queue.isEmpty && !_closed && _error == null) {
+          _data ??= Completer<void>();
+          await _data!.future;
+        }
+        final error = _error;
+        if (error != null) throw error;
+        if (_queue.isEmpty) return;
+        yield _queue.removeFirst();
+        _space?.complete();
+        _space = null;
       }
-      final error = _error;
-      if (error != null) {
-        _completeDone();
-        throw error;
+    } finally {
+      _completeDone();
+      if (!_closed && _error == null) {
+        fail(StateError('the pipe consumer cancelled'));
       }
-      if (_queue.isEmpty) {
-        _completeDone();
-        return;
-      }
-      yield _queue.removeFirst();
-      _space?.complete();
-      _space = null;
     }
   }
 
@@ -1548,7 +1657,9 @@ final class _BoundedPipe implements StreamSink<List<int>> {
   }
 
   @override
-  void addError(Object error, [StackTrace? stackTrace]) {}
+  void addError(Object error, [StackTrace? stackTrace]) {
+    fail(error);
+  }
 
   @override
   Future<void> addStream(Stream<List<int>> stream) async {
@@ -1568,16 +1679,22 @@ final class _BoundedPipe implements StreamSink<List<int>> {
     _closed = true;
     _data?.complete();
     _data = null;
+    // `done` answers "no more input" — true now regardless of whether
+    // anyone is listening on the stream side.
+    _completeDone();
   }
 
   /// Kills the upload half after a download-side failure — the upload
-  /// stream throws, its temp is cleaned by the adapter.
+  /// stream throws, its temp is cleaned by the adapter. `done` also
+  /// resolves: the error already travels the stream/throw path, and a
+  /// listener-less waiter must not hang.
   void fail(Object error) {
     _error = error;
     _data?.complete();
     _data = null;
     _space?.complete();
     _space = null;
+    _completeDone();
   }
 
   void _completeDone() {
@@ -1595,5 +1712,6 @@ RemoteFileType _remoteType(EntryKind kind) => switch (kind) {
   EntryKind.other => RemoteFileType.other,
 };
 
-int? _seconds(DateTime? time) =>
-    time == null ? null : time.millisecondsSinceEpoch ~/ 1000;
+int? _seconds(DateTime? time) => time == null
+    ? null
+    : (time.millisecondsSinceEpoch / 1000).floor();

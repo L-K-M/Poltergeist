@@ -9,6 +9,48 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_sync/poltergeist_sync.dart';
 import 'package:test/test.dart';
 
+/// A LocalFileSystem whose clock is scriptable: [reportedMtime] wins
+/// over the real file's stat, and setTimes records its request into
+/// [requestedMtime] (feeding reportedMtime so a verifying re-stat sees
+/// the stamp). Lets tests exercise mtimes the host filesystem cannot
+/// store — e.g. pre-epoch stamps dart:io's setLastModified rejects.
+final class _FakeClockFs extends LocalFileSystem {
+  final Map<String, DateTime> reportedMtime = {};
+  final Map<String, DateTime?> requestedMtime = {};
+
+  @override
+  Future<RemoteFileEntry> stat(
+    String path, {
+    bool followLinks = true,
+  }) async {
+    final entry = await super.stat(path, followLinks: followLinks);
+    final fake = reportedMtime[path];
+    if (fake == null) return entry;
+    return RemoteFileEntry(
+      path: entry.path,
+      name: entry.name,
+      type: entry.type,
+      size: entry.size,
+      uid: entry.uid,
+      gid: entry.gid,
+      accessedAt: entry.accessedAt,
+      modifiedAt: fake,
+      contentSha256: entry.contentSha256,
+      mode: entry.mode,
+    );
+  }
+
+  @override
+  Future<void> setTimes(
+    String path, {
+    DateTime? accessedAt,
+    DateTime? modifiedAt,
+  }) async {
+    requestedMtime[path] = modifiedAt;
+    if (modifiedAt != null) reportedMtime[path] = modifiedAt;
+  }
+}
+
 /// A LocalFileSystem whose setTimes is silently ignored — the
 /// setstat-ignoring server shape (05 §4: clamp, never error).
 final class _SetTimesIgnoringFs extends LocalFileSystem {
@@ -215,8 +257,11 @@ void main() {
       ),
     );
     if (!dir.existsSync()) return null;
+    // Exact D15 match — a suffix match would also accept a foreign
+    // 'x-name' occupant.
+    final exact = RegExp('^[0-9]{6}-${RegExp.escape(name)}\$');
     for (final entity in dir.listSync()) {
-      if (entity is File && entityName(entity).endsWith('-$name')) {
+      if (entity is File && exact.hasMatch(entityName(entity))) {
         return entity;
       }
     }
@@ -694,6 +739,49 @@ void main() {
       expect(run.journal.items.single.setstatIgnored, isFalse);
     });
 
+    test('a pre-epoch mtime floors instead of truncating', () async {
+      // A source stat at -1500 ms must request -2 s (floor), never
+      // -1 s (trunc). dart:io's setLastModified cannot write a
+      // pre-epoch stamp on this host's filesystem, so both sides fake
+      // their clock: the source reports -1500 ms, the destination
+      // records what setTimes was asked for.
+      final fakeLeft = _FakeClockFs();
+      final fakeRight = _FakeClockFs();
+      final exec = SyncExecutor(
+        leftFileSystem: fakeLeft,
+        rightFileSystem: fakeRight,
+        leftRoot: leftRoot.path,
+        rightRoot: rightRoot.path,
+        syncRunsDirectory: runsDir.path,
+        deviceId: deviceId,
+      );
+      await writeFile(leftRoot, 'f.txt', 'payload', mtimeSecs: 1600000000);
+      fakeLeft.reportedMtime[remoteJoin(leftRoot.path, 'f.txt')] =
+          DateTime.fromMillisecondsSinceEpoch(-1500, isUtc: true);
+      final plan = makePlan([
+        item(
+          'f.txt',
+          left: await snapOf(leftRoot, 'f.txt'),
+          suggested: SyncActionType.copyLeftToRight,
+          reason: SyncReason.onlyOnLeft,
+        ),
+      ], updateRules);
+
+      final run = await exec.run(plan, pairId: pairId);
+
+      expect(find(plan, 'f.txt')!.status, SyncItemStatus.done);
+      expect(exec.mtimeUnreliableRight, isFalse);
+      // The DateTime passes through to setTimes verbatim; the journal's
+      // observed seconds must floor to -2 — restore compares live
+      // stats with the same floor, and trunc's -1 would read as a
+      // post-run change and skip the entry.
+      expect(
+        fakeRight.requestedMtime[remoteJoin(rightRoot.path, 'f.txt')],
+        DateTime.fromMillisecondsSinceEpoch(-1500, isUtc: true),
+      );
+      expect(run.journal.items.single.observedMtimeAfterWrite, -2);
+    });
+
     test('a setstat-ignoring destination flags the side unreliable',
         () async {
       final ignoring = SyncExecutor(
@@ -965,6 +1053,59 @@ void main() {
       expect(Directory('${rightRoot.path}/dir').existsSync(), isTrue);
       expect(await File('${rightRoot.path}/dir/a.txt').readAsString(), 'old-a');
     });
+
+    test('a symlink in the destination parent chain conflicts', () async {
+      // §6 rule 5: the parent chain is re-stat'd nofollow — a link
+      // component would let the write escape the sync root.
+      if (Platform.isWindows) return; // Link.create needs privileges
+      await writeFile(leftRoot, 'real/f.txt', 'payload', mtimeSecs: 1600000000);
+      await writeFile(rightRoot, 'target/.keep', '', mtimeSecs: 1600000000);
+      await Link('${rightRoot.path}/linkdir').create('${rightRoot.path}/target');
+      final plan = makePlan([
+        item(
+          'linkdir/f.txt',
+          left: await snapOf(leftRoot, 'real/f.txt'),
+          right: null,
+          suggested: SyncActionType.copyLeftToRight,
+          reason: SyncReason.onlyOnLeft,
+        ),
+      ], updateRules);
+
+      await executor.run(plan, pairId: pairId);
+
+      expect(find(plan, 'linkdir/f.txt')!.status, SyncItemStatus.conflicted);
+      expect(
+        File('${rightRoot.path}/target/f.txt').existsSync(),
+        isFalse,
+      );
+    });
+
+    test('a permanent replace without a subtree snapshot conflicts '
+        'instead of deleting', () async {
+      // A stale plan missing destinationSubtree must never trigger a
+      // live-list permanent wipe — conflicted, destination untouched.
+      await writeFile(leftRoot, 'dir', 'now-a-file', mtimeSecs: 1600000000);
+      await writeFile(rightRoot, 'dir/a.txt', 'old-a');
+      final plan = makePlan([
+        item(
+          'dir',
+          left: await snapOf(leftRoot, 'dir'),
+          right: await snapOf(rightRoot, 'dir'),
+          suggested: SyncActionType.copyLeftToRight,
+          reason: SyncReason.typeDiffers,
+          destinationSubtree: null,
+        ),
+      ], mirrorRules(deletions: DeletionPolicy.permanent));
+
+      await executor.run(
+        plan,
+        pairId: pairId,
+        deleteConfirmationAcknowledged: true,
+      );
+
+      expect(find(plan, 'dir')!.status, SyncItemStatus.conflicted);
+      expect(await File('${rightRoot.path}/dir/a.txt').readAsString(), 'old-a');
+    });
   });
 
   // ── Retry Failed ─────────────────────────────────────────────────────
@@ -1169,6 +1310,47 @@ void main() {
       expect(
         await File('${rightRoot.path}/d.txt').readAsString(),
         'recreated',
+      );
+    });
+
+    test('a blocked restore chain leaves the live destination alone',
+        () async {
+      await writeFile(rightRoot, 'sub/f.txt', 'deleted');
+      final plan = makePlan([
+        item(
+          'sub/f.txt',
+          right: await snapOf(rightRoot, 'sub/f.txt'),
+          suggested: SyncActionType.deleteRight,
+          reason: SyncReason.onlyOnRight,
+        ),
+      ], mirrorRules());
+      final run = await executor.run(
+        plan,
+        pairId: pairId,
+        deleteConfirmationAcknowledged: true,
+      );
+      // A file now occupies the origin's parent — the chain cannot be
+      // recreated, so restore must skip *before* touching anything.
+      await Directory('${rightRoot.path}/sub').delete(recursive: true);
+      await writeFile(rightRoot, 'sub', 'a-file-now', mtimeSecs: 1600000001);
+
+      final report = await restoreTrashedFiles(
+        run.journal,
+        fsFor: (side) => side == SyncSide.left ? leftFs : rightFs,
+        rootFor: (side) =>
+            side == SyncSide.left ? leftRoot.path : rightRoot.path,
+      );
+
+      expect(report.restored, isEmpty);
+      expect(report.skipped, hasLength(1));
+      expect(
+        await File('${rightRoot.path}/sub').readAsString(),
+        'a-file-now',
+      );
+      // The trashed original stays in trash — nothing was half-moved.
+      expect(
+        trashedFile(rightRoot, run.runId, 'f.txt'),
+        isNotNull,
       );
     });
 

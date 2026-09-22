@@ -158,9 +158,10 @@ void main() {
   });
 
   test('prune keeps the newest journals but never live trash', () async {
-    // 22 journals for one pair: the oldest two with unpurged trash
-    // must survive, the rest prune to the retention count.
-    for (var i = 0; i < 22; i++) {
+    // 24 journals for one pair: the oldest two with unpurged trash
+    // must survive, the rest prune to the retention count — so two
+    // unprotected oldest must actually be deleted.
+    for (var i = 0; i < 24; i++) {
       final journal = await SyncRunJournal.create(
         runsDir.path,
         record(
@@ -182,7 +183,7 @@ void main() {
         );
       }
     }
-    expect(runsDir.listSync(), hasLength(22));
+    expect(runsDir.listSync(), hasLength(24));
 
     await SyncRunJournal.prune(runsDir.path, 'pair-1', keep: 20);
 
@@ -190,10 +191,14 @@ void main() {
         .listSync()
         .map((e) => e.uri.pathSegments.last)
         .toList();
-    // 20 retained + the 2 live-trash journals the prune refuses.
-    expect(remaining, hasLength(20 + 2));
+    // The prune must actually delete: the two unprotected oldest
+    // journals are gone, the newest 20 stay, and the 2 live-trash
+    // journals are retained no matter their age.
+    expect(remaining, isNot(contains('run-2.jsonl')));
+    expect(remaining, isNot(contains('run-3.jsonl')));
+    expect(remaining, hasLength(22));
     expect(remaining, containsAll(<String>['run-0.jsonl', 'run-1.jsonl']));
-    expect(remaining, contains('run-21.jsonl'));
+    expect(remaining, contains('run-23.jsonl'));
   });
 
   test('a journal without a header is refused', () async {
@@ -203,6 +208,85 @@ void main() {
     await expectLater(
       SyncRunJournal.open(bogus.path),
       throwsA(isA<FormatException>()),
+    );
+  });
+
+  test('a torn line mid-file is skipped, not truncated at', () async {
+    // A kill leaves a torn write; a resumed run then appends *after*
+    // it. Replay must keep every later line — lastAttempt, restore
+    // lists, and the retention check all depend on them.
+    final journal = await SyncRunJournal.create(
+      runsDir.path,
+      record('run-torn', DateTime.fromMillisecondsSinceEpoch(1700000000000)),
+    );
+    await journal.appendItem(
+      SyncJournalItemLine(
+        relativePath: 'before.txt',
+        side: SyncSide.right,
+        action: SyncActionType.deleteRight,
+        outcome: SyncItemStatus.done,
+        attempt: 1,
+        bytes: 1,
+      ),
+    );
+    // The torn line: a partial write appended mid-file.
+    await File(journal.path).writeAsString(
+      '{"v":1,"type":"item","path":"to',
+      mode: FileMode.append,
+    );
+    await journal.appendItem(
+      SyncJournalItemLine(
+        relativePath: 'after.txt',
+        side: SyncSide.right,
+        action: SyncActionType.deleteRight,
+        outcome: SyncItemStatus.failed,
+        attempt: 2,
+        bytes: 1,
+      ),
+    );
+
+    final replayed = await SyncRunJournal.open(journal.path);
+    expect(replayed.items, hasLength(2));
+    expect(
+      replayed.lastAttempt(
+        'after.txt',
+        SyncSide.right,
+        SyncActionType.deleteRight,
+      ),
+      2,
+    );
+  });
+
+  test('a duplicate header line is refused', () async {
+    final journal = await SyncRunJournal.create(
+      runsDir.path,
+      record('run-dup', DateTime.fromMillisecondsSinceEpoch(1700000000000)),
+    );
+    // A second header must not silently discard what replay already
+    // gathered. (Blank lines pad the file — find the real header.)
+    final lines = await File(journal.path).readAsLines();
+    final header = lines.firstWhere((l) => l.trim().isNotEmpty);
+    await File(journal.path).writeAsString(
+      '$header\n',
+      mode: FileMode.append,
+    );
+
+    await expectLater(
+      SyncRunJournal.open(journal.path),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
+  test('a path-unsafe runId is refused at create', () async {
+    await expectLater(
+      SyncRunJournal.create(
+        runsDir.path,
+        record(
+          '../escape',
+          DateTime.fromMillisecondsSinceEpoch(1700000000000),
+        ),
+      ),
+      throwsA(isA<ArgumentError>()),
     );
   });
 }
