@@ -791,7 +791,8 @@ jobs:
     );
   });
 
-  test('rejects dependency resolution after the gate', () async {
+  test('allows a post-gate flutter build against the committed lock',
+      () async {
     final seance = _GitFixture.create(p.join(sandbox.path, 'Seance'), {
       'LICENSE': _canonicalUnlicense,
     });
@@ -806,6 +807,28 @@ jobs:
       - run: dart pub get
       - run: dart run tool/license_gate/bin/check.dart # $seanceLicenseGateMarker
       - run: flutter build apk
+      - uses: softprops/action-gh-release@v2
+''');
+
+    final report = await _verify(project, spdx, LicenseGateMode.markerOnly);
+    expect(report.pinnedRevisionCount, greaterThan(0));
+  });
+
+  test('rejects dependency resolution after the gate', () async {
+    final seance = _GitFixture.create(p.join(sandbox.path, 'Seance'), {
+      'LICENSE': _canonicalUnlicense,
+    });
+    final project = _ProjectFixture.create(
+      p.join(sandbox.path, 'project'),
+      seance: seance,
+    );
+    _write(project.directory, '.github/workflows/release.yml', '''
+jobs:
+  publish:
+    steps:
+      - run: dart pub get
+      - run: dart run tool/license_gate/bin/check.dart # $seanceLicenseGateMarker
+      - run: dart pub upgrade
       - uses: softprops/action-gh-release@v2
 ''');
 

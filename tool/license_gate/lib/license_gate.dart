@@ -532,8 +532,13 @@ void _verifyWorkflowGate(Directory root, bool required) {
 
       final run = step['run'];
       if (run is! String) continue;
-      if (gateSeen &&
-          (_runsDependencyResolution(run) || _runsFlutterBuildWithPub(run))) {
+      // A post-gate `flutter build` (pub enabled) is allowed: it
+      // resolves against the committed lock, which cannot drift the
+      // pin the gate just verified, and the tool needs the build's
+      // own resolution to regenerate GeneratedPluginRegistrant for
+      // the release dependency set (--no-pub twice failed android
+      // release javac on the dev-dep integration_test entry).
+      if (gateSeen && _runsDependencyResolution(run)) {
         throw const LicenseGateException(
           'release.yml resolves dependencies after the license gate',
         );
@@ -595,7 +600,7 @@ void _verifyWorkflowGate(Directory root, bool required) {
 }
 
 bool _runsDependencyResolution(String command) {
-  final pubGet = RegExp(r'^(?:dart|flutter)\s+pub\s+get(?:\s+.*)?$');
+  final pubGet = RegExp(r'^(?:dart|flutter)\s+pub\s+(?:get|upgrade)(?:\s+.*)?$');
   return command
       .split(RegExp(r'\r?\n'))
       .any((line) => pubGet.hasMatch(line.trim()));
@@ -632,13 +637,6 @@ Future<Map<String, String>> _loadCanonicalLicenses(
   }
 }
 
-bool _runsFlutterBuildWithPub(String command) {
-  final flutterBuild = RegExp(r'^flutter\s+build\b');
-  return command.split(RegExp(r'\r?\n')).any((line) {
-    final trimmed = line.trim();
-    return flutterBuild.hasMatch(trimmed) && !trimmed.contains('--no-pub');
-  });
-}
 
 String? _matchLicense(
   String text,

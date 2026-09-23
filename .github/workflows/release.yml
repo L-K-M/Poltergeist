@@ -353,15 +353,15 @@ jobs:
         run: dart run tool/license_gate/bin/check.dart # SEANCE_LICENSE_GATE_V1
       - name: Build
         working-directory: app/poltergeist_app
-        # --no-pub keeps the license gate invariant: dependency
-        # resolution happens only before the gate, on the committed
-        # locks. The Gradle build still regenerates
-        # GeneratedPluginRegistrant itself, so the v1.0.0 android
-        # javac failure — which rode an "Already watching path"
-        # tool exception interrupting plugin materialization — is
-        # a flake, not this flag; CI's android leg is green on
-        # the identical commit.
-        run: flutter build ${{ matrix.build }} --no-pub
+        # Building with pub (against the committed lock) lets the
+        # tool regenerate GeneratedPluginRegistrant for the release
+        # dependency set; with --no-pub the registrant from the
+        # earlier plain `flutter pub get` kept the dev-dep
+        # integration_test entry and release javac failed twice
+        # identically (runs 35898272663, 35907981194). The gate
+        # now permits this: pub with a committed lock is
+        # deterministic and cannot drift the verified pin.
+        run: flutter build ${{ matrix.build }}
       # Prove Gradle consumed the synchronized pubspec code in the real APK.
       - name: Verify Android version code
         if: matrix.target == 'android'
