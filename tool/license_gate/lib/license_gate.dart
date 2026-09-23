@@ -601,7 +601,7 @@ void _verifyWorkflowGate(Directory root, bool required) {
 
 bool _runsDependencyResolution(String command) {
   final pubGet = RegExp(
-    r'(?:^|[&;|(`]|\$\()\s*(?:dart|flutter)\s+pub\s+(?:get|upgrade|add|remove|downgrade).*$',
+    r'(?:^|[&;|(`]|\$\()\s*(?:dart|flutter)\s+pub\s+(?:get|upgrade|add|remove|downgrade)\b.*$',
   );
   return command
       .split(RegExp(r'\r?\n'))
