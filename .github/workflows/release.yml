@@ -360,6 +360,7 @@ jobs:
         # fails GeneratedPluginRegistrant javac (v1.0.0 release run
         # 35898272663). Matches ci.yml's client job, which is green on
         # the identical commit.
+        run: flutter build ${{ matrix.build }}
       # Prove Gradle consumed the synchronized pubspec code in the real APK.
       - name: Verify Android version code
         if: matrix.target == 'android'
