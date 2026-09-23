@@ -10,7 +10,7 @@ of [Séance](https://github.com/L-K-M/Seance).
 
 *The ghost that moves your files.*
 
-**Current version:** v<!-- version -->0.2.0<!-- /version --> · [Downloads and first-launch steps](docs/INSTALL.md) · [Releases](https://github.com/L-K-M/Poltergeist/releases)
+**Current version:** v<!-- version -->1.0.0<!-- /version --> · [Downloads and first-launch steps](docs/INSTALL.md) · [Releases](https://github.com/L-K-M/Poltergeist/releases)
 
 ## Your servers are your business
 
