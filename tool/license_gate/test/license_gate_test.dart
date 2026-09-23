@@ -811,6 +811,8 @@ jobs:
 ''');
 
     final report = await _verify(project, spdx, LicenseGateMode.markerOnly);
+    // The workflow this test verifies carries a real post-gate
+    // `flutter build` step; the gate must accept it.
     expect(report.pinnedRevisionCount, greaterThan(0));
   });
 
