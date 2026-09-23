@@ -844,6 +844,36 @@ jobs:
     );
   });
 
+  test('rejects pub chained after another command', () async {
+    final seance = _GitFixture.create(p.join(sandbox.path, 'Seance'), {
+      'LICENSE': _canonicalUnlicense,
+    });
+    final project = _ProjectFixture.create(
+      p.join(sandbox.path, 'project'),
+      seance: seance,
+    );
+    _write(project.directory, '.github/workflows/release.yml', '''
+jobs:
+  publish:
+    steps:
+      - run: dart pub get
+      - run: dart run tool/license_gate/bin/check.dart # $seanceLicenseGateMarker
+      - run: echo prep && flutter pub get
+      - uses: softprops/action-gh-release@v2
+''');
+
+    await expectLater(
+      _verify(project, spdx, LicenseGateMode.markerOnly),
+      throwsA(
+        isA<LicenseGateException>().having(
+          (error) => error.message,
+          'message',
+          contains('after the license gate'),
+        ),
+      ),
+    );
+  });
+
   test('rejects dependency resolution after the gate', () async {
     final seance = _GitFixture.create(p.join(sandbox.path, 'Seance'), {
       'LICENSE': _canonicalUnlicense,
