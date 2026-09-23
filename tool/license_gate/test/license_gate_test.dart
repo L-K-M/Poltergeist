@@ -888,7 +888,7 @@ jobs:
     steps:
       - run: dart pub get
       - run: dart run tool/license_gate/bin/check.dart # $seanceLicenseGateMarker
-      - run: echo prep; flutter pub get
+      - run: echo prep && flutter pub get; flutter pub upgrade
       - uses: softprops/action-gh-release@v2
 ''');
 
