@@ -366,7 +366,7 @@ jobs:
           flutter build ${{ matrix.build }}
           drift="$(git status --porcelain -- pubspec.lock '**/pubspec.lock')"
           if [ -n "$drift" ]; then
-            drift_flat="${drift//$'\n'/ }"
+            drift_flat="$(printf '%s' "$drift" | tr '\r\n' '  ')"
             echo "::error::pubspec.lock drift after build: $drift_flat" >&2
             exit 1
           fi
