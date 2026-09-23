@@ -7,7 +7,7 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 _Last updated: 2026-09-23. **v1.0.0 IS SHIPPED** — tagged at
 d62f95af after the release pipeline's full first exercise
 (android `--no-pub` registrant fix #189, bash drift gate #190);
-run 35926951105 green end to end, the GitHub Release publishes
+GitHub Actions run 35926951105 green end to end, the GitHub Release publishes
 all eight assets (APK, .deb, AppImage, linux tarball, macOS
 universal, Windows zip, unsigned IPA, SHA256SUMS), and the
 tier-B enforcement armed green before the tag. M0–M10 are all
