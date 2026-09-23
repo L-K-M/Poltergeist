@@ -361,7 +361,7 @@ jobs:
         # identically (runs 35898272663, 35907981194). The gate
         # now permits this: pub with a committed lock is
         # deterministic and cannot drift the verified pin.
-        run: flutter build ${{ matrix.build }} && git add -A -- pubspec.lock '**/pubspec.lock' && git diff --exit-code --cached -- pubspec.lock '**/pubspec.lock'
+        run: flutter build ${{ matrix.build }} && test -z "$(git status --porcelain -- pubspec.lock '**/pubspec.lock')"
       # Prove Gradle consumed the synchronized pubspec code in the real APK.
       - name: Verify Android version code
         if: matrix.target == 'android'
