@@ -365,7 +365,7 @@ jobs:
           flutter build ${{ matrix.build }}
           drift="$(git status --porcelain -- pubspec.lock '**/pubspec.lock')"
           if [ -n "$drift" ]; then
-            echo "::error::pubspec.lock drift after build: $drift" >&2
+            echo "::error::pubspec.lock drift after build: ${drift//$'\n'/ }" >&2
             exit 1
           fi
       # Prove Gradle consumed the synchronized pubspec code in the real APK.
