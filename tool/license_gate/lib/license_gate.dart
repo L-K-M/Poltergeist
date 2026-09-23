@@ -600,7 +600,9 @@ void _verifyWorkflowGate(Directory root, bool required) {
 }
 
 bool _runsDependencyResolution(String command) {
-  final pubGet = RegExp(r'^(?:dart|flutter)\s+pub\s+(?:get|upgrade)(?:\s+.*)?$');
+  final pubGet = RegExp(
+      r'^(?:dart|flutter)\s+pub\s+(?:get|upgrade|add|remove|downgrade)(?:\s+.*)?$',
+  );
   return command
       .split(RegExp(r'\r?\n'))
       .any((line) => pubGet.hasMatch(line.trim()));
