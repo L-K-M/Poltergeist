@@ -4,11 +4,17 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-22. **M3–M9 are closed; M10's release
-preparation is staged on its PR — the `v1.0.0` tag, the publish, and
-the "v1.0 shipped" flip are the owner's remaining step** (the dated
-M10 section below records what is prepared and what is deliberately
-held). M9's two polish slices landed (#184 palette/import/a11y/i18n/
+_Last updated: 2026-09-23. **v1.0.0 IS SHIPPED** — tagged at
+d62f95af after the release pipeline's full first exercise
+(android `--no-pub` registrant fix #189, bash drift gate #190);
+run 35926951105 green end to end, the GitHub Release publishes
+all eight assets (APK, .deb, AppImage, linux tarball, macOS
+universal, Windows zip, unsigned IPA, SHA256SUMS), and the
+tier-B enforcement armed green before the tag. M0–M10 are all
+closed; the fast-follow list (§3.13) is the next-steps queue.
+Manual QA on the shipped assets per
+[`docs/qa/RELEASE-CHECKLIST.md`](qa/RELEASE-CHECKLIST.md) is
+the remaining owner-side item. M9's two polish slices landed (#184 palette/import/a11y/i18n/
 chrome, #185 tier-B flip + fast path + update check) and the §3.10
 exit-criteria audit closed the milestone per the dated section below
 (record: [tasks/m9-closure-record.md](../tasks/m9-closure-record.md)) —

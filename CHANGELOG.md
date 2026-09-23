@@ -5,7 +5,7 @@
 - Nothing post-1.0.0 yet. Pre-1.0 history lives in the commit log and the
   GitHub pre-releases (v0.1.0, v0.2.0).
 
-## 1.0.0 — first stable release (prepared; ships with the v1.0.0 tag)
+## 1.0.0 — first stable release (2026-09-23, shipped)
 
 The ghost is out of the sheet. Poltergeist 1.0 is a two-pane file browser
 for people who live on SFTP: each pane browses a local folder or a remote
