@@ -27,7 +27,7 @@ docs/plan/                the design plan (read 00-OVERVIEW.md first —
                           implementation operating manual)
 docs/STATUS.md            what's done / tested / still open
 scripts/                  build.sh, release.sh, package-linux.sh
-media-sources/            master icon (poltergeist-icon.png)
+media-sources/            master icon (icon.png; superseded poltergeist-icon.png kept)
 ```
 
 The layout deliberately mirrors Séance's proven shape (`packages/` + `app/`),

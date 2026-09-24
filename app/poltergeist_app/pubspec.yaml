@@ -69,13 +69,13 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: ../../media-sources/poltergeist-icon.png
+  image_path: ../../media-sources/icon.png
   min_sdk_android: 24
   remove_alpha_ios: true
   windows:
     generate: true
-    image_path: ../../media-sources/poltergeist-icon.png
+    image_path: ../../media-sources/icon.png
     icon_size: 256
   macos:
     generate: true
-    image_path: ../../media-sources/poltergeist-icon.png
+    image_path: ../../media-sources/icon.png
