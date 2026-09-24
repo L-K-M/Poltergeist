@@ -4733,5 +4733,169 @@
         "example": "web.example.com"
       }
     }
+  },
+  "fileNewFolderLabel": "New Folder",
+  "@fileNewFolderLabel": {
+    "description": "file.newFolder (⇧⌘N / F7): creates an untitled folder and opens its rename."
+  },
+  "fileNewFileLabel": "New File",
+  "@fileNewFileLabel": {
+    "description": "file.newFile (⌥⌘N): creates an empty untitled file and opens its rename."
+  },
+  "fileDuplicateLabel": "Duplicate",
+  "@fileDuplicateLabel": {
+    "description": "file.duplicate (⌘D): a keep-both copy beside the selection."
+  },
+  "fileMoveToTrashLabel": "Move to Trash",
+  "@fileMoveToTrashLabel": {
+    "description": "file.delete on local items (macOS/Linux)."
+  },
+  "fileMoveToRecycleBinLabel": "Move to Recycle Bin",
+  "@fileMoveToRecycleBinLabel": {
+    "description": "file.delete on local items (Windows)."
+  },
+  "fileDeleteRemoteLabel": "Delete…",
+  "@fileDeleteRemoteLabel": {
+    "description": "file.delete on a remote pane: remote deletes confirm first (D15)."
+  },
+  "fileDeletePermanentlyLabel": "Delete Immediately…",
+  "@fileDeletePermanentlyLabel": {
+    "description": "file.deletePermanently (⌥⌘⌫ / Shift+Delete): always confirms."
+  },
+  "deleteDialogCounting": "Counting items…",
+  "@deleteDialogCounting": {
+    "description": "Delete dialog while the quantifying walk runs (cancellable)."
+  },
+  "deleteDialogPrepareFailed": "Couldn't prepare the delete: {error}",
+  "@deleteDialogPrepareFailed": {
+    "description": "Delete dialog when preparing the delete failed.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogDeleteCount": "{count, plural, =1{Delete 1 item ({size}) from {location}?} other{Delete {count} items ({size}) from {location}?}}",
+  "@deleteDialogDeleteCount": {
+    "description": "02 §10 permanent delete headline with the walk's count and size.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      },
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogDeleteNames": "Delete “{names}” from {location}?",
+  "@deleteDialogDeleteNames": {
+    "description": "02 §10 permanent delete headline naming up to three items.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      },
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogDeleteUnquantified": "Delete the selected items from {location}?",
+  "@deleteDialogDeleteUnquantified": {
+    "description": "02 §10 permanent delete headline when the counting walk gave up.",
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogMoveCount": "{count, plural, =1{Move 1 item ({size}) to .poltergeist-trash/ on {location}?} other{Move {count} items ({size}) to .poltergeist-trash/ on {location}?}}",
+  "@deleteDialogMoveCount": {
+    "description": "02 §10 server-trash headline.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      },
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogMoveNames": "Move “{names}” to .poltergeist-trash/ on {location}?",
+  "@deleteDialogMoveNames": {
+    "description": "02 §10 server-trash headline naming up to three items.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      },
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogMoveUnquantified": "Move the selected items to .poltergeist-trash/ on {location}?",
+  "@deleteDialogMoveUnquantified": {
+    "description": "02 §10 server-trash headline when the counting walk gave up.",
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogIrreversible": "This cannot be undone.",
+  "@deleteDialogIrreversible": {
+    "description": "02 §10 permanent delete warning line."
+  },
+  "deleteDialogMoveWarning": "Items are moved to .poltergeist-trash/ on the server.",
+  "@deleteDialogMoveWarning": {
+    "description": "02 §10 server-trash warning line."
+  },
+  "deleteDialogTrashUnavailable": "The Trash isn't available here, so these items will be deleted permanently.",
+  "@deleteDialogTrashUnavailable": {
+    "description": "D15's one-time trash-unavailable notice in the delete dialog."
+  },
+  "deleteDialogFlaggedExact": "{count, plural, =1{Includes 1 item with an undecodable name.} other{Includes {count} items with an undecodable name.}}",
+  "@deleteDialogFlaggedExact": {
+    "description": "02 §13 flagged-descendant disclosure (exact count).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteDialogFlaggedMaybe": "May include items with undecodable names.",
+  "@deleteDialogFlaggedMaybe": {
+    "description": "02 §13 flagged-descendant disclosure when the walk did not finish."
+  },
+  "deleteDialogServerTrashCheckbox": "Move to .poltergeist-trash/ instead",
+  "@deleteDialogServerTrashCheckbox": {
+    "description": "02 §10 per-server trash option (pre-checked when the server opts in)."
+  },
+  "deleteDialogServerTrashHelper": "Trashed files stay on the server, readable by anything that can read the folder, until you purge them.",
+  "@deleteDialogServerTrashHelper": {
+    "description": "02 §10 helper under the server-trash checkbox."
+  },
+  "deleteDialogConfirmDelete": "{count, plural, =1{Delete} other{Delete {count} Items}}",
+  "@deleteDialogConfirmDelete": {
+    "description": "Delete dialog's destructive confirm button.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteDialogConfirmMove": "{count, plural, =1{Move to Trash} other{Move {count} Items}}",
+  "@deleteDialogConfirmMove": {
+    "description": "Delete dialog's confirm button while the server-trash move is on.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

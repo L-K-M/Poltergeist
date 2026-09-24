@@ -38,7 +38,7 @@ RegisteredCommand buildAppSettingsCommand({
     menuPlacement: const CommandMenuPlacement(
       menu: AppMenuId.file,
       order: 170,
-      group: 3,
+      group: 5,
       appMenuOnMac: true,
     ),
   );

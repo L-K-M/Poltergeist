@@ -5681,6 +5681,150 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The shared server \"{server}\" is not in the synced server list on this device.'**
   String activityTaskServerNotInCatalog(String server);
+
+  /// file.newFolder (⇧⌘N / F7): creates an untitled folder and opens its rename.
+  ///
+  /// In en, this message translates to:
+  /// **'New Folder'**
+  String get fileNewFolderLabel;
+
+  /// file.newFile (⌥⌘N): creates an empty untitled file and opens its rename.
+  ///
+  /// In en, this message translates to:
+  /// **'New File'**
+  String get fileNewFileLabel;
+
+  /// file.duplicate (⌘D): a keep-both copy beside the selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get fileDuplicateLabel;
+
+  /// file.delete on local items (macOS/Linux).
+  ///
+  /// In en, this message translates to:
+  /// **'Move to Trash'**
+  String get fileMoveToTrashLabel;
+
+  /// file.delete on local items (Windows).
+  ///
+  /// In en, this message translates to:
+  /// **'Move to Recycle Bin'**
+  String get fileMoveToRecycleBinLabel;
+
+  /// file.delete on a remote pane: remote deletes confirm first (D15).
+  ///
+  /// In en, this message translates to:
+  /// **'Delete…'**
+  String get fileDeleteRemoteLabel;
+
+  /// file.deletePermanently (⌥⌘⌫ / Shift+Delete): always confirms.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Immediately…'**
+  String get fileDeletePermanentlyLabel;
+
+  /// Delete dialog while the quantifying walk runs (cancellable).
+  ///
+  /// In en, this message translates to:
+  /// **'Counting items…'**
+  String get deleteDialogCounting;
+
+  /// Delete dialog when preparing the delete failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t prepare the delete: {error}'**
+  String deleteDialogPrepareFailed(String error);
+
+  /// 02 §10 permanent delete headline with the walk's count and size.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Delete 1 item ({size}) from {location}?} other{Delete {count} items ({size}) from {location}?}}'**
+  String deleteDialogDeleteCount(int count, String size, String location);
+
+  /// 02 §10 permanent delete headline naming up to three items.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete “{names}” from {location}?'**
+  String deleteDialogDeleteNames(String names, String location);
+
+  /// 02 §10 permanent delete headline when the counting walk gave up.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete the selected items from {location}?'**
+  String deleteDialogDeleteUnquantified(String location);
+
+  /// 02 §10 server-trash headline.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Move 1 item ({size}) to .poltergeist-trash/ on {location}?} other{Move {count} items ({size}) to .poltergeist-trash/ on {location}?}}'**
+  String deleteDialogMoveCount(int count, String size, String location);
+
+  /// 02 §10 server-trash headline naming up to three items.
+  ///
+  /// In en, this message translates to:
+  /// **'Move “{names}” to .poltergeist-trash/ on {location}?'**
+  String deleteDialogMoveNames(String names, String location);
+
+  /// 02 §10 server-trash headline when the counting walk gave up.
+  ///
+  /// In en, this message translates to:
+  /// **'Move the selected items to .poltergeist-trash/ on {location}?'**
+  String deleteDialogMoveUnquantified(String location);
+
+  /// 02 §10 permanent delete warning line.
+  ///
+  /// In en, this message translates to:
+  /// **'This cannot be undone.'**
+  String get deleteDialogIrreversible;
+
+  /// 02 §10 server-trash warning line.
+  ///
+  /// In en, this message translates to:
+  /// **'Items are moved to .poltergeist-trash/ on the server.'**
+  String get deleteDialogMoveWarning;
+
+  /// D15's one-time trash-unavailable notice in the delete dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'The Trash isn\'t available here, so these items will be deleted permanently.'**
+  String get deleteDialogTrashUnavailable;
+
+  /// 02 §13 flagged-descendant disclosure (exact count).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Includes 1 item with an undecodable name.} other{Includes {count} items with an undecodable name.}}'**
+  String deleteDialogFlaggedExact(int count);
+
+  /// 02 §13 flagged-descendant disclosure when the walk did not finish.
+  ///
+  /// In en, this message translates to:
+  /// **'May include items with undecodable names.'**
+  String get deleteDialogFlaggedMaybe;
+
+  /// 02 §10 per-server trash option (pre-checked when the server opts in).
+  ///
+  /// In en, this message translates to:
+  /// **'Move to .poltergeist-trash/ instead'**
+  String get deleteDialogServerTrashCheckbox;
+
+  /// 02 §10 helper under the server-trash checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Trashed files stay on the server, readable by anything that can read the folder, until you purge them.'**
+  String get deleteDialogServerTrashHelper;
+
+  /// Delete dialog's destructive confirm button.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Delete} other{Delete {count} Items}}'**
+  String deleteDialogConfirmDelete(int count);
+
+  /// Delete dialog's confirm button while the server-trash move is on.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Move to Trash} other{Move {count} Items}}'**
+  String deleteDialogConfirmMove(int count);
 }
 
 class _AppLocalizationsDelegate

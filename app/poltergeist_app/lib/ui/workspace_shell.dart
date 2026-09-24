@@ -25,6 +25,7 @@ import '../services/engine_session.dart';
 import '../services/external_file_opener.dart';
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
+import '../services/pane_file_ops.dart';
 import '../services/pane_location.dart';
 import '../services/pane_tabs_controller.dart';
 import '../services/preview_session.dart';
@@ -424,6 +425,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// a workspace rebuild rebinds panes, not the queue mirror — so it
   /// lives on the shell state, not inside [_buildWorkspace].
   late final ActivityPanelController _activity;
+  /// The pane file verbs over the composed queue (New Folder, Delete,
+  /// Duplicate — the bridged engine's queue tasks); null without a queue.
+  PaneFileOps? _fileOps;
+  StreamSubscription<TransferQueueEvent>? _settledRefresh;
+
   /// D32's alert inbox over the queue mirror, connections, checkouts,
   /// and the update check (10 §3's Alerts tab).
   late final AlertCenter _alerts;
@@ -483,6 +489,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       onTasksArrived: () => _workspace?.setActivityPanelHidden(false),
     );
     _connections = _buildConnections();
+    _bindFileOps(widget.transferQueue);
     _alerts = AlertCenter(
       activity: _activity,
       connections: _connections,
@@ -616,6 +623,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // A later-arriving queue seam rebinds the mirror; the persisted
       // limits re-apply inside the setter.
       _activity.queue = widget.transferQueue;
+      _bindFileOps(widget.transferQueue);
     }
     // The settings slice writes the strips' live newTabTarget directly;
     // this sync only covers a parent rebuild with a changed seed, which
@@ -659,6 +667,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _sidebar?.dispose();
     _activity.dispose();
     _alerts.dispose();
+    unawaited(_settledRefresh?.cancel());
     _sidebarSplitterFocus.dispose();
     _inspectorSplitterFocus.dispose();
     _headerFilterFocus.dispose();
@@ -1324,6 +1333,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           openUrl: (url) async {
             await launchUrl(url);
           },
+          fileOps: () => _fileOps,
+          reportFailure: _reportCommandFailure,
+          locationLabel: _paneLocationLabel,
         ),
       // `open-with-external` registers whenever a workspace exists
       // (D21): the Open With ▸ submenu renders disabled rows while no
@@ -1728,6 +1740,79 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     } on Object catch (error, stack) {
       ApplicationErrorReporter().report(error, stack);
     }
+  }
+
+  /// Binds the file verbs and the settled-task refresh to [queue].
+  /// Remote panes have no directory watch (03 §7.5), so a finished
+  /// transfer or delete would otherwise leave the destination listing
+  /// stale: any visible pane showing a settled task's destination folder
+  /// (or, for deletes, the deleted items' folder) refreshes.
+  void _bindFileOps(AppTransferQueue? queue) {
+    unawaited(_settledRefresh?.cancel());
+    _settledRefresh = null;
+    _fileOps = queue == null ? null : PaneFileOps(queue);
+    if (queue == null) return;
+    _settledRefresh = queue.events.listen((event) {
+      if (event is! TransferQueueTaskEvent) return;
+      if (event.state != TransferTaskState.completed &&
+          event.state != TransferTaskState.failed &&
+          event.state != TransferTaskState.cancelled) {
+        return;
+      }
+      final task = queue.tasks.where((t) => t.id == event.taskId).firstOrNull;
+      if (task == null) return;
+      _refreshPanesShowing(task);
+    });
+  }
+
+  void _refreshPanesShowing(TransferTask task) {
+    final workspace = _workspace;
+    if (workspace == null) return;
+    final touched = <(FsLocation, String)>{
+      (task.destination, task.destinationDir),
+      if (task.operation == TransferOperation.delete ||
+          task.operation == TransferOperation.move)
+        for (final root in task.rootPaths) (task.source, paneParentPath(root)),
+    };
+    for (final strip in [workspace.left, workspace.right]) {
+      final pane = strip.activeTab?.controller;
+      final location = pane?.location;
+      if (pane == null || location is! RemotePaneLocation) continue;
+      final endpoint = fsLocationForLocation(location);
+      if (touched.any((t) => t.$1 == endpoint && t.$2 == location.path)) {
+        pane.refresh();
+      }
+    }
+  }
+
+  /// A command's failure as a top toast (02 §10): typed filesystem
+  /// errors carry sanitized messages; anything else reports and shows
+  /// the generic line.
+  void _reportCommandFailure(Object error) {
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    final message = switch (error) {
+      RemoteFileException(:final message) => message,
+      TrashException(:final message) => message,
+      _ => l10n.paneErrorOther,
+    };
+    if (error is! RemoteFileException && error is! TrashException) {
+      ApplicationErrorReporter().report(error, StackTrace.current);
+    }
+    showTopToastIn(context, message: message);
+  }
+
+  /// The place a delete dialog names: the server's own name for a remote
+  /// pane, "This computer" for a local one.
+  String _paneLocationLabel(PaneController pane) {
+    final l10n = AppLocalizations.of(context);
+    final location = pane.location;
+    if (location is RemotePaneLocation) {
+      return _serverLabel(location.serverId) ??
+          pane.remoteBookmark?.label ??
+          location.serverId;
+    }
+    return l10n.activityTaskRouteLocal;
   }
 
   /// ⌘F (D32 §4): the header's filter field takes focus.

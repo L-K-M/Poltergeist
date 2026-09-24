@@ -7,9 +7,11 @@ import '../../services/file_manager_reveal.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_location.dart';
 import '../../services/pane_drop.dart';
+import '../../services/pane_file_ops.dart';
 import '../../services/pane_tabs_controller.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
+import 'delete_confirm_dialog.dart';
 import 'keyboard_shortcuts_dialog.dart';
 
 const kViewToggleInspectorCommandId = 'view.toggleInspector';
@@ -19,6 +21,11 @@ const kSelectionTransferToOtherPaneCommandId =
     'selection.transferToOtherPane';
 const kSelectionMoveToOtherPaneCommandId = 'selection.moveToOtherPane';
 const kFileRevealCommandId = 'file.reveal';
+const kFileNewFolderCommandId = 'file.newFolder';
+const kFileNewFileCommandId = 'file.newFile';
+const kFileDeleteCommandId = 'file.delete';
+const kFileDeletePermanentlyCommandId = 'file.deletePermanently';
+const kFileDuplicateCommandId = 'file.duplicate';
 const kHelpKeyboardShortcutsCommandId = 'help.keyboardShortcuts';
 const kHelpReleaseNotesCommandId = 'help.releaseNotes';
 const kHelpReportIssueCommandId = 'help.reportIssue';
@@ -127,9 +134,202 @@ List<RegisteredCommand> buildShellCommands({
   required VoidCallback openConnect,
   required List<RegisteredCommand> Function() allCommands,
   required Future<void> Function(Uri url) openUrl,
+  required PaneFileOps? Function() fileOps,
+  required void Function(Object error) reportFailure,
+  required String Function(PaneController pane) locationLabel,
   FileManagerRevealer revealer = const FileManagerRevealer(),
 }) {
+  bool browsing() => workspace.activeTabController?.verbsEnabled ?? false;
+  bool hasSelection() {
+    final pane = workspace.activeTabController;
+    return pane != null && pane.verbsEnabled && _selectionRoots(pane).isNotEmpty;
+  }
+
+  Future<void> create(Future<String?> Function(PaneController) verb) async {
+    final pane = workspace.activeTabController;
+    if (pane == null) return;
+    try {
+      await verb(pane);
+    } on Object catch (error) {
+      reportFailure(error);
+    }
+  }
+
+  /// 02 §10's delete flow: a local Move to Trash is reversible, so it
+  /// runs without a dialog (Finder's behavior) unless the trash turns
+  /// out unavailable; every permanent or remote delete confirms first.
+  Future<void> delete(BuildContext context, {required bool permanent}) async {
+    final pane = workspace.activeTabController;
+    final ops = fileOps();
+    if (pane == null || ops == null) return;
+    try {
+      final local = pane.location is LocalPaneLocation;
+      if (local && !permanent) {
+        final confirmation = await ops.prepareDeleteSelection(pane);
+        if (confirmation == null) return;
+        if (confirmation.effectiveDisposition == DeleteDisposition.trash &&
+            !confirmation.trashUnavailable) {
+          await ops.deleteSelection(confirmation, pane: pane);
+          return;
+        }
+      }
+      if (!context.mounted) return;
+      DeleteConfirmation? confirmed;
+      final decision = await showDeleteConfirmDialog(
+        context,
+        locationLabel: locationLabel(pane),
+        prepare: (cancellation) async {
+          confirmed = await ops.prepareDeleteSelection(
+            pane,
+            permanent: permanent,
+            cancellation: cancellation,
+          );
+          return confirmed;
+        },
+      );
+      final confirmation = confirmed;
+      if (decision is! DeleteConfirmed || confirmation == null) return;
+      await ops.deleteSelection(
+        confirmation,
+        permanent: decision.permanent,
+        pane: pane,
+      );
+    } on Object catch (error) {
+      reportFailure(error);
+    }
+  }
+
   return [
+    RegisteredCommand(
+      id: kFileNewFolderCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.fileNewFolderLabel,
+      icon: Icons.create_new_folder_outlined,
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyN, meta: true, shift: true),
+          SingleActivator(LogicalKeyboardKey.f7),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyN, control: true, shift: true),
+          SingleActivator(LogicalKeyboardKey.f7),
+        ],
+      ),
+      enabled: browsing,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      run: (_) => create((pane) => pane.createFolder()),
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 12,
+      ),
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.actions,
+        order: 10,
+      ),
+    ),
+    RegisteredCommand(
+      id: kFileNewFileCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.fileNewFileLabel,
+      icon: Icons.note_add_outlined,
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyN, meta: true, alt: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyN, control: true, alt: true),
+        ],
+      ),
+      enabled: browsing,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      run: (_) => create((pane) => pane.createFile()),
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 14,
+      ),
+    ),
+    RegisteredCommand(
+      id: kFileDuplicateCommandId,
+      scope: CommandScope.selection,
+      label: (l10n) => l10n.fileDuplicateLabel,
+      icon: Icons.control_point_duplicate_outlined,
+      activators: _perPlatform(
+        macOS: const [SingleActivator(LogicalKeyboardKey.keyD, meta: true)],
+        other: const [SingleActivator(LogicalKeyboardKey.keyD, control: true)],
+      ),
+      enabled: () => fileOps() != null && hasSelection(),
+      disabledReason: (l10n) => l10n.commandDisabledNoSelection,
+      run: (_) async {
+        final pane = workspace.activeTabController;
+        final ops = fileOps();
+        if (pane == null || ops == null) return;
+        try {
+          ops.duplicateSelection(pane);
+        } on Object catch (error) {
+          reportFailure(error);
+        }
+      },
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 72,
+        group: 1,
+      ),
+    ),
+    RegisteredCommand(
+      id: kFileDeleteCommandId,
+      scope: CommandScope.selection,
+      label: (l10n) => workspace.activeTabController?.location
+              is RemotePaneLocation
+          ? l10n.fileDeleteRemoteLabel
+          : (defaultTargetPlatform == TargetPlatform.windows
+                ? l10n.fileMoveToRecycleBinLabel
+                : l10n.fileMoveToTrashLabel),
+      icon: Icons.delete_outline,
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.backspace, meta: true),
+        ],
+        other: const [SingleActivator(LogicalKeyboardKey.delete)],
+      ),
+      enabled: () => fileOps() != null && hasSelection(),
+      disabledReason: (l10n) => l10n.commandDisabledNoSelection,
+      run: (context) => delete(context, permanent: false),
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 90,
+        group: 3,
+      ),
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.actions,
+        order: 20,
+      ),
+    ),
+    RegisteredCommand(
+      id: kFileDeletePermanentlyCommandId,
+      scope: CommandScope.selection,
+      label: (l10n) => l10n.fileDeletePermanentlyLabel,
+      icon: Icons.delete_forever_outlined,
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(
+            LogicalKeyboardKey.backspace,
+            meta: true,
+            alt: true,
+          ),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.delete, shift: true),
+        ],
+      ),
+      enabled: () => fileOps() != null && hasSelection(),
+      disabledReason: (l10n) => l10n.commandDisabledNoSelection,
+      run: (context) => delete(context, permanent: true),
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 92,
+        group: 3,
+      ),
+    ),
     RegisteredCommand(
       id: kHelpKeyboardShortcutsCommandId,
       scope: CommandScope.app,

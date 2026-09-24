@@ -913,13 +913,15 @@ List<ShortcutActivator> Function(TargetPlatform) _perPlatform({
 /// equivalents live at app scope, which this layer would otherwise
 /// intercept first). Dialog routes push above the shell, so their
 /// fields never see these chords either.
-/// The Commander-style function keys that bind unmodified at the chord
-/// layer (F5 copy / F6 move to the other pane, F7 new folder). F2 is not
-/// here — rename's F2 stays a pane key (02 §8.2).
+/// Keys that bind unmodified at the chord layer because they never type
+/// text: the Commander-style F5 copy / F6 move to the other pane / F7
+/// new folder, and Delete (Move to Trash off macOS; Shift+Delete deletes
+/// permanently). F2 is not here — rename's F2 stays a pane key (02 §8.2).
 final _functionKeys = <LogicalKeyboardKey>{
   LogicalKeyboardKey.f5,
   LogicalKeyboardKey.f6,
   LogicalKeyboardKey.f7,
+  LogicalKeyboardKey.delete,
 };
 
 class CommandChordScope extends StatelessWidget {

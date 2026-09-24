@@ -3642,4 +3642,131 @@ class AppLocalizationsEn extends AppLocalizations {
   String activityTaskServerNotInCatalog(String server) {
     return 'The shared server \"$server\" is not in the synced server list on this device.';
   }
+
+  @override
+  String get fileNewFolderLabel => 'New Folder';
+
+  @override
+  String get fileNewFileLabel => 'New File';
+
+  @override
+  String get fileDuplicateLabel => 'Duplicate';
+
+  @override
+  String get fileMoveToTrashLabel => 'Move to Trash';
+
+  @override
+  String get fileMoveToRecycleBinLabel => 'Move to Recycle Bin';
+
+  @override
+  String get fileDeleteRemoteLabel => 'Delete…';
+
+  @override
+  String get fileDeletePermanentlyLabel => 'Delete Immediately…';
+
+  @override
+  String get deleteDialogCounting => 'Counting items…';
+
+  @override
+  String deleteDialogPrepareFailed(String error) {
+    return 'Couldn\'t prepare the delete: $error';
+  }
+
+  @override
+  String deleteDialogDeleteCount(int count, String size, String location) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Delete $count items ($size) from $location?',
+      one: 'Delete 1 item ($size) from $location?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String deleteDialogDeleteNames(String names, String location) {
+    return 'Delete “$names” from $location?';
+  }
+
+  @override
+  String deleteDialogDeleteUnquantified(String location) {
+    return 'Delete the selected items from $location?';
+  }
+
+  @override
+  String deleteDialogMoveCount(int count, String size, String location) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Move $count items ($size) to .poltergeist-trash/ on $location?',
+      one: 'Move 1 item ($size) to .poltergeist-trash/ on $location?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String deleteDialogMoveNames(String names, String location) {
+    return 'Move “$names” to .poltergeist-trash/ on $location?';
+  }
+
+  @override
+  String deleteDialogMoveUnquantified(String location) {
+    return 'Move the selected items to .poltergeist-trash/ on $location?';
+  }
+
+  @override
+  String get deleteDialogIrreversible => 'This cannot be undone.';
+
+  @override
+  String get deleteDialogMoveWarning =>
+      'Items are moved to .poltergeist-trash/ on the server.';
+
+  @override
+  String get deleteDialogTrashUnavailable =>
+      'The Trash isn\'t available here, so these items will be deleted permanently.';
+
+  @override
+  String deleteDialogFlaggedExact(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Includes $count items with an undecodable name.',
+      one: 'Includes 1 item with an undecodable name.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get deleteDialogFlaggedMaybe =>
+      'May include items with undecodable names.';
+
+  @override
+  String get deleteDialogServerTrashCheckbox =>
+      'Move to .poltergeist-trash/ instead';
+
+  @override
+  String get deleteDialogServerTrashHelper =>
+      'Trashed files stay on the server, readable by anything that can read the folder, until you purge them.';
+
+  @override
+  String deleteDialogConfirmDelete(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Delete $count Items',
+      one: 'Delete',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String deleteDialogConfirmMove(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Move $count Items',
+      one: 'Move to Trash',
+    );
+    return '$_temp0';
+  }
 }
