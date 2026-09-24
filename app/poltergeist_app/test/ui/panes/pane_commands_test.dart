@@ -576,8 +576,8 @@ void main() {
         reason: 'the inactive pane never opens a session');
   });
 
-  testWidgets('file.getInfo is selection-scoped, toggles the active '
-      'pane\'s inspector, and documents its §8.3 keys', (tester) async {
+  testWidgets('file.getInfo is selection-scoped, toggles the inspector\'s '
+      'Info tab (D32), and documents its §8.3 keys', (tester) async {
     final lanes = controller_test.FakePaneLanes();
     final channel = controller_test.FakePaneChannel('/home/tester');
     channel.listings['/home/tester'] = [_entry('a'), _entry('b')];
@@ -620,12 +620,13 @@ void main() {
     expect(getInfo.menuPlacement?.order, 65);
     expect(getInfo.menuPlacement?.group, 1);
 
-    // Enablement needs an inspector target — a cursor/selected row —
-    // or an already-open panel (so the same chord toggles it closed).
+    // D32: the Info tab follows the focused item and shows its own
+    // empty state, so the verb is live whenever a browsing tab exists —
+    // with or without a row to describe.
     workspace.setActivePane(rightStrip);
-    expect(getInfo.enabled(), isFalse);
+    expect(getInfo.enabled(), isTrue);
     workspace.setActivePane(leftStrip);
-    expect(getInfo.enabled(), isFalse);
+    expect(getInfo.enabled(), isTrue);
     left.setCursorIndex(1);
     expect(getInfo.enabled(), isTrue);
 
@@ -637,12 +638,23 @@ void main() {
       ),
     );
     final context = tester.element(find.byType(Scaffold));
+    // The inspector opens on Info by default: the chord toggles it away
+    // and back — window chrome, never a per-pane overlay.
+    expect(workspace.inspectorHidden, isFalse);
+    expect(workspace.inspectorTab, InspectorTab.info);
     await getInfo.run(context);
-    expect(leftStrip.infoPanelOpen, isTrue);
-    expect(rightStrip.infoPanelOpen, isFalse,
-        reason: 'the inspector is pane chrome of the ACTIVE pane only');
+    expect(workspace.inspectorHidden, isTrue);
     await getInfo.run(context);
+    expect(workspace.inspectorHidden, isFalse);
+    expect(workspace.inspectorTab, InspectorTab.info);
     expect(leftStrip.infoPanelOpen, isFalse);
+    expect(rightStrip.infoPanelOpen, isFalse);
+
+    // From another tab it switches to Info rather than hiding.
+    workspace.selectInspectorTab(InspectorTab.transfers);
+    await getInfo.run(context);
+    expect(workspace.inspectorHidden, isFalse);
+    expect(workspace.inspectorTab, InspectorTab.info);
   });
 
   testWidgets('file.editBuiltIn is selection-scoped, opens the cursor row '

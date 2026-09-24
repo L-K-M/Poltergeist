@@ -133,6 +133,7 @@ final class PreviewSession extends ChangeNotifier {
        _producer = producer,
        _quickLook = quickLook ?? const NoopQuickLookChannel(),
        _platform = platform ?? defaultTargetPlatform {
+    _wellShown = !workspace.previewPanelHidden;
     _workspace.addListener(_onFocusChainChanged);
     _onFocusChainChanged();
   }
@@ -272,6 +273,10 @@ final class PreviewSession extends ChangeNotifier {
   /// (progress, gate, close edge) early-returns on this.
   bool _disposed = false;
 
+  /// Whether the Info tab's preview well was on screen at the last
+  /// workspace notification — the edge [_syncWellVisibility] watches.
+  late bool _wellShown;
+
   void _onFocusChainChanged() {
     final strip = _workspace.activePane;
     if (!identical(strip, _boundStrip)) {
@@ -286,6 +291,33 @@ final class PreviewSession extends ChangeNotifier {
       _boundTab = tab;
     }
     _selectionChanged();
+    _syncWellVisibility();
+  }
+
+  /// D32 moved the preview into the inspector's Info tab (10 §3), which
+  /// many paths show or hide besides this session's own verbs: the
+  /// inspector toggle, the tab switcher, Get Info, a restored session,
+  /// the Transfers auto-show. The well is evaluated on the shown edge
+  /// (a selection made while it was hidden never evaluated) and parked
+  /// on the hidden edge, so it can never come back rendering a file the
+  /// selection has since left.
+  void _syncWellVisibility() {
+    final shown = !_workspace.previewPanelHidden;
+    if (shown == _wellShown) return;
+    _wellShown = shown;
+    if (shown) {
+      _evaluate();
+      return;
+    }
+    // Production keeps running silently into the cache (§5.1/§5.2);
+    // the park sweep retries any unlink an open handle blocked.
+    _phase = PreviewPhase.idle;
+    _refusal = PreviewRefusal.none;
+    _file = null;
+    _text = null;
+    _gate = null;
+    notifyListeners();
+    unawaited(_cache.sweepTemps());
   }
 
   /// The focused item's identity key: the §5.3 cache key for remote
@@ -386,8 +418,8 @@ final class PreviewSession extends ChangeNotifier {
   /// promptless → close; confirmation and in-flight are no-ops.
   bool _panelVerb(PaneController pane) {
     if (_panelHidden) {
+      // The shown edge evaluates the focused item.
       _workspace.setPreviewPanelHidden(false);
-      _evaluate();
       return true;
     }
     switch (_phase) {
@@ -500,8 +532,8 @@ final class PreviewSession extends ChangeNotifier {
   /// it, running the surface-close cache sweep either way (§5.3).
   void togglePanel() {
     if (_panelHidden) {
+      // The shown edge evaluates the focused item.
       _workspace.setPreviewPanelHidden(false);
-      _evaluate();
       return;
     }
     closePanel();
@@ -512,14 +544,8 @@ final class PreviewSession extends ChangeNotifier {
   /// retries any unlink an open handle blocked.
   void closePanel() {
     if (_panelHidden) return;
+    // The hidden edge parks the well and runs the sweep.
     _workspace.setPreviewPanelHidden(true);
-    _phase = PreviewPhase.idle;
-    _refusal = PreviewRefusal.none;
-    _file = null;
-    _text = null;
-    _gate = null;
-    notifyListeners();
-    unawaited(_cache.sweepTemps());
   }
 
   /// The prompt/confirm card's Download and the gate card's "Keep
@@ -980,9 +1006,9 @@ final class PreviewSession extends ChangeNotifier {
     if (!await _quickLook.isAvailable()) {
       if (_disposed) return;
       // Channel absent on a non-macOS host or a headless test — the
-      // panel is the honest fallback surface.
-      _workspace.setPreviewPanelHidden(false);
-      _evaluate();
+      // Info tab's well is the honest fallback surface, and Space gets
+      // its answer there (show it, or the visible card's own verb).
+      _panelVerb(pane);
       return;
     }
     if (_disposed) return;

@@ -169,12 +169,18 @@ final class PreviewHarness {
   final quickLook = FakeQuickLookChannel();
   late final PreviewSession session;
 
+  /// [infoTabShown] is the D32 inspector's Info tab on screen at
+  /// creation — the app's default (10 §3), where the preview well
+  /// follows the selection on its own. Most suites start from a
+  /// user-hidden inspector instead, so Space's open-and-evaluate leg
+  /// (06 §5.2's hidden → prompt step) stays the first thing they drive.
   static Future<PreviewHarness> create({
     bool withProducer = true,
     bool quickLookAvailable = false,
     TargetPlatform platform = TargetPlatform.linux,
     int thresholdBytes = 4096,
     int cacheCapacityBytes = 1 << 20,
+    bool infoTabShown = false,
   }) async {
     final h = PreviewHarness();
     h.tempDir = Directory.systemTemp.createTempSync('preview_test');
@@ -190,6 +196,7 @@ final class PreviewHarness {
       left: testPaneStrip(h.left, lanes: h.lanes),
       right: testPaneStrip(h.right, lanes: h.lanes),
     );
+    if (!infoTabShown) h.workspace.setInspectorHidden(true);
     h.quickLook.available = quickLookAvailable;
     h.session = PreviewSession(
       workspace: h.workspace,

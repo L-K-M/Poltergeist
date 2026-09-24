@@ -2,8 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/ui/layout/pane_allocation.dart';
 
 const _desktopBoundary = 1080.0;
-const _mobileBoundary = 680.0;
-const _splitterExtent = 16.0;
+// D32 §3.1/§3.2: the compact posture starts below 600, and the A|B
+// splitter is a 7 px hairline grab area like the region splitters.
+const _mobileBoundary = 600.0;
+const _splitterExtent = 7.0;
 
 void main() {
   group('allocatePanes', () {
@@ -70,7 +72,7 @@ void main() {
       );
 
       expect(allocation.stage, LayoutStage.compact);
-      expect(allocation.primaryWidth, 464);
+      expect(allocation.primaryWidth, 473);
       expect(allocation.splitterWidth, _splitterExtent);
       expect(allocation.secondaryWidth, 240);
       expect(

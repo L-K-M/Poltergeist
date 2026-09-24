@@ -20,6 +20,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
 import '../../support/fake_bookmark_store.dart';
+import '../../support/shell_commands.dart';
 
 RemoteFileEntry _entry(String name, {String parent = '/home/tester'}) =>
     RemoteFileEntry(
@@ -176,63 +177,54 @@ void main() {
     expect(find.text('right.txt'), findsOneWidget);
   });
 
-  testWidgets('toolbar refresh becomes available after initial binding', (tester) async {
+  testWidgets('Refresh becomes available after initial binding', (tester) async {
     await pumpApp(tester);
     await tester.pumpAndSettle();
 
-    final refresh = find.byKey(const ValueKey('command.$kViewRefreshCommandId'));
-    expect(tester.widget<TextButton>(refresh).onPressed, isNotNull);
-    await tester.tap(refresh);
-    await tester.pumpAndSettle();
+    expect(shellCommandEnabled(tester, kViewRefreshCommandId), isTrue);
+    await runShellCommand(tester, kViewRefreshCommandId);
     expect(engine.localChannels[0].listCalls, ['/home/tester', '/home/tester']);
     expect(engine.localChannels[1].listCalls, ['/home/tester']);
   });
 
-  testWidgets('toolbar open follows cursor and active pane changes', (tester) async {
+  testWidgets('Open follows cursor and active pane changes', (tester) async {
     engine.localChannels[0].listings['/home/tester'] = [
       const RemoteFileEntry(path: '/home/tester/docs', name: 'docs', type: RemoteFileType.directory),
     ];
     await pumpApp(tester);
     await tester.pumpAndSettle();
-    final open = find.byKey(const ValueKey('command.$kGoOpenCommandId'));
-    expect(tester.widget<TextButton>(open).onPressed, isNull);
+    expect(shellCommandEnabled(tester, kGoOpenCommandId), isFalse);
 
-    await tester.tap(find.byKey(const ValueKey('command.$kPaneFocusLeftCommandId')));
-    await tester.pump();
+    await runShellCommand(tester, kPaneFocusLeftCommandId, settle: false);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pump();
-    expect(tester.widget<TextButton>(open).onPressed, isNotNull);
-    await tester.tap(find.byKey(const ValueKey('command.$kPaneFocusRightCommandId')));
-    await tester.pump();
-    expect(tester.widget<TextButton>(open).onPressed, isNull);
-    await tester.tap(find.byKey(const ValueKey('command.$kPaneFocusLeftCommandId')));
-    await tester.pump();
-    expect(tester.widget<TextButton>(open).onPressed, isNotNull);
+    expect(shellCommandEnabled(tester, kGoOpenCommandId), isTrue);
+    await runShellCommand(tester, kPaneFocusRightCommandId, settle: false);
+    expect(shellCommandEnabled(tester, kGoOpenCommandId), isFalse);
+    await runShellCommand(tester, kPaneFocusLeftCommandId, settle: false);
+    expect(shellCommandEnabled(tester, kGoOpenCommandId), isTrue);
 
-    await tester.tap(open);
-    await tester.pumpAndSettle();
+    await runShellCommand(tester, kGoOpenCommandId);
     expect(engine.localChannels[0].listCalls, ['/home/tester', '/home/tester/docs']);
     expect(engine.localChannels[1].listCalls, ['/home/tester']);
-    expect(tester.widget<TextButton>(open).onPressed, isNull);
+    expect(shellCommandEnabled(tester, kGoOpenCommandId), isFalse);
   });
 
-  testWidgets('toolbar parent tracks pending and completed listings', (tester) async {
+  testWidgets('Enclosing Folder tracks pending and completed listings', (tester) async {
     final channel = _HeldListingChannel();
     engine.localChannels[0] = channel;
     await pumpApp(tester);
     await tester.pumpAndSettle();
-    final parent = find.byKey(const ValueKey('command.$kGoEnclosingCommandId'));
-    expect(tester.widget<TextButton>(parent).onPressed, isNotNull);
+    expect(shellCommandEnabled(tester, kGoEnclosingCommandId), isTrue);
 
     final held = Completer<List<RemoteFileEntry>>();
     channel.nextListing = held;
-    await tester.tap(find.byKey(const ValueKey('command.$kViewRefreshCommandId')));
-    await tester.pump();
-    expect(tester.widget<TextButton>(parent).onPressed, isNull);
+    await runShellCommand(tester, kViewRefreshCommandId, settle: false);
+    expect(shellCommandEnabled(tester, kGoEnclosingCommandId), isFalse);
     held.complete([_entry('fresh.txt')]);
     await tester.pumpAndSettle();
     expect(find.text('fresh.txt'), findsOneWidget);
-    expect(tester.widget<TextButton>(parent).onPressed, isNotNull);
+    expect(shellCommandEnabled(tester, kGoEnclosingCommandId), isTrue);
   });
 
   testWidgets('placeholder panes are gone; the demo command is retired', (
@@ -241,19 +233,10 @@ void main() {
     await pumpApp(tester);
 
     expect(find.text('Choose a location'), findsNothing);
-    expect(
-      find.byKey(const ValueKey('command.connect.demoListing')),
-      findsNothing,
-    );
+    expect(shellCommandRegistered(tester, 'connect.demoListing'), isFalse);
     // The pane commands are registered (D21).
-    expect(
-      find.byKey(const ValueKey('command.$kViewRefreshCommandId')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('command.$kGoEnclosingCommandId')),
-      findsOneWidget,
-    );
+    expect(shellCommandRegistered(tester, kViewRefreshCommandId), isTrue);
+    expect(shellCommandRegistered(tester, kGoEnclosingCommandId), isTrue);
   });
 
   testWidgets('Ctrl+R refreshes the focused pane only', (tester) async {
@@ -299,10 +282,7 @@ void main() {
     try {
       await pumpApp(tester);
 
-      await tester.tap(
-        find.byKey(const ValueKey('command.$kPaneFocusRightCommandId')),
-      );
-      await tester.pump();
+      await runShellCommand(tester, kPaneFocusRightCommandId, settle: false);
 
       // The focused pane is right: refresh through the chord targets it.
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
@@ -460,15 +440,13 @@ void main() {
     expect(find.text('from-remote.txt'), findsOneWidget);
     expect(engine.openCalls.map((c) => c.serverId), ['srv-9']);
 
-    final refresh = find.byKey(const ValueKey('command.$kViewRefreshCommandId'));
-    final parent = find.byKey(const ValueKey('command.$kGoEnclosingCommandId'));
-    expect(tester.widget<TextButton>(refresh).onPressed, isNotNull);
+    expect(shellCommandEnabled(tester, kViewRefreshCommandId), isTrue);
     engine.statesControllers['srv-9']!.add(
       const ServerStatus(ServerConnectionState.reconnecting),
     );
     await tester.pump();
-    expect(tester.widget<TextButton>(refresh).onPressed, isNull);
-    expect(tester.widget<TextButton>(parent).onPressed, isNull);
+    expect(shellCommandEnabled(tester, kViewRefreshCommandId), isFalse);
+    expect(shellCommandEnabled(tester, kGoEnclosingCommandId), isFalse);
     expect(find.text('from-remote.txt'), findsOneWidget);
 
     final listing = Completer<List<RemoteFileEntry>>();
@@ -479,12 +457,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.byKey(const ValueKey('pane.banner')), findsOneWidget);
-    expect(tester.widget<TextButton>(refresh).onPressed, isNull);
+    expect(shellCommandEnabled(tester, kViewRefreshCommandId), isFalse);
     listing.complete([_entry('healed.txt', parent: '/srv/home')]);
     await tester.pumpAndSettle();
     expect(find.text('healed.txt'), findsOneWidget);
     expect(find.byKey(const ValueKey('pane.banner')), findsNothing);
-    expect(tester.widget<TextButton>(refresh).onPressed, isNotNull);
+    expect(shellCommandEnabled(tester, kViewRefreshCommandId), isTrue);
     expect(engine.localChannels[1].listCalls, ['/home/tester']);
     expect(find.text('right.txt'), findsOneWidget);
   });
@@ -640,10 +618,7 @@ void main() {
 
       // Focus the connecting pane through the production focus command,
       // then cancel the pending bind with plain Esc.
-      await tester.tap(
-        find.byKey(const ValueKey('command.$kPaneFocusLeftCommandId')),
-      );
-      await tester.pump();
+      await runShellCommand(tester, kPaneFocusLeftCommandId, settle: false);
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       // Bounded pumps here too: while the held open is still in flight
       // the shared srv-1 status stays `connecting`, and the SIBLING's
@@ -933,10 +908,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Focus pane B through the production focus command.
-        await tester.tap(
-          find.byKey(const ValueKey('command.$kPaneFocusRightCommandId')),
-        );
-        await tester.pump();
+        await runShellCommand(tester, kPaneFocusRightCommandId, settle: false);
         expect(
           FocusManager.instance.primaryFocus?.debugLabel,
           'pane.right.listing',
@@ -974,10 +946,7 @@ void main() {
 
         // pane.focusRight cannot reach a hidden pane: it resolves to
         // the visible survivor and the next chord still targets pane A.
-        await tester.tap(
-          find.byKey(const ValueKey('command.$kPaneFocusRightCommandId')),
-        );
-        await tester.pump();
+        await runShellCommand(tester, kPaneFocusRightCommandId, settle: false);
         expect(
           FocusManager.instance.primaryFocus?.debugLabel,
           'pane.left.listing',
@@ -999,12 +968,7 @@ void main() {
         );
 
         // Re-showing restores pane B's surface.
-        await tester.tap(
-          find.byKey(
-            const ValueKey('command.$kViewToggleSecondPaneCommandId'),
-          ),
-        );
-        await tester.pumpAndSettle();
+        await runShellCommand(tester, kViewToggleSecondPaneCommandId);
         expect(
           find.byKey(AdaptiveShell.secondaryPaneKey),
           findsOneWidget,
@@ -1164,12 +1128,7 @@ void main() {
       expect(c2.location?.path, '/srv/deep');
 
       // Hide through the registered command: the surface unmounts.
-      await tester.tap(
-        find.byKey(
-          const ValueKey('command.$kViewToggleSecondPaneCommandId'),
-        ),
-      );
-      await tester.pumpAndSettle();
+      await runShellCommand(tester, kViewToggleSecondPaneCommandId);
       expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsNothing);
       expect(find.text('deep.txt'), findsNothing);
 
@@ -1186,12 +1145,7 @@ void main() {
 
       // Re-showing restores it exactly — the remembered pane renders
       // the same active tab and every lens rides again.
-      await tester.tap(
-        find.byKey(
-          const ValueKey('command.$kViewToggleSecondPaneCommandId'),
-        ),
-      );
-      await tester.pumpAndSettle();
+      await runShellCommand(tester, kViewToggleSecondPaneCommandId);
       expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsOneWidget);
       expect(find.text('deep.txt'), findsOneWidget);
       expectFirstTab();
@@ -1210,10 +1164,7 @@ void main() {
       try {
         await pumpApp(tester);
         await tester.pumpAndSettle();
-        await tester.tap(
-          find.byKey(const ValueKey('command.$kPaneFocusRightCommandId')),
-        );
-        await tester.pump();
+        await runShellCommand(tester, kPaneFocusRightCommandId, settle: false);
         expect(
           FocusManager.instance.primaryFocus?.debugLabel,
           'pane.right.listing',
@@ -1223,8 +1174,9 @@ void main() {
         // hides pane B — the same mechanism view.toggleSecondPane
         // feeds, so focus and the active pane move to the survivor.
         // pumpApp pins devicePixelRatio to 1.0, so these sizes are
-        // logical pixels straddling the real stage-2 breakpoint.
-        tester.view.physicalSize = const Size(600, 900);
+        // logical pixels straddling the real stage-2 breakpoint (600
+        // since D32 §3.2; the sidebar and inspector fold away first).
+        tester.view.physicalSize = const Size(560, 900);
         await tester.pumpAndSettle();
 
         expect(

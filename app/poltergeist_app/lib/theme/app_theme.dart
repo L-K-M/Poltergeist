@@ -94,7 +94,9 @@ const _dark = _Neutrals(
   containerHighest: Color(0xFF3B4452),
   onSurface: Color(0xFFE7EAEF),
   onSurfaceVariant: Color(0xFFB4BCC8),
-  outline: Color(0xFF6B7584),
+  // ≥ 3:1 on every slate chrome surface (sidebar, header, inspector):
+  // outline paints the idle/unknown server dot, a non-text indicator.
+  outline: Color(0xFF77818F),
   outlineVariant: Color(0xFF3A424E),
   inverseSurface: Color(0xFFE7EAEF),
   onInverseSurface: Color(0xFF232932),

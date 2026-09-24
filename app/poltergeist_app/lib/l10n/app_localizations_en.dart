@@ -3769,4 +3769,17 @@ class AppLocalizationsEn extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String toolbarTooltipWithShortcut(String label, String shortcut) {
+    return '$label  $shortcut';
+  }
+
+  @override
+  String badgeCount(int count) {
+    return '$count';
+  }
+
+  @override
+  String get badgeCountOverflow => '99+';
 }

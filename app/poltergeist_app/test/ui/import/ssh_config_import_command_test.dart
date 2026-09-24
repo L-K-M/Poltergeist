@@ -3,11 +3,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
+import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/services/ssh_config_import_setup.dart';
 import 'package:poltergeist_app/ui/import/ssh_config_import_command.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../support/fake_ssh_config_source.dart';
+import '../../support/shell_commands.dart';
+import '../../support/shell_menus.dart';
 
 const _home = '/home/tester';
 const _configPath = '$_home/.ssh/config';
@@ -119,10 +122,6 @@ void main() {
     );
   }
 
-  final commandButton = find.byKey(
-    const ValueKey('command.$kSshConfigImportCommandId'),
-  );
-
   Future<void> pumpApp(
     WidgetTester tester, {
     SshConfigImportSetup? wiring,
@@ -135,12 +134,18 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('the import command renders only when wired', (tester) async {
+  testWidgets('the import command registers only when wired', (tester) async {
     await pumpApp(tester);
-    expect(commandButton, findsNothing);
+    expect(shellCommandRegistered(tester, kSshConfigImportCommandId), isFalse);
 
     await pumpApp(tester, wiring: setup());
-    expect(commandButton, findsOneWidget);
+    expect(shellCommandRegistered(tester, kSshConfigImportCommandId), isTrue);
+    // D32 files it under the Server menu's import/backup group (10 §8).
+    await openShellMenu(tester, AppMenuId.server);
+    expect(
+      find.byKey(const ValueKey('menu.item.$kSshConfigImportCommandId')),
+      findsOneWidget,
+    );
     expect(find.text('Import from ssh config…'), findsOneWidget);
   });
 
@@ -149,8 +154,7 @@ void main() {
   ) async {
     await pumpApp(tester, wiring: setup());
 
-    await tester.tap(commandButton);
-    await tester.pumpAndSettle();
+    await runShellCommand(tester, kSshConfigImportCommandId);
 
     expect(find.text('Import servers from ssh config'), findsOneWidget);
     expect(find.text('web'), findsOneWidget);
@@ -184,8 +188,7 @@ void main() {
     ]);
 
     await pumpApp(tester, wiring: setup());
-    await tester.tap(commandButton);
-    await tester.pumpAndSettle();
+    await runShellCommand(tester, kSshConfigImportCommandId);
 
     // The preview reflects the persisted store: the matching row is
     // flagged and starts skipped, so only the new host is importable.
@@ -204,8 +207,7 @@ void main() {
 
   testWidgets('a store with no matches flags nothing', (tester) async {
     await pumpApp(tester, wiring: setup());
-    await tester.tap(commandButton);
-    await tester.pumpAndSettle();
+    await runShellCommand(tester, kSshConfigImportCommandId);
 
     expect(find.textContaining('Duplicate of bookmark'), findsNothing);
     expect(find.text('Import 2'), findsOneWidget);
@@ -216,8 +218,7 @@ void main() {
   ) async {
     await pumpApp(tester, wiring: setup(files: const {}));
 
-    await tester.tap(commandButton);
-    await tester.pumpAndSettle();
+    await runShellCommand(tester, kSshConfigImportCommandId);
 
     // The import command is registered whenever a home resolves; a
     // missing ~/.ssh/config must land on the dialog's retry surface and
@@ -234,8 +235,7 @@ void main() {
       wiring: setup(bookmarks: _LoadFailingBookmarkStore()),
     );
 
-    await tester.tap(commandButton);
-    await tester.pumpAndSettle();
+    await runShellCommand(tester, kSshConfigImportCommandId);
 
     expect(find.text('Could not read the favorites file.'), findsOneWidget);
     expect(find.text('Import servers from ssh config'), findsNothing);
@@ -252,8 +252,7 @@ void main() {
       wiring: setup(bookmarks: _SaveFailingBookmarkStore()),
     );
 
-    await tester.tap(commandButton);
-    await tester.pumpAndSettle();
+    await runShellCommand(tester, kSshConfigImportCommandId);
     await tester.tap(find.text('Import 2'));
     await tester.pumpAndSettle();
 

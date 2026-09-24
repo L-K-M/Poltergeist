@@ -172,7 +172,7 @@ void main() {
           utf8.encode('server rewrite\n'),
           modifiedAt: DateTime.utc(2026, 3, 3),
         );
-        await tester.enterText(find.byType(TextField), 'local edit\n');
+        await tester.enterText(editorField, 'local edit\n');
         await tester.pump();
         await tester.tap(find.byTooltip('Save and upload'));
         await pollFor(tester, find.text('Remote file changed'));

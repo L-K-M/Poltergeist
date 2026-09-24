@@ -168,9 +168,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'tabs.newTabTarget'",
     "'panes.doubleClickAction'",
     "'tabs.reconnectRestored'",
-    // The activity panel's persisted keys (02 §1/§6): height, the two
-    // throttle limits, and the auto-remove flag — settings.json keys.
-    "'layout.activityPanelHeight'",
+    // The D32 region widths (10 §3.1) — settings.json keys.
+    "'layout.sidebarWidth'",
+    "'layout.inspectorWidth'",
+    // The activity panel's persisted keys (02 §1/§6): the two throttle
+    // limits and the auto-remove flag — settings.json keys.
     "'transfer.downloadLimitBytesPerSecond'",
     "'transfer.uploadLimitBytesPerSecond'",
     "'transfer.autoClearCompleted'",
@@ -241,6 +243,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // splitter chrome): key plus its strict-type diagnostic.
     "'activityPanelHidden'",
     "'Invalid session activity panel flag'",
+    // The D32 inspector's optional visibility and tab (10 §3.1): keys
+    // plus their strict-type diagnostics.
+    "'inspectorHidden'",
+    "'inspectorTab'",
+    "'Invalid session inspector flag'",
+    "'Invalid session inspector tab'",
   },
   // The settings.json key the session document lives under (02 §3).
   'lib/services/session_state_store.dart': {"'session.state'"},
@@ -935,11 +943,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     'r\'^[ \\t]*(?:-[ \\t]+)*([^\\s#-][^:\\n]*?)[ \\t]*:(?=[ \\t]|\$)\'',
     'r\'^[ \\t]*\\[[^\\]\\n]+\\]\'',
   },
-  // Registered commands render from the registry keyed by id — widget
-  // plumbing, not authored copy. The pane ids and focus-node labels key
-  // to the engine's paneTabId channel identity (03 §3.2).
+  // The pane ids and focus-node labels key to the engine's paneTabId
+  // channel identity (03 §3.2) — widget plumbing, not authored copy.
   'lib/ui/workspace_shell.dart': {
-    "'command.\${command.id}'",
     "'connectionEngine is ignored when engineSession is provided'",
     "'pane.left.listing'",
     "'pane.right.listing'",
@@ -955,17 +961,23 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'sidebar.open: serverConfigId ${ref.serverConfigId} '",
     "'resolves to no pulled server'",
     "''",
-    // The status bar's sync chip widget key — plumbing, not copy.
-    "'statusbar.syncChip'",
-    // The activity panel's widget keys (splitter, panel, status chips)
-    // and the reveal-in-pane's missing-bookmark diagnostic — plumbing
-    // and a reported fault, never rendered copy.
-    "'activity.panel.splitter'",
-    "'activity.splitter'",
-    "'activity.panel'",
-    "'statusbar.transferChip'",
-    "'statusbar.limitChip'",
+    // The D32 chrome's widget keys and focus-node labels (splitters,
+    // inspector mounts, header title/filter/activity ring, the connect
+    // dialog) and the reveal-in-pane's missing-bookmark diagnostic —
+    // plumbing and a reported fault, never rendered copy.
+    "'sidebar.splitter'",
+    "'inspector.splitter'",
+    "'inspector.overlay'",
+    "'inspector.region'",
+    "'header.title'",
+    "'header.filter'",
+    "'header.activityRing'",
+    "'connect.dialog'",
     r"'revealInPane: no bookmark for $serverId'",
+    // The header subtitle's address grammar (10 §4): `user@host:path`
+    // and `label:path` — machine data like the sidebar's addresses.
+    r"'${identity.username}@${identity.host}:${loc.path}'",
+    r"'${bookmark.label}:${loc.path}'",
     // The confirm dialog's bullet list marker — typographic, not copy.
     r"'• ${tabCloseTriggerLabel(l10n, trigger)}'",
     // The built-in editor's route keys (06 §4.2) and the reported
@@ -1164,10 +1176,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/menus/app_menu_host.dart': {
     r"'menu.${menu.id.name}'",
     r"'menu.item.${command.id}'",
+    "'menu.main'",
   },
   // Debug-only placement-slot invariant diagnostics — never rendered.
   'lib/ui/menus/app_menus.dart': {
-    "'the macOS application menu is platform chrome only'",
+    "'commands reach the macOS application menu via appMenuOnMac'",
     r"'${p.group}:${p.order}'",
     r"'${command.id} shares menu slot ${p.group}:${p.order}'",
   },
@@ -1519,6 +1532,46 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The activity panel's registered command id (D21 plumbing).
   'lib/ui/activity/activity_commands.dart': {"'queue.togglePause'"},
+  // D32's shell command ids (D21 plumbing).
+  'lib/ui/shell/shell_commands.dart': {
+    "'view.toggleInspector'",
+    "'view.showAlerts'",
+    "'connect.quickConnect'",
+    "'selection.transferToOtherPane'",
+    "'selection.moveToOtherPane'",
+  },
+  // The header's button and overflow-menu keys, keyed to the registry's
+  // command ids — widget plumbing, not authored copy.
+  'lib/ui/shell/header_toolbar.dart': {
+    r"'command.${command.id}'",
+    r"'toolbar.overflow.${command.id}'",
+    "'toolbar.overflow'",
+  },
+  // The inspector's widget keys (its surface, the Transfers panel it
+  // mounts, the tab switcher's per-tab keys) — plumbing, not copy.
+  'lib/ui/inspector/inspector_view.dart': {
+    "'inspector'",
+    "'activity.panel'",
+    r"'inspector.tab.${value.name}'",
+  },
+  // The Alerts tab's list/empty-state keys and per-alert row keys —
+  // plumbing keyed to the alert identity, not copy.
+  'lib/ui/inspector/alerts_view.dart': {
+    "'alerts.empty'",
+    "'alerts.list'",
+    r"'alert.${alert.key}'",
+    r"'alert.${alert.key}.dismiss'",
+  },
+  // Alert identities for session dismissal and list keys — machine
+  // data, never rendered (the view localizes each alert's copy).
+  'lib/services/alert_center.dart': {
+    r"'task:${task.id}'",
+    "'conflicts'",
+    "'restored'",
+    r"'server:${server.serverId}'",
+    r"'edits:$serverId'",
+    r"'update:${info.latestVersion}'",
+  },
   // Rate/ETA rendering and path grammar: the `/s` suffix, the ETA unit
   // glyphs, the custom-rate regex and its unit table, both path
   // separators, the endpoint:path composition, and the `→` route arrow
@@ -1547,9 +1600,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'\\\\'",
     r"'$candidate/'",
     r"'$path/'",
-    r"'${transferEndpointLabel(task.source, localLabel: localLabel)}:'",
+    r"'${transferEndpointLabel(task.source, localLabel: localLabel, serverLabel: serverLabel)}:'",
     r"' $sourcePath'",
-    r"'${transferEndpointLabel(task.destination, localLabel: localLabel)}:'",
+    r"'${transferEndpointLabel(task.destination, localLabel: localLabel, serverLabel: serverLabel)}:'",
     r"' ${task.destinationDir}'",
     r"'$source → $destination'",
   },
@@ -1617,8 +1670,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'\n'",
     "', '",
     "' → '",
-    r"'${transferEndpointLabel(entry.source, localLabel: l10n.activityTaskRouteLocal)}'",
-    r"'${transferEndpointLabel(entry.destination, localLabel: l10n.activityTaskRouteLocal)}'",
+    r"'${transferEndpointLabel(entry.source, localLabel: l10n.activityTaskRouteLocal, serverLabel: serverLabel)}'",
+    r"'${transferEndpointLabel(entry.destination, localLabel: l10n.activityTaskRouteLocal, serverLabel: serverLabel)}'",
     r"':${entry.destinationDir}'",
     r"'$time · $verb · $names'",
     r"'$route · $outcome'",
