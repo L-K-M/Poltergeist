@@ -4490,5 +4490,15 @@
   "connectionTestFailed": "Connection test failed",
   "@connectionTestFailed": {
     "description": "Screen-reader label of the failure icon in the connection-test report."
+  },
+  "activityTaskServerNotInCatalog": "The shared server \"{server}\" is not in the synced server list on this device.",
+  "@activityTaskServerNotInCatalog": {
+    "description": "Failed transfer, checkout, or sync row: the bookmark names a shared (synced) server that this device's pulled server list does not contain, so there is nothing to connect to.",
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "web.example.com"
+      }
+    }
   }
 }

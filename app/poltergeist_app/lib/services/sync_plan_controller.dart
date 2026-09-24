@@ -791,7 +791,12 @@ final class SyncPlanController extends ChangeNotifier {
           : RemoteFileErrorKind.other;
       notifyListeners();
     } finally {
-      if (generation == _scanGeneration) _scanCancellation = null;
+      if (generation == _scanGeneration) {
+        _scanCancellation = null;
+        // The scan settled: its remote leases go back to the pool (the
+        // next scan, diff hash, or run leases again on demand).
+        unawaited(_environment.releaseRemoteLeases());
+      }
     }
   }
 
@@ -965,6 +970,8 @@ final class SyncPlanController extends ChangeNotifier {
         error: _errorMessage,
       );
       notifyListeners();
+    } finally {
+      unawaited(_environment.releaseRemoteLeases());
     }
   }
 
@@ -1015,6 +1022,8 @@ final class SyncPlanController extends ChangeNotifier {
         error: _errorMessage,
       );
       notifyListeners();
+    } finally {
+      unawaited(_environment.releaseRemoteLeases());
     }
   }
 
@@ -1055,17 +1064,21 @@ final class SyncPlanController extends ChangeNotifier {
     if (run == null || isRunning) {
       return const SyncRestoreReport(restored: [], skipped: []);
     }
-    return restoreTrashedFiles(
-      run.journal,
-      fsFor: (side) => _environment.fileSystemFor(
-        side == SyncSide.left ? _pair.left : _pair.right,
-      ),
-      rootFor: (side) =>
-          (side == SyncSide.left ? _leftRoot : _rightRoot) ??
-          _environment.rootFor(
-            side == SyncSide.left ? _pair.left : _pair.right,
-          ),
-    );
+    try {
+      return await restoreTrashedFiles(
+        run.journal,
+        fsFor: (side) => _environment.fileSystemFor(
+          side == SyncSide.left ? _pair.left : _pair.right,
+        ),
+        rootFor: (side) =>
+            (side == SyncSide.left ? _leftRoot : _rightRoot) ??
+            _environment.rootFor(
+              side == SyncSide.left ? _pair.left : _pair.right,
+            ),
+      );
+    } finally {
+      unawaited(_environment.releaseRemoteLeases());
+    }
   }
 
   /// The panel's pause/resume verb → the run's between-items gate.
@@ -1201,6 +1214,7 @@ final class SyncPlanController extends ChangeNotifier {
     _scanCancellation?.cancel();
     _runCancellation?.cancel();
     _pause?.resume();
+    unawaited(_environment.releaseRemoteLeases());
     super.dispose();
   }
 }

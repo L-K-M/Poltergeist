@@ -1053,6 +1053,16 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // Debug-only invariant messages — never rendered.
     "'_loweredNames out of sync with _listing — assign via _setListing'",
   },
+  // The bridged lease's config source: the resolve operation tag and the
+  // sync-endpoint serverId scheme — machine identifiers, never UI copy
+  // (the catalog-miss message itself is ARB).
+  'lib/services/server_config_source.dart': {
+    "'resolve server'",
+    "'sync-endpoint:'",
+    r"'$_syncServerIdPrefix$catalogId'",
+    r"'$_syncServerIdPrefix${identity!.username}@${identity.host}:'",
+    r"'${identity.port}'",
+  },
   // The location type's value semantics: toString output for debugging
   // and the path-separator arithmetic (POSIX and Windows forms).
   'lib/services/pane_location.dart': {

@@ -5399,6 +5399,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Connection test failed'**
   String get connectionTestFailed;
+
+  /// Failed transfer, checkout, or sync row: the bookmark names a shared (synced) server that this device's pulled server list does not contain, so there is nothing to connect to.
+  ///
+  /// In en, this message translates to:
+  /// **'The shared server \"{server}\" is not in the synced server list on this device.'**
+  String activityTaskServerNotInCatalog(String server);
 }
 
 class _AppLocalizationsDelegate

@@ -3462,4 +3462,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get connectionTestFailed => 'Connection test failed';
+
+  @override
+  String activityTaskServerNotInCatalog(String server) {
+    return 'The shared server \"$server\" is not in the synced server list on this device.';
+  }
 }

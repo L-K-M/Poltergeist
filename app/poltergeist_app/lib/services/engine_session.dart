@@ -73,6 +73,20 @@ abstract interface class AppEngine implements PromptBridge, ProbeBridge, PaneEng
 
   /// Orderly engine shutdown (03 §5: orderly, then kill).
   Future<void> shutdown();
+
+  /// The bridged transfer-lease seam (protocol v13, STATUS item 23): a
+  /// [ConnectionManager] whose leases are engine-held pool channels and
+  /// whose `fs` proxies every VFS call and byte stream across the port.
+  /// The transfer queue, the checkout manager, the preview producer, and
+  /// the sync endpoints all lease through it; [configs] answers the
+  /// server config each lease dials with. Builds a new manager per call —
+  /// the composition root calls it once.
+  ConnectionManager transferConnections(ServerConfigSource configs);
+
+  /// The engine-side D15 local trash (03 §7.3) — the UI-isolate transfer
+  /// queue's trash backend, so `gio` spawns and the channel relay stay in
+  /// the engine (D8).
+  LocalTrashBackend get localTrash;
 }
 
 /// One opened browse channel, mirrored UI-side. [EngineClient]'s channel
@@ -101,6 +115,18 @@ abstract interface class AppBrowseChannel {
   /// (D8 — the UI isolate never spawns). Local channels only; a remote
   /// channel answers the typed `unsupported` refusal.
   Future<void> openInDefaultApp(String path);
+
+  /// Creates the directory [path] (02 §8.3's `file.newFolder`): a typed
+  /// failure when it exists or the parent is missing.
+  Future<void> createDirectory(String path);
+
+  /// Creates an empty regular file at [path] (`file.newFile`) — an
+  /// existing path is the typed conflict, never an overwrite.
+  Future<RemoteFileEntry> createEmptyFile(String path);
+
+  /// Stats [path] without following a final symlink — a `notFound`
+  /// failure means the name is free (the pane verbs' name probe).
+  Future<RemoteFileEntry> stat(String path);
 
   Future<void> close();
 }
@@ -218,6 +244,13 @@ final class _EngineClientAppEngine implements AppEngine {
 
   @override
   Future<void> shutdown() => _client.shutdown();
+
+  @override
+  ConnectionManager transferConnections(ServerConfigSource configs) =>
+      EngineConnectionManager(_client, configs: configs);
+
+  @override
+  late final LocalTrashBackend localTrash = EngineTrashBackend(_client);
 }
 
 /// [EngineClient]'s channel behind the app composition's seam (the same
@@ -250,6 +283,16 @@ final class _EngineClientChannel implements AppBrowseChannel {
   @override
   Future<void> openInDefaultApp(String path) =>
       _channel.openInDefaultApp(path);
+
+  @override
+  Future<void> createDirectory(String path) => _channel.createDirectory(path);
+
+  @override
+  Future<RemoteFileEntry> createEmptyFile(String path) =>
+      _channel.createEmptyFile(path);
+
+  @override
+  Future<RemoteFileEntry> stat(String path) => _channel.stat(path);
 
   @override
   Future<void> close() => _channel.close();
@@ -359,6 +402,15 @@ final class EngineSession {
   /// the pane banner cancels recovery through. Stable across rebuilds
   /// for the same reason as [connectionLanes].
   late final PaneEngineLanes paneLanes = _engine;
+
+  /// The bridged transfer-lease seam (see [AppEngine.transferConnections]):
+  /// the transfer queue session, the checkout session, and the sync
+  /// environment share the one manager the composition root builds.
+  ConnectionManager transferConnections(ServerConfigSource configs) =>
+      _engine.transferConnections(configs);
+
+  /// The engine-side local trash backend (see [AppEngine.localTrash]).
+  LocalTrashBackend get localTrash => _engine.localTrash;
 
   /// The pin store the engine's mirror writes to — also the backup
   /// coordinator's TOFU truth (04 §3.2): one instance over
