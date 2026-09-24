@@ -98,6 +98,7 @@ final class _Device {
   late final SyncEnrollment enrollment;
   late final _Clock clock;
   late final SeanceServerCatalog? catalog;
+  late final SyncTrackingServerStore? servers;
 
   static Future<_Device> create(Directory parent, String name,
       {bool shared = false}) async {
@@ -124,6 +125,16 @@ final class _Device {
       records: device.records,
     );
     device.catalog = shared ? SeanceServerCatalog() : null;
+    // Shared mode's catalog is a view over the writable server store —
+    // the same pair main.dart wires, or pulled serverConfigs never
+    // materialize anywhere.
+    device.servers = shared
+        ? FileServerConfigStore(
+            path: '${device.dir.path}/servers.json',
+            now: device.clock.call,
+            syncDeviceId: () => device.state.id,
+          )
+        : null;
     return device;
   }
 
@@ -137,6 +148,7 @@ final class _Device {
         pinVerdicts: verdicts,
         tripwires: tripwires,
         catalog: catalog,
+        servers: servers,
         enrollment: state,
         now: clock.call,
       );
