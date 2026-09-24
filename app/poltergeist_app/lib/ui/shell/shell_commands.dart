@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import '../../services/file_manager_reveal.dart';
 import '../../services/pane_controller.dart';
+import '../../services/pane_location.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_tabs_controller.dart';
 import '../../services/registered_command.dart';
@@ -14,6 +17,7 @@ const kConnectQuickConnectCommandId = 'connect.quickConnect';
 const kSelectionTransferToOtherPaneCommandId =
     'selection.transferToOtherPane';
 const kSelectionMoveToOtherPaneCommandId = 'selection.moveToOtherPane';
+const kFileRevealCommandId = 'file.reveal';
 
 List<ShortcutActivator> Function(TargetPlatform) _perPlatform({
   required List<ShortcutActivator> macOS,
@@ -98,10 +102,21 @@ void _transfer(
 /// D32's shell-level commands (10 §4, §8): the inspector toggle and its
 /// Alerts tab, Connect (⌘K), and the dual-pane Copy/Move to Other Pane
 /// verbs (F5/F6, the Commander convention every two-pane manager uses).
+/// The local path "Show in Finder" acts on: the cursor row of a local
+/// tab, else its first selected row — null for remote tabs (a remote
+/// item has no local file to reveal).
+String? _revealTarget(WorkspaceController workspace) {
+  final pane = workspace.activeTabController;
+  if (pane == null || pane.location is! LocalPaneLocation) return null;
+  final roots = _selectionRoots(pane);
+  return roots.isEmpty ? null : roots.first;
+}
+
 List<RegisteredCommand> buildShellCommands({
   required WorkspaceController workspace,
   required PaneDropDelegate? Function() dropDelegate,
   required VoidCallback openConnect,
+  FileManagerRevealer revealer = const FileManagerRevealer(),
 }) {
   return [
     RegisteredCommand(
@@ -202,5 +217,27 @@ List<RegisteredCommand> buildShellCommands({
         group: 2,
       ),
     ),
+      if (revealer.supported)
+      RegisteredCommand(
+        id: kFileRevealCommandId,
+        scope: CommandScope.selection,
+        label: (l10n) => switch (defaultTargetPlatform) {
+          TargetPlatform.macOS => l10n.fileRevealMacLabel,
+          TargetPlatform.windows => l10n.fileRevealWindowsLabel,
+          _ => l10n.fileRevealLinuxLabel,
+        },
+        icon: Icons.folder_open_outlined,
+        enabled: () => _revealTarget(workspace) != null,
+        disabledReason: (l10n) => l10n.commandDisabledRevealLocalOnly,
+        run: (_) async {
+          final path = _revealTarget(workspace);
+          if (path != null) await revealer.reveal(path);
+        },
+        menuPlacement: const CommandMenuPlacement(
+          menu: AppMenuId.file,
+          order: 68,
+          group: 1,
+        ),
+      ),
   ];
 }

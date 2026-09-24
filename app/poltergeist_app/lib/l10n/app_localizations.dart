@@ -5609,6 +5609,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No location'**
   String get headerTitleEmpty;
+
+  /// D32 §11: file.reveal on macOS — reveals the local item in Finder.
+  ///
+  /// In en, this message translates to:
+  /// **'Show in Finder'**
+  String get fileRevealMacLabel;
+
+  /// D32 §11: file.reveal on Linux — reveals the local item in the desktop file manager.
+  ///
+  /// In en, this message translates to:
+  /// **'Show in File Manager'**
+  String get fileRevealLinuxLabel;
+
+  /// D32 §11: file.reveal on Windows — reveals the local item in File Explorer.
+  ///
+  /// In en, this message translates to:
+  /// **'Show in Explorer'**
+  String get fileRevealWindowsLabel;
+
+  /// Disabled reason for Show in Finder/File Manager: only local items can be revealed.
+  ///
+  /// In en, this message translates to:
+  /// **'Select a local item'**
+  String get commandDisabledRevealLocalOnly;
 }
 
 class _AppLocalizationsDelegate

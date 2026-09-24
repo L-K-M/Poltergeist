@@ -4673,5 +4673,21 @@
   "headerTitleEmpty": "No location",
   "@headerTitleEmpty": {
     "description": "Header title while the active pane shows the launcher."
+  },
+  "fileRevealMacLabel": "Show in Finder",
+  "@fileRevealMacLabel": {
+    "description": "D32 §11: file.reveal on macOS — reveals the local item in Finder."
+  },
+  "fileRevealLinuxLabel": "Show in File Manager",
+  "@fileRevealLinuxLabel": {
+    "description": "D32 §11: file.reveal on Linux — reveals the local item in the desktop file manager."
+  },
+  "fileRevealWindowsLabel": "Show in Explorer",
+  "@fileRevealWindowsLabel": {
+    "description": "D32 §11: file.reveal on Windows — reveals the local item in File Explorer."
+  },
+  "commandDisabledRevealLocalOnly": "Select a local item",
+  "@commandDisabledRevealLocalOnly": {
+    "description": "Disabled reason for Show in Finder/File Manager: only local items can be revealed."
   }
 }

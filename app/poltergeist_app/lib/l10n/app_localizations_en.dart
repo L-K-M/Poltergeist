@@ -3602,4 +3602,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get headerTitleEmpty => 'No location';
+
+  @override
+  String get fileRevealMacLabel => 'Show in Finder';
+
+  @override
+  String get fileRevealLinuxLabel => 'Show in File Manager';
+
+  @override
+  String get fileRevealWindowsLabel => 'Show in Explorer';
+
+  @override
+  String get commandDisabledRevealLocalOnly => 'Select a local item';
 }

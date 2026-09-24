@@ -117,10 +117,11 @@ class _AlertRow extends StatelessWidget {
         switch (alert) {
           TransferFailedAlert(:final task) => (
             l10n.alertTransferFailed(transferTaskTitle(task, l10n)),
-            task.items
-                .map((item) => item.error)
-                .whereType<String>()
-                .firstOrNull,
+            task.error ??
+                task.items
+                    .map((item) => item.error)
+                    .whereType<String>()
+                    .firstOrNull,
             [
               (l10n.alertActionRetry, () => actions.retryTask(task)),
               (l10n.alertActionShow, actions.showTransfers),

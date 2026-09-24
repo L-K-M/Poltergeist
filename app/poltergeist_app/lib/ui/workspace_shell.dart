@@ -8,7 +8,6 @@ import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_sync/poltergeist_sync.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:window_manager/window_manager.dart' show DragToMoveArea;
 
 import '../l10n/app_localizations.dart';
 import '../services/activity_panel_controller.dart';
@@ -1578,6 +1577,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       builder: (context, _) => HeaderToolbar(
         commands: commands,
         onRun: _runCommand,
+        nativeTitlebar: mac,
         leadingInset: mac && !sidebarInline ? _macTrafficLightsInset : 0,
         title: _HeaderTitle(workspace: workspace),
         badges: {kViewToggleInspectorCommandId: _alerts.attentionCount},
@@ -1598,7 +1598,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final main = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _WindowDragArea(enabled: mac, child: header),
+        // Linux/Windows keep the native titlebar above the header; macOS
+        // draws the header under the unified toolbar band, whose empty
+        // space the system already drags and zooms.
+        header,
         Divider(height: 1, color: chrome.separator),
         // D19's update banner lives in Alerts now (D32 §3); the pane
         // row owns the rest of the column.
@@ -1645,14 +1648,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // macOS: the traffic lights sit over the sidebar's
-                  // top band (the full-size content view), which doubles
-                  // as a window drag area — Finder's layout.
-                  if (mac)
-                    _WindowDragArea(
-                      enabled: true,
-                      child: SizedBox(height: chrome.headerHeight),
-                    ),
+                  // macOS: the traffic lights sit over the sidebar's top
+                  // band (the full-size content view under the unified
+                  // toolbar, which drags natively) — Finder's layout.
+                  if (mac) SizedBox(height: chrome.headerHeight),
                   Expanded(child: _buildSidebarView(sshImportCommand)),
                 ],
               ),
@@ -3443,7 +3442,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
 /// Leading room for the macOS traffic lights when the header reaches the
 /// window's leading edge (sidebar hidden or in the drawer).
-const _macTrafficLightsInset = 72.0;
+const _macTrafficLightsInset = 76.0;
 
 /// How far past a region's minimum a drag must go before it hides the
 /// region (10 §3.1): a deliberate fling, never an accidental nudge.
@@ -3453,20 +3452,6 @@ const _collapseOvershoot = 48.0;
 const sidebarDefaultWidth = 232.0;
 const sidebarMinWidth = 180.0;
 const sidebarMaxWidth = 360.0;
-
-/// macOS: the header and the sidebar's top band sit under the
-/// transparent titlebar (full-size content view), so they double as the
-/// window's drag area; a double-click zooms, as a titlebar does.
-class _WindowDragArea extends StatelessWidget {
-  const _WindowDragArea({required this.enabled, required this.child});
-
-  final bool enabled;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) =>
-      enabled ? DragToMoveArea(child: child) : child;
-}
 
 /// The header's title block (10 §4): the active pane's location — the
 /// folder or server name, and a secondary line with the full path

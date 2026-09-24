@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:macos_window_utils/widgets/macos_toolbar_passthrough.dart';
+
 import '../../l10n/app_localizations.dart';
 import '../../services/registered_command.dart';
 import '../../services/shortcut_format.dart';
@@ -31,7 +33,14 @@ class HeaderToolbar extends StatelessWidget {
     this.filterField,
     this.menuButton,
     this.leadingInset = 0,
+    this.nativeTitlebar = false,
   });
+
+  /// macOS: the header sits under the native unified toolbar band, which
+  /// claims clicks for window drag/zoom — every interactive control is
+  /// wrapped in a [MacosToolbarPassthrough] so its clicks reach Flutter,
+  /// while empty header space keeps the native titlebar behavior.
+  final bool nativeTitlebar;
 
   final List<RegisteredCommand> commands;
   final Future<void> Function(RegisteredCommand command) onRun;
@@ -73,7 +82,10 @@ class HeaderToolbar extends StatelessWidget {
         if (command.toolbarPlacement!.slot == s) command,
     ];
 
-    return Container(
+    Widget pass(Widget child) =>
+        nativeTitlebar ? MacosToolbarPassthrough(child: child) : child;
+
+    final header = Container(
       height: chrome.headerHeight,
       color: chrome.headerBackground,
       padding: EdgeInsetsDirectional.only(start: 8 + leadingInset, end: 8),
@@ -85,36 +97,50 @@ class HeaderToolbar extends StatelessWidget {
           final actions = slot(ToolbarSlot.actions);
           return Row(
             children: [
-              ..._groups(context, slot(ToolbarSlot.leading), labelled: false),
+              ..._groups(
+                context,
+                slot(ToolbarSlot.leading),
+                labelled: false,
+                pass: pass,
+              ),
               const SizedBox(width: 8),
               Expanded(child: title),
               const SizedBox(width: 8),
               if (!foldActions)
-                ..._groups(context, actions, labelled: false)
+                ..._groups(context, actions, labelled: false, pass: pass)
               else if (actions.isNotEmpty)
-                _OverflowButton(commands: actions, onRun: onRun),
+                pass(_OverflowButton(commands: actions, onRun: onRun)),
               ..._groups(
                 context,
                 slot(ToolbarSlot.primary),
                 labelled: labelPrimary,
+                pass: pass,
               ),
-              ..._groups(context, slot(ToolbarSlot.status), labelled: false),
+              ..._groups(
+                context,
+                slot(ToolbarSlot.status),
+                labelled: false,
+                pass: pass,
+              ),
               if (filterField != null) ...[
                 const SizedBox(width: 8),
                 SizedBox(
                   width: width >= 1000 ? 200 : 150,
-                  child: filterField!,
+                  child: pass(filterField!),
                 ),
               ],
               if (menuButton != null) ...[
                 const SizedBox(width: 4),
-                menuButton!,
+                pass(menuButton!),
               ],
             ],
           );
         },
       ),
     );
+    return nativeTitlebar
+        ? MacosToolbarPassthroughScope(child: header)
+        : header;
   }
 
   /// Splits [commands] (already sorted) into capsules by group.
@@ -122,6 +148,7 @@ class HeaderToolbar extends StatelessWidget {
     BuildContext context,
     List<RegisteredCommand> commands, {
     required bool labelled,
+    required Widget Function(Widget) pass,
   }) {
     if (commands.isEmpty) return const [];
     final groups = <List<RegisteredCommand>>[];
@@ -138,7 +165,7 @@ class HeaderToolbar extends StatelessWidget {
       for (final members in groups)
         Padding(
           padding: const EdgeInsetsDirectional.only(start: 6),
-          child: _Capsule(
+          child: pass(_Capsule(
             children: [
               for (final command in members)
                 _decorated(
@@ -153,7 +180,7 @@ class HeaderToolbar extends StatelessWidget {
                   ),
                 ),
             ],
-          ),
+          )),
         ),
     ];
   }

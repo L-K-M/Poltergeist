@@ -13,6 +13,7 @@ import 'services/application_error_reporter.dart';
 import 'services/bookmark_backup_service.dart';
 import 'services/checkout_session.dart';
 import 'services/desktop_window_lifecycle.dart';
+import 'services/dock_progress.dart';
 import 'services/dynamic_secret_vault.dart';
 import 'services/editor_registry_controller.dart';
 import 'services/engine_session.dart';
@@ -232,6 +233,14 @@ Future<void> main() async {
     deviceId: () async => syncEnrollmentState.cachedDeviceId ?? 'local',
   );
   final transferQueue = transferQueueSession?.queue;
+  // D32 §11: Dock/taskbar progress while transfers run (macOS/Windows —
+  // window_manager has no Linux progress surface).
+  if (transferQueue != null && (Platform.isMacOS || Platform.isWindows)) {
+    DockProgressReporter(
+      queue: transferQueue,
+      surface: const WindowManagerDockSurface(),
+    );
+  }
   final composedQueue = transferQueue == null
       ? null
       : CompositeAppTransferQueue(transferQueue, syncTasks);

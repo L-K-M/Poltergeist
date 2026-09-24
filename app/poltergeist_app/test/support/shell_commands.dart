@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/ui/menus/app_menu_host.dart';

@@ -2140,6 +2140,32 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'Pinned'",
     "'Other servers'",
   },
+  // D32 §11's platform integration: Dock progress diagnostics and the
+  // file-manager reveal's process arguments (never user-facing copy).
+  'lib/services/dock_progress.dart': {
+    "''",
+    r"'$live'",
+    r"'Dock progress unavailable: $error\n$stack'",
+  },
+  'lib/services/file_manager_reveal.dart': {
+    "'macos'",
+    "'windows'",
+    "'linux'",
+    "'open'",
+    "'-R'",
+    "'explorer'",
+    "'/select,'",
+    "'dbus-send'",
+    "'--session'",
+    "'--print-reply'",
+    "'--dest=org.freedesktop.FileManager1'",
+    "'--type=method_call'",
+    "'/org/freedesktop/FileManager1'",
+    "'org.freedesktop.FileManager1.ShowItems'",
+    r"'array:string:$uri'",
+    "'string:'",
+    "'xdg-open'",
+  },
 };
 
 /// The icon-label/keyword pairs ported verbatim from Séance's picker

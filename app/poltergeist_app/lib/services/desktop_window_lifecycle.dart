@@ -519,5 +519,14 @@ final class _MacTitlebarAdapter implements MacTitlebarAdapter {
     await WindowManipulator.enableFullSizeContentView();
     await WindowManipulator.makeTitlebarTransparent();
     await WindowManipulator.hideTitle();
+    // D32 §3: an empty unified toolbar makes the titlebar band 52 pt
+    // tall, so the traffic lights sit centered on the Flutter header
+    // drawn beneath it (Finder/ForkLift geometry). Empty areas keep the
+    // native drag and double-click-to-zoom; the header wraps its
+    // controls in MacosToolbarPassthrough so clicks reach Flutter.
+    await WindowManipulator.addToolbar();
+    await WindowManipulator.setToolbarStyle(
+      toolbarStyle: NSWindowToolbarStyle.unified,
+    );
   }
 }
