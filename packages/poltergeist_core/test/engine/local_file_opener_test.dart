@@ -9,19 +9,7 @@ void main() {
   final calls = <List<String>>[];
 
   OpenerProcessRunner runner(Map<String, ProcessResult?> results) =>
-      (executable, arguments) async {
-        calls.add([executable, ...arguments]);
-        final result = results[executable];
-        if (result == null) {
-          throw ProcessException(
-            executable,
-            arguments,
-            'No such file or directory',
-            2,
-          );
-        }
-        return result;
-      };
+      _ScriptedRunner(results, calls);
 
   ProcessResult exit(int code, [String stderr = '']) =>
       ProcessResult(0, code, '', stderr);
@@ -29,7 +17,7 @@ void main() {
   setUp(calls.clear);
 
   test('xdg-open handles the file when it is installed', () async {
-    final opener = LocalFileOpener.unix(run: runner({'xdg-open': exit(0)}));
+    final opener = LocalFileOpener.unix(runner: runner({'xdg-open': exit(0)}));
 
     await opener.open('/home/me/a b.txt');
 
@@ -39,7 +27,7 @@ void main() {
   });
 
   test('a missing xdg-open falls back to gio open', () async {
-    final opener = LocalFileOpener.unix(run: runner({'gio': exit(0)}));
+    final opener = LocalFileOpener.unix(runner: runner({'gio': exit(0)}));
 
     await opener.open('/home/me/report.pdf');
 
@@ -51,7 +39,7 @@ void main() {
 
   test('gio failing reports its own error', () async {
     final opener = LocalFileOpener.unix(
-      run: runner({'gio': exit(1, 'gio: No application is registered')}),
+      runner: runner({'gio': exit(1, 'gio: No application is registered')}),
     );
 
     await expectLater(
@@ -65,7 +53,7 @@ void main() {
   });
 
   test('no opener at all is a typed launch failure', () async {
-    final opener = LocalFileOpener.unix(run: runner({}));
+    final opener = LocalFileOpener.unix(runner: runner({}));
 
     await expectLater(
       opener.open('/home/me/big.bin'),
@@ -78,7 +66,7 @@ void main() {
   });
 
   test('macOS never falls back past open', () async {
-    final opener = LocalFileOpener.unix(run: runner({}), isMacOS: true);
+    final opener = LocalFileOpener.unix(runner: runner({}), isMacOS: true);
 
     await expectLater(
       opener.open('/Users/me/a.txt'),
@@ -88,4 +76,26 @@ void main() {
       ['open', '/Users/me/a.txt'],
     ]);
   });
+}
+
+final class _ScriptedRunner implements OpenerProcessRunner {
+  _ScriptedRunner(this.results, this.calls);
+
+  final Map<String, ProcessResult?> results;
+  final List<List<String>> calls;
+
+  @override
+  Future<ProcessResult> run(String executable, List<String> arguments) async {
+    calls.add([executable, ...arguments]);
+    final result = results[executable];
+    if (result == null) {
+      throw ProcessException(
+        executable,
+        arguments,
+        'No such file or directory',
+        2,
+      );
+    }
+    return result;
+  }
 }

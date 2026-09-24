@@ -4,9 +4,20 @@ import 'package:meta/meta.dart';
 import 'package:seance_core/seance_core.dart';
 
 /// Runs [executable] with [arguments] to completion — `Process.run`'s
-/// shape, injectable so the opener's fallback chain is testable.
-typedef OpenerProcessRunner =
-    Future<ProcessResult> Function(String executable, List<String> arguments);
+/// shape, injectable so the opener's fallback chain is testable. An
+/// interface rather than a function type: engine state must never hold
+/// a callback field (the protocol guard's rule for engine sources).
+abstract interface class OpenerProcessRunner {
+  Future<ProcessResult> run(String executable, List<String> arguments);
+}
+
+final class _SystemProcessRunner implements OpenerProcessRunner {
+  const _SystemProcessRunner();
+
+  @override
+  Future<ProcessResult> run(String executable, List<String> arguments) =>
+      Process.run(executable, arguments);
+}
 
 /// The OS-default-application launch behind [OpenLocalFileRequest] (02
 /// §2.6's Open on a local file). Process mechanics stay engine-side
@@ -15,7 +26,7 @@ typedef OpenerProcessRunner =
 /// script the launch and its failures.
 abstract interface class LocalFileOpener {
   factory LocalFileOpener.platform() => _PlatformLocalFileOpener(
-    run: Process.run,
+    runner: const _SystemProcessRunner(),
     isMacOS: Platform.isMacOS,
     isWindows: Platform.isWindows,
   );
@@ -23,9 +34,13 @@ abstract interface class LocalFileOpener {
   /// The Unix launch path over a scripted [run] (tests only).
   @visibleForTesting
   factory LocalFileOpener.unix({
-    required OpenerProcessRunner run,
+    required OpenerProcessRunner runner,
     bool isMacOS = false,
-  }) => _PlatformLocalFileOpener(run: run, isMacOS: isMacOS, isWindows: false);
+  }) => _PlatformLocalFileOpener(
+    runner: runner,
+    isMacOS: isMacOS,
+    isWindows: false,
+  );
 
   /// Hands [path] to the operating system's default handler and
   /// completes once the launch itself was accepted — never when the
@@ -47,12 +62,12 @@ abstract interface class LocalFileOpener {
 /// `gio open`; only when neither exists does the launch fail.
 final class _PlatformLocalFileOpener implements LocalFileOpener {
   const _PlatformLocalFileOpener({
-    required this.run,
+    required this.runner,
     required this.isMacOS,
     required this.isWindows,
   });
 
-  final OpenerProcessRunner run;
+  final OpenerProcessRunner runner;
   final bool isMacOS;
   final bool isWindows;
 
@@ -78,7 +93,7 @@ final class _PlatformLocalFileOpener implements LocalFileOpener {
     // failures that a detached spawn would silently drop.
     final ProcessResult result;
     try {
-      result = await run(isMacOS ? 'open' : 'xdg-open', [path]);
+      result = await runner.run(isMacOS ? 'open' : 'xdg-open', [path]);
     } on ProcessException catch (error) {
       if (isMacOS) throw _launchFailure(path, error.message);
       return _openWithGio(path, error);
@@ -89,7 +104,7 @@ final class _PlatformLocalFileOpener implements LocalFileOpener {
   Future<void> _openWithGio(String path, ProcessException missing) async {
     final ProcessResult result;
     try {
-      result = await run('gio', ['open', path]);
+      result = await runner.run('gio', ['open', path]);
     } on ProcessException {
       // Neither opener exists: name the one users install.
       throw _launchFailure(path, missing.message);
