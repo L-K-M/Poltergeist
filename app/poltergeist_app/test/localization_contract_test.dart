@@ -956,8 +956,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'resolves to no pulled server'",
     "''",
     // The D32 chrome's widget keys and focus-node labels (splitters,
-    // inspector mounts, header title/filter/activity ring, the connect
-    // dialog) and the reveal-in-pane's missing-bookmark diagnostic —
+    // inspector mounts, header title/filter, the connect dialog) and the reveal-in-pane's missing-bookmark diagnostic —
     // plumbing and a reported fault, never rendered copy.
     "'sidebar.splitter'",
     "'inspector.splitter'",
@@ -965,7 +964,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'inspector.region'",
     "'header.title'",
     "'header.filter'",
-    "'header.activityRing'",
     r"'revealInPane: no bookmark for $serverId'",
     // The header subtitle's address grammar (10 §4): `user@host:path`
     // and `label:path` — machine data like the sidebar's addresses.
@@ -1732,6 +1730,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/shell/connect_dialog.dart': {"'connect.dialog'"},
   // The header's button and overflow-menu keys, keyed to the registry's
   // command ids — widget plumbing, not authored copy.
+  // The activity button's ring key — test plumbing, never copy.
+  'lib/ui/shell/header_activity_button.dart': {"'header.activityRing'"},
   'lib/ui/shell/header_toolbar.dart': {
     r"'command.${command.id}'",
     r"'toolbar.overflow.${command.id}'",

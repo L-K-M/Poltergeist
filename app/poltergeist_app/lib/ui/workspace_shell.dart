@@ -72,6 +72,7 @@ import 'settings/preview_settings.dart';
 import 'server_editor.dart';
 import 'server_label_scope.dart';
 import 'shell/connect_dialog.dart';
+import 'shell/header_activity_button.dart';
 import 'shell/header_toolbar.dart';
 import 'shell/shell_commands.dart';
 import 'shell/shell_splitter.dart';
@@ -1610,7 +1611,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         badges: {kViewToggleInspectorCommandId: _alerts.attentionCount},
         statusExtras: {
           kViewToggleActivityPanelCommandId: (context, button) =>
-              _ActivityRing(controller: _activity, child: button),
+              HeaderActivityButton(controller: _activity, child: button),
         },
         filterField: _HeaderFilterField(
           workspace: workspace,
@@ -3780,57 +3781,6 @@ class _HeaderFilterFieldState extends State<_HeaderFilterField> {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// The activity button's progress ring (D16 via D32 §4): while any task
-/// is live the toolbar shows the queue's aggregate progress around the
-/// Transfers button — the always-visible honesty signal that replaced
-/// the status bar's transfer chip.
-class _ActivityRing extends StatelessWidget {
-  const _ActivityRing({required this.controller, required this.child});
-
-  final ActivityPanelController controller;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, child) {
-        var done = 0;
-        var total = 0;
-        var live = false;
-        for (final task in controller.tasks) {
-          if (task.isTerminal) continue;
-          live = true;
-          done += task.transferredBytes;
-          total += task.totalBytes ?? 0;
-        }
-        if (!live) return child!;
-        final colors = Theme.of(context).colorScheme;
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            child!,
-            IgnorePointer(
-              child: SizedBox(
-                key: const ValueKey('header.activityRing'),
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  value: total > 0 ? (done / total).clamp(0.0, 1.0) : null,
-                  color: colors.primary,
-                  backgroundColor: colors.primary.withValues(alpha: 0.15),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-      child: child,
     );
   }
 }
