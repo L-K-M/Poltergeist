@@ -1,8 +1,10 @@
-// The sync plan view (05 §7): a first-class pane-tab surface — never a
-// modal wizard — that scans on mount, renders the diff as a grouped
-// item table, and runs the reviewed plan through the controller's
-// rails. Everything reads through [SyncPlanController]; this file is
-// layout, filters, selection, and dialogs only.
+// The sync plan view (05 §7): a first-class pane-tab surface that
+// scans on mount, renders the diff as an item table grouped by action
+// class (sync_plan_table.dart, D32 §7), and runs the reviewed plan
+// through the controller's rails. D32 puts the Sync sheet in front of
+// it; Simulate lands here, and so does Synchronize whenever the plan
+// needs review. Everything reads through [SyncPlanController]; this
+// file is layout, filters, selection, and dialogs only.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -15,6 +17,7 @@ import '../../l10n/app_localizations.dart';
 import '../../services/sync_plan_controller.dart';
 import 'rsync_copy.dart';
 import 'sync_plan_format.dart';
+import 'sync_plan_table.dart';
 
 /// One filter chip's bucket over effective actions.
 enum SyncFilter { all, newFiles, updates, deletes, conflicts, skipped }
@@ -57,7 +60,16 @@ class _SyncPlanViewState extends State<SyncPlanView> {
   final _filterField = TextEditingController();
   final _selected = <SyncItem>{};
   SyncItem? _selectionAnchor;
-  final _collapsedGroups = <String>{};
+
+  /// The keyboard's row (Space toggles it, the arrows move it).
+  SyncItem? _focusedRow;
+  final _collapsedSections = <SyncSection>{};
+  final _tableFocus = FocusNode(debugLabel: 'sync.plan.table');
+
+  /// The rows in on-screen order (sections, collapsed ones skipped) —
+  /// shift-range selection and the arrow keys walk this, not the
+  /// plan's own order.
+  List<SyncItem> _rowOrder = const [];
   bool _warningsExpanded = false;
   String? _bulkSkipNotice;
 
@@ -72,6 +84,7 @@ class _SyncPlanViewState extends State<SyncPlanView> {
   @override
   void dispose() {
     _filterField.dispose();
+    _tableFocus.dispose();
     super.dispose();
   }
 
@@ -182,60 +195,87 @@ class _SyncPlanViewState extends State<SyncPlanView> {
     if (plan == null) return const SizedBox.shrink();
     final visible = _visibleItems(plan.items);
     if (visible.isEmpty) {
+      _rowOrder = const [];
       return Center(child: Text(l10n.syncHeaderNothingToDo));
     }
-    final groups = _groupItems(visible);
-    return ListView.builder(
-      key: const ValueKey('sync.plan.table'),
-      itemCount: groups.length,
-      itemBuilder: (context, index) {
-        final group = groups[index];
-        final collapsed = _collapsedGroups.contains(group.key);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (group.key.isNotEmpty)
-              InkWell(
-                onTap: () => setState(() {
-                  collapsed
-                      ? _collapsedGroups.remove(group.key)
-                      : _collapsedGroups.add(group.key);
-                }),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        collapsed
-                            ? Icons.chevron_right
-                            : Icons.expand_more,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          group.key,
-                          style: Theme.of(context).textTheme.labelMedium,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      Text(
-                        '${group.items.length}',
-                        style: Theme.of(context).textTheme.labelSmall,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            if (!collapsed)
-              for (final item in group.items) _buildRow(context, l10n, item),
-          ],
-        );
-      },
+    _rowOrder = [
+      for (final group in syncSections(visible))
+        if (!_collapsedSections.contains(group.section)) ...group.items,
+    ];
+    return Focus(
+      focusNode: _tableFocus,
+      onFocusChange: (_) => setState(() {}),
+      onKeyEvent: _onTableKey,
+      child: SyncPlanTable(
+        controller: _controller,
+        items: visible,
+        selected: _selected,
+        focused: _focusedRow,
+        collapsed: _collapsedSections,
+        tableFocused: _tableFocus.hasFocus,
+        now: widget.clock?.call(),
+        onRowTap: _onRowTap,
+        onGlyphTap: _cycleAction,
+        onContextMenu: (position, item) =>
+            _showOverrideMenu(context, position, item),
+        onSetIncluded: _setIncluded,
+        onToggleCollapsed: (section) => setState(() {
+          _collapsedSections.contains(section)
+              ? _collapsedSections.remove(section)
+              : _collapsedSections.add(section);
+        }),
+      ),
     );
+  }
+
+  /// Checked = the row acts (D32 §7): unchecking overrides to skip,
+  /// re-checking returns the row to the engine's suggestion.
+  void _setIncluded(Iterable<SyncItem> items, bool include) {
+    final targets = items.where(syncRowToggleable).toList();
+    if (include) {
+      _controller.resetOverrides(
+        targets.where((item) => !syncRowIncluded(item)),
+      );
+      return;
+    }
+    _applyBulk(targets.where(syncRowIncluded).toSet(), SyncActionType.skip);
+  }
+
+  /// Space toggles the focused row (or the selection holding it); the
+  /// arrows move the focused row and select it.
+  KeyEventResult _onTableKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.space && event is KeyDownEvent) {
+      final row = _focusedRow;
+      if (row == null || _controller.isRunning) {
+        return KeyEventResult.ignored;
+      }
+      final targets = _selected.contains(row) ? _selected.toList() : [row];
+      _setIncluded(targets, !syncRowIncluded(row));
+      return KeyEventResult.handled;
+    }
+    final step = key == LogicalKeyboardKey.arrowDown
+        ? 1
+        : key == LogicalKeyboardKey.arrowUp
+        ? -1
+        : 0;
+    if (step == 0 || _rowOrder.isEmpty) return KeyEventResult.ignored;
+    final current = _focusedRow == null ? -1 : _rowOrder.indexOf(_focusedRow!);
+    final next = current < 0
+        ? (step > 0 ? 0 : _rowOrder.length - 1)
+        : (current + step).clamp(0, _rowOrder.length - 1);
+    final row = _rowOrder[next];
+    setState(() {
+      _focusedRow = row;
+      _selected
+        ..clear()
+        ..add(row);
+      _selectionAnchor = row;
+    });
+    return KeyEventResult.handled;
   }
 
   List<SyncItem> _visibleItems(List<SyncItem> items) {
@@ -276,64 +316,16 @@ class _SyncPlanViewState extends State<SyncPlanView> {
     }).toList();
   }
 
-  /// §7's grouped rendering: rows nest under their first path segment
-  /// (the immediate parent would scatter one-file directories too
-  /// thin). Single-segment items sit in the ungrouped section.
-  List<({String key, List<SyncItem> items})> _groupItems(
-    List<SyncItem> items,
-  ) {
-    final groups = <String, List<SyncItem>>{};
-    final order = <String>[];
-    for (final item in items) {
-      final slash = item.relativePath.indexOf('/');
-      final key = slash < 0 ? '' : item.relativePath.substring(0, slash);
-      if (!groups.containsKey(key)) {
-        groups[key] = [];
-        order.add(key);
-      }
-      groups[key]!.add(item);
-    }
-    return [
-      for (final key in order) (key: key, items: groups[key]!),
-    ];
-  }
-
-  Widget _buildRow(
-    BuildContext context,
-    AppLocalizations l10n,
-    SyncItem item,
-  ) {
-    final theme = Theme.of(context);
-    final selected = _selected.contains(item);
-    final tone = switch (syncActionTone(item.effective)) {
-      SyncActionTone.create => theme.colorScheme.primary,
-      SyncActionTone.update => theme.colorScheme.tertiary,
-      SyncActionTone.delete => theme.colorScheme.error,
-      SyncActionTone.conflict => theme.colorScheme.secondary,
-      SyncActionTone.skip => theme.colorScheme.outline,
-    };
-    return _SyncItemRow(
-      key: ValueKey('sync.row.${item.relativePath}'),
-      item: item,
-      l10n: l10n,
-      tone: tone,
-      selected: selected,
-      running: _controller.isRunning,
-      now: widget.clock?.call(),
-      onTap: () => _onRowTap(item),
-      onGlyphTap: () => _cycleAction(item),
-      onContextMenu: (position) => _showOverrideMenu(context, position, item),
-    );
-  }
-
   void _onRowTap(SyncItem item) {
+    _tableFocus.requestFocus();
     setState(() {
+      _focusedRow = item;
       final modifiers = HardwareKeyboard.instance;
       final multi =
           modifiers.isControlPressed || modifiers.isMetaPressed;
       final range = modifiers.isShiftPressed;
       if (range && _selectionAnchor != null) {
-        final items = _controller.plan?.items ?? const <SyncItem>[];
+        final items = _rowOrder;
         final a = items.indexOf(_selectionAnchor!);
         final b = items.indexOf(item);
         if (a >= 0 && b >= 0) {
@@ -1247,133 +1239,6 @@ class _ActionBar extends StatelessWidget {
       ],
     ];
     return parts.isEmpty ? l10n.syncRunNothingToDo : parts.join(' · ');
-  }
-}
-
-/// One plan row: glyph, path, both sides' sizes + mtimes, reason.
-class _SyncItemRow extends StatelessWidget {
-  const _SyncItemRow({
-    super.key,
-    required this.item,
-    required this.l10n,
-    required this.tone,
-    required this.selected,
-    required this.running,
-    required this.onTap,
-    required this.onGlyphTap,
-    required this.onContextMenu,
-    this.now,
-  });
-
-  final SyncItem item;
-  final AppLocalizations l10n;
-  final Color tone;
-  final bool selected;
-  final bool running;
-  final DateTime? now;
-  final VoidCallback onTap;
-  final VoidCallback onGlyphTap;
-  final void Function(Offset position) onContextMenu;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final statusIcon = switch (item.status) {
-      SyncItemStatus.running => const SizedBox(
-        width: 12,
-        height: 12,
-        child: CircularProgressIndicator(strokeWidth: 1.5),
-      ),
-      SyncItemStatus.done => Icon(
-        Icons.check,
-        size: 14,
-        color: theme.colorScheme.primary,
-      ),
-      SyncItemStatus.failed || SyncItemStatus.conflicted => Icon(
-        Icons.error_outline,
-        size: 14,
-        color: theme.colorScheme.error,
-      ),
-      _ => null,
-    };
-    return GestureDetector(
-      onSecondaryTapDown: (details) =>
-          onContextMenu(details.globalPosition),
-      onTapDown: (details) => onTap(),
-      child: Container(
-        color: selected
-            ? theme.colorScheme.primaryContainer.withValues(alpha: 0.5)
-            : null,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-        child: Row(
-          children: [
-            // The glyph is the override affordance — tap cycles, right
-            // click opens the menu (handled at row level).
-            InkWell(
-              onTap: running ? null : onGlyphTap,
-              borderRadius: BorderRadius.circular(4),
-              child: Padding(
-                padding: const EdgeInsets.all(2),
-                child: Text(
-                  syncActionGlyph(item.effective),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: tone,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-            if (item.userOverridden)
-              Padding(
-                padding: const EdgeInsets.only(left: 2),
-                child: Icon(
-                  Icons.circle,
-                  size: 6,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-            const SizedBox(width: 8),
-            if (statusIcon != null) ...[statusIcon, const SizedBox(width: 4)],
-            Expanded(
-              flex: 3,
-              child: Text(
-                item.relativePath,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall,
-              ),
-            ),
-            SizedBox(
-              width: 72,
-              child: Text(
-                formatSyncSize(item.left?.size),
-                textAlign: TextAlign.end,
-                style: theme.textTheme.labelSmall,
-              ),
-            ),
-            SizedBox(
-              width: 72,
-              child: Text(
-                formatSyncSize(item.right?.size),
-                textAlign: TextAlign.end,
-                style: theme.textTheme.labelSmall,
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Text(
-                item.error ?? syncReasonText(l10n, item, now: now),
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: item.error != null
-                      ? theme.colorScheme.error
-                      : theme.colorScheme.outline,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 

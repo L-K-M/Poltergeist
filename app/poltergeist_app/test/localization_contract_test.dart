@@ -1891,9 +1891,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/sync/sync_plan_view.dart': {
     "''",
     "'sync.plan.table'",
-    r"'${group.items.length}'",
-    "'/'",
-    r"'sync.row.${item.relativePath}'",
     "'DELETE'",
     r"'${l10n.syncSideLeft} ⇄ ${l10n.syncSideRight}'",
     "'sync.header.clause'",
@@ -1976,6 +1973,20 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sync.timeOffset.tolerance'",
     "'sync.timeOffset.hourShift'",
     "'sync.timeOffset.done'",
+  },
+  // The review table's widget keys (sections, rows, their checkboxes,
+  // the column header), the section count, and the empty/dash cells
+  // of an absent side or a folder's size — plumbing, never copy.
+  'lib/ui/sync/sync_plan_table.dart': {
+    "'sync.plan.table'",
+    r"'sync.section.${group.section.name}'",
+    r"'sync.section.${group.section.name}.check'",
+    r"'sync.row.${item.relativePath}'",
+    "'sync.plan.columns'",
+    r"'${items.length}'",
+    "''",
+    "'—'",
+    r"'sync.row.${item.relativePath}.check'",
   },
   // The sync plan format layer's machine data: the rail-3 numeric
   // percentage injected into the ARB {pct} slot, and the config-less

@@ -622,6 +622,21 @@ final class SyncPlanController extends ChangeNotifier {
     _reassess();
   }
 
+  /// Back to the differ's proposal for every row in [items] — the
+  /// review's re-check of a row or a whole section — with one
+  /// reassessment.
+  void resetOverrides(Iterable<SyncItem> items) {
+    if (_plan == null || isRunning) return;
+    var changed = false;
+    for (final item in items) {
+      if (!item.userOverridden && item.effective == item.suggested) continue;
+      item.effective = item.suggested;
+      item.userOverridden = false;
+      changed = true;
+    }
+    if (changed) _reassess();
+  }
+
   /// Bulk conflict decisions (§7's bar). Returns the resolved count —
   /// `newerWins` silently resolves nothing on untrusted clocks (the
   /// bar hides it then), `keepLeft`/`keepRight` skip rows whose source
