@@ -329,7 +329,10 @@ class LocalTrashService {
   /// The platform's backend, or null on an unsupported OS.
   final LocalTrashBackend? _backend;
 
-  /// Test seam: swaps in a backend without spoofing the platform.
+  /// Swaps in a backend without spoofing the platform: tests, and the
+  /// app's UI-isolate transfer queue, whose trash is the engine-side
+  /// service behind `EngineTrashBackend` (D8 — no spawns on the UI
+  /// isolate).
   LocalTrashService.withBackend(LocalTrashBackend backend)
     : _operatingSystem = 'test',
       _backend = backend;

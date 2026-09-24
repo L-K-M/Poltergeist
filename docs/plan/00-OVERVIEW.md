@@ -363,6 +363,27 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   0.997 throughput parity, 40.938 ms cancellation, 22.83 progress flushes/s,
   and a 4.401 ms maximum UI-isolate timer stall, all inside D8's gates, so the
   single engine-isolate split is final for v1.
+  - **Addendum (2026-09-24) — the bridged transfer lease.** The shipped app
+    composes the transfer queue, the managed-checkout manager, the preview
+    producer, and the sync scanner/executor on the UI isolate, so the plan's
+    engine-hosted queue (03 §5's `EnqueueTransferRequest` sketch) was never
+    built and remote transfers failed (STATUS item 23). Protocol v13 bridges
+    the lease instead: the engine keeps every socket, SFTP channel, and pool
+    lease, and the UI-isolate `EngineConnectionManager` hands those consumers
+    a proxy `RemoteFileSystem` whose metadata calls cross as typed VFS ops and
+    whose bytes cross as credit-flow-controlled `TransferableTypedData`
+    streams. What D8 guarantees still holds: no socket, SFTP handle, or
+    remote-side hash leaves the engine (digest-only reads run engine-side via
+    `VfsContentDigest`, so they move no bytes), and the platform trash is
+    reached through the engine too. What changes: the queue's scheduling,
+    journal writes, bandwidth gates, local disk I/O, and local-side hashing
+    run on the UI isolate. That was already true for local↔local work before
+    this addendum; it now covers remote legs too, and remote→remote bytes
+    cross the port twice. A local 32 MiB loopback measurement put bridged
+    throughput at roughly 0.85–0.95 of an in-process pool on a loaded host.
+    That is indicative, not a D8 gate re-run: the M0 gates must be re-measured
+    under the bridge before this is declared final, and moving the queue
+    executor engine-side stays the escalation if they fail.
 - **D9 — M0 ends at fallback rung 4: keep dartssh2 3.0.2 and document the
   ceiling.** Version 3.0.2 is the minimum: earlier releases can abandon
   pipelined read futures when a consumer cancels the stream, while 3.0.2 owns

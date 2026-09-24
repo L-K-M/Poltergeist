@@ -39,9 +39,9 @@ collision to a spec decision; open item 25's tag re-pin landed with
 M8's first slice — the shared-mode "Your Séance servers" surface is
 the recorded follow-up; open item 26 carries M7's manual-QA
 residual (native macOS Quick Look runtime). Open item 23's remaining
-half (remote transfers — and remote *sync endpoints*, which share the
-engine-protocol gap — fail honestly until the engine grows
-filesystem/transfer verbs) stays open for the engine-host slice.
+half (remote transfers and remote sync endpoints) closed 2026-09-24
+with the bridged transfer lease (protocol v13 — dated section below);
+the D8 gate re-measurement under the bridge is its recorded residual.
 
 ## Done
 
@@ -7689,6 +7689,111 @@ if risk 8's cut line is ever exercised). None is started here. Item
 23's remote-transfer wiring is the de-facto headline fast-follow even
 though §3.13 predates naming it.
 
+## Bridged transfer lease — remote transfers, checkout, preview, sync (2026-09-24)
+
+This closes open item 23's remote half. v1.0 shipped with the transfer queue
+composed on the UI isolate over a lease seam that refused everything, so every
+remote upload, download, checkout, preview, and sync endpoint failed. Protocol
+v13 keeps D8's socket rule and bridges the lease instead (D8 addendum, 03 §5
+"As built").
+
+- **Engine.** `LeaseHost` (`engine/lease_host.dart`) owns:
+  - the lease table;
+  - the generic `VfsOpRequest` over a lease or a browse channel;
+  - the download and upload streams: `TransferableTypedData` batches of up
+    to 256 KiB, with a credit window of at most one window of unconsumed
+    bytes each way.
+
+  How it behaves:
+  - A release retires the id at once but drains in-flight operations before
+    the channel goes back to the pool.
+  - A disconnect or bookmark removal retires that server's leases.
+  - Shutdown cancels every stream and returns every lease.
+  - Late credit and chunk messages are ignored.
+  - `disconnected` failures report to the pool for recovery, as browse
+    channels do.
+  - A lease carries its `ServerConfig`. It may omit it for Quick Connect's
+    `adhoc:` ids, which then reuse the config their browse open supplied.
+- **UI side.** `EngineConnectionManager` and `EngineRemoteFileSystem` mirror
+  in-process semantics:
+  - An upload that is refused before reading never pulls a byte.
+  - A sink or content failure is wrapped like the VFS adapter wraps it, so
+    the editor-limit suffix checks hold.
+  - Neither stream settles before the engine's final answer.
+
+  `remoteContentDigest` routes the checkout snapshot repair and sync's
+  content comparison through the engine-side digest.
+- **App composition.**
+  - `main.dart` builds one bridged manager over `AppServerConfigSource`
+    (bookmark, then pulled catalog, then ad-hoc registrations) and hands it
+    to the queue, checkout, preview, and sync.
+  - Local deletes trash through `EngineTrashBackend`, so Linux's `gio` and
+    the macOS/Windows channel relay stay engine-side. The UI-side queue
+    previously had no trash invoker on macOS and Windows.
+  - `SyncEnvironment` serves remote endpoints through `LeasedRemoteFileSystem`
+    (one shared lease, released when a scan, run, retry, or restore settles,
+    plus a 30 s idle backstop).
+  - `_LocalOnlyConnectionManager` remains only as the fallback when the
+    engine fails to spawn.
+- **Trust before secrets.** A first connect to an unpinned endpoint now runs
+  a host-key preflight on a short, never-authenticated SSH connection before
+  the credential resolver can prompt. Quick Connect used to ask for the
+  password before the unknown-host-key dialog.
+  - The cause was `_firstConnect` resolving credentials before
+    `openAuthenticatedClient`, which verifies the key inside the same
+    handshake.
+  - Pinned endpoints skip the preflight, so a changed key is still surfaced
+    by the authenticated connect.
+- **Pane verb service APIs** (the UI layer adds the commands, menus, and
+  dialogs):
+  - `PaneController.createFolder` and `createFile` use localized default
+    names, numbered past taken names, and open the inline rename on the new
+    row.
+  - `PaneFileOps` (`prepareDeleteSelection`, `deleteSelection`,
+    `duplicateSelection`, and `refreshWhenSettled`) routes these verbs
+    through the queue.
+  - `AppTransferQueue` gains `prepareDelete` and `enqueueDelete`.
+
+Coverage:
+
+- **Core.**
+  - `engine_vfs_proxy_test` runs over a real host behind the new in-process
+    client seam and covers leases, every VFS op, window bounds each way, a
+    window above the batch cap, cancel, the wrap rules, config-less leases,
+    drain-before-release, late messages, channel targets, and trash.
+  - `transfer_queue_engine_bridge_test` runs the production queue over the
+    bridge: bytes in every direction, pause, cancel, conflict, disconnect
+    requeue, remote delete, and same-server move. Every lease is returned.
+  - `leased_file_system_test`, `pool_host_key_preflight_test`, and the v13
+    protocol round-trip.
+- **App.** `pane_file_verbs_test`; `transfer_queue_composition_test` now
+  proves the supplied seam carries a remote task and that an engine-less boot
+  still fails honestly.
+- **Real sshd.** Two env-gated integration suites ran against a local
+  OpenSSH 9.6 (`127.0.0.1:2222`, password auth, first-use host key) and all
+  passed:
+  - `engine_transfer_sshd_test`: prompt order, a 3 MiB tree uploaded,
+    downloaded, and copied remote→remote with verified digests, checkout
+    edit and save under CAS, preview produce, cancel, and conflict.
+  - `sync_bridge_sshd_test` (sync package): a local-to-remote run converges,
+    including a content-hash re-diff.
+
+  Neither is wired into CI yet; the Docker fixtures use key auth on other
+  ports.
+- **Changed tests.** The two real-isolate prompt-bridge tests in
+  `engine_client_test` connect to a refused port. They now seed a pin so
+  they keep exercising the credential path; unpinned, the preflight fails
+  fast, which a new case pins.
+- **Counts.**
+  - Core and sync: 1739 passed, 43 skipped (7 of them the new env-gated
+    suites). The baseline was 1688 passed, 36 skipped.
+  - App: 1828 passed; the baseline was 1809. One full run hit a single
+    timing flake in `external_editor_checkout_test`'s upload-on-save
+    case. It passed on the rerun, alone, and three times in isolation.
+  - The two `checkout_manager_test` "review hardening" cases fail
+    identically before and after this change, in a container running as
+    root, where the chmod fixtures cannot refuse.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -8365,12 +8470,14 @@ though §3.13 predates naming it.
     startup and every consumer — pane drops, activity panel, quit
     guard — shares it; the composition test's delegate-identity
     assertion is the requested boot-path smoke check. The deferred
-    "Quit Anyway" decision above is unchanged. **Still open:** remote
-    transfers — until the engine protocol grows transfer verbs and an
-    engine-hosted queue (or a bridged lease) exists, remote-endpoint
-    tasks enqueued through the composed queue fail with a typed
-    `unsupported` error instead of running; local↔local work runs
-    for real.
+    "Quit Anyway" decision above is unchanged. **Remote half closed
+    2026-09-24** (the bridged-transfer-lease dated section): protocol
+    v13's bridged lease carries uploads, downloads, remote→remote,
+    managed checkouts, previews, and remote sync endpoints. Only an
+    engine that failed to spawn still takes the typed-`unsupported`
+    fallback. **Residual:** the D8 gates (UI-isolate stall, throughput
+    parity) must be re-measured under the bridge (see the D8
+    addendum).
 24. **2026-09-19: Ctrl+Alt+letter chords collide with AltGr on
     Windows/Linux international layouts (spec decision needed).**
     Windows reports AltGr as Ctrl+Alt, so 02 §8.3's Windows/Linux

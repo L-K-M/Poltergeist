@@ -2,8 +2,15 @@
 
 ## Unreleased
 
-- Nothing post-1.0.0 yet. Pre-1.0 history lives in the commit log and the
-  GitHub pre-releases (v0.1.0, v0.2.0).
+- **Remote transfers work.** Uploads, downloads, remote→remote copies,
+  remote managed checkouts, previews, and remote sync endpoints now run
+  through the engine's bridged transfer lease. 1.0.0 failed these tasks
+  with `unsupported`.
+- **Trust before secrets.** Connecting to a server for the first time now
+  asks you to approve its host key before it asks for a password. An
+  unreachable server fails without asking for a password at all.
+- Pre-1.0 history lives in the commit log and the GitHub pre-releases
+  (v0.1.0, v0.2.0).
 
 ## 1.0.0 — first stable release (2026-09-23, shipped)
 
