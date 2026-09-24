@@ -12,9 +12,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import 'server_duplication.dart';
 import 'settings_store.dart';
 import 'sync_credentials.dart' show RetainedSyncTokenStore;
 import 'sync_transport.dart';
+import 'uuid.dart';
 
 /// The separate account's facts kept for §4.4's optional post-switch
 /// delete — the retained token alone cannot reach it.
@@ -249,9 +251,73 @@ final class BookmarkBackupService extends ChangeNotifier {
 
   /// Delete a shared-mode server: drops the row and seals the tombstone
   /// that propagates the delete to the fleet (and retracts the orphaned
-  /// credential's record).
-  Future<void> deleteServer(ServerConfig server) async {
-    await _coordinator?.onServerDeleted(server);
+  /// credential's record). Serialized with [duplicateServer]: a delete's
+  /// orphaned-credential check reads the store before the tombstone lands,
+  /// and two of them racing is exactly the read-then-write hazard the tail
+  /// exists for (Séance's `_mutate` queue, narrowed to the server domain).
+  Future<void> deleteServer(ServerConfig server) =>
+      _mutateServer(() async {
+        await _coordinator?.onServerDeleted(server);
+      });
+
+  /// The server-domain mutation tail delete and duplicate serialize on.
+  /// Duplicating reads the vault and the label set before writing — the
+  /// read and the write have to see one store, or a delete landing between
+  /// them is invisible to the plan. `saveServer` is deliberately not on
+  /// it: the editor's save is a single coordinator call (atomic), and the
+  /// tail must stay free for the duplicate that calls it mid-plan.
+  Future<void> _serverMutationTail = Future<void>.value();
+
+  Future<T> _mutateServer<T>(Future<T> Function() action) {
+    final result = _serverMutationTail.then((_) => action());
+    _serverMutationTail = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  /// Copy a shared-mode server: the copy gets its own id, its own
+  /// "&lt;label&gt; copy" name, and its own copy of the credential (never a
+  /// shared vault entry — see `planServerDuplication`). The source is
+  /// rechecked against the store before the vault read, so a delete or a
+  /// credential re-pointing that landed between the menu tap and the plan
+  /// fails as [SourceServerChanged] rather than copying a ghost (upstream's
+  /// `AppState.duplicateServer` @ 035b0d8, minus the mutation-queue entry —
+  /// the tail above is this app's equivalent).
+  Future<ServerConfig> duplicateServer(ServerConfig source) {
+    return _mutateServer(() async {
+      ServerConfig? latest;
+      final rows = await _servers.load();
+      for (final candidate in rows) {
+        if (candidate.id == source.id) {
+          latest = candidate;
+          break;
+        }
+      }
+      if (!duplicationSourceUnchanged(latest, source)) {
+        throw SourceServerChanged(latest?.label ?? source.label);
+      }
+      final vault = _secretVault;
+      if (vault == null) {
+        // Reachable only with the account gone mid-tap — the catalog, and
+        // so this verb, exists only where the vault resolved.
+        throw StateError(
+          'the vault is unavailable — cannot duplicate servers',
+        );
+      }
+      final plan = await planServerDuplication(
+        latest!,
+        vault: vault,
+        takenLabels: [for (final server in rows) server.label],
+        id: uuidV4(),
+        secretId: uuidV4(),
+        now: _now().toUtc().millisecondsSinceEpoch,
+      );
+      // Credential before config — `onServerSaved` publishes the opted-in
+      // `secret:` record, which reads the vault entry just written.
+      final secret = plan.secret;
+      if (secret != null) await saveServerSecret(secret);
+      await saveServer(plan.config);
+      return plan.config;
+    });
   }
 
   /// Save a credential the server editor entered: writes the vault with

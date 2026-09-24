@@ -54,12 +54,17 @@ void main() {
   late int syncCalls;
   var syncing = false;
   String? syncError;
+  late int addCalls;
+  late List<ServerConfig> edits;
+  late List<ServerConfig> duplicates;
+  late List<ServerConfig> deletes;
 
   Future<SidebarController> pump(
     WidgetTester tester, {
     bool withCatalog = true,
     bool withOpen = true,
     bool withSync = true,
+    bool withManage = true,
     bool settle = true,
   }) async {
     tester.view.physicalSize = const Size(300, 900);
@@ -91,6 +96,16 @@ void main() {
               onOpenCatalogServer: withOpen
                   ? (server, action) => opens.add((server, action))
                   : null,
+              onAddCatalogServer: withManage ? () => addCalls++ : null,
+              onEditCatalogServer: withManage
+                  ? (server) => edits.add(server)
+                  : null,
+              onDuplicateCatalogServer: withManage
+                  ? (server) => duplicates.add(server)
+                  : null,
+              onDeleteCatalogServer: withManage
+                  ? (server) => deletes.add(server)
+                  : null,
             ),
           ),
         ),
@@ -114,6 +129,10 @@ void main() {
     syncCalls = 0;
     syncing = false;
     syncError = null;
+    addCalls = 0;
+    edits = [];
+    duplicates = [];
+    deletes = [];
   });
 
   testWidgets('no catalog renders no section', (tester) async {
@@ -295,5 +314,74 @@ void main() {
     await tester.tap(find.text('label-s1'));
     await tester.pumpAndSettle();
     expect(opens, isEmpty);
+  });
+
+  testWidgets('the header add button fires the add callback', (tester) async {
+    catalog.replace([_server('s1')]);
+    await pump(tester);
+    await tester.tap(find.byKey(const ValueKey('sidebar.catalog.add')));
+    expect(addCalls, 1);
+  });
+
+  testWidgets('the row menu offers and fires the management verbs', (
+    tester,
+  ) async {
+    catalog.replace([_server('s1'), _server('s2', label: 'other')]);
+    await pump(tester);
+
+    await tester.tap(
+      find.byKey(const ValueKey('sidebar.catalog.row.s2')),
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Edit'), findsOneWidget);
+    expect(find.text('Duplicate'), findsOneWidget);
+    expect(find.text('Delete'), findsOneWidget);
+
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    expect(edits.single.id, 's2');
+
+    await tester.tap(
+      find.byKey(const ValueKey('sidebar.catalog.row.s1')),
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Duplicate'));
+    await tester.pumpAndSettle();
+    expect(duplicates.single.id, 's1');
+
+    await tester.tap(
+      find.byKey(const ValueKey('sidebar.catalog.row.s1')),
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    expect(deletes.single.id, 's1');
+  });
+
+  testWidgets('null manage callbacks render the catalog read-only', (
+    tester,
+  ) async {
+    catalog.replace([_server('s1')]);
+    await pump(tester, withManage: false);
+
+    // No add affordance in the header.
+    expect(
+      find.byKey(const ValueKey('sidebar.catalog.add')),
+      findsNothing,
+    );
+
+    // And no management verbs in the row menu — open verbs only.
+    await tester.tap(
+      find.byKey(const ValueKey('sidebar.catalog.row.s1')),
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Open in New Tab'), findsOneWidget);
+    expect(find.text('Edit'), findsNothing);
+    expect(find.text('Duplicate'), findsNothing);
+    expect(find.text('Delete'), findsNothing);
   });
 }

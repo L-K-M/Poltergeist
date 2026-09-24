@@ -91,6 +91,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // The engine-less pin-store fallback path — same machine path data.
     r"'${supportDirectory.path}${Platform.pathSeparator}'",
     r"'$kPinStoreFileName'",
+    // The engine's append-only identity-read log — same machine path data.
+    r"'$kIdentityAuditLogFileName'",
     // The runId device prefix when enrollment has no cached id — a
     // machine identity string, never rendered.
     "'local'",
@@ -434,9 +436,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'no retained separate account'",
     "'retained account without a retained token'",
     "'not enrolled — cannot resolve a pin conflict'",
-    // The shared-mode vault precondition fault — a reported programmer/
-    // state error, never rendered copy.
+    // The shared-mode vault precondition faults — reported programmer/
+    // state errors, never rendered copy.
     "'the vault is unavailable — cannot save secrets'",
+    "'the vault is unavailable — cannot duplicate servers'",
   },
   'lib/theme/app_theme.dart': {
     "'JetBrains Mono'",
@@ -985,6 +988,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'\\'",
     "'/'",
     "'.'",
+    // The duplicate-server failure toast interpolates the error verbatim —
+    // the SourceServerChanged sentence is upstream-authored English surfaced
+    // like RemoteFileException messages.
+    r"'$error'",
   },
   // The built-in editor's document-structure literals — the text field's
   // empty initial value and the newline joiners/splitters are plumbing,
@@ -1426,6 +1433,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.catalog.menu.open'",
     "'sidebar.catalog.menu.openNewTab'",
     "'sidebar.catalog.menu.openOtherPane'",
+    "'sidebar.catalog.add'",
+    "'sidebar.catalog.menu.edit'",
+    "'sidebar.catalog.menu.duplicate'",
+    "'sidebar.catalog.menu.delete'",
   },
   // The controller's ArgumentError/StateError diagnostics — programmer
   // errors, never rendered UI copy.
@@ -2013,6 +2024,79 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$menu ▸ $submenu'",
     r"'${identity.username}@${identity.host}'",
   },
+  // The Séance editor port (see docs/PORTS.md): image format sniffing,
+  // font families, controller seeds, regex machinery, and diagnostics —
+  // upstream literals, not user-facing copy.
+  'lib/services/badge_image.dart': {
+    "'png'",
+    "'jpg'",
+    "'jpeg'",
+    "'gif'",
+    "'webp'",
+    "'bmp'",
+    "'svg'",
+    "'heic'",
+    "'heif'",
+    r"'\uFEFF'",
+    "'<'",
+    "'<svg'",
+  },
+  'lib/services/server_duplication.dart': {
+    // The duplicate-label grammar and its cleanup regex — upstream label
+    // machinery (labels are data, not copy), plus the empty strip result.
+    r"'$base copy'",
+    r"'$base copy $n'",
+    "r'(^|\\s+)copy(\\s+\\d+)?\$'",
+    "''",
+    // SourceServerChanged's message — upstream-authored English surfaced
+    // verbatim in the failure toast, the same posture as
+    // RemoteFileException messages.
+    "'\"\$label\" changed while it was being copied — it was '",
+    "'deleted, or it now holds a different credential. Nothing was created.'",
+  },
+  'lib/services/server_editor_backend.dart': {
+    // Credential-resolution empty fallbacks and the identity-read audit
+    // label — machine data, never rendered copy.
+    "''",
+    r"'${config.username}@${config.host}'",
+  },
+  'lib/ui/connection_log_view.dart': {
+    "'monospace'",
+    "'Consolas'",
+    "'Menlo'",
+    "'Courier New'",
+  },
+  'lib/ui/server_color_picker.dart': {
+    // The hex field's filter regex, preview '#' and seed, and the field's
+    // mono font — input machinery.
+    "'[0-9a-fA-F]'",
+    "'monospace'",
+    "'#'",
+    "''",
+  },
+  'lib/ui/server_editor.dart': {
+    // Controller seeds and fallbacks (empty strings and the loaded port),
+    // the mono font on the PEM and login-script fields, and error
+    // interpolations handed to ARB strings — machinery, not copy.
+    "''",
+    r"'${e?.port ?? 22}'",
+    "'monospace'",
+    r"'$error'",
+    r"'$e'",
+  },
+  'lib/ui/server_mark_picker.dart': {
+    // The no-bytes picker fault (raised for the caller's localized error
+    // path), the typed-emoji seeds and interpolation glue, the debug log,
+    // and the curated emoji table — upstream vocabulary, same exemption
+    // as the glyph picker.
+    "'the file picker returned no image bytes'",
+    "''",
+    r"'$shortcutHint '",
+    r"'${shortcutHint.isEmpty ? '' : '$shortcutHint '}'",
+    r"'${l10n.serverMarkPickerEmojiFontNote}'",
+    r"'server mark image import failed: $error'",
+    ..._portedCuratedEmojiVocabulary,
+  },
   // The Séance ports (docs/PORTS.md): upstream English picker/search
   // vocabulary, kept verbatim so the files stay re-diffable against the
   // pinned source — localizing it is the recorded divergence deferred to
@@ -2215,6 +2299,99 @@ const _portedServerIconVocabulary = {
   "'stable fixed harbour'",
   "'Green'",
   "'eco leaf efficient'",
+};
+
+/// The curated emoji table ported verbatim from Séance's mark picker —
+/// same exemption as _portedServerIconVocabulary: upstream vocabulary,
+/// kept escaped so the file stays re-diffable against the pin.
+const _portedCuratedEmojiVocabulary = {
+  r"'\u{1F308}'",
+  r"'\u{1F310}'",
+  r"'\u{1F31F}'",
+  r"'\u{1F332}'",
+  r"'\u{1F340}'",
+  r"'\u{1F375}'",
+  r"'\u{1F383}'",
+  r"'\u{1F3AC}'",
+  r"'\u{1F3AE}'",
+  r"'\u{1F3AF}'",
+  r"'\u{1F3B5}'",
+  r"'\u{1F3C1}'",
+  r"'\u{1F3DD}\u{FE0F}'",
+  r"'\u{1F3E0}'",
+  r"'\u{1F3E2}'",
+  r"'\u{1F3ED}'",
+  r"'\u{1F408}'",
+  r"'\u{1F40D}'",
+  r"'\u{1F415}'",
+  r"'\u{1F419}'",
+  r"'\u{1F41D}'",
+  r"'\u{1F422}'",
+  r"'\u{1F427}'",
+  r"'\u{1F433}'",
+  r"'\u{1F43C}'",
+  r"'\u{1F47B}'",
+  r"'\u{1F480}'",
+  r"'\u{1F4B0}'",
+  r"'\u{1F4B3}'",
+  r"'\u{1F4BB}'",
+  r"'\u{1F4BE}'",
+  r"'\u{1F4BF}'",
+  r"'\u{1F4C8}'",
+  r"'\u{1F4CA}'",
+  r"'\u{1F4DA}'",
+  r"'\u{1F4DD}'",
+  r"'\u{1F4E1}'",
+  r"'\u{1F4E6}'",
+  r"'\u{1F4F1}'",
+  r"'\u{1F4F6}'",
+  r"'\u{1F4F7}'",
+  r"'\u{1F50B}'",
+  r"'\u{1F50C}'",
+  r"'\u{1F50D}'",
+  r"'\u{1F510}'",
+  r"'\u{1F511}'",
+  r"'\u{1F512}'",
+  r"'\u{1F517}'",
+  r"'\u{1F525}'",
+  r"'\u{1F527}'",
+  r"'\u{1F52C}'",
+  r"'\u{1F52E}'",
+  r"'\u{1F5A5}\u{FE0F}'",
+  r"'\u{1F5A8}\u{FE0F}'",
+  r"'\u{1F5C3}\u{FE0F}'",
+  r"'\u{1F5C4}\u{FE0F}'",
+  r"'\u{1F5DE}\u{FE0F}'",
+  r"'\u{1F5FC}'",
+  r"'\u{1F680}'",
+  r"'\u{1F6A7}'",
+  r"'\u{1F6D2}'",
+  r"'\u{1F6E0}\u{FE0F}'",
+  r"'\u{1F6E1}\u{FE0F}'",
+  r"'\u{1F6F0}\u{FE0F}'",
+  r"'\u{1F916}'",
+  r"'\u{1F980}'",
+  r"'\u{1F981}'",
+  r"'\u{1F986}'",
+  r"'\u{1F989}'",
+  r"'\u{1F98A}'",
+  r"'\u{1F9D9}'",
+  r"'\u{1F9E0}'",
+  r"'\u{1F9EA}'",
+  r"'\u{1F9F0}'",
+  r"'\u{1F9F1}'",
+  r"'\u{1F9F9}'",
+  r"'\u{1FAAA}'",
+  r"'\u{2328}\u{FE0F}'",
+  r"'\u{2601}\u{FE0F}'",
+  r"'\u{2615}'",
+  r"'\u{2699}\u{FE0F}'",
+  r"'\u{26A0}\u{FE0F}'",
+  r"'\u{26A1}'",
+  r"'\u{2705}'",
+  r"'\u{2728}'",
+  r"'\u{274C}'",
+  r"'\u{2B50}'",
 };
 
 void main() {

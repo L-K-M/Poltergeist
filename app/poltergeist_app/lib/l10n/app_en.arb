@@ -3976,5 +3976,511 @@
         "example": "3 items"
       }
     }
+  },
+  "sidebarCatalogAddServer": "Add server",
+  "@sidebarCatalogAddServer": {
+    "description": "Tooltip of the button in the Séance servers section header that opens the server editor for a new server."
+  },
+  "sidebarCatalogEdit": "Edit",
+  "@sidebarCatalogEdit": {
+    "description": "Context-menu verb on a Séance servers row that opens the server editor."
+  },
+  "sidebarCatalogDuplicate": "Duplicate",
+  "@sidebarCatalogDuplicate": {
+    "description": "Context-menu verb on a Séance servers row that copies the server, including its stored credential."
+  },
+  "sidebarCatalogDelete": "Delete",
+  "@sidebarCatalogDelete": {
+    "description": "Context-menu verb on a Séance servers row that deletes the server after confirmation."
+  },
+  "sidebarCatalogDeleteTitle": "Delete \"{label}\"?",
+  "@sidebarCatalogDeleteTitle": {
+    "description": "Title of the catalog-row delete confirmation. {label} is the server's display name.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "prod-web-1"
+      }
+    }
+  },
+  "sidebarCatalogDeleteBody": "This removes the server and any stored secret, on this device and — if it synced — your other devices.",
+  "@sidebarCatalogDeleteBody": {
+    "description": "Body of the catalog-row delete confirmation: the serverConfig tombstone propagates the delete to the fleet."
+  },
+  "sidebarCatalogDeleteBodyEdits": "{count, plural, =1{This removes the server, its stored secret, and # managed local edit. Any changes not uploaded to the server will be deleted.} other{This removes the server, its stored secret, and # managed local edits. Any changes not uploaded to the server will be deleted.}}",
+  "@sidebarCatalogDeleteBodyEdits": {
+    "description": "Body of the catalog-row delete confirmation when the server has managed local checkouts. {count} is how many managed local edits would be deleted.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "sidebarCatalogDeleteCancel": "Cancel",
+  "@sidebarCatalogDeleteCancel": {
+    "description": "Declines the catalog-row delete confirmation."
+  },
+  "sidebarCatalogDeleteConfirm": "Delete",
+  "@sidebarCatalogDeleteConfirm": {
+    "description": "Confirms the catalog-row delete."
+  },
+  "sidebarCatalogDuplicateFailed": "Could not duplicate \"{label}\": {error}",
+  "@sidebarCatalogDuplicateFailed": {
+    "description": "Toast when duplicating a catalog server failed. {error} is the failure detail (a locked keyring, a changed source).",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "prod-web-1"
+      },
+      "error": {
+        "type": "String",
+        "example": "the OS keychain is locked"
+      }
+    }
+  },
+  "sidebarCatalogDuplicated": "Duplicated as \"{label}\"",
+  "@sidebarCatalogDuplicated": {
+    "description": "Toast after a catalog server was duplicated. {label} is the copy's generated name.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "prod-web-1 copy"
+      }
+    }
+  },
+  "sidebarCatalogDuplicatedEdit": "Edit",
+  "@sidebarCatalogDuplicatedEdit": {
+    "description": "Action on the duplicated toast that opens the copy in the server editor."
+  },
+  "serverEditorAddTitle": "Add server",
+  "@serverEditorAddTitle": {
+    "description": "Title of the server editor for a new server."
+  },
+  "serverEditorEditTitle": "Edit server",
+  "@serverEditorEditTitle": {
+    "description": "Title of the server editor for an existing server."
+  },
+  "serverEditorLabel": "Label",
+  "@serverEditorLabel": {
+    "description": "Label of the server-name field."
+  },
+  "serverEditorHost": "Host",
+  "@serverEditorHost": {
+    "description": "Label of the hostname field."
+  },
+  "serverEditorPort": "Port",
+  "@serverEditorPort": {
+    "description": "Label of the port field."
+  },
+  "serverEditorUsername": "Username",
+  "@serverEditorUsername": {
+    "description": "Label of the username field."
+  },
+  "serverEditorAuthentication": "Authentication",
+  "@serverEditorAuthentication": {
+    "description": "Label of the auth-method dropdown."
+  },
+  "serverEditorAuthAgent": "ssh-agent",
+  "@serverEditorAuthAgent": {
+    "description": "Auth-method choice: the system ssh-agent."
+  },
+  "serverEditorAuthPassword": "Password",
+  "@serverEditorAuthPassword": {
+    "description": "Auth-method choice: a stored password."
+  },
+  "serverEditorAuthPrivateKey": "Private key",
+  "@serverEditorAuthPrivateKey": {
+    "description": "Auth-method choice: a private key, pasted or referenced."
+  },
+  "serverEditorAgentInfo": "Keys are provided by your ssh-agent; nothing is stored.",
+  "@serverEditorAgentInfo": {
+    "description": "Explainer under the ssh-agent auth choice."
+  },
+  "serverEditorAgentUnsupported": "ssh-agent auth isn't supported yet — connecting will fail. Choose Password or Private key for now.",
+  "@serverEditorAgentUnsupported": {
+    "description": "Warning under the ssh-agent auth choice that the backend cannot authenticate that way yet."
+  },
+  "serverEditorPasswordLabel": "Password",
+  "@serverEditorPasswordLabel": {
+    "description": "Label of the password field."
+  },
+  "serverEditorReferenceKeyTitle": "Reference a key file on disk",
+  "@serverEditorReferenceKeyTitle": {
+    "description": "Title of the switch that keeps the private key on disk rather than storing it."
+  },
+  "serverEditorReferenceKeySubtitle": "Don't store the key — read it at connect",
+  "@serverEditorReferenceKeySubtitle": {
+    "description": "Subtitle of the reference-key switch."
+  },
+  "serverEditorIdentityFileHint": "~/.ssh/id_ed25519",
+  "@serverEditorIdentityFileHint": {
+    "description": "Placeholder in the identity-file path field — a conventional key path, not a default."
+  },
+  "serverEditorIdentityFilePath": "Identity file path",
+  "@serverEditorIdentityFilePath": {
+    "description": "Label of the referenced-key path field."
+  },
+  "serverEditorBrowse": "Browse…",
+  "@serverEditorBrowse": {
+    "description": "Button beside the identity-file path field that opens the file picker."
+  },
+  "serverEditorPrivateKeyPem": "Private key (PEM/OpenSSH)",
+  "@serverEditorPrivateKeyPem": {
+    "description": "Label of the paste-a-key field."
+  },
+  "serverEditorKeyPassphrase": "Key passphrase (optional)",
+  "@serverEditorKeyPassphrase": {
+    "description": "Label of the key-passphrase field."
+  },
+  "serverEditorLoginScript": "Login script (optional)",
+  "@serverEditorLoginScript": {
+    "description": "Label of the login-script field — a command typed into the server's shell after connecting (executed by Séance; stored and synced here)."
+  },
+  "serverEditorLoginScriptHint": "e.g. cd ~/work && tmux attach -t work || tmux new -s work",
+  "@serverEditorLoginScriptHint": {
+    "description": "Hint inside the login-script field."
+  },
+  "serverEditorLoginScriptNote": "Runs as if typed at the prompt right after connecting. Its text and output land in scrollback — keep secrets out. Blank for none.",
+  "@serverEditorLoginScriptNote": {
+    "description": "Explainer under the login-script field."
+  },
+  "serverEditorAppearance": "Appearance",
+  "@serverEditorAppearance": {
+    "description": "Heading of the group/colour/mark section."
+  },
+  "serverEditorGroup": "Group",
+  "@serverEditorGroup": {
+    "description": "Label of the group-name field."
+  },
+  "serverEditorGroupHint": "Production, Home lab, … — blank for none",
+  "@serverEditorGroupHint": {
+    "description": "Hint inside the group-name field."
+  },
+  "serverEditorColour": "Colour",
+  "@serverEditorColour": {
+    "description": "Heading of the accent-colour row."
+  },
+  "serverEditorMark": "Mark",
+  "@serverEditorMark": {
+    "description": "Heading of the mark row (glyph, emoji or imported image)."
+  },
+  "serverEditorChooseMark": "Choose…",
+  "@serverEditorChooseMark": {
+    "description": "Button that opens the mark picker."
+  },
+  "serverEditorDefaultMarkTooltip": "Use the default mark",
+  "@serverEditorDefaultMarkTooltip": {
+    "description": "Tooltip of the button that resets the mark to the default glyph."
+  },
+  "serverEditorSyncSecretTitle": "Allow this credential to sync",
+  "@serverEditorSyncSecretTitle": {
+    "description": "Title of the per-server credential-sync switch."
+  },
+  "serverEditorSyncSecretExcluded": "Not used while this server is excluded from sync.",
+  "@serverEditorSyncSecretExcluded": {
+    "description": "Subtitle of the credential-sync switch while the server is excluded."
+  },
+  "serverEditorSyncSecretSubtitle": "End-to-end encrypted. Also needs sync set up with \"Sync saved passwords & keys\" enabled.",
+  "@serverEditorSyncSecretSubtitle": {
+    "description": "Subtitle of the credential-sync switch."
+  },
+  "serverEditorExcludeTitle": "Exclude from sync",
+  "@serverEditorExcludeTitle": {
+    "description": "Title of the whole-server sync-exclusion switch."
+  },
+  "serverEditorExcludeOnSubtitle": "Kept on this device only. A copy that synced earlier is removed from the sync server and from your other devices.",
+  "@serverEditorExcludeOnSubtitle": {
+    "description": "Subtitle of the exclusion switch while it is on."
+  },
+  "serverEditorExcludeOffSubtitle": "Keep this server on this device only — never upload it.",
+  "@serverEditorExcludeOffSubtitle": {
+    "description": "Subtitle of the exclusion switch while it is off."
+  },
+  "serverEditorTest": "Test connection",
+  "@serverEditorTest": {
+    "description": "Button that authenticates against the form's draft values without saving."
+  },
+  "serverEditorTesting": "Testing…",
+  "@serverEditorTesting": {
+    "description": "Label of the test button while a test runs."
+  },
+  "serverEditorTestingSemantic": "Testing connection",
+  "@serverEditorTestingSemantic": {
+    "description": "Screen-reader label of the spinner while a connection test runs."
+  },
+  "serverEditorCancel": "Cancel",
+  "@serverEditorCancel": {
+    "description": "Closes the server editor without saving."
+  },
+  "serverEditorSave": "Save",
+  "@serverEditorSave": {
+    "description": "Saves the server and closes the editor."
+  },
+  "serverEditorTestDisclaimer": "Testing authenticates without opening a shell or running the login script. A host key you approve here is trusted for the test only — the first real connection asks again.",
+  "@serverEditorTestDisclaimer": {
+    "description": "Small print under the test button."
+  },
+  "serverEditorRequired": "Required",
+  "@serverEditorRequired": {
+    "description": "Validator message under a blank required field."
+  },
+  "serverEditorPortRange": "1–65535",
+  "@serverEditorPortRange": {
+    "description": "Validator message under an out-of-range port."
+  },
+  "serverEditorTestFailedSummary": "Could not test the connection.",
+  "@serverEditorTestFailedSummary": {
+    "description": "Headline of the inline report when the test itself failed (not the host's answer)."
+  },
+  "serverEditorSaveFailed": "Could not save: {error}",
+  "@serverEditorSaveFailed": {
+    "description": "Toast when saving the server failed. {error} is the failure detail.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "the OS keychain is locked"
+      }
+    }
+  },
+  "serverEditorExcludeConfirmTitle": "Exclude from sync?",
+  "@serverEditorExcludeConfirmTitle": {
+    "description": "Title of the confirmation shown before excluding a synced server."
+  },
+  "serverEditorExcludeConfirmBody": "If this server synced earlier, it is removed from the sync server and from your other devices, along with any credential that synced with it. This device keeps its copy.",
+  "@serverEditorExcludeConfirmBody": {
+    "description": "Body of the exclusion confirmation."
+  },
+  "serverEditorExcludeConfirmCancel": "Cancel",
+  "@serverEditorExcludeConfirmCancel": {
+    "description": "Declines the exclusion confirmation."
+  },
+  "serverEditorExcludeConfirmAction": "Exclude",
+  "@serverEditorExcludeConfirmAction": {
+    "description": "Confirms the exclusion."
+  },
+  "serverEditorCustomColour": "Custom colour…",
+  "@serverEditorCustomColour": {
+    "description": "Tooltip of the spectrum swatch that opens the custom colour picker."
+  },
+  "serverEditorCustomColourValue": "Custom colour ({hex})",
+  "@serverEditorCustomColourValue": {
+    "description": "Tooltip of the custom-colour swatch once a colour is chosen. {hex} is the stored #RRGGBB string.",
+    "placeholders": {
+      "hex": {
+        "type": "String",
+        "example": "#1E90FF"
+      }
+    }
+  },
+  "serverMarkPickerTitle": "Server mark",
+  "@serverMarkPickerTitle": {
+    "description": "Title of the mark picker dialog."
+  },
+  "serverMarkPickerIconsTab": "Icons",
+  "@serverMarkPickerIconsTab": {
+    "description": "Tab of the mark picker listing the built-in glyphs."
+  },
+  "serverMarkPickerEmojiTab": "Emoji",
+  "@serverMarkPickerEmojiTab": {
+    "description": "Tab of the mark picker for an emoji mark."
+  },
+  "serverMarkPickerImageTab": "Image",
+  "@serverMarkPickerImageTab": {
+    "description": "Tab of the mark picker for an imported image."
+  },
+  "serverMarkPickerCancel": "Cancel",
+  "@serverMarkPickerCancel": {
+    "description": "Dismisses the mark picker without choosing."
+  },
+  "serverMarkPickerSearchHint": "Search icons — try k8s, psql, prod…",
+  "@serverMarkPickerSearchHint": {
+    "description": "Hint inside the icon-tab search field."
+  },
+  "serverMarkPickerNoMatch": "No icon matches.",
+  "@serverMarkPickerNoMatch": {
+    "description": "Empty state of the icon search."
+  },
+  "serverMarkPickerDefault": "Default",
+  "@serverMarkPickerDefault": {
+    "description": "Heading of the no-mark icon section."
+  },
+  "serverMarkPickerEmojiHintMacOS": "Press Control-Command-Space for the system emoji picker.",
+  "@serverMarkPickerEmojiHintMacOS": {
+    "description": "How to reach the OS emoji picker on macOS."
+  },
+  "serverMarkPickerEmojiHintWindows": "Press Windows-. for the system emoji picker.",
+  "@serverMarkPickerEmojiHintWindows": {
+    "description": "How to reach the OS emoji picker on Windows."
+  },
+  "serverMarkPickerEmojiHintLinux": "Your desktop may offer an emoji picker with Control-Shift-E or Control-.",
+  "@serverMarkPickerEmojiHintLinux": {
+    "description": "How to reach the OS emoji picker on Linux."
+  },
+  "serverMarkPickerEmojiHintOther": "Switch your keyboard to emoji.",
+  "@serverMarkPickerEmojiHintOther": {
+    "description": "How to reach the emoji input on platforms without a picker chord (mobile)."
+  },
+  "serverMarkPickerAnyEmoji": "Any emoji",
+  "@serverMarkPickerAnyEmoji": {
+    "description": "Label of the free-text emoji field."
+  },
+  "serverMarkPickerOneEmoji": "One emoji, please.",
+  "@serverMarkPickerOneEmoji": {
+    "description": "Error under the emoji field when it holds text that is not a single emoji."
+  },
+  "serverMarkPickerUse": "Use",
+  "@serverMarkPickerUse": {
+    "description": "Button that confirms the typed emoji."
+  },
+  "serverMarkPickerEmojiFontNote": "An emoji is drawn with the system’s own emoji font, so a device without one shows a box — the icon chosen under Icons is what it falls back to there.",
+  "@serverMarkPickerEmojiFontNote": {
+    "description": "Caveat under the emoji grid explaining cross-device rendering and the glyph fallback."
+  },
+  "serverMarkPickerOpenFailed": "That file could not be opened. Try another.",
+  "@serverMarkPickerOpenFailed": {
+    "description": "Error shown when the picked image file could not be read."
+  },
+  "serverMarkPickerTooLarge": "That file is too big to read. Crop or export it smaller first.",
+  "@serverMarkPickerTooLarge": {
+    "description": "Error shown when the picked image exceeds the decode bound."
+  },
+  "serverMarkPickerUndecodable": "That file could not be read as an image.",
+  "@serverMarkPickerUndecodable": {
+    "description": "Error shown when the picked file is not a decodable image."
+  },
+  "serverMarkPickerEncodeFailed": "That image could not be prepared. Try again, or pick another.",
+  "@serverMarkPickerEncodeFailed": {
+    "description": "Error shown when the picked image could not be re-encoded."
+  },
+  "serverMarkPickerIncompressible": "That image would not fit in a server record even at badge size. Try a smaller or simpler one.",
+  "@serverMarkPickerIncompressible": {
+    "description": "Error shown when the re-encoded image still exceeds the record-size bound."
+  },
+  "serverMarkPickerNoImage": "No image on this server yet.",
+  "@serverMarkPickerNoImage": {
+    "description": "Caption beside the badge on the image tab when no image is set."
+  },
+  "serverMarkPickerHasImage": "This server carries an image.",
+  "@serverMarkPickerHasImage": {
+    "description": "Caption beside the badge on the image tab when an image is set."
+  },
+  "serverMarkPickerChooseImage": "Choose image…",
+  "@serverMarkPickerChooseImage": {
+    "description": "Button that imports an image when none is set."
+  },
+  "serverMarkPickerReplaceImage": "Replace image…",
+  "@serverMarkPickerReplaceImage": {
+    "description": "Button that imports an image when one is already set."
+  },
+  "serverMarkPickerRemoveImage": "Remove image",
+  "@serverMarkPickerRemoveImage": {
+    "description": "Button that reverts the mark to the image's fallback glyph."
+  },
+  "serverMarkPickerImageFormats": "PNG, JPEG, WebP or SVG",
+  "@serverMarkPickerImageFormats": {
+    "description": "Readable list of accepted image formats (SVG excluded on iOS, which gets the photo picker)."
+  },
+  "serverMarkPickerImageFormatsIos": "PNG, JPEG or WebP",
+  "@serverMarkPickerImageFormatsIos": {
+    "description": "Readable list of accepted image formats on iOS."
+  },
+  "serverMarkPickerImageExplanation": "{formats}. The image is cropped square, stored at {side} pixels, and travels inside this server’s own settings — so it reaches your other devices with everything else about the server, and never arrives without it. Anything larger than a badge can show would only be paid for on every sync. A transparent image shows the badge’s own background through it.",
+  "@serverMarkPickerImageExplanation": {
+    "description": "Explainer at the bottom of the image tab. {formats} is the accepted-format list; {side} is the stored edge length in pixels.",
+    "placeholders": {
+      "formats": {
+        "type": "String",
+        "example": "PNG, JPEG, WebP or SVG"
+      },
+      "side": {
+        "type": "int",
+        "example": "64"
+      }
+    }
+  },
+  "serverColorPickerTitle": "Custom colour",
+  "@serverColorPickerTitle": {
+    "description": "Title of the custom colour picker dialog."
+  },
+  "serverColorPickerHexLabel": "Hex",
+  "@serverColorPickerHexLabel": {
+    "description": "Label of the hex-digits field."
+  },
+  "serverColorPickerHexError": "Six hex digits",
+  "@serverColorPickerHexError": {
+    "description": "Error under the hex field when it does not hold six hex digits."
+  },
+  "serverColorPickerHue": "Hue",
+  "@serverColorPickerHue": {
+    "description": "Label of the hue slider."
+  },
+  "serverColorPickerSaturation": "Saturation",
+  "@serverColorPickerSaturation": {
+    "description": "Label of the saturation slider."
+  },
+  "serverColorPickerBrightness": "Brightness",
+  "@serverColorPickerBrightness": {
+    "description": "Label of the brightness slider."
+  },
+  "serverColorPickerDegrees": "{degrees} degrees",
+  "@serverColorPickerDegrees": {
+    "description": "Screen-reader value of the hue slider.",
+    "placeholders": {
+      "degrees": {
+        "type": "int",
+        "example": "180"
+      }
+    }
+  },
+  "serverColorPickerPercent": "{percent} percent",
+  "@serverColorPickerPercent": {
+    "description": "Screen-reader value of the saturation/brightness sliders.",
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "60"
+      }
+    }
+  },
+  "serverColorPickerHint": "Drawn as picked, with the mark kept legible on it in both themes. Devices running an older version show the nearest of the named colours instead.",
+  "@serverColorPickerHint": {
+    "description": "Small print under the colour sliders."
+  },
+  "serverColorPickerCancel": "Cancel",
+  "@serverColorPickerCancel": {
+    "description": "Dismisses the colour picker without choosing."
+  },
+  "serverColorPickerUse": "Use colour",
+  "@serverColorPickerUse": {
+    "description": "Confirms the picked colour."
+  },
+  "connectionLogTitle": "Connection log",
+  "@connectionLogTitle": {
+    "description": "Title of the collapsible transcript under a connection-test result."
+  },
+  "connectionLogCopy": "Copy",
+  "@connectionLogCopy": {
+    "description": "Button that copies the transcript to the clipboard."
+  },
+  "connectionLogCopied": "Log copied",
+  "@connectionLogCopied": {
+    "description": "Toast after the transcript was copied."
+  },
+  "connectionLogCopyFailed": "Could not copy the log",
+  "@connectionLogCopyFailed": {
+    "description": "Toast when the clipboard write failed."
+  },
+  "connectionLogEmpty": "(no log captured)",
+  "@connectionLogEmpty": {
+    "description": "Placeholder inside the transcript card when there is nothing to show."
+  },
+  "connectionTestSucceeded": "Connection test succeeded",
+  "@connectionTestSucceeded": {
+    "description": "Screen-reader label of the success icon in the connection-test report."
+  },
+  "connectionTestFailed": "Connection test failed",
+  "@connectionTestFailed": {
+    "description": "Screen-reader label of the failure icon in the connection-test report."
   }
 }

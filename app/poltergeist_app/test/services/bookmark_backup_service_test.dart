@@ -8,6 +8,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/bookmark_backup_service.dart';
+import 'package:poltergeist_app/services/server_duplication.dart';
 import 'package:poltergeist_app/services/settings_store.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -644,6 +645,54 @@ void main() {
             id: 's1', kind: SecretKind.password, value: 'x')),
         throwsA(isA<StateError>()),
       );
+    });
+
+    test('duplicateServer copies the row and its credential under new ids',
+        () async {
+      await h.enrollSharedDirectly();
+      await h.service.saveServerSecret(const Secret(
+          id: 's1', kind: SecretKind.password, value: 'hunter2'));
+      await h.service.saveServer(config('web', ref: 's1'));
+
+      final copy = await h.service.duplicateServer(config('web', ref: 's1'));
+
+      expect(copy.id, isNot('web'));
+      expect(copy.label, 'web copy');
+      expect(copy.secretRef, isNotNull);
+      expect(copy.secretRef, isNot('s1'));
+      // The copied credential is a vault entry of its own, not a shared ref.
+      expect(
+        (await h.service.serverSecretById(copy.secretRef!))!.value,
+        'hunter2',
+      );
+      expect(await h.servers.byId(copy.id), isNotNull);
+      expect(h.service.catalog!.byId(copy.id), isNotNull);
+      // And the copy seals its own serverConfig record for the next round.
+      expect((await h.records.getRecord(copy.id))!.deleted, isFalse);
+    });
+
+    test('duplicateServer refuses a stale source instead of copying a ghost',
+        () async {
+      await h.enrollSharedDirectly();
+      await h.service.saveServerSecret(const Secret(
+          id: 's1', kind: SecretKind.password, value: 'hunter2'));
+      await h.service.saveServer(config('web', ref: 's1'));
+
+      // The stored row points at s1; a source snapshot naming s2 has been
+      // overtaken — the credential the plan would read is not the one the
+      // menu tapped.
+      await expectLater(
+        () => h.service.duplicateServer(config('web', ref: 's2')),
+        throwsA(isA<SourceServerChanged>()),
+      );
+      // And a deleted source is the same refusal.
+      await h.service.deleteServer(config('web', ref: 's1'));
+      await expectLater(
+        () => h.service.duplicateServer(config('web', ref: 's1')),
+        throwsA(isA<SourceServerChanged>()),
+      );
+      // Nothing was created: the tombstoned original leaves no live rows.
+      expect(await h.servers.load(), isEmpty);
     });
   });
 }

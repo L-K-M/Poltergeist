@@ -63,6 +63,18 @@ export 'package:seance_core/seance_core.dart'
         ServerGlyphMark,
         ServerEmojiMark,
         ServerImageMark,
+        // The server editor's own vocabulary (04 §4.2, amended — the
+        // writable catalog's add/edit surface): emoji/image normalization
+        // and caps, the login-script normalizer, and the connection-test
+        // seam the editor's Test button drives. (`uuidV4` stays out of the
+        // barrel deliberately: it collides with the app's own minter in
+        // services/uuid.dart, which the editor uses instead.)
+        normalizeServerEmoji,
+        normalizeLoginScript,
+        kMaxServerIconImageBytes,
+        runConnectionTest,
+        liveHostAuthenticator,
+        ConnectionTestResult,
         // Sync protocol types (04 §3): the record layer, the LWW rule both
         // ends share, and the transport seam the coordinator is driven over.
         ApiError,

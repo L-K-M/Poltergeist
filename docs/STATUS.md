@@ -8423,9 +8423,17 @@ though §3.13 predates naming it.
     records and tombstones, pulled-`secret` vault apply under the
     exclusion shield + freshness floor, `FileVaultStore` re-key journal
     (enrollment swaps the keystore key without orphaning credentials),
-    and a `DynamicSecretVault` seam for prompt/engine consumers. Still
-    open: the server editor UI + catalog row verbs (add/edit/duplicate/
-    delete), and the running-patched-Séance/real-SSH QA legs.
+    and a `DynamicSecretVault` seam for prompt/engine consumers.
+    **2026-10-06 — the editor half landed:** ported `server_editor.dart`
+    (driven by a `ServerEditorDelegate` seam in place of `AppState`),
+    the mark/color pickers, `connection_test_report`/`connection_log_view`,
+    `badge_image`, and `server_duplication`; `ServerEditorBackend`
+    composes the delegate over the backup service, dynamic vault, pin
+    store, and identity audit log; catalog rows gain add/edit/duplicate/
+    delete verbs (read-only when no backend is wired), deletes
+    disconnect live sessions and name managed checkout edits in the
+    confirmation. Still open: the running-patched-Séance/real-SSH QA
+    legs.
 26. **2026-09-21: M7's native-boundary QA is manual — Quick Look's
     real `QLPreviewPanel` runtime and the engine-driven remote
     checkout path.** The §3.8 audit's criterion 4 is met on the

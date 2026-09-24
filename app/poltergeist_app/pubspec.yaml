@@ -17,6 +17,9 @@ dependencies:
   # Windows/Linux (06 §4.3); macOS uses the poltergeist/files channel.
   # Needs the AGP-9 Kotlin re-apply in android/build.gradle.kts.
   file_picker: 11.0.3
+  # SVG rasterization for imported server-badge images (the mark picker's
+  # image tab; the same use Séance's badge_image port makes of it).
+  flutter_svg: 2.3.0
   flutter:
     sdk: flutter
   flutter_localizations:

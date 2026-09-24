@@ -17,10 +17,13 @@ import 'services/dynamic_secret_vault.dart';
 import 'services/editor_registry_controller.dart';
 import 'services/engine_session.dart';
 import 'services/file_stores.dart';
+import 'services/identity_audit_log.dart';
+import 'services/identity_file_reader.dart';
 import 'services/probe_settings_store.dart';
 import 'services/quit_guard.dart';
 import 'services/recent_locations.dart';
 import 'services/secure_master_key.dart';
+import 'services/server_editor_backend.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
 import 'services/session_state_store.dart';
@@ -282,6 +285,17 @@ Future<void> main() async {
     path: syncRecordsPath,
     onError: errorReporter.report,
   );
+  // The pin store the engine's mirror writes to, when an engine spawned —
+  // the backup coordinator's TOFU truth and the editor's trial verifier
+  // share the instance: two FileHostKeyStores over one path would race
+  // their load-once caches.
+  final pinStore = engineSession?.pinStore ??
+      FileHostKeyStore(
+        File(
+          '${supportDirectory.path}${Platform.pathSeparator}'
+          '$kPinStoreFileName',
+        ),
+      );
   final bookmarkBackup = BookmarkBackupService(
     credentials: SecureSyncCredentialStore(
       keys: masterKeys,
@@ -303,13 +317,7 @@ Future<void> main() async {
       return syncRecords;
     },
     bookmarks: bookmarks,
-    hostKeys: engineSession?.pinStore ??
-        FileHostKeyStore(
-          File(
-            '${supportDirectory.path}${Platform.pathSeparator}'
-            '$kPinStoreFileName',
-          ),
-        ),
+    hostKeys: pinStore,
     pinVerdicts: SettingsPinVerdictStore(store: settingsStore),
     tripwires: SettingsSyncTripwireStore(store: settingsStore),
     transportFactory: httpSyncTransport,
@@ -325,6 +333,27 @@ Future<void> main() async {
   // than dropping the feature — the enrolled state must never vanish
   // because one status key failed to decode.
   await errorReporter.guard(bookmarkBackup.load);
+
+  // The server editor's application layer (04 §4.2's management verbs):
+  // catalog truth and sync writes through the backup service, credential
+  // reads through the dynamic vault, the connection test over the real
+  // transport with trial-only host-key pinning. The identity reader is a
+  // second instance over the same append-only audit log the engine
+  // session's own reader writes.
+  final serverEditor = ServerEditorBackend(
+    backups: bookmarkBackup,
+    vault: dynamicVault,
+    hostKeys: pinStore,
+    identityReader: IdentityFileReader(
+      IdentityAuditLog(
+        File(
+          '${supportDirectory.path}${Platform.pathSeparator}'
+          '$kIdentityAuditLogFileName',
+        ),
+      ),
+    ),
+    navigatorKey: navigatorKey,
+  );
 
   // The D19 link-only update check (07 §3.10, 01 §6): one plain GET of
   // GitHub's latest-release endpoint per launch, compared locally —
@@ -348,6 +377,7 @@ Future<void> main() async {
       recentLocations: recentLocations,
       engineSession: engineSession,
       bookmarkBackup: bookmarkBackup,
+      serverEditor: serverEditor,
       navigatorKey: navigatorKey,
       scaffoldMessengerKey: scaffoldMessengerKey,
       quitGuard: quitGuard,

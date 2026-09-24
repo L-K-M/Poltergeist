@@ -62,6 +62,10 @@ class SidebarView extends StatelessWidget {
     this.catalogSyncError,
     this.onSyncNow,
     this.onOpenCatalogServer,
+    this.onAddCatalogServer,
+    this.onEditCatalogServer,
+    this.onDuplicateCatalogServer,
+    this.onDeleteCatalogServer,
     super.key,
   });
 
@@ -137,6 +141,14 @@ class SidebarView extends StatelessWidget {
   /// vocabulary favorites use). Null renders rows non-activatable.
   final void Function(ServerConfig server, SidebarOpenAction action)?
   onOpenCatalogServer;
+
+  /// 04 §4.2's management verbs: the section header's add affordance and
+  /// the row menu's edit/duplicate/delete. Each null hides its verb — a
+  /// shell without the editor seam renders the catalog read-only.
+  final VoidCallback? onAddCatalogServer;
+  final void Function(ServerConfig server)? onEditCatalogServer;
+  final void Function(ServerConfig server)? onDuplicateCatalogServer;
+  final void Function(ServerConfig server)? onDeleteCatalogServer;
 
   @override
   Widget build(BuildContext context) {
@@ -1506,7 +1518,13 @@ class _CatalogSectionState extends State<_CatalogSection> {
         itemCount: matches.length,
         collapsed: collapsed,
         onToggle: () => controller.toggleCollapsed(_catalogSectionKey),
-        trailing: _syncButton(context, l10n, scheme),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _addButton(l10n, scheme),
+            _syncButton(context, l10n, scheme),
+          ],
+        ),
       ),
     ];
     if (collapsed) {
@@ -1576,6 +1594,27 @@ class _CatalogSectionState extends State<_CatalogSection> {
       }
     }
     return Column(children: children);
+  }
+
+  /// The header's add affordance (04 §4.2's editor entry): a new server
+  /// drafted blank. Hidden where the shell has no editor seam — the
+  /// catalog then reads as the read-only surface it is.
+  Widget _addButton(AppLocalizations l10n, ColorScheme scheme) {
+    final onAdd = widget.view.onAddCatalogServer;
+    if (onAdd == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 4),
+      child: IconButton(
+        key: const ValueKey('sidebar.catalog.add'),
+        iconSize: 16,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+        visualDensity: VisualDensity.compact,
+        tooltip: l10n.sidebarCatalogAddServer,
+        onPressed: onAdd,
+        icon: Icon(Icons.add, color: scheme.onSurfaceVariant),
+      ),
+    );
   }
 
   /// The header's sync affordance (04 §4.2's reload button): one manual
@@ -1688,8 +1727,8 @@ class _CatalogSectionState extends State<_CatalogSection> {
 /// One catalog row: the Séance server rendered with its own accent bar
 /// and mark (the appearance both apps now share), the composed status
 /// dot in the badge corner, the same activation vocabulary favorites
-/// use, and a context menu with the open verbs. Server management lands
-/// with the editor slice — the row offers open only.
+/// use, and a context menu with the open verbs above the management
+/// verbs the shell offers.
 class _CatalogRow extends StatefulWidget {
   const _CatalogRow({required this.server, required this.view, super.key});
 
@@ -1868,7 +1907,12 @@ class _CatalogRowState extends State<_CatalogRow> {
   }
 
   List<Widget> _menuItems(AppLocalizations l10n) {
-    final open = widget.view.onOpenCatalogServer;
+    final view = widget.view;
+    final server = widget.server;
+    final open = view.onOpenCatalogServer;
+    final manage = view.onEditCatalogServer != null ||
+        view.onDuplicateCatalogServer != null ||
+        view.onDeleteCatalogServer != null;
     return [
       MenuItemButton(
         key: const ValueKey('sidebar.catalog.menu.open'),
@@ -1891,6 +1935,25 @@ class _CatalogRowState extends State<_CatalogRow> {
             : () => _open(SidebarOpenAction.oppositePane),
         child: Text(l10n.sidebarOpenInOtherPane),
       ),
+      if (manage) const Divider(height: 1),
+      if (view.onEditCatalogServer != null)
+        MenuItemButton(
+          key: const ValueKey('sidebar.catalog.menu.edit'),
+          onPressed: () => view.onEditCatalogServer!(server),
+          child: Text(l10n.sidebarCatalogEdit),
+        ),
+      if (view.onDuplicateCatalogServer != null)
+        MenuItemButton(
+          key: const ValueKey('sidebar.catalog.menu.duplicate'),
+          onPressed: () => view.onDuplicateCatalogServer!(server),
+          child: Text(l10n.sidebarCatalogDuplicate),
+        ),
+      if (view.onDeleteCatalogServer != null)
+        MenuItemButton(
+          key: const ValueKey('sidebar.catalog.menu.delete'),
+          onPressed: () => view.onDeleteCatalogServer!(server),
+          child: Text(l10n.sidebarCatalogDelete),
+        ),
     ];
   }
 }

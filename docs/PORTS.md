@@ -541,6 +541,114 @@ counterpart is ported here.
 - Divergences: none — carried verbatim (imports re-pointed).
 - Port-back candidates: none.
 
+## app/poltergeist_app/lib/services/badge_image.dart
+
+- Source: app/seance_app/lib/services/badge_image.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: none — carried verbatim (imports re-pointed). SVG
+  rasterization adds the `flutter_svg` direct dependency, the same use
+  upstream makes of it.
+- Port-back candidates: none — Séance owns the source.
+
+## app/poltergeist_app/lib/services/server_duplication.dart
+
+- Source: app/seance_app/lib/services/server_duplication.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: the macOS security-scoped bookmark machinery is dropped —
+  Poltergeist is not sandboxed, so identity files travel as plain paths
+  and the duplicate simply carries `identityFilePath` over. The label
+  grammar, stale-source check (`SourceServerChanged`), and credential
+  copy shape are upstream's.
+- Port-back candidates: none — the omission is sandbox-specific.
+
+## app/poltergeist_app/lib/services/server_editor_backend.dart
+
+- Source: adapted from app/seance_app (the `AppState.testServerConnection`
+  composition and the editor's credential-resolution rules)
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: this is the production implementation of the ported
+  editor's `ServerEditorDelegate` seam, not a file-for-file port —
+  upstream's editor reaches into `AppState` directly. Credential
+  precedence (draft over vault over identity-file), trial-only host-key
+  approval, and the no-login-script test posture mirror upstream.
+- Port-back candidates: the delegate seam itself, if Séance ever wants
+  the editor testable without a full `AppState`.
+
+## app/poltergeist_app/lib/ui/connection_log_view.dart
+
+- Source: app/seance_app/lib/ui/connection_log_view.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: user-facing strings moved to ARB (Poltergeist's
+  localization contract); layout and log rendering verbatim.
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/connection_test_report.dart
+
+- Source: app/seance_app/lib/ui/connection_test_report.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: user-facing strings moved to ARB; report structure and
+  the connection-log embedding verbatim.
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/server_color_picker.dart
+
+- Source: app/seance_app/lib/ui/server_color_picker.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: strings moved to ARB; preview badges pass the picked
+  `ServerTint` because Poltergeist's `ServerBadge` requires one
+  (upstream's defaults to a neutral badge).
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/server_mark_picker.dart
+
+- Source: app/seance_app/lib/ui/server_mark_picker.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: strings moved to ARB; the curated emoji table keeps
+  upstream's `\u{...}` escapes for re-diffability. Same `ServerBadge`
+  tint adaptation as the color picker.
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/server_editor.dart
+
+- Source: app/seance_app/lib/ui/server_editor.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: `AppState` is replaced by the narrow `ServerEditorDelegate`
+  seam (servers, syncConfigured, themeSeed, pickIdentityFile, readSecret,
+  save, testConnection) — Poltergeist composes services rather than a
+  monolithic state. Strings moved to ARB. The macOS security-scoped
+  identity bookmark becomes a plain path field (not sandboxed). Field
+  set, credential planning, exclusion confirmation, monotonic
+  `updatedAt`, and the vault-first save order are upstream's.
+- Port-back candidates: the delegate seam (see the backend entry).
+
+## app/poltergeist_app/test/services/server_duplication_test.dart
+
+- Source: app/seance_app/test/server_duplication_test.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: the security-bookmark and `ServerTile` cases are dropped
+  with the machinery they exercise; label grammar and stale-source
+  coverage carried verbatim.
+- Port-back candidates: none.
+
+## app/poltergeist_app/test/ui/server_editor_test.dart
+
+- Source: adapted from app/seance_app/test/server_editor_test.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: upstream boots real services around `AppState`; the port
+  drives the same editor surface through a fake `ServerEditorDelegate`,
+  so cases about vault plumbing collapse into delegate assertions.
+- Port-back candidates: none.
+
 ## app/poltergeist_app/lib/ui/top_toast.dart
 
 - Source: app/seance_app/lib/ui/top_toast.dart

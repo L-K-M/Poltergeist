@@ -32,6 +32,7 @@ import '../services/quit_guard.dart';
 import '../services/recent_locations.dart';
 import '../services/registered_command.dart';
 import '../services/rsync_endpoints.dart';
+import '../services/server_duplication.dart';
 import '../services/session_persistence.dart';
 import '../services/session_state.dart';
 import '../services/sidebar_controller.dart';
@@ -68,6 +69,7 @@ import 'settings/app_settings_command.dart';
 import 'settings/backup_settings_command.dart';
 import 'settings/general_settings.dart';
 import 'settings/preview_settings.dart';
+import 'server_editor.dart';
 import 'sidebar/sidebar_view.dart';
 import 'sync/rsync_copy.dart';
 import 'sync/sync_commands.dart';
@@ -102,6 +104,7 @@ class WorkspaceShell extends StatefulWidget {
     this.onPaneRatioSaveError,
     this.sshConfigImport,
     this.bookmarkBackup,
+    this.serverEditor,
     this.bookmarks,
     this.workspaces,
     this.recentLocations,
@@ -183,6 +186,13 @@ class WorkspaceShell extends StatefulWidget {
   /// Null leaves the command unregistered — tests and engine-less boots
   /// opt out.
   final BookmarkBackupService? bookmarkBackup;
+
+  /// The server editor's application layer (04 §4.2's management
+  /// verbs): the catalog section's add/edit/duplicate/delete route
+  /// through it, as do the editor's own save and test connection. Null
+  /// renders the catalog read-only — the verbs hide rather than
+  /// dead-end.
+  final ServerEditorDelegate? serverEditor;
 
   /// The persisted bookmark store behind the sidebar's favorites and
   /// Connections sections (03 §6's `BookmarkStore` seam). Null unmounts
@@ -2462,7 +2472,114 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           ? null
           : () => unawaited(_syncNow()),
       onOpenCatalogServer: _workspace == null ? null : _openCatalogServer,
+      // 04 §4.2's management verbs: all four ride the editor seam, so
+      // they gate together on it — a null delegate leaves the catalog
+      // read-only rather than offering dead ends.
+      onAddCatalogServer: widget.serverEditor == null
+          ? null
+          : () => unawaited(_editCatalogServer(null)),
+      onEditCatalogServer: widget.serverEditor == null
+          ? null
+          : (server) => unawaited(_editCatalogServer(server)),
+      onDuplicateCatalogServer: widget.serverEditor == null
+          ? null
+          : (server) => unawaited(_duplicateCatalogServer(server)),
+      onDeleteCatalogServer: widget.serverEditor == null
+          ? null
+          : (server) => unawaited(_deleteCatalogServer(server)),
     );
+  }
+
+  /// The catalog section's add/edit entry: the shared editor dialog over
+  /// the app's delegate — a null [server] is the editor's add path.
+  Future<void> _editCatalogServer(ServerConfig? server) =>
+      showServerEditor(context, widget.serverEditor!, server);
+
+  /// Copy a catalog server, then offer the editor — upstream's flow
+  /// (server_list_pane._duplicateServer @ 035b0d8): duplicating is
+  /// almost always the first half of "…and change one thing", and the
+  /// toast's action is a shorter route back than finding the new row.
+  Future<void> _duplicateCatalogServer(ServerConfig server) async {
+    final backups = widget.bookmarkBackup;
+    if (backups == null) return;
+    final l10n = AppLocalizations.of(context);
+    final ServerConfig copy;
+    try {
+      copy = await backups.duplicateServer(server);
+    } on SourceServerChanged catch (error) {
+      // Verbatim, as upstream: the message is written as a whole
+      // sentence for this toast.
+      if (mounted) {
+        showTopToastIn(context, message: '$error');
+      } else {
+        ApplicationErrorReporter().report(error, StackTrace.current);
+      }
+      return;
+    } catch (error, stackTrace) {
+      // The vault throws when the OS keyring is locked — say so rather
+      // than leaving the menu looking like it did nothing.
+      ApplicationErrorReporter().report(error, stackTrace);
+      if (mounted) {
+        showTopToastIn(
+          context,
+          message: l10n.sidebarCatalogDuplicateFailed(
+            server.label,
+            '$error',
+          ),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    showTopToastIn(
+      context,
+      message: l10n.sidebarCatalogDuplicated(copy.label),
+      actionLabel: l10n.sidebarCatalogDuplicatedEdit,
+      onAction: () {
+        if (mounted) unawaited(_editCatalogServer(copy));
+      },
+    );
+  }
+
+  /// The catalog row's delete: upstream's confirmation (live managed
+  /// edits counted into the body), the live panes dropped first —
+  /// upstream's `closeAllTabsForServer` analog — then the service's
+  /// tombstoned delete.
+  Future<void> _deleteCatalogServer(ServerConfig server) async {
+    final backups = widget.bookmarkBackup;
+    if (backups == null) return;
+    final l10n = AppLocalizations.of(context);
+    final session = widget.checkoutSession;
+    final edits = (session?.copiesFor(server.id).length ?? 0) +
+        (session?.displacedFor(server.id).length ?? 0);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(l10n.sidebarCatalogDeleteTitle(server.label)),
+        content: Text(
+          edits == 0
+              ? l10n.sidebarCatalogDeleteBody
+              : l10n.sidebarCatalogDeleteBodyEdits(edits),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l10n.sidebarCatalogDeleteCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(l10n.sidebarCatalogDeleteConfirm),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await widget.engineSession?.paneLanes.disconnectServer(server.id);
+      await backups.deleteServer(server);
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+    }
   }
 
   /// The "Sync now" round: the service serializes concurrent calls

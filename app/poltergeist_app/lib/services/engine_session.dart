@@ -24,6 +24,11 @@ const _pinStoreFileName = kPinStoreFileName;
 const _incidentStoreFileName = 'incidents.json';
 const _identityAuditLogFileName = 'identity_reads.jsonl';
 
+/// The audit file's name — public so `main.dart`'s server-editor backend
+/// points its own IdentityFileReader at the same append-only log (a
+/// second instance is safe: the format is one line per write).
+const kIdentityAuditLogFileName = _identityAuditLogFileName;
+
 /// The pane-tab id the blocked-key review registers its browse channel
 /// under (03 §3.2): a review connect is not a pane session, and the id
 /// exists only for attribution.
