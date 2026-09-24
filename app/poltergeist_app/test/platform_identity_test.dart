@@ -216,15 +216,16 @@ void main() {
     expect(lifecycle, isNot(contains('titleBarStyle: TitleBarStyle.normal')));
   });
 
-  test('master icon is a 1024px square PNG', () {
-    final bytes = File(
-      '../../media-sources/poltergeist-icon.png',
-    ).readAsBytesSync();
+  // The largest generated launcher is the 1024px iOS marketing icon, so the
+  // master must be square and at least that big (never upscaled).
+  test('master icon is a square PNG of at least 1024px', () {
+    final bytes = File('../../media-sources/icon.png').readAsBytesSync();
     final data = ByteData.sublistView(bytes);
+    final width = data.getUint32(16);
 
     expect(bytes.sublist(0, _pngSignature.length), _pngSignature);
-    expect(data.getUint32(16), 1024);
-    expect(data.getUint32(20), 1024);
+    expect(width, greaterThanOrEqualTo(1024));
+    expect(data.getUint32(20), width);
   });
 
   test('excludes generated Flutter directories case-insensitively', () {

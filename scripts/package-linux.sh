@@ -296,7 +296,7 @@ echo "  depends: $DEPENDS"
 # either, fall back to shipping the master as a pixmaps icon (every desktop
 # environment finds /usr/share/pixmaps) and say so.
 # ---------------------------------------------------------------------------
-MASTER_ICON="$ROOT/media-sources/poltergeist-icon.png"
+MASTER_ICON="$ROOT/media-sources/icon.png"
 [[ -f "$MASTER_ICON" ]] || die "master icon not found: $MASTER_ICON"
 
 ICON_SIZES=(16 24 32 48 64 96 128 256 512)
