@@ -12,6 +12,9 @@ pubspec_overrides.yaml
 # The bench job's per-scenario documents and merged output land at the
 # repo root (CI uploads them as artifacts; locally they are run output).
 /bench-results*.json
+/bench-drift-state.json
+/evaluate.log
+/.bench-results-*.json.saved
 packages/poltergeist_bench/bench-results.json
 packages/poltergeist_bench/bench-shard.json
 packages/poltergeist_bench/bench-results.json.attempts.json

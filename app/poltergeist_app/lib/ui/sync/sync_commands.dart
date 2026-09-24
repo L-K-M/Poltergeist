@@ -49,6 +49,7 @@ List<RegisteredCommand> buildSyncCommands({
               ),
             ],
       enabled: synchronizeEnabled,
+      disabledReason: (l10n) => l10n.commandDisabledSyncAnchors,
       run: (context) async => synchronizePanes(context),
       // 02 §9's Commands table: "Synchronize…" holds the third slot —
       // between the transfer/move block and Calculate Folder Sizes.
@@ -64,6 +65,7 @@ List<RegisteredCommand> buildSyncCommands({
       icon: Icons.sync_outlined,
       // No chord in 02 §8.3 — menu/palette reachable.
       enabled: savedSyncEnabled,
+      disabledReason: (l10n) => l10n.commandDisabledNoBookmarks,
       run: (context) async => newSavedSync(context),
       // Directly under Synchronize…; the §9 table names no saved-sync
       // slot, so it sits in the gap before Calculate Folder Sizes (40).
@@ -80,6 +82,7 @@ List<RegisteredCommand> buildSyncCommands({
       // No chord in 02 §8.3 — menu/palette reachable; the plan view's
       // action bar renders the same command.
       enabled: copyRsyncEnabled,
+      disabledReason: (l10n) => l10n.commandDisabledNoPlan,
       run: (context) async => copyRsync(context),
       // The sync block's third row — enabled only while an exportable
       // plan tab is focused (05 §2.1: the exporter is reachable only

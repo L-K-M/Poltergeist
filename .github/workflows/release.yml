@@ -353,7 +353,23 @@ jobs:
         run: dart run tool/license_gate/bin/check.dart # SEANCE_LICENSE_GATE_V1
       - name: Build
         working-directory: app/poltergeist_app
-        run: flutter build ${{ matrix.build }} --no-pub
+        # Building with pub (against the committed lock) lets the
+        # tool regenerate GeneratedPluginRegistrant for the release
+        # dependency set; with --no-pub the registrant from the
+        # earlier plain `flutter pub get` kept the dev-dep
+        # integration_test entry and release javac failed twice
+        # identically (runs 35898272663, 35907981194). The gate
+        # now permits this: pub with a committed lock is
+        # deterministic and cannot drift the verified pin.
+        shell: bash
+        run: |
+          flutter build ${{ matrix.build }}
+          drift="$(git status --porcelain -- pubspec.lock '**/pubspec.lock')"
+          if [ -n "$drift" ]; then
+            drift_flat="$(printf '%s' "$drift" | tr '\r\n' '  ')"
+            echo "::error::pubspec.lock drift after build: $drift_flat" >&2
+            exit 1
+          fi
       # Prove Gradle consumed the synchronized pubspec code in the real APK.
       - name: Verify Android version code
         if: matrix.target == 'android'

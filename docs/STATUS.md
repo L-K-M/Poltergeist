@@ -4,25 +4,44 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-21. **M3, M4, M5, M6, and M7 are closed; M8 is
-next** — M7's managed checkouts (#169), built-in editor (#170),
-external editors (#171), and preview/Quick Look (#172) landed, and the
-§3.8 exit-criteria audit closed the milestone per the dated section
-below (record:
-[tasks/m7-closure-record.md](../tasks/m7-closure-record.md)); the
-audit itself added the missing 06 §3.7 resume/review surface it found.
-v0.2.0 remains the latest published pre-release (M3–M7 closed untagged
+_Last updated: 2026-09-23. **v1.0.0 IS SHIPPED** — tagged at
+d62f95af after the release pipeline's full first exercise
+(android `--no-pub` registrant fix #189, bash drift gate #190);
+GitHub Actions run 35926951105 green end to end, the GitHub Release publishes
+all eight assets (APK, .deb, AppImage, linux tarball, macOS
+universal, Windows zip, unsigned IPA, SHA256SUMS), and the
+tier-B enforcement armed green before the tag. M0–M10 are all
+closed; the fast-follow list (§3.13) is the next-steps queue.
+Manual QA on the shipped assets per
+[`docs/qa/RELEASE-CHECKLIST.md`](qa/RELEASE-CHECKLIST.md) is
+the remaining owner-side item. M9's two polish slices landed (#184 palette/import/a11y/i18n/
+chrome, #185 tier-B flip + fast path + update check) and the §3.10
+exit-criteria audit closed the milestone per the dated section below
+(record: [tasks/m9-closure-record.md](../tasks/m9-closure-record.md)) —
+with recorded residuals: the `BENCH_ENFORCE_B` arming tail (open item
+31, supervisor-owned), the still-unscheduled D28 chown UI (item 30), and
+the human-only QA residual now collected in
+[`docs/qa/RELEASE-CHECKLIST.md`](qa/RELEASE-CHECKLIST.md) (item 32).
+M8's scanner core
+(#174), executor + safety rails (#175),
+plan view + savedSync + activity-panel runs (#176), and rsync exporter
+(#177) landed, and the §3.9 exit-criteria audit closed the milestone
+per the dated section below (record:
+[tasks/m8-closure-record.md](../tasks/m8-closure-record.md)) — with
+recorded residuals: the purge surface (open item 27), the docroot
+warning chip (28), the run-startup temp sweep and rail-8 resume
+post-state rule (29), and the D28 chown UI deferral (30).
+v0.2.0 remains the latest published pre-release (M3–M8 closed untagged
 per their closure records). M0, M1, and M2 stay closed per the Done
 table; **open item 4 (the M1/M2 overlap authorization) remains an OPEN
 owner decision**; open item 24 carries the AltGr/Ctrl+Alt-letter chord
 collision to a spec decision; open item 25's tag re-pin landed with
 M8's first slice — the shared-mode "Your Séance servers" surface is
-the recorded follow-up; new open item 26 carries M7's manual-QA
-residual (native macOS Quick Look runtime). Open item 23's remaining half (remote
-transfers fail honestly until the engine protocol grows transfer
-verbs) stays open for the engine-host slice. M8 is underway (sync,
-07 §3.9): the first slice re-pinned Séance to tag `v0.9.1` and landed
-`packages/poltergeist_sync`'s scanner core (see the dated section).
+the recorded follow-up; open item 26 carries M7's manual-QA
+residual (native macOS Quick Look runtime). Open item 23's remaining
+half (remote transfers — and remote *sync endpoints*, which share the
+engine-protocol gap — fail honestly until the engine grows
+filesystem/transfer verbs) stays open for the engine-host slice.
 
 ## Done
 
@@ -7288,6 +7307,388 @@ Not in this slice (per the task bound): `rsync_export.dart`,
 remote-pair integration, chown UI, purge UI, engine changes beyond
 the small seams above.
 
+## M8 — rsync exporter + Copy as rsync Command (2026-09-22)
+
+The fourth M8 slice (PR #177) lands 05 §2.1's text-only exporter —
+`buildRsyncCommand` renders the reviewed plan as a commented rsync
+invocation the user pastes into a shell; it never executes anything
+(the `Process` ban is machine-checked by the package invariants test).
+
+- `rsync_export.dart` — the §2.1 flag table: `-n -i` dry-run first,
+  `--size-only`/`--checksum`/`-t` per comparison mode, delete flags
+  per direction×policy (never `--delete-excluded`; the app-default
+  excludes land first so the in-root `.poltergeist-trash/` and
+  destination-only ignored files are protected from `--delete`),
+  `--backup --backup-dir` for trash policies, `# note:` caveat and
+  override comments, and POSIX-sh quoting (`'` → `'\''`) covering
+  spaces, quotes, `$`, glob metacharacters, and NFD names.
+- `services/rsync_endpoints.dart` — endpoint → host:path spec
+  resolution (embedded identities render `ssh -p`; a shared-mode
+  `serverConfigId` with no catalog binding refuses rather than
+  emitting a wrong host).
+- `sync.copyRsyncCommand` — the action-bar verb: clipboard write,
+  the differentiated toast (`Copied rsync command` vs the
+  permanent-deletion paste-time warning), disabled while nothing
+  exportable exists; `mtimeUnreliable` flags downgrade the emitted
+  comparison to `--size-only` with a comment naming the reason.
+
+Golden tests pin every §2.1 fixture row (flag table, quoting,
+negation-then-match exclude order, the Windows-local pair's
+adjust-note); controller tests cover the untrusted-clock downgrade;
+widget tests cover the verb, toasts, and the unresolvable-remote
+disabled state.
+
+## M8 — exit-criteria audit and close (2026-09-22)
+
+The §3.9 audit walked every 05 Definition-of-done item plus the three
+§3.9 remote-gated criteria against post-#177 main (`187d5b7`); the
+per-criterion evidence record is
+[tasks/m8-closure-record.md](../tasks/m8-closure-record.md). Verdicts:
+
+- **P7 (≥ 1 000 remote entries/s on LAN) — MET, enforced.** CI run
+  `35718273275` at the audit head measured a 5-sample median of
+  **2 336.627 entries/s** under `BENCH_ENFORCE_A` — an enforced pass
+  over the Docker sshd fixture, not a drift skip. The 1 000 budget
+  stands; no recalibration was needed (a recalibration would only
+  raise the bar the run already doubles).
+- **Setstat-ignoring leg + sizeOnly notice — MET after the audit's
+  gap fix.** `sshd-restricted` (`sftp-server -P setstat,fsetstat`)
+  was already in the Docker matrix and `run.sh` already exported it —
+  but no sync test exercised it, and no UI test proved the §4 notice
+  actually renders. This PR adds both:
+  `packages/poltergeist_sync/test/integration/sync_sshd_test.dart`
+  runs a real local→restricted pair end to end (scan → diff →
+  execute → journal → re-diff), asserting `setstatIgnored` on the
+  item line and in the replayed journal, `mtimeUnreliableRight` on
+  the run, that the next diff still sees the divergence *without* the
+  flag, and size-only convergence *with* it — plus an sshd-modern
+  control proving the stamp lands and the re-diff converges on mtime
+  alone. A new `sync_plan_view_test.dart` case drives a refused
+  `setTimes` through the real controller and asserts the header's
+  size-only notice appears after the run.
+- **chown UI (D28) — DEFERRED to M9 (open item 30).** The merged pin
+  (`v0.9.1`) does carry `setOwner`, so §3.9's conditional arm is
+  active; the audit task explicitly prefers a dated deferral over
+  new scope at close, and D28's own text allows M8/M9. No chown
+  surface exists on HEAD — recorded dated with reason.
+- **05 DoD — MET except the recorded residuals.** Every checklist row
+  audits to a satisfying test/golden/UI except: the rail-5 purge
+  surface (age-notice chip + `sync.purgeTrash` + its
+  cross-pair/cross-machine rules — journal substrate `markPurged`/
+  `hasUnpurgedTrash`/`prune` exists, the UI/command half does not;
+  open item 27), the rail-5 docroot warning chip in the pair editor
+  and plan view (item 28), and rail 6's run-startup temp-orphan sweep
+  plus rail 8's committed-but-unjournaled resume post-state rule (no
+  resume-from-journal entry point exists — connection loss fails the
+  item and Retry Failed is the recovery path; item 29).
+  Two mechanism deviations recorded in the record: §11's shared
+  `poltergeist_core/lib/testing.dart` `InMemoryFileSystem` never
+  landed (sync tests inject faults through `LocalFileSystem`
+  subclasses over real temp dirs — the fault matrix is covered, the
+  cross-package-shared fake is not), and the §3.3 invariants are
+  pinned by deterministic tests rather than seeded generators.
+
+Audit-scope additions: the two tests above, the STATUS sweep, and the
+closure record — no feature work, no pin bump, no Séance edits.
+§3.12 chores at this close: PORTS.md untouched (no ported file
+changed), no `TODO(pin)` markers, the mobile invariant re-verifies
+(the new legs are tests only; `poltergeist_sync` stays pure Dart),
+and the tag chore is not run, matching every prior untagged close.
+Docker is unavailable on this host — the new integration leg is
+CI-verified, and its env-gated skip keeps local runs honest.
+
+## M9 — polish pass part 1: Quick Open, import finish, a11y, i18n, chrome (2026-09-22)
+
+The first M9 slice (02 §8.4, §13, §9–11; D20/D21/D22) — the flip plus an
+audit, not a rescue. One app PR; no engine, core, or sync changes.
+
+- **Quick Open palette (02 §8.4, D21).** `app.quickOpen` is a registered
+  command (⇧⌘P on macOS, Ctrl+Shift+P elsewhere, File-menu placement)
+  opening a centered 560-wide dialog over the live command registry —
+  no parallel command list. Three ranked sections: commands, favorites,
+  recent locations. Fuzzy match: commands by label + menu path,
+  favorites by label + host + path, recents by path + host. Enabled
+  commands rank before disabled; disabled rows render greyed with a
+  localized reason; shortcuts sit right-aligned and menu paths show
+  only on rows that carry a shortcut; favorites/recents get no shortcut
+  gutter. Enter runs the normal action; Alt/Option+Enter opens a
+  location row in the other pane; Ctrl/Cmd+Enter opens it in a new tab;
+  command rows collapse every Enter variant to plain execution. Escape
+  and the palette's own chord close it. While open, pane/selection
+  chords are suspended, app-scoped chords still dispatch (disabled ones
+  stay highlighted with their reason visible), and text-editing chords
+  keep text-field behavior. A re-entrancy guard blocks a second open.
+  Recents live in `RecentLocationsStore` — a device-local, capped
+  (100), deduped, debounced list persisted inside the shared
+  settings.json, stamped onto every tab controller and flushed at app
+  exit; remote rows re-resolve the live bookmark by id, falling back to
+  the record-time snapshot. Service tests pin the fuzzy ordering, the
+  store's dedupe/cap/persist/flush contracts, and the shortcut
+  formatter; widget tests pin open/navigate/accept, modifier-Enter
+  variants, disabled reasons, chord scope, and the toggle.
+- **Import experience (D22).** The `favorite.importSshConfig` command
+  is the single entry point: File menu, the Quick Connect launcher's
+  adoption offer, and the empty-favorites sidebar offer all run it
+  through `_runCommand`, so enablement/session guards can't be bypassed
+  and the offer can't be hit while a session modal owns the run. The
+  empty state hides the offer once favorites exist. The preview dialog
+  keeps its selection/duplicate/limitation surface; row checkboxes
+  carry merged `sshImportRowSemantics` labels and non-importable rows
+  stay inert. Verified: no FileZilla/WinSCP strings or UI remnants
+  anywhere in `lib/` — ssh_config remains the only v1 source.
+- **Accessibility audit (02 §13, D20).** File rows expose one merged
+  semantics node with name, kind, size, and modified date; selection
+  follows actual selection, not cursor; activation is a semantic
+  action; rename surfaces as a `CustomSemanticsAction` only where
+  valid. Flagged U+FFFD names carry a warning badge, tooltip, and
+  semantics reason, and `PaneController.startRename` refuses them so a
+  replacement character never reaches the wire. Path bars expose each
+  segment as its own labeled button (`Go to …`) with decorative text
+  excluded. Sidebar group headers merge title + spelled-out item count
+  + expanded state + header/button traits. Tab chips are buttons with
+  selected state and a labeled close control. Focus-visible rings are
+  2px everywhere M9 touched (sidebar rows, headers, the pane splitter
+  was already compliant). A new theme contrast-matrix test pins every
+  foreground×surface pair M9 uses at WCAG AA; hairline dividers and the
+  disabled-command reason text are recorded as exempt (decorative /
+  inactive-component) with the rationale in the test. Transfer/sync
+  progress retains its live-region announcements. **Linux caveat
+  (honest):** Flutter Linux has no AT-SPI bridge for custom widgets —
+  the semantics tree we build is largely invisible to Orca, so Linux
+  screen-reader coverage is not claimed; every §13 behavior is
+  verified via `flutter_test`'s semantics tree, not a native reader.
+- **i18n sweep (D20).** Every new string lands in `app_en.arb` (Quick
+  Open labels/placeholder/footer/reasons, the import offer, sidebar
+  counts, flagged-name copy, path-segment labels). The localization
+  contract test still proves zero hard-coded user-facing strings — the
+  allowlist gained only technical literals (keyboard-key names,
+  ellipsis) with per-entry comments; plural/reason strings are
+  exercised by the palette and sidebar tests.
+- **Chrome QA (02 §9–11).** The menu-invariant test re-verifies every
+  command — Quick Open included — is reachable by menu or chord on
+  macOS, Linux, and Windows maps, and the chord table keeps Meta on
+  macOS vs Ctrl on Windows/Linux. Titlebar posture is unchanged
+  (`TitlebarSafeArea` on macOS; native frames elsewhere). No custom
+  scroll physics were added — Flutter's defaults already give macOS
+  momentum and desktop discrete scrolling; the existing menu captures
+  still cover the platform strip. **Windows IME/IMM32 caveat
+  (documented, not automated):** rename is a text-field overlay, so it
+  inherits Flutter's known IMM32 limitations on Windows — pre-edit
+  (composition) text can render at the wrong offset and some IMEs never
+  deliver composition events to the field. There is no automatable
+  surface for this without a Windows desktop + IME harness; it stays a
+  manual-QA item. **Manual-QA note (2026-09-22):** the automated legs
+  cover chord maps, menu reachability, contrast constants,
+  focus-visible presence, and captures; what remains human-only is
+  real-platform verification of the macOS unified titlebar traffic
+  lights, Windows/Linux native frames, momentum-vs-discrete scroll
+  feel, native dialogs, Quick Look, and screen readers (VoiceOver /
+  Narrator; Orca is the caveat above). PNGs:
+  `tasks/run3-task93/` (`quick-open.png`, `quick-open-filtered.png`,
+  `ssh-import-preview.png`) alongside the existing menu captures.
+
+Deferred to the next M9 slice per the task split: the fast-path spike,
+the `ENFORCE_B` flip, the update check, and the D28 chown UI (open item
+30). No engine changes; no new features beyond the spec'd surfaces.
+
+## M9 — polish pass part 2: bench flip + audit, local fast path, update check (2026-09-22)
+
+The second M9 slice (07 §3.10; 08 §6; D26; D19). One PR; the full
+evidence record lives in `tasks/run3-task94/audit.md`.
+
+- **Tier-B enforcement flip (08 §6).** P1/P2/P4 are `landed: true` and
+  the bench job forwards `vars.BENCH_ENFORCE_B`: once the repo variable
+  is set, a > 25 % median regression against the committed tier-B
+  baseline reddens main/dispatch runs. P6 stays `landed: false` —
+  every leg so far produced only insufficient-frame error rows
+  (~827–829 of the ≥ 1800 frames llvmpipe can deliver in 30 s), so no
+  honest median exists; the checker reports its rows but never judges
+  them. The evaluate step now wires the §6 drift-state store
+  (`actions/cache`, restored before grading, saved on `refs/heads/main`
+  runs only) and the one automatic tier-B rerun before red — tier-A
+  per-scenario documents are held aside across the rerun's cleanup and
+  re-merged, and the first evaluation stays read-only so a rerun cannot
+  double-count one run's drift. The runner image rotated to
+  `ubuntu-latest@20260920.314.1`, so the tier-B baseline and tier-A
+  `calibratedFingerprint` were re-measured/recalibrated on run
+  35763533669 (the only new-image main run; P5's `first-file` config
+  tracks the readdir-order shift to `entry-02814.txt`). No larger
+  GitHub-hosted runner class is available to this repo; the committed
+  fingerprint is the §6 rotation-control instrument. Post-merge arming
+  order: merge with the variable unset so the first run seeds drift
+  state soft, then set `BENCH_ENFORCE_B=true` — unknown history counts
+  at the escalation threshold, so arming early would redden on the
+  first CPU-axis drift of the heterogeneous pool.
+- **Local fast path (D26).** Adopted: `copy_file_range(2)` on Linux
+  via the `LocalCopyPump` seam — measured ~6–15× the streamed path on
+  this host (3.2–3.3 GB/s vs ~0.3 GB/s at 64–256 MiB) with 16 MiB
+  chunks preserving per-chunk progress and between-chunk cancellation;
+  unsupported-filesystem errors decline to the streamed fallback.
+  Temp-file + atomic-rename commit, conflict checks, mode
+  preservation, and cross-device copy+delete durability are unchanged.
+  FICLONE returned EOPNOTSUPP on every filesystem here (recorded);
+  Windows CopyFileEx (progress-callback + pbCancel semantics) and
+  APFS clonefile are source-research notes pending their hosts.
+- **Link-only update check (D19).** `UpdateCheckController` wraps the
+  pinned `seance_core` `UpdateChecker` against `L-K-M/Poltergeist`'s
+  latest-release endpoint — a plain GET compared locally, never a
+  download or install. A dismissible banner in the workspace shell
+  names the newer tag and opens the releases page externally; the
+  opt-out `updates.checkEnabled` toggle lives in General settings
+  (`app.settings`, ⌘,/Ctrl+,) persisted via `AppPreferences`, reverts
+  on persist failure, and disables all network access when off.
+  Launch-time check is best-effort after `runApp`. All strings ARB.
+
+Verification: core analyze clean, 1441 core tests pass; benchmark
+suite 138 pass with the contract pins updated for the flip; app
+analyze clean; 17 targeted D19 tests pass. The first enforced tier-B
+main run is verified post-merge per the arming order.
+
+## M9 — exit-criteria audit and close (2026-09-22)
+
+M9 is CLOSED on evidence; the full per-criterion record is
+[tasks/m9-closure-record.md](../tasks/m9-closure-record.md), audited at
+main head `495dd9e`. The audit PR is documentation-only — every gap
+found was a missing committed artifact, not a code defect: the README
+known-issues section (Linux a11y + Windows IME, upstream issues linked
+and dated), `docs/qa/RELEASE-CHECKLIST.md` (08 §9/DoD — required to
+exist at M9; neither polish PR created it),
+`docs/qa/screen-reader-notes.md` (the §3.10 walkthrough-notes criterion,
+answered honestly — no VoiceOver/NVDA walkthrough has run on a native
+host; the notes record exactly what the automated semantics suites prove
+and what release QA still owes), and the PORTS.md entry #185 owed for
+the ported `update_banner.dart` (source verified at pin `v0.9.1`).
+
+Verified highlights: palette/imports/a11y/i18n/chrome/update-check all
+test- and capture-backed per the record; the D26 spike adopted Linux
+`copy_file_range` (~6–15× streamed, chunked, decline-safe). The tier-B
+flip's code is landed and its audit table is committed; the
+**`BENCH_ENFORCE_B` variable is unset at audit time — that arming is the
+supervisor's open tail (item 31), recorded precisely rather than
+duplicated**: the post-#185 main runs seeded the drift store while
+measuring on the pre-rotation runner image, so
+`tier-b/controlled/runnerImage` sits at 8 consecutive main runs and an
+early flip would red main until a clean committed-fingerprint run lands.
+Tier-A is likewise armed-but-inert on the same drift (the job annotates
+it). D28 chown UI (item 30) is now flagged as unscheduled — M8 deferred
+it to M9 but §3.10's scope never contained it; closing M9 does not
+resolve D28 and the disposition needs an owner/plan decision.
+
+§3.12 chores: PORTS swept (the banner entry; no other ported file
+moved), pin holds `v0.9.1` (still latest upstream tag), no `TODO(pin)`
+markers, mobile invariant row re-verified, tag chore not run per the
+standing untagged-close pattern. Local: dart/flutter analyze clean;
+190-test focused battery green.
+
+## M10 — v1.0 release preparation (2026-09-22)
+
+M10's docs-and-audit surface is PREPARED; the milestone itself closes
+only when the owner runs `scripts/release.sh 1.0.0 --push` — this pass
+deliberately holds the tag, the publish, the version-marker bump, and
+the "v1.0 shipped" STATUS flip for that step. Per §3.11, criterion by
+criterion:
+
+- **Distribution checklist (§4).** Every docs/code-preparable row is
+  done. `docs/INSTALL.md` is new: per-platform first-launch steps
+  (macOS ad-hoc — right-click → Open or `xattr -dr
+  com.apple.quarantine`; Windows — SmartScreen "More info → Run
+  anyway"; Linux — `.deb` line, AppImage `chmod +x`, tarball, plus the
+  libsecret/Secret Service runtime note for GNOME Keyring and KWallet),
+  SHA-256 verification commands per platform with the honest
+  integrity-not-origin boundary, the committed public APK-key caveat
+  (matching signature proves nothing about origin; key rotation breaks
+  in-place upgrades), and the Android/iOS rehearsal-artifact labels §4
+  requires from v0.1.0 on. The machine-bound rows stay open and are
+  marked **OWNER MANUAL QA** in `docs/qa/RELEASE-CHECKLIST.md`:
+  fresh-machine installs on macOS, Windows, and one GNOME + one KDE
+  Linux using only INSTALL.md, plus every native-surface row (chrome,
+  IME composition, VoiceOver/NVDA, the OS first-launch gates, trash UX,
+  drag/drop feel, theme/HiDPI, scroll, Quick Look, the reference
+  release-mode tier-B run). Nothing human-only is claimed done.
+- **README.** Carries the 01 §6 trust stance verbatim in spirit ("Your
+  servers are your business" — no account, no telemetry/analytics/crash
+  reporting/bundleware, the link-only update check that is on by
+  default and one setting from off, keychain-sealed secrets with the
+  no-keychain → no-save rule, TOFU host-key pinning, E2E-encrypted
+  bookmark backup, no paid tier), the install/releases links, and a
+  known-issues section that states the remote-transfer gap plainly
+  (item 23). The version marker stays `0.2.0` on purpose:
+  `tool/release_version` requires the marker to equal the pubspec
+  version, so the lockstep `1.0.0` bump is release.sh's own write at
+  tag time — flipping it here would leave the repo inconsistent.
+- **Human release notes (D24).** Drafted in `CHANGELOG.md` as
+  "## 1.0.0 — first stable release (prepared; ships with the v1.0.0
+  tag)": personality, not a commit dump, with the remote-transfer
+  limitation, the upstream a11y/IME caveats, unsigned-build
+  first-launch steps, and the mobile rehearsal-artifact labels included.
+- **PORTS.md swept** (§3.12 chore 2 + 04 §6): every entry re-verified
+  against the `v0.9.1` pin (`035b0d8`) and re-diffed against upstream
+  HEAD (`15d0fdd`); per-file drift dispositions recorded in the M10
+  sweep section. Nine ready port-back issues filed on `L-K-M/Seance`:
+  #114 (sync-token revocation endpoint — 04 §7.3's urgent item), #115
+  (local-name validator batch), #116 (master-key corrupt-entry
+  misreport + create race), #117 (identity-read normalization +
+  bounded audit), #118 (VFS additions behind items 10/12/13), #119
+  (managed-checkout lifecycle rails), #120 (persistent record store +
+  tombstones — 04 §6 priority 2, now proven), #121 (UX patterns),
+  #122 (small polish batch). Left open without issues, recorded in
+  PORTS: the conditional M5 sortKey/grouping offer, the conditional
+  safety-test port, and the narrowed mixed-EOL editor candidate.
+- **Pin check (chore 3).** `v0.9.1` is still the newest Séance tag —
+  the pin does not move; upstream HEAD drift is next-window material,
+  not pin fallout. `dartssh2` stays exactly 3.0.2.
+- **`TODO(pin)` grep (chore 3).** No markers in code, configs, or
+  scripts — remaining hits are the plan's and STATUS's own references
+  to the rule. Nothing to delete.
+- **Rehearsal-tag audit (chore 4).** Only `v0.1.0` and `v0.2.0` exist;
+  M3–M9 closed untagged per their closure records. **This is the
+  release's headline risk, flagged prominently on the prep PR: every
+  prior tag published as a pre-release, so v1.0.0 is the first
+  non-prerelease run `release.yml` has ever performed — the first
+  exercise of the Latest-release path, and the first full pipeline
+  exercise since v0.2.0.** The owner should watch the run and be
+  prepared to re-run jobs or patch the workflow if a stable-tag-only
+  branch misfires; this is preparation, not a prediction of failure.
+- **Mobile memo (chore 5 / §5's M10 row).** Re-read against the shipped
+  code. Holds: `poltergeist_core` stays pure Dart (`check-imports.sh`
+  guards it); the engine protocol stays plain data (the AST guard's
+  fixture suite runs in CI); two-pane assumptions live in
+  `WorkspaceController` layout, never in controllers, the queue, or
+  core; the queue is suspendable (pause-all + journal restart is the
+  working primitive — M4's row); sync/enrollment, editor, and scan
+  code take no pane, watcher, or window dependency (M6/M8/M9 rows);
+  bookmarks carry the device-local fields per-device grants need (M5
+  row). **Recorded deviations:** (a) `ScopedPathAccess` exists only as
+  the documented seam — no service class, no `scoped-bookmarks.json`,
+  no minted blobs; local access funnels through the engine-owned
+  `LocalFileSystem` and the `local_fs_safety` helpers instead. On
+  unsandboxed v1 desktop that is behavior-neutral (the pass-through
+  backend would grant nothing anyway), but the memo's "all local
+  access already flows through `ScopedPathAccess`" overstates it: the
+  mobile/sandbox milestone must build the service and plumb grants,
+  not merely swap a backend. (b) The iOS background-transfer
+  consequence ("every transfer interruptible and cheap to resume")
+  is designed-in for local work but unproven in production for remote
+  endpoints, because item 23 keeps remote verbs unwired — remote
+  suspend/resume evidence waits on that slice.
+
+**Exit-criteria state:** docs/code criteria prepared as above; the
+release command, the tag, `release.yml` green, the fresh-machine
+install tests, the STATUS "shipped" flip, and stripping the
+CHANGELOG 1.0.0 heading's "(prepared; ships with the v1.0.0 tag)"
+parenthetical remain — all owner-side by design. **Remaining QA:**
+the whole OWNER MANUAL QA set in `docs/qa/RELEASE-CHECKLIST.md`.
+
+**Fast-follows (§3.13) staged as the post-tag next-steps:** agent auth
++ ProxyJump first (D10/PR-S4); OS drag-out (D14, `super_drag_and_drop`
+spike); local archives (D27); FileZilla/WinSCP/Cyberduck importers
+(D22); deep links (04 §7.1) and the text-diff view as demand dictates;
+then the v1.x backlog (named skip rules, batch rename, custom keymap,
+native icons, Compare entry point, preview warming — and Sync Browsing
+if risk 8's cut line is ever exercised). None is started here. Item
+23's remote-transfer wiring is the de-facto headline fast-follow even
+though §3.13 predates naming it.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -8022,6 +8423,82 @@ the small seams above.
     `FakeEditorRemoteFs` endpoint; the production engine's remote
     `checkout`/`upload` calls join open item 23's remaining half once
     the engine protocol grows transfer verbs.
+27. **2026-09-22: M8 — the rail-5 purge surface is unbuilt.** The
+    journal substrate exists (`markPurged`, `hasUnpurgedTrash`, the
+    live-trash retention exception in `SyncRunJournal.prune`, the §9
+    `trashCache` model), but nothing produces a purge: no plan-view
+    age-notice chip (`N trashed files from M runs older than 30 days`),
+    no `sync.purgeTrash` command, no confirm dialog stating the
+    cross-pair scope and the undo forfeit, no
+    own-prefix/foreign-prefix runId classification, no
+    absent-directory `purged: true` marking, no in-flight-run
+    exclusion. Until this lands, `.poltergeist-trash/<runId>`
+    directories and their guarding journals accumulate forever —
+    `Restore Trashed Files…` keeps working, but nothing ever releases
+    them. Spec: 05 §8 rail 5 (1096–1179); the surface is feature-sized
+    and was deferred at audit close rather than rushed.
+28. **2026-09-22: M8 — the rail-5 docroot warning chip is unbuilt.**
+    05 §8 (1083–1095) requires a warning — in the pair editor AND as a
+    persistent plan-view chip — when in-root trash will sit under a
+    path that looks like an HTTP docroot (`public_html`, `www`,
+    `htdocs`, `/var/www`), with a one-click out-of-root suggestion
+    (`~/.poltergeist-trash/<root-slug>`; ad-hoc pairs route through
+    rail 4's save-and-edit pattern). Neither surface exists: a
+    `Blog → webserver` pair's overwritten secrets sit web-retrievable
+    with no notice. Deferred with item 27's purge work — the chip's
+    action shares the same editor-focus machinery.
+29. **2026-09-22: M8 — rail 6's run-startup temp sweep and rail 8's
+    resume post-state rule are unbuilt.** §8 rail 6 asks each run to
+    sweep orphaned `.poltergeist-*.tmp` (and the adapter's
+    `.seance-upload-*.tmp`) siblings older than the longest plausible
+    prior run — the transfer queue sweeps its own destinations but no
+    sync-side sweep exists. Rail 8's committed-but-unjournaled rule
+    (a resumed item whose destination matches the intended post-state
+    journals done rather than conflicting, with the sizeOnly-path
+    signature for setstat-ignoring servers) has no entry point: no
+    `resume(journal)` API exists on `SyncExecutor` — connection loss
+    fails the affected item and `Retry Failed` (re-stat + attempt n+1)
+    is the shipped recovery. Both are recorded residuals; the
+    §11/§8-matrix language that presumes a resume leg should be read
+    against this item.
+30. **2026-09-22: M8 — D28 chown UI deferred to M9.** The §3.9
+    criterion's conditional arm is active — the merged Séance pin
+    `v0.9.1` carries `RemoteFileSystem.setOwner` — but no chown
+    surface exists on HEAD (the permissions editor covers mode only;
+    no `setOwner` wiring anywhere in the app). Deferred per the audit
+    task's close-scope rule and D28's own "ships with M8/M9" wording:
+    uid/gid editing needs ownership-semantics UI decisions (numeric vs
+    name resolution, per-platform legality, failure surfacing) that
+    belong to a feature slice, not an audit patch. The pin capability
+    is already proven by the pin itself; the work is UI + wiring.
+    **2026-09-22 update (M9 close):** still unlanded, and now
+    unscheduled — §3.10's M9 scope never contained it, so the deferral
+    target passed without the work. Closing M9 does not resolve D28;
+    disposition (v1.x vs a scoped slice) is an owner/plan decision.
+31. **2026-09-22: M9 — `BENCH_ENFORCE_B` arming tail (supervisor-owned).**
+    The flip's code is on main (#185): `budgets.json` marks P1/P2/P4
+    landed, `ci.yml` forwards `vars.BENCH_ENFORCE_B`, the drift-state
+    store and rerun-before-red are wired. The repo variable itself is
+    deliberately unset: the post-#185 main runs seeded the drift store
+    while measuring on the pre-rotation image
+    (`ubuntu-latest@20260907.300.1` vs the committed `20260920.314.1`),
+    so `tier-b/controlled/runnerImage` stands at 8 consecutive main runs
+    (≥ the 7-run stale threshold). Arming before a fully clean main run
+    lands — matching image *and* baseline CPU (`AMD EPYC 7763`) — reds
+    main on the stale streak. Until then tier-A enforcement is also
+    inert (drift-skipped; the bench job annotates this). Supervisor
+    dispatch runs 35781589991 (completed soft) and 35782936812 (pending
+    at audit time) are the apparent seeding attempts; the merge run and
+    the completed dispatch both drew the old image, while the pending
+    run's image was unknown at audit time. Do not flip until the store
+    shows a clean committed-fingerprint observation.
+32. **2026-09-22: M9 — human-only QA residual.** Everything automation
+    cannot see is collected in
+    [`docs/qa/RELEASE-CHECKLIST.md`](qa/RELEASE-CHECKLIST.md): native
+    screen-reader walkthroughs (VoiceOver/NVDA — honestly unrun, per
+    `docs/qa/screen-reader-notes.md`), native chrome and dialogs, scroll
+    feel, macOS Quick Look on real hardware, and real-IME entry. First
+    fill is due with the v1.0 release PR.
 
 ## Independent audit
 

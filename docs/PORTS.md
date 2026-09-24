@@ -761,6 +761,97 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   `PreviewPdfBuilder` seam.
 - Port-back candidates: none.
 
+## app/poltergeist_app/lib/ui/update_banner.dart
+
+- Source: app/seance_app/lib/ui/server_list_pane.dart (`_UpdateBanner`)
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (`v0.9.1`, the
+  live pin)
+- Ported: 2026-09-22 (M9 polish pass 2, PR #185; PORTS entry added by the
+  M9 closure audit — the entry was missed in the landing PR)
+- Divergences: mounts inside the workspace shell between toolbar and
+  panes rather than Séance's server list; strings are ARB (D20); the
+  release-page hand-off goes through an injectable `launch` seam
+  (url_launcher `LaunchMode.externalApplication` by default) so tests
+  observe it without the platform channel, and a failed launch routes to
+  `ApplicationErrorReporter`. The checker's repo constant lives in
+  `poltergeist_core`'s `src/update/update_check.dart`
+  (`poltergeistUpdateRepo`); `UpdateChecker`/`UpdateInfo` themselves are
+  consumed from the pin, not ported (D2).
+- Port-back candidates: none — the divergences are Poltergeist-local
+  (shell mount point, D20 localization, test seam).
+
+## M10 milestone-close sweep (2026-09-22)
+
+The 07 §3.12 close sweep re-verified every entry against the `v0.9.1`
+pin (`035b0d8`) and re-diffed the recorded sources against upstream HEAD
+(`15d0fdd`, 2026-09-22). The pin does not move: v0.9.1 remains the
+containing tag, and the drift below is upstream-HEAD churn for the next
+pin-bump window, not pin fallout. `dartssh2` stays exactly 3.0.2.
+
+Upstream drift since the pin touches six recorded sources. Dispositions:
+
+- `remote_files_controller.dart` — upstream grew managed-checkout
+  freshness tracking (#105: `latestRemoteSnapshots`, refresh-on-reopen).
+  Complementary to the ported `CheckoutManager` rails; no port edit. The
+  four safety statics are unchanged — the recorded `local_fs_safety`
+  candidates below still apply at HEAD.
+- `built_in_text_editor.dart` — upstream gained the `expectedSha256`
+  save guard (returns the new baseline digest, same shape as the port's)
+  plus BOM tracking and dominant-ending CRLF normalization. The
+  `built_in_text_document` candidate narrows to per-line EOL
+  reconstruction for mixed-EOL files (upstream collapses to the dominant
+  ending; Poltergeist round-trips mixed endings byte-identical) — minor,
+  left open.
+- `server_list_pane.dart`, `server_appearance.dart`,
+  `terminal_pane.dart`, `connection_log_view.dart` — tab/session and
+  appearance churn in surface area Poltergeist does not port (list rows,
+  tab chrome); the `connection_status_panel` transcript-anchor candidate
+  is still upstream-absent at HEAD.
+- `seance_core`/`seance_protocol` — additive only (remote-git surface);
+  nothing consumed here changes shape.
+
+Port-back issues filed this sweep (all on `L-K-M/Seance`):
+
+- [#114](https://github.com/L-K-M/Seance/issues/114) — sync-token
+  revocation endpoint (04 §7.3's urgent item: self-revocation plus a
+  password-authenticated revoke-all; leaked tokens currently have no
+  remediation short of account deletion).
+- [#115](https://github.com/L-K-M/Seance/issues/115) — the
+  `local_fs_safety` validator batch: extended reserved names, backslash
+  rejection, NAME_MAX guards, orphaned-backup sweep, commit-point leaf
+  validation.
+- [#116](https://github.com/L-K-M/Seance/issues/116) —
+  `secure_master_key`: corrupt-entry misreport and the create-on-first-run
+  race.
+- [#117](https://github.com/L-K-M/Seance/issues/117) — identity-file
+  read: normalize non-filesystem failures, bound audit writes.
+- [#118](https://github.com/L-K-M/Seance/issues/118) — `seance_core` VFS
+  additions Poltergeist needs: `pathTypeChanged` kind, cancellable
+  `listDirectory`, raw-name metadata (STATUS items 10/12/13).
+- [#119](https://github.com/L-K-M/Seance/issues/119) — managed-checkout
+  lifecycle hardening: prefix-wise rename migration, displaced-on-arrival,
+  synthesized snapshot + `needsReconcile`, epoch/abandoned markers,
+  recovered-payload surface, in-process lock guard, sanitizer contract,
+  CAS-carrying upload.
+- [#120](https://github.com/L-K-M/Seance/issues/120) — 04 §6 priority 2,
+  now proven: `PersistentLocalRecordStore` with durable tombstones (fixes
+  delete-resurrection and the wholesale re-push habit).
+- [#121](https://github.com/L-K-M/Seance/issues/121) — UX patterns per
+  04 §6 priority 3: theme-aware status colors (SEA-019), ssh_config
+  import preview + dedupe (SEA-007/027), two-stage collapse, persisted
+  pane ratios.
+- [#122](https://github.com/L-K-M/Seance/issues/122) — small polish
+  batch: transcript newest-line anchoring, the RFC 4256 echo bit (plus
+  Enter-navigation/autofocus), platform-aware launch-target validation,
+  UTC-stamped quarantine names, the mounted-harness test nit.
+
+Candidates left open without an issue: the M5 `sortKey`/`groupBookmarks`
+pair (conditional on Séance adopting 02 §5 ordering), the
+`local_fs_safety_test` suites (conditional on upstream exposing the
+statics — noted in #115), and the narrowed mixed-EOL reconstruction
+above. `file_stores`' serialized-flush candidate is closed: the v0.9.1
+pin already carries upstream's mutation queue.
+
 ## Pin findings
 
 The 2026-09-21 tag re-pin (M8's first slice) moves both live declarations

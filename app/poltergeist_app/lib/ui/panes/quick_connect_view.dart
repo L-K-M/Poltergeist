@@ -24,6 +24,7 @@ class QuickConnectView extends StatefulWidget {
     super.key,
     required this.onConnect,
     required this.focusNode,
+    this.onImportSshConfig,
   });
 
   /// Binds [bookmark] on a fresh tab; [initialPath] overrides the
@@ -35,6 +36,11 @@ class QuickConnectView extends StatefulWidget {
   /// focuses the field (not the pane node) on mount when its pane is
   /// active, and an inactive pane's field never steals focus.
   final FocusNode focusNode;
+
+  /// D22's adoption affordance: the ssh_config import offer under the
+  /// connect form. Null (no import seam — Windows in v1, or a store-less
+  /// embedding) mounts nothing, same posture as the command's absence.
+  final VoidCallback? onImportSshConfig;
 
   @override
   State<QuickConnectView> createState() => _QuickConnectViewState();
@@ -125,6 +131,20 @@ class _QuickConnectViewState extends State<QuickConnectView> {
                   ),
                 ),
               const SizedBox(height: 12),
+              // D22's adoption offer sits on its own line — the import
+              // button's natural width must never crowd the Connect
+              // button out of the row (a narrow pane overflows a
+              // shared Row).
+              if (widget.onImportSshConfig != null)
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton.icon(
+                    key: const ValueKey('quickConnect.importSshConfig'),
+                    onPressed: widget.onImportSshConfig,
+                    icon: const Icon(Icons.download_outlined, size: 16),
+                    label: Text(l10n.sshImportCommandLabel),
+                  ),
+                ),
               Align(
                 alignment: AlignmentDirectional.centerEnd,
                 child: FilledButton(

@@ -571,6 +571,14 @@ final class SyncPlanController extends ChangeNotifier {
       !_pairState.mtimeUnreliableLeft &&
       !_pairState.mtimeUnreliableRight;
 
+  /// §4's automatic fallback: a `sizeAndMtime` pair with either
+  /// `mtimeUnreliable` flag recorded compares `sizeOnly` from then on.
+  /// `contentHash` is never downgraded — hashes do not depend on
+  /// mtimes — and an explicit `sizeOnly` pair needs no rewrite.
+  bool get _downgradesToSizeOnly =>
+      _pair.rules.comparison == ComparisonMode.sizeAndMtime &&
+      (_pairState.mtimeUnreliableLeft || _pairState.mtimeUnreliableRight);
+
   /// The `sync.copyRsyncCommand` enablement probe (05 §2.1): true when
   /// [rsyncExport] would produce text — a settled plan exists and every
   /// remote side resolves. Cheap: no string is built.
@@ -599,9 +607,7 @@ final class SyncPlanController extends ChangeNotifier {
     if (plan == null) return null;
     final endpoints = _rsyncEndpoints(_pair);
     if (endpoints == null) return null;
-    final downgraded =
-        _pair.rules.comparison == ComparisonMode.sizeAndMtime &&
-        (_pairState.mtimeUnreliableLeft || _pairState.mtimeUnreliableRight);
+    final downgraded = _downgradesToSizeOnly;
     final rules = downgraded
         ? _rulesWith(comparison: ComparisonMode.sizeOnly)
         : _pair.rules;
@@ -758,7 +764,15 @@ final class SyncPlanController extends ChangeNotifier {
       _plan = await _differ.diff(
         left,
         right,
-        _pair,
+        // §4's automatic fallback lives in sync_state, outside the
+        // ruleset — resolve it here exactly as rsyncExport does, so a
+        // flagged pair's next plan compares size-only instead of
+        // re-proposing every refused stamp as an update forever.
+        _downgradesToSizeOnly
+            ? _pairWithRules(
+                _rulesWith(comparison: ComparisonMode.sizeOnly),
+              )
+            : _pair,
         mtimeUnreliableLeft: _pairState.mtimeUnreliableLeft,
         mtimeUnreliableRight: _pairState.mtimeUnreliableRight,
       );

@@ -3,7 +3,7 @@ name: poltergeist_m0_bench
 # imports survive the relocation to packages/poltergeist_bench.
 description: Reproducible M0 SSH fitness measurements for Poltergeist.
 publish_to: none
-version: 0.2.0
+version: 1.0.0
 
 environment:
   sdk: ^3.12.0

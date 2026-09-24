@@ -34,6 +34,7 @@ List<RegisteredCommand> buildWorkspaceCommands({
       scope: CommandScope.app,
       label: (l10n) => l10n.workspaceSaveCommand,
       enabled: enabled,
+      disabledReason: (l10n) => l10n.commandDisabledBusy,
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.commands,
         order: 50,
@@ -50,6 +51,7 @@ List<RegisteredCommand> buildWorkspaceCommands({
         scope: CommandScope.app,
         label: (l10n) => l10n.workspaceMenuEmpty,
         enabled: () => false,
+        disabledReason: (l10n) => l10n.commandDisabledNoWorkspaces,
         menuPlacement: CommandMenuPlacement(
           menu: AppMenuId.commands,
           order: 55,
@@ -85,6 +87,7 @@ RegisteredCommand _openCommand(
     // the row's label verbatim.
     label: (_) => saved.label,
     enabled: enabled,
+    disabledReason: (l10n) => l10n.commandDisabledBusy,
     menuPlacement: CommandMenuPlacement(
       menu: AppMenuId.commands,
       order: 55 + rank,

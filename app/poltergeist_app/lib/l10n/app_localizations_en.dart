@@ -606,6 +606,20 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String paneRowSemanticsFlagged(
+    String name,
+    String kind,
+    String size,
+    String modified,
+  ) {
+    return '$name, $kind, $size, $modified — name not valid UTF-8';
+  }
+
+  @override
+  String get paneFlaggedNameTooltip =>
+      'Name is not valid UTF-8 — shown approximately';
+
+  @override
   String get paneRowKindFile => 'file';
 
   @override
@@ -1455,6 +1469,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String activityRowSemantics(String label, String state) {
+    return '$label, $state';
+  }
+
+  @override
   String statusTransferChip(String rate, int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -1518,6 +1537,30 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsBackupCommand => 'Back up bookmarks…';
+
+  @override
+  String get settingsCommand => 'Settings…';
+
+  @override
+  String get settingsGeneralSection => 'General';
+
+  @override
+  String get updateCheckEnabledLabel => 'Check for updates';
+
+  @override
+  String get updateCheckEnabledSubtitle =>
+      'Checks GitHub on launch and only links to the release page — it never downloads anything.';
+
+  @override
+  String updateBannerText(String version) {
+    return 'Poltergeist $version is available.';
+  }
+
+  @override
+  String get updateViewRelease => 'View release';
+
+  @override
+  String get updateDismissTooltip => 'Dismiss';
 
   @override
   String get backupTitle => 'Bookmark backup';
@@ -2889,5 +2932,113 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String syncSavedFavoriteToast(String name) {
     return 'Saved sync \"$name\" added to favorites';
+  }
+
+  @override
+  String get quickOpenCommandLabel => 'Quick Open…';
+
+  @override
+  String get quickOpenTitle => 'Quick Open';
+
+  @override
+  String get quickOpenFieldHint => 'Type a command or location';
+
+  @override
+  String get quickOpenHintMacos =>
+      'Enter runs · ⌥Enter opens in the other pane · ⌘Enter opens in a new tab · Esc closes';
+
+  @override
+  String get quickOpenHint =>
+      'Enter runs · Alt+Enter opens in the other pane · Ctrl+Enter opens in a new tab · Esc closes';
+
+  @override
+  String get quickOpenSectionCommands => 'Commands';
+
+  @override
+  String get quickOpenSectionFavorites => 'Favorites';
+
+  @override
+  String get quickOpenSectionRecents => 'Recents';
+
+  @override
+  String quickOpenNoMatches(String query) {
+    return 'No matches for “$query”';
+  }
+
+  @override
+  String quickOpenRowSemantics(String label, String section) {
+    return '$label, $section';
+  }
+
+  @override
+  String quickOpenMenuPath(String menu, String label) {
+    return '$menu ▸ $label';
+  }
+
+  @override
+  String get quickOpenRecentUnavailable => 'This server is no longer available';
+
+  @override
+  String get commandDisabledNoBack => 'No earlier location';
+
+  @override
+  String get commandDisabledNoForward => 'No later location';
+
+  @override
+  String get commandDisabledNoListing => 'Requires a browsed folder';
+
+  @override
+  String get commandDisabledNoSelection => 'Requires a selected item';
+
+  @override
+  String get commandDisabledNoPreview => 'Previews are unavailable';
+
+  @override
+  String get commandDisabledNoSidebar => 'Requires the sidebar';
+
+  @override
+  String get commandDisabledSyncAnchors =>
+      'Requires browsed folders on both panes';
+
+  @override
+  String get commandDisabledNoTab => 'Requires an open tab';
+
+  @override
+  String get commandDisabledNoClosedTab => 'No recently closed tab';
+
+  @override
+  String get commandDisabledMultipleTabs => 'Requires at least two tabs';
+
+  @override
+  String get commandDisabledNoQueue => 'Requires the transfer queue';
+
+  @override
+  String get commandDisabledNoPlan => 'Requires an open sync plan';
+
+  @override
+  String get commandDisabledNoBookmarks => 'Requires saved favorites';
+
+  @override
+  String get commandDisabledBusy =>
+      'Unavailable while another command is running';
+
+  @override
+  String get commandDisabledNoEditors =>
+      'Requires a configured external editor';
+
+  @override
+  String get commandDisabledNoWorkspaces => 'No saved workspaces';
+
+  @override
+  String get sidebarImportSshConfig => 'Import from ssh config…';
+
+  @override
+  String panePathSegmentGoTo(String segment) {
+    return 'Go to $segment';
+  }
+
+  @override
+  String sidebarSectionSemantics(String title, String count) {
+    return '$title, $count';
   }
 }

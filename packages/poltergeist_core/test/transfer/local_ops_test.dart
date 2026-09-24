@@ -1,6 +1,9 @@
 // D26 local↔local ops through the engine-side transfer queue
-// (00 D26, 03 §4.2/§4.5, 07 §3.5): the streamed copy rides the same
-// bounded pipe as the remote directions, a same-device move is a
+// (00 D26, 03 §4.2/§4.5, 07 §3.5): the file copy rides LocalFileSystem's
+// copy seam (the platform pump — copy_file_range on Linux — with the
+// streamed loop as fallback; the M9 spike measured ~10× the bounded
+// pipe, so the pipe's download→upload round trip is bypassed for
+// local→local hops), a same-device move is a
 // rename(2) through the VFS seam, and a cross-device move degrades to a
 // durable copy+delete inside one task — the source is unlinked only
 // after the copy is verified and fsynced, so a failure or cancel leaves
@@ -8,8 +11,8 @@
 //
 // The local endpoint is the production LocalFileSystem over a real temp
 // dir, behind an instrumented subclass that counts VFS calls and scripts
-// the faults the tests need (EXDEV rename, mid-stream failures, a byte
-// probe for the pipe's bound). The case-insensitive-volume halves run a
+// the faults the tests need (EXDEV rename, mid-copy failures and gates
+// on the pump seam). The case-insensitive-volume halves run a
 // FakeTreeFileSystem as the local side — it models a posix tree, so
 // those cases are gated off Windows (path joining is platform-native).
 
@@ -19,7 +22,6 @@ library;
 import 'dart:async';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
@@ -121,18 +123,13 @@ void main() {
 
   group('D26 streamed copy', () {
     test(
-      'streams a local→local copy through the bounded pipe with progress',
+      'copies a local→local file through the copy pump with progress — '
+      'never through the pipe',
       () async {
         final bytes = List<int>.generate(256 * 1024, (i) => i & 0xFF);
         writeLocal('big.bin', bytes);
-        final probe = PipeProbe();
-        localFs.pipeProbe = probe;
-        // Small deterministic chunks keep the in-flight ceiling honest:
-        // the sink counts a whole chunk before pausing the source, so
-        // the bound is pipeBufferBytes plus the chunks that can slip
-        // past one pause — 256-byte scripted chunks instead of dart:io's
-        // platform-dependent openRead blocks (two 64 KiB chunks were
-        // observed in flight on Windows).
+        // The scripted pump emits deterministic 256-byte chunks so the
+        // progress events stay granular enough to observe.
         localFs.chunkedDownload = true;
         queue = newQueue(pipeBufferBytes: 8 * 1024);
 
@@ -146,15 +143,11 @@ void main() {
 
         expect(task.state, TransferTaskState.completed);
         expect(dstFile('big.bin').readAsBytesSync(), bytes);
-        // The pipe's bound held: in-flight bytes stayed within the
-        // configured bound plus a couple of scripted chunks of pause
-        // slip — nowhere near the 256 KiB file.
-        const bound = 8 * 1024 + 4 * InstrumentedLocalFs.scriptedChunkStep;
-        expect(probe.peak, lessThanOrEqualTo(bound));
-        expect(probe.peak, greaterThan(0));
-        // Keep the bound meaningful: a fixture at or below it would
-        // pass even with backpressure fully broken.
-        expect(bytes.length, greaterThan(bound));
+        // The M9 fast path (00 D26): bytes moved through the pump seat —
+        // the bounded pipe (and its download/upload VFS pair) never ran.
+        expect(localFs.copyCalls, 1);
+        expect(localFs.downloadCalls, 0);
+        expect(localFs.uploadCalls, 0);
         final progress = events
             .whereType<TransferQueueProgressEvent>()
             .map((event) => event.transferred)
@@ -163,6 +156,51 @@ void main() {
         expect(progress.last, bytes.length);
         // Local endpoints never touch the channel pool (03 §4.3).
         expect(connections.leaseCalls, 0);
+      },
+    );
+
+    test(
+      'falls back to the streamed pump when the platform mechanism '
+      'declines',
+      () async {
+        final bytes = List<int>.generate(64 * 1024, (i) => i & 0xFF);
+        writeLocal('fallback.bin', bytes);
+        // A declining pump (EXDEV/EOPNOTSUPP/ENOSYS at runtime) must not
+        // fail the copy — the streamed pump restarts over the truncated
+        // temp and lands the file.
+        var pumpCalls = 0;
+        localFs.localCopyPump =
+            (sourcePath, destinationPath, {
+              required length,
+              required cancellation,
+              required onBytes,
+            }) async {
+              pumpCalls++;
+              return false;
+            };
+
+        final task = queue.enqueue(
+          localSpec(
+            rootPaths: [p.join(localSrc.path, 'fallback.bin')],
+            destinationDir: localDst.path,
+          ),
+        );
+        await awaitTaskDone(task);
+
+        expect(task.state, TransferTaskState.completed);
+        expect(pumpCalls, 1);
+        // The fallback streamed inside copyLocalFile — pin that it never
+        // reroutes through the download/upload VFS pair (the pipe round
+        // trip the M9 fast path removed).
+        expect(localFs.downloadCalls, 0);
+        expect(localFs.uploadCalls, 0);
+        expect(dstFile('fallback.bin').readAsBytesSync(), bytes);
+        final progress = events
+            .whereType<TransferQueueProgressEvent>()
+            .map((event) => event.transferred)
+            .toList();
+        expect(progress, isNotEmpty);
+        expect(progress.last, bytes.length);
       },
     );
 
@@ -329,10 +367,11 @@ void main() {
         await awaitTaskDone(task);
 
         expect(task.state, TransferTaskState.completed);
-        // Rename was tried first; the EXDEV degraded to the pipe.
+        // Rename was tried first; the EXDEV degraded to the copy pump.
         expect(localFs.renameCalls, 1);
-        expect(localFs.downloadCalls, 1);
-        expect(localFs.uploadCalls, 1);
+        expect(localFs.copyCalls, 1);
+        expect(localFs.downloadCalls, 0);
+        expect(localFs.uploadCalls, 0);
         expect(localFs.deleteCalls, 1);
         expect(dstFile('xdev.bin').readAsBytesSync(), bytes);
         expect(file.existsSync(), isFalse);
@@ -794,43 +833,51 @@ void main() {
 }
 
 /// A [LocalFileSystem] that counts VFS calls and scripts the faults the
-/// D26 tests need: a cross-device rename (EXDEV), a gated/failing
-/// download stream, and an in-flight byte probe for the pipe's bound.
-/// Everything not scripted delegates to the real implementation over
-/// the temp tree.
+/// D26 tests need: a cross-device rename (EXDEV), and a gated/failing
+/// copy pump — the seat the queue's local→local file hops ride since the
+/// M9 fast-path adoption bypassed download/upload. Everything not
+/// scripted delegates to the real implementation over the temp tree.
 class InstrumentedLocalFs extends LocalFileSystem {
+  InstrumentedLocalFs() {
+    // The D26 copy seam: local→local file hops bypass download/upload
+    // entirely (the queue calls copyLocalFile, which runs this pump),
+    // so the scripted faults ride the pump instead — the same
+    // gate/fail/chunk fields, now applied while writing the copy temp.
+    // An unscripted copy delegates to the real platform pump so the
+    // ordinary tests exercise production behavior.
+    _realCopyPump = localCopyPump;
+    localCopyPump = _pump;
+  }
+
   int renameCalls = 0;
   int downloadCalls = 0;
   int uploadCalls = 0;
+  int copyCalls = 0;
   int deleteCalls = 0;
   int setTimesCalls = 0;
+  late final LocalCopyPump _realCopyPump;
 
   /// When true, every `rename` throws [LocalCrossDeviceRenameException]
   /// — the EXDEV posture the queue must degrade to copy+delete.
   bool renameCrossDevice = false;
 
-  /// Scripted-download hooks: pause mid-stream on [downloadGate], die
-  /// mid-stream past [downloadFailAfterBytes], or just emit small
+  /// Scripted-pump hooks: pause mid-copy on [downloadGate], die
+  /// mid-copy past [downloadFailAfterBytes], or just emit small
   /// deterministic chunks via [chunkedDownload]. Any of them engages
-  /// the chunked emission below (the real adapter's per-chunk contract
-  /// — cancellation is honored between chunks and while parked).
+  /// the chunked emission in [_pump] (the copy seam's per-chunk
+  /// contract — cancellation is honored between chunks and while
+  /// parked).
   Completer<void>? downloadGate;
   int? downloadFailAfterBytes;
 
   /// Emit the file in small fixed chunks without a gate or failure —
-  /// lets the pipe-bound test assert a tight in-flight ceiling that a
-  /// 64 KiB `openRead` block (two of which can slip past the pause on
-  /// Windows) would make platform-dependent.
+  /// keeps progress events granular enough to observe.
   bool chunkedDownload = false;
 
-  /// Chunk size the scripted download emits; the pipe-bound test's
-  /// slip allowance is expressed in multiples of this.
+  /// Chunk size the scripted pump emits.
   static const int scriptedChunkStep = 256;
   final Completer<void> downloadStarted = Completer<void>();
 
-  /// Optional byte-probe wrapped around the pipe: `sent` at the sink,
-  /// `received` in the upload — peak is the buffered high-water mark.
-  PipeProbe? pipeProbe;
 
   /// Operation log shared with the queue's flush seam so ordering tests
   /// can assert "flush before unlink" in one sequence.
@@ -857,42 +904,41 @@ class InstrumentedLocalFs extends LocalFileSystem {
     return super.rename(oldPath, newPath, overwrite: overwrite);
   }
 
-  @override
-  Future<RemoteFileEntry> download(
-    String path,
-    StreamSink<List<int>> destination, {
-    RemoteTransferProgress? onProgress,
-    RemoteTransferCancellation? cancellation,
-    bool computeHash = true,
+  /// The copy-pump seat: unscripted copies take the real platform pump
+  /// (copy_file_range on this host); the scripted path emits the file
+  /// in [scriptedChunkStep] pieces honoring the gate/fail/cancel fields
+  /// exactly like the download override does for a remote leg.
+  Future<bool> _pump(
+    String sourcePath,
+    String destinationPath, {
+    required int length,
+    required RemoteTransferCancellation? cancellation,
+    required void Function(int) onBytes,
   }) async {
-    downloadCalls++;
+    copyCalls++;
     if (downloadGate == null &&
         downloadFailAfterBytes == null &&
         !chunkedDownload) {
-      return super.download(
-        path,
-        pipeProbe == null ? destination : _CreditingSink(destination, pipeProbe!),
-        onProgress: onProgress,
+      return _realCopyPump(
+        sourcePath,
+        destinationPath,
+        length: length,
         cancellation: cancellation,
-        computeHash: computeHash,
+        onBytes: onBytes,
       );
     }
-    // Scripted path: emit the file in small chunks, honoring the gate
-    // and the cancellation token the way the real adapter does. It must
-    // ride addStream — sink.add bypasses backpressure entirely, which
-    // would make the scripted path diverge from the real adapter's
-    // bounded-buffer contract.
-    final bytes = await File(path).readAsBytes();
+    final bytes = await File(sourcePath).readAsBytes();
     if (!downloadStarted.isCompleted) downloadStarted.complete();
     const step = InstrumentedLocalFs.scriptedChunkStep;
+    final sink = File(destinationPath).openWrite();
     var sent = 0;
-    await destination.addStream(() async* {
+    try {
       for (var offset = 0; offset < bytes.length; offset += step) {
         if (cancellation?.isCancelled ?? false) {
           throw RemoteFileException(
             kind: RemoteFileErrorKind.cancelled,
-            operation: 'download',
-            path: path,
+            operation: 'copy',
+            path: sourcePath,
             message: 'Transfer cancelled.',
           );
         }
@@ -900,15 +946,13 @@ class InstrumentedLocalFs extends LocalFileSystem {
             sent >= downloadFailAfterBytes!) {
           throw RemoteFileException(
             kind: RemoteFileErrorKind.other,
-            operation: 'download',
-            path: path,
+            operation: 'copy',
+            path: sourcePath,
             message: 'injected mid-copy failure',
           );
         }
         final gate = downloadGate;
         if (gate != null) {
-          // Wake on cancel so a parked read unwinds like the real
-          // adapter's cancellation race.
           await Future.any([
             gate.future,
             if (cancellation != null) cancellation.whenCancelled,
@@ -916,8 +960,8 @@ class InstrumentedLocalFs extends LocalFileSystem {
           if (cancellation?.isCancelled ?? false) {
             throw RemoteFileException(
               kind: RemoteFileErrorKind.cancelled,
-              operation: 'download',
-              path: path,
+              operation: 'copy',
+              path: sourcePath,
               message: 'Transfer cancelled.',
             );
           }
@@ -925,25 +969,33 @@ class InstrumentedLocalFs extends LocalFileSystem {
         final end =
             offset + step > bytes.length ? bytes.length : offset + step;
         final chunk = bytes.sublist(offset, end);
+        sink.add(chunk);
+        await sink.flush();
         sent += chunk.length;
-        pipeProbe?.sent(chunk.length);
-        yield chunk;
-        onProgress?.call(sent, bytes.length);
+        onBytes(chunk.length);
       }
-    }());
-    // Return the same stat-backed entry shape the real adapter does —
-    // verify-after-transfer must not be silently untested on the
-    // scripted mid-stream paths.
-    final stat = await FileStat.stat(path);
-    return RemoteFileEntry(
-      path: path,
-      name: p.basename(path),
-      type: RemoteFileType.file,
-      size: bytes.length,
-      accessedAt: stat.accessed.toUtc(),
-      modifiedAt: stat.modified.toUtc(),
-      mode: stat.mode,
-      contentSha256: computeHash ? sha256.convert(bytes).toString() : null,
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+    return true;
+  }
+
+  @override
+  Future<RemoteFileEntry> download(
+    String path,
+    StreamSink<List<int>> destination, {
+    RemoteTransferProgress? onProgress,
+    RemoteTransferCancellation? cancellation,
+    bool computeHash = true,
+  }) {
+    downloadCalls++;
+    return super.download(
+      path,
+      destination,
+      onProgress: onProgress,
+      cancellation: cancellation,
+      computeHash: computeHash,
     );
   }
 
@@ -960,15 +1012,9 @@ class InstrumentedLocalFs extends LocalFileSystem {
     bool computeHash = true,
   }) {
     uploadCalls++;
-    final probe = pipeProbe;
     return super.upload(
       path,
-      probe == null
-          ? content
-          : content.map((chunk) {
-              probe.received(chunk.length);
-              return chunk;
-            }),
+      content,
       length: length,
       overwrite: overwrite,
       preserveMode: preserveMode,
@@ -1010,36 +1056,4 @@ class InstrumentedLocalFs extends LocalFileSystem {
   }
 }
 
-/// A `StreamSink` wrapper that credits each produced chunk to a
-/// [PipeProbe] before forwarding — the "sent" half of the bounded-pipe
-/// measurement for the real LocalFileSystem adapter.
-class _CreditingSink implements StreamSink<List<int>> {
-  _CreditingSink(this._inner, this._probe);
 
-  final StreamSink<List<int>> _inner;
-  final PipeProbe _probe;
-
-  @override
-  void add(List<int> event) {
-    _probe.sent(event.length);
-    _inner.add(event);
-  }
-
-  @override
-  Future<void> addStream(Stream<List<int>> stream) => _inner.addStream(
-    stream.map((chunk) {
-      _probe.sent(chunk.length);
-      return chunk;
-    }),
-  );
-
-  @override
-  void addError(Object error, [StackTrace? stackTrace]) =>
-      _inner.addError(error, stackTrace);
-
-  @override
-  Future<void> close() => _inner.close();
-
-  @override
-  Future<void> get done => _inner.done;
-}

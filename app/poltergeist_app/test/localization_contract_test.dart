@@ -176,6 +176,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // large-download confirmation threshold — settings.json keys.
     "'preview.cacheCapacityBytes'",
     "'preview.largeDownloadThresholdBytes'",
+    // The D19 update-check opt-out (02 §5) — a settings.json key.
+    "'updates.checkEnabled'",
   },
   'lib/services/atomic_file.dart': {r"'.poltergeist-${uuidV4()}.tmp'"},
   // The session-state document's on-disk schema (02 §3): settings.json
@@ -308,6 +310,16 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The save dialog's name-field widget key — plumbing, not copy.
   'lib/ui/workspace/save_workspace_dialog.dart': {"'workspaceSave.name'"},
+  // The D19 banner's widget keys and the General dialog's keys/toggle
+  // key — plumbing for tests, never rendered.
+  'lib/ui/update_banner.dart': {"'update.viewRelease'", "'update.dismiss'"},
+  'lib/ui/settings/general_settings.dart': {
+    "'general.settings.dialog'",
+    "'general.settings.close'",
+    "'updates.checkEnabled'",
+  },
+  // The Settings command id (D21 plumbing) — registered, never rendered.
+  'lib/ui/settings/app_settings_command.dart': {"'app.settings'"},
   // The workspace command ids (D21 plumbing) — the open commands key
   // per-record to the persisted workspace id.
   'lib/ui/workspace/workspace_commands.dart': {
@@ -1301,6 +1313,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/panes/quick_connect_view.dart': {
     "'quickConnect.field'",
     "'quickConnect.connect'",
+    "'quickConnect.importSshConfig'",
     "''",
     r"'${target.port}'",
     r"'$quickConnectAdhocIdPrefix${uuidV4()}'",
@@ -1347,6 +1360,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'sidebar.favorite.${bookmark.id}'",
     r"'sidebar.section.${widget.sectionKey}'",
     "'sidebar.favorite'",
+    "'sidebar.importSshConfig'",
     r"'${bookmark.label}, ${appearance.label}'",
     "'sidebar.menu.open'",
     "'sidebar.menu.openNewTab'",
@@ -1877,6 +1891,87 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'✕'",
     "'↯'",
     "'–'",
+  },
+  // The recents document's schema keys, format diagnostics, dedupe-key
+  // prefixes, and the settings.json document key — wire format, never
+  // rendered UI copy.
+  'lib/services/recent_locations.dart': {
+    "'quickOpen.recentLocations'",
+    "'version'",
+    "'entries'",
+    "'label'",
+    "'path'",
+    "'serverId'",
+    "'bookmark'",
+    "'recent location entry'",
+    "'recent location serverId'",
+    "'recent locations document'",
+    "'recent locations entries'",
+    r"'remote:$serverId:$path'",
+    r"'local:$path'",
+    r"'bookmark:$serverId'",
+  },
+  // The fuzzy matcher's word-separator set — match mechanics, never
+  // rendered.
+  'lib/services/quick_open_match.dart': {r"' -_./\\:;()[]{}'"},
+  // The chord formatter's glyph/name table and modifier joiner —
+  // platform keyboard spelling (Ctrl+Shift+P, ⌃⌥⇧⌘P), spec-fixed
+  // symbols, not authored copy.
+  'lib/services/shortcut_format.dart': {
+    r"'$name+'",
+    "'⌃'",
+    "'⌥'",
+    "'⇧'",
+    "'⌘'",
+    "'Ctrl'",
+    "'Alt'",
+    "'Shift'",
+    "'Meta'",
+    "'↑'",
+    "'↓'",
+    "'←'",
+    "'→'",
+    "'↩'",
+    "'⇥'",
+    "'⌫'",
+    "'⌦'",
+    "'Up'",
+    "'Down'",
+    "'Left'",
+    "'Right'",
+    "'Enter'",
+    "'Tab'",
+    "'Esc'",
+    "'Backspace'",
+    "'Del'",
+    "'Space'",
+    "','",
+    "'.'",
+    "'/'",
+    r"'\\'",
+    "'['",
+    "']'",
+    "'-'",
+    "'='",
+    "';'",
+    "\"'\"",
+    "'`'",
+  },
+  // The palette's plumbing: the command id, widget key, empty-string
+  // and separator joins inside match corpora and row compositions —
+  // every rendered word resolves through ARB.
+  'lib/ui/quick_open/quick_open_palette.dart': {
+    "'app.quickOpen'",
+    "'quickOpen.field'",
+    "''",
+    "' '",
+    "'  '",
+    "' · '",
+    r"'${command.label(l10n)} ${_menuPath(command, l10n) ?? ''}'",
+    r"'${bookmark.label} ${_favoriteMatchText(bookmark)}'",
+    r"'${recent.path} ${recent.remoteBookmark?.server?.identity?.host ?? ''}'",
+    r"'$menu ▸ $submenu'",
+    r"'${identity.username}@${identity.host}'",
   },
 };
 

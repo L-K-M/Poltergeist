@@ -23,6 +23,7 @@ RegisteredCommand buildOpenSettingsBackupCommand({
     label: (l10n) => l10n.settingsBackupCommand,
     icon: Icons.backup_outlined,
     enabled: enabled,
+    disabledReason: (l10n) => l10n.commandDisabledBusy,
     run: (context) =>
         showBackupSettingsDialog(context, service: service, gate: gate),
     menuPlacement: const CommandMenuPlacement(

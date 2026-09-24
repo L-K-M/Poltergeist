@@ -77,6 +77,7 @@ void main() {
     WidgetTester tester, {
     bool withConnections = false,
     bool withWorkspaceUpdate = false,
+    VoidCallback? onImportSshConfig,
     ApplicationErrorReporter? errors,
   }) async {
     tester.view.physicalSize = const Size(300, 800);
@@ -120,6 +121,7 @@ void main() {
               onUpdateWorkspace: withWorkspaceUpdate
                   ? workspaceUpdates.add
                   : null,
+              onImportSshConfig: onImportSshConfig,
             ),
           ),
         ),
@@ -702,6 +704,26 @@ void main() {
       find.textContaining('No favorites yet'),
       findsOneWidget,
     );
+    // No import seam: D22's offer stays absent, not dead.
+    expect(find.byKey(const ValueKey('sidebar.importSshConfig')), findsNothing);
+  });
+
+  testWidgets('the empty state offers the ssh_config import', (tester) async {
+    var taps = 0;
+    await pumpSidebar(tester, onImportSshConfig: () => taps++);
+
+    final offer = find.byKey(const ValueKey('sidebar.importSshConfig'));
+    expect(offer, findsOneWidget);
+    await tester.tap(offer);
+    expect(taps, 1);
+  });
+
+  testWidgets('the offer hides once a favorite exists', (tester) async {
+    store.bookmarks = [_remote('r1')];
+    await pumpSidebar(tester, onImportSshConfig: () {});
+
+    expect(find.byKey(const ValueKey('sidebar.importSshConfig')), findsNothing);
+    expect(find.byKey(const ValueKey('sidebar.favorite.r1')), findsOneWidget);
   });
 
   testWidgets('a failed load shows the error and retry recovers', (

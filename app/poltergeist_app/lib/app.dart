@@ -25,11 +25,13 @@ import 'services/pane_tabs_controller.dart' show NewTabTarget;
 import 'services/probe_settings_store.dart' show ProbeSettings;
 import 'services/quick_look_channel.dart' show QuickLookChannel;
 import 'services/quit_guard.dart';
+import 'services/recent_locations.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
 import 'services/ssh_config_import_setup.dart';
 import 'services/sync_environment.dart';
 import 'services/sync_queue_facade.dart';
+import 'services/update_check_controller.dart';
 import 'services/workspace_library.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
@@ -53,6 +55,7 @@ class PoltergeistApp extends StatefulWidget {
     this.bookmarkBackup,
     this.bookmarks,
     this.workspaces,
+    this.recentLocations,
     this.connectionEngine,
     this.engineSession,
     this.transferQueue,
@@ -83,6 +86,7 @@ class PoltergeistApp extends StatefulWidget {
     this.onPreviewThresholdChanged,
     this.syncEnvironment,
     this.syncTasks,
+    this.updateCheck,
   });
 
   final double initialPaneRatio;
@@ -132,6 +136,11 @@ class PoltergeistApp extends StatefulWidget {
   /// unregistered; `main.dart` supplies it from the app-support settings
   /// store.
   final WorkspaceLibrary? workspaces;
+
+  /// Quick Open's Recents source (02 §8.4): the device-local store the
+  /// panes' location-commit hook feeds, flushed at the app-quit safe
+  /// point. Null drops the palette's Recents section only.
+  final RecentLocationsStore? recentLocations;
 
   /// The engine's connection-state lanes for the Connections surface. A
   /// test seam only: an [engineSession] supplies its own lanes, and no
@@ -234,6 +243,11 @@ class PoltergeistApp extends StatefulWidget {
   /// composition; null unregisters the sync commands.
   final SyncEnvironment? syncEnvironment;
   final SyncQueueTasks? syncTasks;
+
+  /// The D19 update check's session state (07 §3.10): non-null mounts
+  /// the link-only banner when a newer release exists and registers
+  /// `app.settings` for the opt-out toggle. Null leaves both unwired.
+  final UpdateCheckController? updateCheck;
 
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator. The session's coordinator and the
@@ -345,6 +359,9 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
           await Future.wait<void>([
             if (session != null) session.flushWrites(),
             if (persistence != null) persistence.flush(),
+            // 02 §8.4's recents share the safe point: a debounced write
+            // still pending at quit must land before the window dies.
+            if (widget.recentLocations != null) widget.recentLocations!.flush(),
           ]).timeout(_exitFlushTimeout);
         } on Object catch (error, stackTrace) {
           FlutterError.reportError(
@@ -408,6 +425,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       bookmarkBackup: widget.bookmarkBackup,
       bookmarks: widget.bookmarks,
       workspaces: widget.workspaces,
+      recentLocations: widget.recentLocations,
       connectionEngine: widget.connectionEngine,
       engineSession: widget.engineSession,
       transferQueue: widget.transferQueue,
@@ -440,6 +458,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       onPreviewThresholdChanged: widget.onPreviewThresholdChanged,
       syncEnvironment: widget.syncEnvironment,
       syncTasks: widget.syncTasks,
+      updateCheck: widget.updateCheck,
     );
     final callback = widget.onContentSizeChanged;
     if (callback == null) return workspace;

@@ -1,7 +1,7 @@
 name: poltergeist_app
 description: Poltergeist cross-platform file transfer client.
 publish_to: none
-version: 0.2.0+20099
+version: 1.0.0+1000099
 
 environment:
   sdk: ^3.12.0
@@ -23,6 +23,9 @@ dependencies:
   flutter_secure_storage: 10.3.1
   intl: 0.20.3
   macos_window_utils: 1.9.1
+  # The running build's version for the D19 update check (07 §3.10) —
+  # version-matched to Séance's lock.
+  package_info_plus: 8.3.1
   path: 1.9.1
   path_provider: 2.1.6
   # Applies owner-only mode bits to path-bearing local audit files.
@@ -32,12 +35,18 @@ dependencies:
   poltergeist_sync:
     path: ../../packages/poltergeist_sync
   screen_retriever: 0.2.2
+  # The update banner's "View release" link — hands the releases URL to
+  # the OS browser; the app never downloads release assets (00 D23).
+  url_launcher: 6.3.2
   uuid: 4.6.0
   window_manager: 0.5.2
   pdfrx: 2.6.1
 
 dev_dependencies:
   analyzer: 14.1.0
+  # MockClient for the update-check request-shape test (01 §6's pinned
+  # egress contract); test-only, nothing shipped.
+  http: 1.6.0
   # Fixture-hash verification in tool/unicode/generate.dart (matches the
   # version poltergeist_core's dependency already locks).
   crypto: 3.0.7

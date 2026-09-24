@@ -16,8 +16,9 @@ import '../../support/test_panes.dart';
 /// with [lanes] backing connects.
 Future<PaneTabsController> pumpLauncher(
   WidgetTester tester,
-  controller_test.FakePaneLanes lanes,
-) async {
+  controller_test.FakePaneLanes lanes, {
+  VoidCallback? onImportSshConfig,
+}) async {
   final strip = PaneTabsController(paneId: 'pane.left', lanes: lanes);
   addTearDown(strip.dispose);
   final right = PaneTabsController(paneId: 'pane.right', lanes: lanes);
@@ -40,6 +41,7 @@ Future<PaneTabsController> pumpLauncher(
           focusNode: leftNode,
           onSwapFocus: () {},
           onCancelRecovery: () {},
+          onImportSshConfig: onImportSshConfig,
         ),
       ),
     ),
@@ -207,6 +209,28 @@ void main() {
       expect(field.autocorrect, isFalse);
       expect(field.enableSuggestions, isFalse);
       expect(field.keyboardType, TextInputType.url);
+    });
+
+    testWidgets('the ssh_config offer invokes its callback', (tester) async {
+      final lanes = controller_test.FakePaneLanes();
+      var taps = 0;
+      await pumpLauncher(tester, lanes, onImportSshConfig: () => taps++);
+
+      final offer = find.byKey(const ValueKey('quickConnect.importSshConfig'));
+      expect(offer, findsOneWidget);
+      await tester.tap(offer);
+      expect(taps, 1);
+    });
+
+    testWidgets('no import seam mounts no offer', (tester) async {
+      final lanes = controller_test.FakePaneLanes();
+      await pumpLauncher(tester, lanes);
+      // Guard against a vacuous pass: the launcher itself must be up.
+      expect(find.byType(TextField), findsWidgets);
+      expect(
+        find.byKey(const ValueKey('quickConnect.importSshConfig')),
+        findsNothing,
+      );
     });
 
     testWidgets('typing never leaves the field or swaps panes',

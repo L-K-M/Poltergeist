@@ -29,6 +29,7 @@ import '../services/preview_session.dart';
 import '../services/probe_settings_store.dart';
 import '../services/quick_look_channel.dart';
 import '../services/quit_guard.dart';
+import '../services/recent_locations.dart';
 import '../services/registered_command.dart';
 import '../services/rsync_endpoints.dart';
 import '../services/session_persistence.dart';
@@ -40,6 +41,7 @@ import '../services/sync_browsing_controller.dart';
 import '../services/sync_environment.dart';
 import '../services/sync_plan_controller.dart';
 import '../services/sync_queue_facade.dart';
+import '../services/update_check_controller.dart';
 import '../services/uuid.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
@@ -61,7 +63,10 @@ import 'panes/pane_tabs_view.dart';
 import 'panes/sync_browse_chip.dart';
 import 'pdf_preview.dart';
 import 'preview_panel.dart';
+import 'quick_open/quick_open_palette.dart';
+import 'settings/app_settings_command.dart';
 import 'settings/backup_settings_command.dart';
+import 'settings/general_settings.dart';
 import 'settings/preview_settings.dart';
 import 'sidebar/sidebar_view.dart';
 import 'sync/rsync_copy.dart';
@@ -69,6 +74,7 @@ import 'sync/sync_commands.dart';
 import 'sync/sync_pair_editor.dart';
 import 'sync/sync_plan_format.dart' show syncEndpointLabel;
 import 'top_toast.dart';
+import 'update_banner.dart';
 import 'workspace/workspace_commands.dart';
 
 /// The inline sidebar's width (02 §1: default 240, min 200, max 320 —
@@ -98,6 +104,7 @@ class WorkspaceShell extends StatefulWidget {
     this.bookmarkBackup,
     this.bookmarks,
     this.workspaces,
+    this.recentLocations,
     this.connectionEngine,
     this.engineSession,
     this.transferQueue,
@@ -129,6 +136,7 @@ class WorkspaceShell extends StatefulWidget {
     this.onPreviewThresholdChanged,
     this.syncEnvironment,
     this.syncTasks,
+    this.updateCheck,
   });
 
   final double initialPaneRatio;
@@ -191,6 +199,12 @@ class WorkspaceShell extends StatefulWidget {
   /// identity-stability contract as [bookmarks]: the shell subscribes
   /// once per seam instance so a save or open re-derives the submenu.
   final WorkspaceLibrary? workspaces;
+
+  /// The Quick Open palette's Recents source (02 §8.4): the device-local
+  /// store the panes' commit hook feeds. Null keeps the palette but
+  /// drops its Recents section — a store-less embedding loses only the
+  /// memory, never the command surface.
+  final RecentLocationsStore? recentLocations;
 
   /// The engine's connection-state lanes; null while no production engine
   /// exists, which leaves every listed server without live truth rather
@@ -324,12 +338,28 @@ class WorkspaceShell extends StatefulWidget {
   final SyncEnvironment? syncEnvironment;
   final SyncQueueTasks? syncTasks;
 
+  /// The D19 update check's session state (07 §3.10): non-null mounts
+  /// the dismissible banner above the panes when a newer tag exists and
+  /// registers `app.settings` (its General section hosts the opt-out).
+  /// Null leaves both unwired — tests and seam-less boots stay silent.
+  final UpdateCheckController? updateCheck;
+
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
 
 class _WorkspaceShellState extends State<WorkspaceShell> {
   bool _commandSessionActive = false;
+
+  /// The latest assembled registry — the Quick Open palette reads it at
+  /// open time rather than re-deriving (02 §8.4: the palette is a
+  /// rendering of the registry, never a parallel list).
+  List<RegisteredCommand> _commands = const [];
+
+  /// True while a Quick Open dialog is up — the command's `run` returns
+  /// immediately (the session flag must not pin the registry), so this
+  /// flag is the re-entrancy guard.
+  bool _quickOpenOpen = false;
 
   /// 03 §6's app-wide `ConnectionStatus`: one per window root, owned here so
   /// its watches die with the shell. The sidebar's Connections section and
@@ -975,6 +1005,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         // resolution and every Open With ▸ choice.
         builtInEditorOpen: _openBuiltInEditor,
         externalEditorOpen: _openWithExternal,
+        onLocationCommitted: widget.recentLocations?.recordLocation,
         confirmClose: _confirmTabClose,
         // The cross-pane half of a remote tab's last-binding check: read
         // the workspace lazily — the strips are built before it exists.
@@ -1139,6 +1170,18 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
   }
 
+  /// The Settings → General rows behind `app.settings` — a lookup (not
+  /// a snapshot) so the dialog reads the live toggle at open. The sink
+  /// delegates to the controller's persist-first `setEnabled`, whose
+  /// throw is what the section's revert idiom keys on.
+  GeneralSettings _generalSettings() {
+    final updateCheck = widget.updateCheck!;
+    return GeneralSettings(
+      checkForUpdates: updateCheck.enabled,
+      onCheckForUpdatesChanged: updateCheck.setEnabled,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = AppLocalizations.of(context);
@@ -1151,15 +1194,29 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final rightFocus = _rightFocus;
 
     final preview = _preview;
+    // Hoisted so the empty-state/launcher adoption offers can run the
+    // registered command itself (enablement + session rule included)
+    // instead of re-invoking the dialog behind its back.
+    final sshImportCommand = sshConfigImport == null
+        ? null
+        : buildSshConfigImportCommand(
+            setup: sshConfigImport,
+            enabled: () => !_commandSessionActive,
+          );
     final commands = <RegisteredCommand>[
-      if (sshConfigImport != null)
-        buildSshConfigImportCommand(
-          setup: sshConfigImport,
-          enabled: () => !_commandSessionActive,
-        ),
+      if (workspace != null) buildQuickOpenCommand(open: _openQuickOpen),
+      ?sshImportCommand,
       if (widget.bookmarkBackup != null)
         buildOpenSettingsBackupCommand(
           service: widget.bookmarkBackup!,
+          enabled: () => !_commandSessionActive,
+        ),
+      // 02 §9's `app.settings` row registers while the update-check
+      // seam exists — its General section's only row today is D19's
+      // opt-out, so a seam-less boot has nothing to show there.
+      if (widget.updateCheck != null)
+        buildAppSettingsCommand(
+          settings: _generalSettings,
           enabled: () => !_commandSessionActive,
         ),
       if (workspace != null && widget.workspaces != null)
@@ -1217,6 +1274,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // row stays visible-disabled while no queue seam is bound.
       ...buildActivityCommands(activity: _activity),
     ];
+    // The palette reads the live list at open time — keep the latest
+    // registry reachable outside build (it is rebuilt cheaply anyway).
+    _commands = commands;
 
     // The drop enqueue seam (02 §5.1, D14): exists only while a queue
     // is bound — without one there is nowhere a drop could land, so
@@ -1254,7 +1314,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // stage boundary is the only difference.
       drawer: sidebar == null
           ? null
-          : Drawer(child: SafeArea(child: _buildSidebarView())),
+          : Drawer(child: SafeArea(child: _buildSidebarView(sshImportCommand))),
       body: SafeArea(
         child: CommandChordScope(
           commands: commands,
@@ -1276,6 +1336,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                   ),
                 ),
                 Divider(height: 1, color: colors.outlineVariant),
+                // D19's update banner (07 §3.10): mounts only while the
+                // controller reports a newer tag — dismiss is
+                // session-scoped, the opt-out lives in `app.settings`.
+                if (widget.updateCheck != null)
+                  ListenableBuilder(
+                    listenable: widget.updateCheck!,
+                    builder: (context, _) {
+                      final update = widget.updateCheck!.update;
+                      if (update == null) return const SizedBox.shrink();
+                      return UpdateBanner(
+                        info: update,
+                        onDismiss: widget.updateCheck!.dismiss,
+                      );
+                    },
+                  ),
                 Expanded(
                   // `view.toggleSecondPane` and the Sync Browsing link
                   // state ride the workspace listenable — a hide/show or
@@ -1298,7 +1373,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                 SizedBox(
                                   key: const ValueKey('sidebar.region'),
                                   width: _sidebarWidth,
-                                  child: _buildSidebarView(),
+                                  child: _buildSidebarView(sshImportCommand),
                                 ),
                                 VerticalDivider(
                                   width: 1,
@@ -1347,6 +1422,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                     onSyncSaveAsFavorite:
                                         _saveSyncAsFavorite,
                                     onSyncEditRules: _editSyncRules,
+                                    onImportSshConfig:
+                                        sshImportCommand == null
+                                        ? null
+                                        : () => unawaited(
+                                            _runCommand(sshImportCommand),
+                                          ),
                                   ),
                                   secondary: rightFocus == null
                                       ? const SizedBox.shrink()
@@ -1374,6 +1455,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                               _saveSyncAsFavorite,
                                           onSyncEditRules:
                                               _editSyncRules,
+                                          onImportSshConfig:
+                                              sshImportCommand == null
+                                              ? null
+                                              : () => unawaited(
+                                                  _runCommand(
+                                                    sshImportCommand,
+                                                  ),
+                                                ),
                                         ),
                                     ),
                                     if (preview != null)
@@ -2299,10 +2388,16 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// overlay drawer (stage 1/2): one tree, two mounts — a favorite open
   /// inside the drawer resolves the panes the same way an inline click
   /// does.
-  Widget _buildSidebarView() {
+  Widget _buildSidebarView(RegisteredCommand? sshImportCommand) {
     final session = widget.engineSession;
     return SidebarView(
       controller: _sidebar!,
+      // D22's adoption offer in the empty-favorites state routes
+      // through the registered command: the same enablement and
+      // one-shot session rule apply as the menu row.
+      onImportSshConfig: sshImportCommand == null
+          ? null
+          : () => unawaited(_runCommand(sshImportCommand)),
       connections: _connections,
       probes: _probes,
       onOpenFavorite: _workspace == null ? null : _openFavorite,
@@ -2396,6 +2491,97 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       case BookmarkKind.workspace || BookmarkKind.savedSync:
         break; // answered above — the switch is exhaustive.
     }
+  }
+
+  /// ── Quick Open (02 §8.4) ─────────────────────────────────────────
+
+  /// `app.quickOpen`'s invocation: opens the centered palette over the
+  /// live registry, favorites, and recents. The dialog future is NOT
+  /// awaited — `_runCommand`'s one-shot session would otherwise pin
+  /// every app command's `enabled` for the palette's whole lifetime.
+  void _openQuickOpen() {
+    if (_quickOpenOpen || _workspace == null) return;
+    _quickOpenOpen = true;
+    unawaited(
+      showQuickOpenPalette(
+        context,
+        commands: _commands,
+        favorites: _sidebar?.bookmarks ?? const [],
+        recents: widget.recentLocations?.entries ?? const [],
+        resolveRecentBookmark: _resolveRecentBookmark,
+        onCommand: (command) => unawaited(_runCommand(command)),
+        onFavorite: (bookmark, action) =>
+            _openFavorite(bookmark, _sidebarAction(action)),
+        onRecent: _openRecentLocation,
+      ).whenComplete(() => _quickOpenOpen = false),
+    );
+  }
+
+  /// The palette's Enter family mapped onto §4's sidebar vocabulary:
+  /// ⌥ = the other pane, ⌘/Ctrl = a new tab.
+  SidebarOpenAction _sidebarAction(QuickOpenAction action) => switch (action) {
+    QuickOpenAction.plain => SidebarOpenAction.plain,
+    QuickOpenAction.newTab => SidebarOpenAction.newTab,
+    QuickOpenAction.otherPane => SidebarOpenAction.oppositePane,
+  };
+
+  /// A remote recent's live bookmark: the sidebar's favorites by id,
+  /// so an edited favorite opens under its CURRENT credentials. Null
+  /// leaves the palette to the row's stored snapshot.
+  Bookmark? _resolveRecentBookmark(RecentLocation recent) {
+    for (final bookmark in _sidebar?.bookmarks ?? const <Bookmark>[]) {
+      if (bookmark.id == recent.serverId) return bookmark;
+    }
+    return null;
+  }
+
+  /// Opens a Recents row (02 §8.4: "a Recent location opens like a
+  /// favorite") — same pane/tab resolution minus `preferredPane`, which
+  /// a recent does not carry: plain lands on the active pane.
+  void _openRecentLocation(RecentLocation recent, QuickOpenAction action) {
+    final workspace = _workspace;
+    if (workspace == null) return;
+    // Resolve before any state change: an unopenable remote must not
+    // switch the active pane or strand a fresh launcher tab.
+    final bookmark = recent.isRemote
+        ? _resolveRecentBookmark(recent) ?? recent.remoteBookmark
+        : null;
+    if (recent.isRemote && bookmark == null) {
+      return; // the row renders disabled instead
+    }
+    final active = workspace.activePane;
+    final strip = _shownPane(
+      workspace,
+      action == QuickOpenAction.otherPane
+          ? (identical(active, workspace.left)
+                ? workspace.right
+                : workspace.left)
+          : active,
+    );
+    workspace.setActivePane(strip);
+    final tab = action == QuickOpenAction.newTab || strip.activeTab == null
+        ? strip.newTab(target: NewTabTarget.launcher)
+        : strip.activeTab!;
+    final controller = tab.controller;
+    if (!recent.isRemote) {
+      unawaited(
+        controller
+            .openLocalAt(recent.path)
+            .catchError(
+              (Object error, StackTrace stackTrace) =>
+                  ApplicationErrorReporter().report(error, stackTrace),
+            ),
+      );
+      return;
+    }
+    unawaited(
+      controller
+          .connectRemote(bookmark!, initialPath: recent.path)
+          .catchError(
+            (Object error, StackTrace stackTrace) =>
+                ApplicationErrorReporter().report(error, stackTrace),
+          ),
+    );
   }
 
   /// ── Sync pair openings (05 §9) ───────────────────────────────────
