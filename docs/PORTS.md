@@ -1002,6 +1002,11 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   consumed from the pin, not ported (D2).
 - Port-back candidates: none — the divergences are Poltergeist-local
   (shell mount point, D20 localization, test seam).
+- Retired: 2026-09-24. D32 moved update availability into the
+  inspector's Alerts tab, and nothing mounted the banner after that.
+  The widget, its test and its three ARB keys (`updateBannerText`,
+  `updateViewRelease`, `updateDismissTooltip`) are removed. The checker
+  and `UpdateInfo` stay, feeding the alert.
 
 ## M10 milestone-close sweep (2026-09-22)
 

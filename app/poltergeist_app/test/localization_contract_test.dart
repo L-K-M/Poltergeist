@@ -320,9 +320,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The save dialog's name-field widget key — plumbing, not copy.
   'lib/ui/workspace/save_workspace_dialog.dart': {"'workspaceSave.name'"},
-  // The D19 banner's widget keys and the General dialog's keys/toggle
-  // key — plumbing for tests, never rendered.
-  'lib/ui/update_banner.dart': {"'update.viewRelease'", "'update.dismiss'"},
+  // The General dialog's keys/toggle key — plumbing for tests, never
+  // rendered.
   'lib/ui/settings/general_settings.dart': {
     "'general.settings.dialog'",
     "'general.settings.close'",

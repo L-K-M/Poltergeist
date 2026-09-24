@@ -2039,23 +2039,6 @@
   "@updateCheckEnabledSubtitle": {
     "description": "Explainer under the update-check toggle; the D19/D23 trust claim."
   },
-  "updateBannerText": "Poltergeist {version} is available.",
-  "@updateBannerText": {
-    "description": "Dismissible banner shown when GitHub's latest release tag is newer than the running version (D19).",
-    "placeholders": {
-      "version": {
-        "type": "String"
-      }
-    }
-  },
-  "updateViewRelease": "View release",
-  "@updateViewRelease": {
-    "description": "Update banner button opening the GitHub releases page in the OS browser (a link, never a download)."
-  },
-  "updateDismissTooltip": "Dismiss",
-  "@updateDismissTooltip": {
-    "description": "Tooltip for the update banner's close affordance (session dismiss; the next launch re-checks)."
-  },
   "backupTitle": "Bookmark backup",
   "@backupTitle": {
     "description": "04 §4.3's verbatim section title."

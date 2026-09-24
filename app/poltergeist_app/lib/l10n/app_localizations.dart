@@ -2455,24 +2455,6 @@ abstract class AppLocalizations {
   /// **'Checks GitHub on launch and only links to the release page — it never downloads anything.'**
   String get updateCheckEnabledSubtitle;
 
-  /// Dismissible banner shown when GitHub's latest release tag is newer than the running version (D19).
-  ///
-  /// In en, this message translates to:
-  /// **'Poltergeist {version} is available.'**
-  String updateBannerText(String version);
-
-  /// Update banner button opening the GitHub releases page in the OS browser (a link, never a download).
-  ///
-  /// In en, this message translates to:
-  /// **'View release'**
-  String get updateViewRelease;
-
-  /// Tooltip for the update banner's close affordance (session dismiss; the next launch re-checks).
-  ///
-  /// In en, this message translates to:
-  /// **'Dismiss'**
-  String get updateDismissTooltip;
-
   /// 04 §4.3's verbatim section title.
   ///
   /// In en, this message translates to:
