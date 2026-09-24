@@ -347,6 +347,30 @@ void main() {
     expect(left.notice, isNull);
   });
 
+  testWidgets('a launcher failure leaves the pane usable and retires on '
+      'the next selection', (tester) async {
+    localChannel().openFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.other,
+      operation: 'open',
+      message: 'No application is registered for this file.',
+    );
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await doubleTapRow(tester, 'report.txt');
+    expect(find.byKey(const ValueKey('pane.error.retry')), findsOneWidget);
+
+    // A failed Open is about ONE file: the folder is still listed, so
+    // copy, delete and the rest stay live rather than stranding the
+    // user until Retry (which would only fail the same way again).
+    expect(left.verbsEnabled, isTrue);
+
+    left.setCursorIndex(left.cursorIndex! == 0 ? 1 : 0);
+    await tester.pumpAndSettle();
+    expect(left.error, isNull);
+    expect(find.byKey(const ValueKey('pane.error.retry')), findsNothing);
+  });
+
   testWidgets('an untyped launcher failure renders the authored fault '
       'line', (tester) async {
     localChannel().openFailure = StateError('spawn failed');

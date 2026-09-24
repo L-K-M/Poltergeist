@@ -662,7 +662,10 @@ class PaneController extends ChangeNotifier {
   bool get verbsEnabled =>
       _phase == PanePhase.browsing &&
       _location != null &&
-      _error == null &&
+      // A failed file Open is about that one file: the listing is
+      // intact, so it never locks the folder's verbs (02 §2.6's inline
+      // error stays up for its Retry until the selection moves on).
+      (_error == null || _error is OpenEntryError) &&
       !connectionLost &&
       !loading;
 
@@ -1366,6 +1369,8 @@ class PaneController extends ChangeNotifier {
     final before = _selection;
     _selection = _selection.activate(_rowKeys[clamped], update);
     if (identical(before, _selection)) return;
+    // Moving on from the file that failed to open retires its error.
+    if (_error is OpenEntryError) _error = null;
     notifyListeners();
   }
 
