@@ -22,8 +22,12 @@ import '../../support/test_panes.dart';
 /// review. The widget-test default font renders hollow boxes, so the
 /// capture loads a real face when the host provides one — set
 /// POLTERGEIST_CAPTURE_FONT_DIR or rely on the DejaVu fallback. The PNGs
-/// land in tasks/run3-task30/ at the repo root.
-const _captureDir = '../../tasks/run3-task30';
+/// land in tasks/run3-task30/ at the repo root (or
+/// POLTERGEIST_CAPTURE_DIR), gated on POLTERGEIST_CAPTURE=1 like the
+/// other captures, so an ordinary test run writes nothing.
+final _captureDir =
+    Platform.environment['POLTERGEIST_CAPTURE_DIR'] ??
+    '../../tasks/run3-task30';
 
 Future<ByteData> _fontBytes(String path) async =>
     ByteData.view(File(path).readAsBytesSync().buffer);
@@ -159,9 +163,12 @@ void main() {
     final boundary = tester.renderObject<RenderRepaintBoundary>(
       find.byKey(const ValueKey('capture.pane')),
     );
-    final outDir = Directory(_captureDir)..createSync(recursive: true);
+    final captureOn = Platform.environment['POLTERGEIST_CAPTURE'] == '1';
+    final outDir = Directory(_captureDir);
+    if (captureOn) outDir.createSync(recursive: true);
 
     Future<void> capture(String name) async {
+      if (!captureOn) return;
       final bytes = (await tester.runAsync(() async {
         final image = await boundary.toImage(pixelRatio: 2);
         try {
