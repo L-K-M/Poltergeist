@@ -1283,13 +1283,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$paneTabId.columns'",
     r"'$paneTabId.column.${key.name}'",
   },
-  // The context menu's command-id slots for verbs another slice
-  // registers, and its row keys — registry plumbing, never copy.
+  // The context menu's row keys — registry plumbing, never copy (the
+  // command ids it names are imported from their registering files).
   'lib/ui/panes/pane_context_menu.dart': {
-    "'file.duplicate'",
-    "'file.newFolder'",
-    "'file.newFile'",
-    "'file.delete'",
     r"'pane.context.${command.id}'",
   },
   // The missing-mirror cause's empty-name fallback — a null-safety
