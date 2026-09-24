@@ -3726,8 +3726,17 @@ class AppLocalizationsEn extends AppLocalizations {
       'Items are moved to .poltergeist-trash/ on the server.';
 
   @override
-  String get deleteDialogTrashUnavailable =>
-      'The Trash isn\'t available here, so these items will be deleted permanently.';
+  String deleteDialogTrashUnavailable(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'The Trash isn\'t available here, so these items will be deleted permanently.',
+      one:
+          'The Trash isn\'t available here, so this item will be deleted permanently.',
+    );
+    return '$_temp0';
+  }
 
   @override
   String deleteDialogFlaggedExact(int count) {

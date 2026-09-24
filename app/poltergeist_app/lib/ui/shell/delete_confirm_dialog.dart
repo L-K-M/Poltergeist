@@ -196,7 +196,9 @@ class _DeleteDialogState extends State<_DeleteDialog> {
             if (confirmation.trashUnavailable) ...[
               const SizedBox(height: 8),
               Text(
-                l10n.deleteDialogTrashUnavailable,
+                l10n.deleteDialogTrashUnavailable(
+                  confirmation.rootPaths.length,
+                ),
                 key: const ValueKey('delete.trashUnavailable'),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.error,

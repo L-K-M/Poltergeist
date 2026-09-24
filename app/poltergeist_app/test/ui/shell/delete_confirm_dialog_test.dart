@@ -142,5 +142,30 @@ void main() {
   testWidgets('trash unavailable carries D15 notice', (tester) async {
     await _open(tester, _confirmation(trashUnavailable: true));
     expect(find.byKey(const ValueKey('delete.trashUnavailable')), findsOneWidget);
+    // One item reads in the singular.
+    expect(
+      find.text(
+        "The Trash isn't available here, so this item will be deleted "
+        'permanently.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the trash notice counts several items', (tester) async {
+    await _open(
+      tester,
+      _confirmation(
+        roots: const ['/srv/a.txt', '/srv/b.txt'],
+        trashUnavailable: true,
+      ),
+    );
+    expect(
+      find.text(
+        "The Trash isn't available here, so these items will be deleted "
+        'permanently.',
+      ),
+      findsOneWidget,
+    );
   });
 }

@@ -5790,11 +5790,11 @@ abstract class AppLocalizations {
   /// **'Items are moved to .poltergeist-trash/ on the server.'**
   String get deleteDialogMoveWarning;
 
-  /// D15's one-time trash-unavailable notice in the delete dialog.
+  /// D15's one-time trash-unavailable notice in the delete dialog; count is the number of selected items.
   ///
   /// In en, this message translates to:
-  /// **'The Trash isn\'t available here, so these items will be deleted permanently.'**
-  String get deleteDialogTrashUnavailable;
+  /// **'{count, plural, =1{The Trash isn\'t available here, so this item will be deleted permanently.} other{The Trash isn\'t available here, so these items will be deleted permanently.}}'**
+  String deleteDialogTrashUnavailable(int count);
 
   /// 02 §13 flagged-descendant disclosure (exact count).
   ///
