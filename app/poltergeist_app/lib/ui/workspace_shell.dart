@@ -1535,6 +1535,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           onImportSshConfig: sshImportCommand == null
               ? null
               : () => unawaited(_runCommand(sshImportCommand)),
+          commands: commands,
+          onRunCommand: _runCommand,
         );
 
     final panes = Stack(

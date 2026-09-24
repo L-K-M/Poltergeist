@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/services.dart';
-import 'package:poltergeist_core/poltergeist_core.dart' show RemoteFileType;
+import 'package:poltergeist_core/poltergeist_core.dart'
+    show FileSortKey, RemoteFileType;
 
 import '../../services/pane_controller.dart';
 import '../../services/pane_permissions.dart' show nameIsFlagged;
@@ -40,6 +41,40 @@ const kTabCloseCommandId = 'tab.close';
 const kTabReopenClosedCommandId = 'tab.reopenClosed';
 const kTabNextCommandId = 'tab.next';
 const kTabPreviousCommandId = 'tab.previous';
+const kViewToggleHiddenCommandId = 'view.toggleHidden';
+const kSelectionCopyPathCommandId = 'selection.copyPath';
+const kViewSortByCommandId = 'view.sortBy';
+
+/// The Details columns `view.sortBy` offers, in header order (D32 §6).
+const _sortColumns = [
+  FileSortKey.name,
+  FileSortKey.size,
+  FileSortKey.modified,
+];
+
+/// `selection.copyPath`'s payload for [pane]: the selected rows' paths
+/// in listing order, one per line; else the cursor row's; else the
+/// folder the pane stands in (Finder's ⌥⌘C). Null when there is nothing
+/// to name.
+String? paneCopyPathText(PaneController pane) {
+  final selected = pane.selectedEntries;
+  if (selected.isNotEmpty) {
+    return [for (final entry in selected) entry.path].join('\n');
+  }
+  final cursor = pane.cursorIndex;
+  if (cursor != null && cursor >= 0 && cursor < pane.entries.length) {
+    return pane.entries[cursor].path;
+  }
+  return pane.location?.path;
+}
+
+/// Writes [text] to the clipboard and posts the pane's transient
+/// "Path copied" confirmation (the notice channel every pane-moment
+/// confirmation shares).
+Future<void> copyPanePath(PaneController pane, String text) async {
+  await Clipboard.setData(ClipboardData(text: text));
+  pane.notePathCopied();
+}
 
 /// The pane-command registry slice (D21): every pane action this
 /// foundation ships is a registered command. Commands resolve the
@@ -881,6 +916,108 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.window,
         order: 20,
+        group: 1,
+      ),
+    ),
+    RegisteredCommand(
+      id: kViewToggleHiddenCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.viewToggleHiddenLabel,
+      icon: Icons.visibility_off_outlined,
+      // ⇧⌘. is Finder's chord; Ctrl+H is the GNOME/KDE file managers'.
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.period, meta: true, shift: true),
+        ],
+        other: const [SingleActivator(LogicalKeyboardKey.keyH, control: true)],
+      ),
+      // The tab-local override (02 §2.5): live on any browsing tab — the
+      // lens re-derives from the accepted listing, no re-list needed.
+      enabled: () => activeTab()?.location != null,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      checked: () => activeTab()?.showHidden ?? false,
+      run: (_) async {
+        final pane = activeTab();
+        if (pane == null) return;
+        pane.showHidden = !pane.showHidden;
+      },
+      // 10 §8's View menu: Show Hidden Files in its own section between
+      // the inspector tabs and Refresh.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.view,
+        order: 100,
+        group: 1,
+      ),
+    ),
+    RegisteredCommand(
+      id: kViewSortByCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.viewSortByLabel,
+      icon: Icons.sort,
+      // The column header's keyboard and menu path (D21: the header's
+      // clicks are this command's rows): Sort By ▸ Name / Size / Date
+      // Modified, checked on the sorted column. Choosing the sorted
+      // column flips its direction, exactly as a header click does.
+      enabled: () => activeTab()?.location != null,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      // The palette's non-menu invocation flips the current column.
+      run: (_) async {
+        final pane = activeTab();
+        if (pane == null) return;
+        pane.sortByColumn(pane.sortKey);
+      },
+      submenuItems: (l10n) => [
+        for (final key in _sortColumns)
+          RegisteredCommand(
+            // Parameter-bound items share the parent's registry id —
+            // the suffix only keeps menu keys unique.
+            id: '$kViewSortByCommandId:${key.name}',
+            scope: CommandScope.pane,
+            label: (l10n) => switch (key) {
+              FileSortKey.size => l10n.paneColumnSize,
+              FileSortKey.modified => l10n.paneColumnModified,
+              _ => l10n.paneColumnName,
+            },
+            enabled: () => activeTab()?.location != null,
+            checked: () => activeTab()?.sortKey == key,
+            run: (_) async => activeTab()?.sortByColumn(key),
+          ),
+      ],
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.view,
+        order: 105,
+        group: 1,
+      ),
+    ),
+    RegisteredCommand(
+      id: kSelectionCopyPathCommandId,
+      scope: CommandScope.selection,
+      label: (l10n) => l10n.selectionCopyPathLabel,
+      icon: Icons.content_paste_go_outlined,
+      // ⌥⌘C on macOS (Finder's Copy as Pathname), Ctrl+Alt+C elsewhere.
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyC, meta: true, alt: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyC, control: true, alt: true),
+        ],
+      ),
+      enabled: () {
+        final pane = activeTab();
+        return pane != null && paneCopyPathText(pane) != null;
+      },
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      run: (_) async {
+        final pane = activeTab();
+        final text = pane == null ? null : paneCopyPathText(pane);
+        if (pane == null || text == null) return;
+        await copyPanePath(pane, text);
+      },
+      // 10 §8's Edit menu: Copy Path between Quick Select and Filter.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.edit,
+        order: 85,
         group: 1,
       ),
     ),

@@ -576,8 +576,8 @@ void main() {
         reason: 'the inactive pane never opens a session');
   });
 
-  testWidgets('file.getInfo is selection-scoped, toggles the active '
-      'pane\'s inspector, and documents its §8.3 keys', (tester) async {
+  testWidgets('file.getInfo is selection-scoped, toggles the inspector\'s '
+      'Info tab, and documents its §8.3 keys', (tester) async {
     final lanes = controller_test.FakePaneLanes();
     final channel = controller_test.FakePaneChannel('/home/tester');
     channel.listings['/home/tester'] = [_entry('a'), _entry('b')];
@@ -620,12 +620,10 @@ void main() {
     expect(getInfo.menuPlacement?.order, 65);
     expect(getInfo.menuPlacement?.group, 1);
 
-    // Enablement needs an inspector target — a cursor/selected row —
-    // or an already-open panel (so the same chord toggles it closed).
-    workspace.setActivePane(rightStrip);
-    expect(getInfo.enabled(), isFalse);
+    // D32: Get Info is the inspector's Info tab, live whenever the
+    // active pane shows a tab (its empty state covers "no selection").
     workspace.setActivePane(leftStrip);
-    expect(getInfo.enabled(), isFalse);
+    expect(getInfo.enabled(), isTrue);
     left.setCursorIndex(1);
     expect(getInfo.enabled(), isTrue);
 
@@ -637,12 +635,14 @@ void main() {
       ),
     );
     final context = tester.element(find.byType(Scaffold));
+    // The chord toggles the window inspector on its Info tab (the
+    // per-pane overlay is gone — D32 §3).
+    workspace.setInspectorHidden(true);
     await getInfo.run(context);
-    expect(leftStrip.infoPanelOpen, isTrue);
-    expect(rightStrip.infoPanelOpen, isFalse,
-        reason: 'the inspector is pane chrome of the ACTIVE pane only');
+    expect(workspace.inspectorHidden, isFalse);
+    expect(workspace.inspectorTab, InspectorTab.info);
     await getInfo.run(context);
-    expect(leftStrip.infoPanelOpen, isFalse);
+    expect(workspace.inspectorHidden, isTrue);
   });
 
   testWidgets('file.editBuiltIn is selection-scoped, opens the cursor row '
@@ -887,6 +887,182 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump();
     expect(ran, isTrue);
+  });
+
+  testWidgets('view.toggleHidden flips the active tab\'s hidden-file lens '
+      'with Finder/GNOME chords and a checked View-menu row', (tester) async {
+    final lanes = controller_test.FakePaneLanes();
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('.env'), _entry('a.txt')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final workspace = WorkspaceController(
+      left: testPaneStrip(left),
+      right: testPaneStrip(right),
+    );
+    addTearDown(workspace.dispose);
+    final toggle = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((c) => c.id == kViewToggleHiddenCommandId);
+
+    expect(toggle.scope, CommandScope.pane);
+    expect(toggle.activators!(TargetPlatform.macOS), [
+      const SingleActivator(
+        LogicalKeyboardKey.period,
+        meta: true,
+        shift: true,
+      ),
+    ]);
+    expect(toggle.activators!(TargetPlatform.linux), [
+      const SingleActivator(LogicalKeyboardKey.keyH, control: true),
+    ]);
+    expect(toggle.menuPlacement?.menu, AppMenuId.view);
+    // An unbound tab has no lens to flip.
+    expect(toggle.enabled(), isFalse);
+
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await tester.pump();
+    expect(toggle.enabled(), isTrue);
+    expect(toggle.checked!(), isFalse);
+    expect(left.entries.map((e) => e.name), ['a.txt']);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    final context = tester.element(find.byType(Scaffold));
+    await toggle.run(context);
+    expect(left.showHidden, isTrue);
+    expect(toggle.checked!(), isTrue);
+    expect(left.entries.map((e) => e.name), ['.env', 'a.txt']);
+    expect(right.showHidden, isFalse, reason: 'the active tab only');
+    await toggle.run(context);
+    expect(left.showHidden, isFalse);
+  });
+
+  testWidgets('view.sortBy is the column header\'s menu path: one row per '
+      'column, checked on the sorted one', (tester) async {
+    final lanes = controller_test.FakePaneLanes();
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('a.txt'), _entry('b.txt')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final workspace = WorkspaceController(
+      left: testPaneStrip(left),
+      right: testPaneStrip(
+        PaneController(paneTabId: 'pane.right', lanes: lanes),
+      ),
+    );
+    addTearDown(workspace.dispose);
+    final sortBy = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((c) => c.id == kViewSortByCommandId);
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    final context = tester.element(find.byType(Scaffold));
+    final l10n = AppLocalizations.of(context);
+    expect(sortBy.menuPlacement?.menu, AppMenuId.view);
+    final items = sortBy.submenuItems!(l10n);
+    expect([for (final item in items) item.label(l10n)], [
+      'Name',
+      'Size',
+      'Date Modified',
+    ]);
+    expect([for (final item in items) item.checked!()], [true, false, false]);
+
+    await items[1].run(context);
+    expect(left.sortKey, FileSortKey.size);
+    expect(left.sortDirection, FileSortDirection.descending);
+    expect(items[1].checked!(), isTrue);
+    // The palette path flips the sorted column.
+    await sortBy.run(context);
+    expect(left.sortDirection, FileSortDirection.ascending);
+  });
+
+  testWidgets('selection.copyPath copies the selection, else the folder, '
+      'and confirms through the pane notice', (tester) async {
+    final clipboard = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboard.add((call.arguments as Map)['text'] as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    final lanes = controller_test.FakePaneLanes();
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('a.txt'), _entry('b.txt')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final workspace = WorkspaceController(
+      left: testPaneStrip(left),
+      right: testPaneStrip(
+        PaneController(paneTabId: 'pane.right', lanes: lanes),
+      ),
+    );
+    addTearDown(workspace.dispose);
+    final copy = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((c) => c.id == kSelectionCopyPathCommandId);
+
+    expect(copy.scope, CommandScope.selection);
+    expect(copy.activators!(TargetPlatform.macOS), [
+      const SingleActivator(LogicalKeyboardKey.keyC, meta: true, alt: true),
+    ]);
+    expect(copy.activators!(TargetPlatform.windows), [
+      const SingleActivator(LogicalKeyboardKey.keyC, control: true, alt: true),
+    ]);
+    expect(copy.menuPlacement?.menu, AppMenuId.edit);
+    expect(copy.enabled(), isFalse, reason: 'nothing to name yet');
+
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    final context = tester.element(find.byType(Scaffold));
+
+    // No selection: the folder itself (Finder's ⌥⌘C).
+    await copy.run(context);
+    expect(clipboard.last, '/home/tester');
+    expect(left.notice, PaneNotice.pathCopied);
+
+    left.selectAll();
+    await copy.run(context);
+    expect(clipboard.last, '/home/tester/a.txt\n/home/tester/b.txt');
+    // Let the notice's auto-hide timer run out.
+    await tester.pump(const Duration(seconds: 5));
   });
 }
 

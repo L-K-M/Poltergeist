@@ -1,9 +1,12 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
+import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -297,5 +300,210 @@ void main() {
       atRest,
       reason: 'an onscreen chip activation keeps the strip at rest',
     );
+  });
+
+  group('tab strip (D32 §6)', () {
+    late FakePaneLanes lanes;
+    late PaneTabsController leftStrip;
+    late PaneTabsController rightStrip;
+    late WorkspaceController workspace;
+    late FocusNode leftNode;
+    late FocusNode rightNode;
+
+    setUp(() {
+      lanes = FakePaneLanes();
+      leftStrip = PaneTabsController(
+        paneId: PaneTabsController.leftPaneId,
+        lanes: lanes,
+      );
+      rightStrip = PaneTabsController(
+        paneId: PaneTabsController.rightPaneId,
+        lanes: lanes,
+      );
+      workspace = WorkspaceController(left: leftStrip, right: rightStrip);
+      leftNode = FocusNode();
+      rightNode = FocusNode();
+    });
+
+    tearDown(() {
+      workspace.dispose();
+      leftNode.dispose();
+      rightNode.dispose();
+    });
+
+    Future<void> pumpBoth(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.linux),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          home: Scaffold(
+            body: Row(
+              children: [
+                Expanded(
+                  child: PaneTabsView(
+                    tabs: leftStrip,
+                    workspace: workspace,
+                    focusNode: leftNode,
+                    onSwapFocus: () {},
+                    onCancelRecovery: () {},
+                  ),
+                ),
+                Expanded(
+                  child: PaneTabsView(
+                    tabs: rightStrip,
+                    workspace: workspace,
+                    focusNode: rightNode,
+                    onSwapFocus: () {},
+                    onCancelRecovery: () {},
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    Future<void> openLocalTab(PaneTabsController strip, String path) async {
+      final channel = FakePaneChannel(path);
+      channel.listings[path] = const [];
+      lanes.nextLocalChannel = channel;
+      final tab = strip.newTab(target: NewTabTarget.launcher);
+      await tab.controller.openLocalAt(path);
+    }
+
+    testWidgets('only the ACTIVE pane carries the 2 px accent line', (
+      tester,
+    ) async {
+      await openLocalTab(leftStrip, '/home/a');
+      await openLocalTab(rightStrip, '/home/b');
+      await pumpBoth(tester);
+
+      final chrome = PoltergeistChrome.of(
+        tester.element(find.byType(Scaffold)),
+      );
+      Container line(String key) =>
+          tester.widget<Container>(find.byKey(ValueKey(key)));
+      expect(workspace.activePane, leftStrip);
+      expect(find.byKey(const ValueKey('pane.left.activeIndicator')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pane.right.inactiveSeparator')),
+          findsOneWidget);
+      expect(
+        tester.getSize(find.byKey(const ValueKey('pane.left.activeIndicator')))
+            .height,
+        2,
+      );
+      expect(
+        line('pane.left.activeIndicator').color,
+        chrome.activePaneIndicator,
+      );
+
+      workspace.setActivePane(rightStrip);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pane.right.activeIndicator')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pane.left.inactiveSeparator')),
+          findsOneWidget);
+    });
+
+    testWidgets('the ✕ shows on the active tab and on hover only', (
+      tester,
+    ) async {
+      await openLocalTab(leftStrip, '/home/a');
+      await openLocalTab(leftStrip, '/home/b');
+      leftStrip.activateTab(leftStrip.tabs.last);
+      await pumpBoth(tester);
+
+      bool closeVisible(PaneTab tab) => tester
+          .widget<Visibility>(
+            find.ancestor(
+              of: find.byKey(ValueKey('${tab.id}.close')),
+              matching: find.byType(Visibility),
+            ),
+          )
+          .visible;
+      final first = leftStrip.tabs.first;
+      final second = leftStrip.tabs.last;
+      expect(closeVisible(second), isTrue);
+      expect(closeVisible(first), isFalse);
+
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(tester.getCenter(find.text('a')));
+      await tester.pump();
+      expect(closeVisible(first), isTrue);
+    });
+
+    testWidgets('right-click opens the tab menu: Close Others, Duplicate, '
+        'Move to Other Pane, Copy Path', (tester) async {
+      final clipboard = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboard.add((call.arguments as Map)['text'] as String);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await openLocalTab(leftStrip, '/home/a');
+      await openLocalTab(leftStrip, '/home/b');
+      await openLocalTab(rightStrip, '/home/r');
+      await pumpBoth(tester);
+      final a = leftStrip.tabs.first;
+
+      Future<void> openMenuOn(String title) async {
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.text(title)),
+          kind: PointerDeviceKind.mouse,
+          buttons: kSecondaryMouseButton,
+        );
+        await gesture.up();
+        await tester.pumpAndSettle();
+      }
+
+      await openMenuOn('a');
+      await tester.tap(find.byKey(ValueKey('${a.id}.menu.copyPath')));
+      await tester.pumpAndSettle();
+      expect(clipboard, ['/home/a']);
+
+      // Duplicate opens a new tab on the same folder.
+      lanes.nextLocalChannel = FakePaneChannel('/home/a')
+        ..listings['/home/a'] = const [];
+      await openMenuOn('a');
+      await tester.tap(find.byKey(ValueKey('${a.id}.menu.duplicate')));
+      await tester.pumpAndSettle();
+      expect(leftStrip.tabs, hasLength(3));
+      expect(leftStrip.activeTab?.controller.location?.path, '/home/a');
+
+      // Move to Other Pane hands the tab to the right strip.
+      await openMenuOn('b');
+      final b = leftStrip.tabs[1];
+      await tester.tap(find.byKey(ValueKey('${b.id}.menu.moveToOtherPane')));
+      await tester.pumpAndSettle();
+      expect(rightStrip.tabs, contains(b));
+      expect(leftStrip.tabs, isNot(contains(b)));
+
+      // Close Others keeps only the menu's tab.
+      await openMenuOn('r');
+      final r = rightStrip.tabs.first;
+      await tester.tap(find.byKey(ValueKey('${r.id}.menu.closeOthers')));
+      await tester.pumpAndSettle();
+      expect(rightStrip.tabs, [r]);
+      // Let the "Path copied" notice's auto-hide timer run out.
+      await tester.pump(const Duration(seconds: 5));
+    });
   });
 }

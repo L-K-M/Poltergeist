@@ -257,43 +257,24 @@ void main() {
     });
   });
 
-  group('strip panel state (02 §2.6)', () {
-    test('toggleInfoPanel opens and closes; the flag reports false '
-        'with no active tab', () async {
-      final (controller, _) = await _browsedPane([_entry('a.txt')]);
-      final strip = testPaneStrip(controller);
-      addTearDown(controller.dispose);
-
-      expect(strip.infoPanelOpen, isFalse);
-      strip.toggleInfoPanel();
-      expect(strip.infoPanelOpen, isTrue);
-      strip.toggleInfoPanel();
-      expect(strip.infoPanelOpen, isFalse);
-
-      // An empty strip reports closed regardless of the latch.
-      strip.toggleInfoPanel();
-      expect(strip.infoPanelOpen, isTrue);
-      await strip.requestCloseTab(strip.tabs.first);
-      expect(strip.infoPanelOpen, isFalse);
-    });
-
-    test('closing the panel cancels every tab\'s in-flight walk',
-        () async {
+  group('walk lifetime (02 §2.6)', () {
+    // D32 retired the strip's per-pane Get Info overlay (the inspector's
+    // Info tab owns the panel), so nothing strip-level ends a walk any
+    // more: the panel's own Cancel and the tab close guard do.
+    test('cancelFolderSize ends the in-flight walk', () async {
       final (controller, channel) = await _browsedPane([
         _entry('docs', type: RemoteFileType.directory),
       ]);
-      final strip = testPaneStrip(controller);
+      testPaneStrip(controller);
       addTearDown(controller.dispose);
       channel.holdNext = Completer<void>();
       channel.listings['/home/tester/docs'] = const [];
 
       controller.setCursorIndex(0);
-      strip.toggleInfoPanel();
       controller.startFolderSize();
       expect(controller.folderSizeInFlight, isTrue);
 
-      strip.closeInfoPanel();
-      expect(strip.infoPanelOpen, isFalse);
+      controller.cancelFolderSize();
       expect(controller.folderSizeInFlight, isFalse);
     });
 

@@ -5609,6 +5609,108 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No location'**
   String get headerTitleEmpty;
+
+  /// Listing column header: the item name column (click to sort).
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get paneColumnName;
+
+  /// Listing column header: the size column (click to sort).
+  ///
+  /// In en, this message translates to:
+  /// **'Size'**
+  String get paneColumnSize;
+
+  /// Listing column header: the modification date column (click to sort).
+  ///
+  /// In en, this message translates to:
+  /// **'Date Modified'**
+  String get paneColumnModified;
+
+  /// Accessibility value of the column header the listing is sorted by, ascending.
+  ///
+  /// In en, this message translates to:
+  /// **'Sorted ascending'**
+  String get paneColumnSortedAscending;
+
+  /// Accessibility value of the column header the listing is sorted by, descending.
+  ///
+  /// In en, this message translates to:
+  /// **'Sorted descending'**
+  String get paneColumnSortedDescending;
+
+  /// Accessibility hint of a listing column header.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort by this column'**
+  String get paneColumnSortHint;
+
+  /// Location header's second line while rows are selected.
+  ///
+  /// In en, this message translates to:
+  /// **'{selected} of {total} selected'**
+  String paneSelectionSummary(int selected, int total);
+
+  /// Location header's selection line with the selected files' total size, e.g. '3 of 329 selected · 42.1 MB'.
+  ///
+  /// In en, this message translates to:
+  /// **'{summary} · {size}'**
+  String paneSelectionSummaryWithSize(String summary, String size);
+
+  /// Tooltip of the location header's menu button listing the enclosing folders.
+  ///
+  /// In en, this message translates to:
+  /// **'Enclosing folders'**
+  String get paneAncestorMenuTooltip;
+
+  /// View menu toggle: show or hide dotfiles in the active tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Show Hidden Files'**
+  String get viewToggleHiddenLabel;
+
+  /// Copies the selected items' full paths (or the folder's) to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy Path'**
+  String get selectionCopyPathLabel;
+
+  /// Tab context menu: closes every other tab in this pane.
+  ///
+  /// In en, this message translates to:
+  /// **'Close Other Tabs'**
+  String get tabCloseOthersLabel;
+
+  /// Tab context menu: opens a new tab at this tab's location.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate Tab'**
+  String get tabDuplicateLabel;
+
+  /// Tab context menu: moves the tab to the other pane's tab strip.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to Other Pane'**
+  String get tabMoveToOtherPaneLabel;
+
+  /// Tab context menu: copies the tab's folder path to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy Path'**
+  String get tabCopyPathLabel;
+
+  /// Helper under the prefilled Quick Connect field: what to type after the user name.
+  ///
+  /// In en, this message translates to:
+  /// **'host[:port]'**
+  String get quickConnectAddressHostHint;
+
+  /// View menu submenu: sort the listing by Name, Size, or Date Modified.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort By'**
+  String get viewSortByLabel;
 }
 
 class _AppLocalizationsDelegate

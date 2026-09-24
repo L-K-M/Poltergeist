@@ -3602,4 +3602,59 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get headerTitleEmpty => 'No location';
+
+  @override
+  String get paneColumnName => 'Name';
+
+  @override
+  String get paneColumnSize => 'Size';
+
+  @override
+  String get paneColumnModified => 'Date Modified';
+
+  @override
+  String get paneColumnSortedAscending => 'Sorted ascending';
+
+  @override
+  String get paneColumnSortedDescending => 'Sorted descending';
+
+  @override
+  String get paneColumnSortHint => 'Sort by this column';
+
+  @override
+  String paneSelectionSummary(int selected, int total) {
+    return '$selected of $total selected';
+  }
+
+  @override
+  String paneSelectionSummaryWithSize(String summary, String size) {
+    return '$summary · $size';
+  }
+
+  @override
+  String get paneAncestorMenuTooltip => 'Enclosing folders';
+
+  @override
+  String get viewToggleHiddenLabel => 'Show Hidden Files';
+
+  @override
+  String get selectionCopyPathLabel => 'Copy Path';
+
+  @override
+  String get tabCloseOthersLabel => 'Close Other Tabs';
+
+  @override
+  String get tabDuplicateLabel => 'Duplicate Tab';
+
+  @override
+  String get tabMoveToOtherPaneLabel => 'Move to Other Pane';
+
+  @override
+  String get tabCopyPathLabel => 'Copy Path';
+
+  @override
+  String get quickConnectAddressHostHint => 'host[:port]';
+
+  @override
+  String get viewSortByLabel => 'Sort By';
 }

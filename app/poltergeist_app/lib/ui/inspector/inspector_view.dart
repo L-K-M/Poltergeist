@@ -296,8 +296,6 @@ class _InfoTab extends StatelessWidget {
               InfoPanel(
                 controller: controller,
                 clock: DateTime.now,
-                embedded: true,
-                onClose: () {},
                 onEscape: onEscape,
               ),
             ],

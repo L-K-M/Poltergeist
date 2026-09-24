@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:poltergeist_app/ui/panes/pane_format.dart';
+import 'package:poltergeist_core/poltergeist_core.dart'
+    show RemoteFileEntry, RemoteFileType;
 
 void main() {
   setUpAll(() => initializeDateFormatting('en'));
@@ -145,6 +147,43 @@ void main() {
       expect(formatPosixModeOctal(0xA1A4), '0644');
       // Type and special bits combined: symlink + suid + 0755.
       expect(formatPosixModeOctal(0xA9ED), '4755');
+    });
+  });
+
+  group('paneKindCategory (D32 §6 kind glyphs)', () {
+    RemoteFileEntry entry(
+      String name, [
+      RemoteFileType type = RemoteFileType.file,
+    ]) => RemoteFileEntry(path: '/x/$name', name: name, type: type);
+
+    test('the file type wins over any extension', () {
+      expect(
+        paneKindCategory(entry('photos.png', RemoteFileType.directory)),
+        PaneKindCategory.folder,
+      );
+      expect(
+        paneKindCategory(entry('latest.zip', RemoteFileType.symbolicLink)),
+        PaneKindCategory.link,
+      );
+    });
+
+    test('extensions map to their family, case-insensitively', () {
+      expect(paneKindCategory(entry('IMG_0001.JPG')), PaneKindCategory.image);
+      expect(paneKindCategory(entry('main.dart')), PaneKindCategory.text);
+      expect(paneKindCategory(entry('notes.md')), PaneKindCategory.text);
+      expect(paneKindCategory(entry('site.tar.gz')), PaneKindCategory.archive);
+      expect(paneKindCategory(entry('manual.pdf')), PaneKindCategory.pdf);
+      expect(paneKindCategory(entry('talk.mp4')), PaneKindCategory.media);
+      expect(paneKindCategory(entry('song.flac')), PaneKindCategory.media);
+      expect(paneKindCategory(entry('data.bin')), PaneKindCategory.other);
+    });
+
+    test('dotfiles and bare names have no extension', () {
+      expect(paneKindCategory(entry('.bashrc')), PaneKindCategory.other);
+      expect(paneKindCategory(entry('Makefile')), PaneKindCategory.other);
+      expect(paneKindCategory(entry('trailing.')), PaneKindCategory.other);
+      // A dotfile WITH an extension still classifies by it.
+      expect(paneKindCategory(entry('.config.json')), PaneKindCategory.text);
     });
   });
 }

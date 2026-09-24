@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart' show kDoubleTapTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -91,10 +93,17 @@ void main() {
     rightNode.dispose();
   });
 
+  /// Esc presses the panel routed out of itself — the inspector's
+  /// handler in the shell.
+  late List<KeyEvent> routedEscapes;
+
+  /// Mounts both panes beside the D32 inspector's Info column: the
+  /// panel follows the ACTIVE tab, exactly as the inspector mounts it.
   Future<void> pumpShell(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    routedEscapes = [];
 
     await tester.pumpWidget(
       MaterialApp(
@@ -123,6 +132,29 @@ void main() {
                   onSwapFocus: () => leftNode.requestFocus(),
                   onCancelRecovery: () => unawaited(right.cancelRecovery()),
                   clock: _fixedClock,
+                ),
+              ),
+              SizedBox(
+                width: 280,
+                child: ListenableBuilder(
+                  listenable: workspace,
+                  builder: (context, _) {
+                    final controller = workspace.activeTabController;
+                    if (controller == null) return const SizedBox.shrink();
+                    return ListenableBuilder(
+                      listenable: controller,
+                      builder: (context, _) => SingleChildScrollView(
+                        child: InfoPanel(
+                          controller: controller,
+                          clock: _fixedClock,
+                          onEscape: (event) {
+                            routedEscapes.add(event);
+                            return KeyEventResult.handled;
+                          },
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
@@ -154,7 +186,6 @@ void main() {
     await pumpShell(tester);
 
     left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
 
     expect(find.byType(InfoPanel), findsOneWidget);
@@ -226,8 +257,9 @@ void main() {
     await right.connectRemote(_remoteBookmark());
     await pumpShell(tester);
 
+    // The inspector follows the ACTIVE pane's tab.
+    workspace.setActivePane(rightStrip);
     right.setCursorIndex(0);
-    rightStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
 
     expect(find.byType(InfoPanel), findsOneWidget);
@@ -262,7 +294,6 @@ void main() {
     await pumpShell(tester);
 
     left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
     expect(inPanel(find.text('a.txt')), findsOneWidget);
 
@@ -287,7 +318,6 @@ void main() {
     await left.openLocalHome();
     await pumpShell(tester);
 
-    leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
 
     expect(find.byType(InfoPanel), findsOneWidget);
@@ -301,43 +331,46 @@ void main() {
     );
   });
 
-  testWidgets('stays non-modal: row taps reach the listing and retarget '
-      'the open panel', (tester) async {
-    final channel = controller_test.FakePaneChannel('/home/tester');
-    channel.listings['/home/tester'] = [
-      _entry('a.txt', size: 1),
-      _entry('b.txt', size: 2),
-    ];
-    lanes.nextLocalChannel = channel;
-    await left.openLocalHome();
-    await pumpShell(tester);
+  testWidgets('a row press retargets the panel at pointer-down', (
+    tester,
+  ) async {
+    // Desktop pointer semantics (D32 §6): select on press, no wait.
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    try {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('a.txt', size: 1),
+        _entry('b.txt', size: 2),
+      ];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
 
-    left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
-    await tester.pumpAndSettle();
-    expect(inPanel(find.text('a.txt')), findsOneWidget);
+      left.setCursorIndex(0);
+      await tester.pumpAndSettle();
+      expect(inPanel(find.text('a.txt')), findsOneWidget);
 
-    // The panel is a right-edge overlay — a tap on a row's left side
-    // still reaches the listing and moves the cursor. The name text
-    // sits in an Expanded, so tap its left edge (its center can land
-    // under the 280px panel).
-    await tester.tapAt(tester.getTopLeft(find.text('b.txt')) +
-        const Offset(10, 5));
-    // Rows carry onDoubleTap, so the single tap commits only after the
-    // double-tap window elapses.
-    await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
-    expect(left.cursorIndex, 1);
-    expect(inPanel(find.text('b.txt')), findsOneWidget);
+      await tester.tap(find.text('b.txt'));
+      await tester.pump();
+      expect(left.cursorIndex, 1);
+      expect(inPanel(find.text('b.txt')), findsOneWidget);
 
-    // Release the focus the pointer-down bounced to the listing —
-    // disposing a still-focused node at teardown schedules an update
-    // on the binding's already-dead FocusManager.
-    FocusManager.instance.primaryFocus?.unfocus();
-    await tester.pump();
+      // Let the double-click window lapse, then release the focus the
+      // press bounced to the listing — disposing a still-focused node
+      // at teardown schedules an update on the binding's already-dead
+      // FocusManager.
+      await tester.pump(kDoubleTapTimeout);
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
-  testWidgets('Esc closes the panel at its §8.2 slot, above the '
-      'unfocused filter', (tester) async {
+  testWidgets('the listing\'s Esc has no panel tier: the inspector owns '
+      'the panel, so the first Esc clears an unfocused filter', (
+    tester,
+  ) async {
     final channel = controller_test.FakePaneChannel('/home/tester');
     channel.listings['/home/tester'] = [
       _entry('a.txt'),
@@ -347,15 +380,8 @@ void main() {
     await left.openLocalHome();
     await pumpShell(tester);
 
-    // An active-but-unfocused filter sits BELOW the panel in the Esc
-    // order (02 §8.2): the first Esc closes the inspector, the second
-    // clears the filter.
-    left.openFilter();
-    left.changeFilterQuery('a');
+    left.setFilterQuery('a');
     left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
-    // Let the field's one-shot focus claim land, then move focus back
-    // to the listing — the state under test is an UNFOCUSED filter.
     await tester.pumpAndSettle();
     leftNode.requestFocus();
     await tester.pump();
@@ -363,15 +389,11 @@ void main() {
     expect(left.filterActive, isTrue);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pumpAndSettle();
-    expect(find.byType(InfoPanel), findsNothing);
-    expect(left.filterActive, isTrue,
-        reason: 'the panel owns the first Esc; the filter survives it');
-
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
     expect(left.filterActive, isFalse);
-    expect(left.filterFieldOpen, isFalse);
+    expect(find.byType(InfoPanel), findsOneWidget,
+        reason: 'the pane never hides the inspector\'s panel');
+    expect(routedEscapes, isEmpty);
 
     // Release the pane's primary focus before teardown — disposing a
     // still-focused node schedules an update on the binding's already-
@@ -380,54 +402,8 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('Esc order: an error retry outranks the panel close',
-      (tester) async {
-    final channel = controller_test.FakePaneChannel('/home/tester');
-    channel.listings['/home/tester'] = [_entry('a.txt')];
-    lanes.nextLocalChannel = channel;
-    await left.openLocalHome();
-    await pumpShell(tester);
-
-    left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
-    await tester.pumpAndSettle();
-    expect(find.byType(InfoPanel), findsOneWidget);
-
-    // Drive the pane into its error state with the panel open — the
-    // retry tier sits ABOVE the panel's close slot (02 §8.2).
-    channel.listingFailure = const RemoteFileException(
-      kind: RemoteFileErrorKind.other,
-      operation: 'list',
-      path: '/home/tester',
-      message: 'listing refused',
-    );
-    left.refresh();
-    await tester.pumpAndSettle();
-    expect(left.error, isNotNull);
-    expect(find.byType(InfoPanel), findsOneWidget);
-
-    // First Esc retries the failed operation (cleared fault → the
-    // retry re-lists cleanly); the inspector must survive it.
-    channel.listingFailure = null;
-    leftNode.requestFocus();
-    await tester.pump();
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pumpAndSettle();
-    expect(left.error, isNull);
-    expect(find.byType(InfoPanel), findsOneWidget,
-        reason: 'error-retry owns the first Esc; the panel stays open');
-
-    // The next Esc reaches the panel's own slot.
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pumpAndSettle();
-    expect(find.byType(InfoPanel), findsNothing);
-
-    FocusManager.instance.primaryFocus?.unfocus();
-    await tester.pump();
-  });
-
-  testWidgets('Esc pressed while a panel control holds focus still runs '
-      'the tier chain', (tester) async {
+  testWidgets('Esc pressed while a panel control holds focus routes to '
+      'the inspector', (tester) async {
     final channel = controller_test.FakePaneChannel('/home/tester');
     channel.listings['/home/tester'] = [
       _entry('docs', type: RemoteFileType.directory),
@@ -440,12 +416,10 @@ void main() {
     await pumpShell(tester);
 
     left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
 
-    // Tapping Calculate starts the walk AND leaves the button focused —
-    // Esc from inside the panel must reach the shared tier chain. The
-    // listing is held so the walk is still in flight when Esc lands.
+    // Tapping Calculate starts the walk. The listing is held so the
+    // walk is still in flight when Esc lands.
     final held = Completer<void>();
     channel.holdNext = held;
     await tester.tap(find.byKey(const ValueKey('infoPanel.calculateSize')));
@@ -453,8 +427,7 @@ void main() {
     expect(left.folderSizeInFlight, isTrue);
 
     // Focus the Cancel control itself — a tap doesn't move primary
-    // focus in tests, so request the button's own node. Esc from
-    // inside the panel must still run the pane's shared tier chain.
+    // focus in tests, so request the button's own node.
     final cancelFinder = find.byKey(const ValueKey('infoPanel.cancelSize'));
     final controlFocus = Focus.of(
       tester.element(
@@ -466,19 +439,19 @@ void main() {
     expect(controlFocus.hasPrimaryFocus, isTrue);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pumpAndSettle();
-    expect(find.byType(InfoPanel), findsNothing);
-    expect(left.folderSizeInFlight, isFalse,
-        reason: 'the close cancels the walk it owned');
-    // Release the held listing so the retired walk can settle — its
-    // late answer must be dropped by the session-token check.
+    await tester.pump();
+    expect(routedEscapes, hasLength(1),
+        reason: 'the panel hands Esc to its host, never swallows it');
+
     held.complete();
     await tester.pumpAndSettle();
-    expect(left.folderSize, isNull);
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
   });
 
-  testWidgets('the ✕ closes the panel and focus returns to the listing',
-      (tester) async {
+  testWidgets('the panel carries no close affordance of its own', (
+    tester,
+  ) async {
     final channel = controller_test.FakePaneChannel('/home/tester');
     channel.listings['/home/tester'] = [_entry('a.txt')];
     lanes.nextLocalChannel = channel;
@@ -486,25 +459,10 @@ void main() {
     await pumpShell(tester);
 
     left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const ValueKey('infoPanel.close')));
-    await tester.pumpAndSettle();
-    expect(find.byType(InfoPanel), findsNothing);
-    expect(leftStrip.infoPanelOpen, isFalse);
-    // The unmounted button strands primary focus; the pane's close
-    // bookkeeping returns it so the next Esc still works.
-    expect(leftNode.hasPrimaryFocus, isTrue);
-
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pump();
-    // Idle pane: Esc falls through (ignored) — nothing crashes, nothing
-    // else consumed it.
-    expect(find.byType(InfoPanel), findsNothing);
-
-    FocusManager.instance.primaryFocus?.unfocus();
-    await tester.pump();
+    expect(inPanel(find.text('a.txt')), findsOneWidget);
+    expect(inPanel(find.byIcon(Icons.close)), findsNothing,
+        reason: 'the inspector column owns visibility (D32 §3)');
   });
 
   testWidgets('copy path writes the clipboard and posts the notice',
@@ -531,7 +489,6 @@ void main() {
     await pumpShell(tester);
 
     left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('infoPanel.copyPath')));
@@ -567,7 +524,6 @@ void main() {
     await pumpShell(tester);
 
     left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
 
     // The folder's size starts unevaluated — nothing measures until
@@ -600,7 +556,6 @@ void main() {
     await pumpShell(tester);
 
     left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
 
     // Hold the walk's listing so progress is observable.
@@ -645,7 +600,6 @@ void main() {
     await pumpShell(tester);
 
     left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('infoPanel.calculateSize')));
     await tester.pumpAndSettle();
@@ -679,7 +633,6 @@ void main() {
     await pumpShell(tester);
 
     left.setCursorIndex(0);
-    leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
 
     // Hold the first walk's listing, then retarget mid-flight: the new
@@ -734,7 +687,6 @@ void main() {
       await pumpShell(tester);
 
       left.setCursorIndex(0);
-      leftStrip.toggleInfoPanel();
       await tester.pumpAndSettle();
 
       // Checkbox → field: toggling others-write re-seeds the octal.
@@ -780,7 +732,6 @@ void main() {
       await pumpShell(tester);
 
       left.setCursorIndex(0);
-      leftStrip.toggleInfoPanel();
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(octalField());
@@ -815,7 +766,6 @@ void main() {
       await pumpShell(tester);
 
       left.setCursorIndex(0);
-      leftStrip.toggleInfoPanel();
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(octalField());
@@ -854,7 +804,6 @@ void main() {
       await pumpShell(tester);
 
       left.setCursorIndex(0);
-      leftStrip.toggleInfoPanel();
       await tester.pumpAndSettle();
 
       expect(inPanel(find.text('rwxrwxrwx (0777)')), findsOneWidget);
@@ -878,7 +827,6 @@ void main() {
       await pumpShell(tester);
 
       left.setCursorIndex(0);
-      leftStrip.toggleInfoPanel();
       await tester.pumpAndSettle();
 
       expect(
@@ -894,7 +842,7 @@ void main() {
     });
 
     testWidgets('Esc in the octal field reverts a pending draft, then '
-        'closes the panel once clean', (tester) async {
+        'routes out once clean', (tester) async {
       final channel = controller_test.FakePaneChannel('/home/tester');
       channel.listings['/home/tester'] = [
         _entry('report.txt', size: 2048, mode: 0x81A4),
@@ -904,7 +852,6 @@ void main() {
       await pumpShell(tester);
 
       left.setCursorIndex(0);
-      leftStrip.toggleInfoPanel();
       await tester.pumpAndSettle();
 
       await tester.tap(octalField());
@@ -919,10 +866,10 @@ void main() {
       expect(find.byType(InfoPanel), findsOneWidget);
       expect(channel.permissionsCalls, isEmpty);
 
-      // A clean field's Esc falls through to the panel's own tier.
+      // A clean field's Esc falls through to the inspector's handler.
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
-      expect(find.byType(InfoPanel), findsNothing);
+      expect(routedEscapes, hasLength(1));
 
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pump();
@@ -943,7 +890,6 @@ void main() {
       await pumpShell(tester);
 
       left.setCursorIndex(0);
-      leftStrip.toggleInfoPanel();
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(
@@ -989,7 +935,6 @@ void main() {
       await pumpShell(tester);
 
       left.setCursorIndex(0);
-      leftStrip.toggleInfoPanel();
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(
@@ -1025,7 +970,6 @@ void main() {
       await pumpShell(tester);
 
       left.setCursorIndex(0);
-      leftStrip.toggleInfoPanel();
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(
@@ -1066,7 +1010,6 @@ void main() {
       await pumpShell(tester);
 
       left.setCursorIndex(0);
-      leftStrip.toggleInfoPanel();
       await tester.pumpAndSettle();
 
       await tester.tap(octalField());

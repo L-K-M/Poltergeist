@@ -6,6 +6,7 @@ import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
+import 'package:poltergeist_app/ui/panes/quick_connect_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/pane_controller_test.dart' as controller_test;
@@ -249,6 +250,71 @@ void main() {
         ),
       );
       expect(editable.focusNode.hasFocus, isTrue);
+    });
+  });
+
+  group('Quick Connect prefill (D32 §6)', () {
+    Future<void> pumpForm(
+      WidgetTester tester,
+      Map<String, String> environment,
+    ) async {
+      final node = FocusNode();
+      addTearDown(node.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: QuickConnectView(
+              focusNode: node,
+              environment: environment,
+              onConnect: (_, _) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    test('USER wins, USERNAME is the Windows fallback, none means blank',
+        () {
+      expect(quickConnectUserPrefill({'USER': 'lkm'}), 'lkm@');
+      expect(quickConnectUserPrefill({'USERNAME': 'Lukas'}), 'Lukas@');
+      expect(
+        quickConnectUserPrefill({'USER': 'a', 'USERNAME': 'b'}),
+        'a@',
+      );
+      expect(quickConnectUserPrefill(const {}), '');
+    });
+
+    testWidgets('the field starts at "\$USER@" with the host helper and '
+        'no error', (tester) async {
+      await pumpForm(tester, {'USER': 'demo'});
+
+      final field = tester.widget<TextField>(addressField);
+      expect(field.controller?.text, 'demo@');
+      expect(
+        field.controller?.selection,
+        const TextSelection.collapsed(offset: 5),
+        reason: 'typing appends the host',
+      );
+      expect(find.text('host[:port]'), findsOneWidget);
+      // A bare user@ is not an address yet — but it is not an error.
+      expect(field.decoration?.errorText, isNull);
+      expect(tester.widget<FilledButton>(connectButton).enabled, isFalse);
+
+      await tester.enterText(addressField, 'demo@example.com');
+      await tester.pump();
+      expect(find.text('host[:port]'), findsNothing);
+      expect(tester.widget<FilledButton>(connectButton).enabled, isTrue);
+    });
+
+    testWidgets('no user in the environment keeps the field blank', (
+      tester,
+    ) async {
+      await pumpForm(tester, const {});
+      expect(tester.widget<TextField>(addressField).controller?.text, '');
+      expect(find.text('host[:port]'), findsNothing);
     });
   });
 
