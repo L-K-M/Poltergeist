@@ -213,6 +213,16 @@ class _PaneViewState extends State<PaneView> {
   ]);
   Timer? _graceTimer;
   bool _pastGrace = false;
+
+  /// Whether the OTHER pane's location header shows a link chip right
+  /// now: that pane is on screen and its visible tab is anchored.
+  bool _otherPaneShowsSyncChip() {
+    final workspace = widget.workspace;
+    final isLeft = widget.pane.isLeftPane;
+    if (isLeft && !workspace.secondPaneShown) return false;
+    final other = isLeft ? workspace.right : workspace.left;
+    return other.activeTab?.controller.syncAnchorActive ?? false;
+  }
   bool _disposed = false;
   bool _quickSelectWasActive = false;
   final _quickSelectFieldKey = GlobalKey();
@@ -1025,6 +1035,10 @@ class _PaneViewState extends State<PaneView> {
                     controller: widget.controller,
                     pane: widget.pane,
                     syncLink: widget.workspace.syncBrowsing,
+                    announceSyncChip: syncChipAnnounces(
+                      paneActive: active,
+                      otherPaneShowsChip: _otherPaneShowsSyncChip(),
+                    ),
                     active: active,
                     graceVisible: _pastGrace,
                     scrollController: _scrollController,
@@ -1113,6 +1127,7 @@ class _PaneSurface extends StatelessWidget {
     required this.controller,
     required this.pane,
     required this.syncLink,
+    required this.announceSyncChip,
     required this.active,
     required this.graceVisible,
     required this.scrollController,
@@ -1139,13 +1154,16 @@ class _PaneSurface extends StatelessWidget {
 
   final PaneController controller;
 
-  /// The strip owning the tab — its side decides which pane's sync
-  /// chip announces (one announcer per link state change).
+  /// The strip owning the tab.
   final PaneTabsController pane;
 
   /// The workspace's Sync Browsing link (02 §7) — the location
   /// header's link chip reads its state.
   final SyncBrowsingController syncLink;
+
+  /// Whether this pane's link chip is the one screen-reader announcer
+  /// (see [syncChipAnnounces]).
+  final bool announceSyncChip;
   final bool active;
   final bool graceVisible;
   final ScrollController scrollController;
@@ -1242,7 +1260,7 @@ class _PaneSurface extends StatelessWidget {
       children: [
         _LocationHeader(
           controller: controller,
-          announceSyncChip: pane.isLeftPane,
+          announceSyncChip: announceSyncChip,
           syncLink: syncLink,
           loadingVisible: loadingVisible,
           onCancel: onCancelNavigation,
@@ -1968,7 +1986,7 @@ class _LocationHeader extends StatelessWidget {
 
   /// Whether this header's link chip is the screen-reader announcer —
   /// both anchored panes show a chip, and only one may announce a state
-  /// change (the left pane's, by convention).
+  /// change (see [syncChipAnnounces]).
   final bool announceSyncChip;
 
   /// The workspace's Sync Browsing link (02 §7): while enabled, both

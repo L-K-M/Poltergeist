@@ -23,6 +23,16 @@ String syncBrowseCauseText(AppLocalizations l10n, SyncBrowseCause cause) {
   };
 }
 
+/// Which anchored header's chip is the screen-reader announcer: both
+/// anchored panes mount a chip, and a live region on each would read
+/// every link change twice. The active pane's chip announces; while the
+/// active pane shows none (its visible tab is not anchored), the other
+/// pane's chip, then the only one on screen, does.
+bool syncChipAnnounces({
+  required bool paneActive,
+  required bool otherPaneShowsChip,
+}) => paneActive || !otherPaneShowsChip;
+
 /// 02 §7's link chip in the location headers (D32 §6): the quiet
 /// linked state while the pair replays, the link-broken chip while
 /// suspended. Both states paint scheme roles — the capsule neutral for

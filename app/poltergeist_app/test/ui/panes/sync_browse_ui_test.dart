@@ -229,6 +229,58 @@ void main() {
     });
   });
 
+  group('screen-reader announcer (02 §13)', () {
+    /// Whether the chip mounted for [tabId] is the live region.
+    bool announces(WidgetTester tester, String tabId) {
+      final semantics = tester.widget<Semantics>(
+        find
+            .descendant(
+              of: find.byKey(ValueKey('$tabId.syncChip')),
+              matching: find.byType(Semantics),
+            )
+            .first,
+      );
+      return semantics.properties.liveRegion ?? false;
+    }
+
+    testWidgets('the active pane\'s chip announces, never both', (
+      tester,
+    ) async {
+      final rig = await pumpPanes(tester);
+      rig.workspace.syncBrowsing.toggle();
+      await tester.pump();
+
+      expect(rig.workspace.activePane, same(rig.workspace.left));
+      expect(announces(tester, 'pane.left.tab1'), isTrue);
+      expect(announces(tester, 'pane.right.tab1'), isFalse);
+
+      rig.workspace.setActivePane(rig.workspace.right);
+      await tester.pump();
+      expect(announces(tester, 'pane.left.tab1'), isFalse);
+      expect(announces(tester, 'pane.right.tab1'), isTrue);
+    });
+
+    testWidgets('a suspension that leaves only the other pane\'s chip on '
+        'screen is still announced there', (tester) async {
+      final rig = await pumpPanes(tester);
+      rig.workspace.syncBrowsing.toggle();
+      await tester.pump();
+
+      // The active left pane switches to an unanchored tab: its chip
+      // leaves, so the right pane's chip must carry the suspension.
+      rig.workspace.left.newTab(target: NewTabTarget.launcher);
+      await tester.pump();
+      await tester.pump();
+      expect(rig.workspace.activePane, same(rig.workspace.left));
+      expect(rig.workspace.syncBrowsing.suspended, isTrue);
+      expect(
+        find.byKey(const ValueKey('pane.left.tab1.syncChip')),
+        findsNothing,
+      );
+      expect(announces(tester, 'pane.right.tab1'), isTrue);
+    });
+  });
+
   group('command registration (02 §8.3/§9)', () {
     testWidgets('view.toggleSyncBrowsing is app-scoped with the spec '
         'chords, the Go-menu slot, and commit-gated enablement', (
