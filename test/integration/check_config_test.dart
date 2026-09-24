@@ -897,8 +897,10 @@ List<YamlMap> _expectRetriedArtifactUpload(
   required String firstStepId,
   required String? expectedCondition,
 }) {
+  // By action name, never by tag: a routine major bump must not hide the
+  // retry shape behind an empty match.
   final uploads = steps
-      .where((step) => step['uses'] == 'actions/upload-artifact@v4')
+      .where((step) => '${step['uses']}'.startsWith('actions/upload-artifact@'))
       .toList();
   expect(uploads, hasLength(2));
 
