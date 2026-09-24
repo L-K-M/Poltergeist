@@ -8684,5 +8684,6 @@ though §3.13 predates naming it.
   Paseo heartbeat cover PR monitoring, with heartbeat deletion on completion.
 - No server component is planned: bookmark backup uses Séance's sync server
   (E2E-encrypted blobs). Poltergeist's release ships client artifacts only.
-- `media-sources/poltergeist-icon.png` (the master icon) is created together
+- `media-sources/icon.png` (the master icon since 2026-09-24; the original
+  minimal `poltergeist-icon.png` stays in the tree) was created together
   with the app scaffold; `scripts/package-linux.sh` requires it.

@@ -9,7 +9,7 @@ Runtime pins: `intl 0.20.3`, `macos_window_utils 1.9.1`,
 `analyzer 14.1.0`, `flutter_launcher_icons 0.14.4`, and
 `flutter_lints 6.0.0`.
 
-The launcher source is `../../media-sources/poltergeist-icon.png` (1024×1024).
+The launcher source is `../../media-sources/icon.png` (1254×1254, the detailed summoning scene).
 Regenerate Android, Apple, and Windows icons with
 `dart run flutter_launcher_icons`; Linux packages derive their icon sizes
 from the same master.
