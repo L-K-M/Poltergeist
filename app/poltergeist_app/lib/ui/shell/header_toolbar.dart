@@ -200,7 +200,7 @@ String commandTooltip(
   final activators = command.activators?.call(platform);
   if (activators == null || activators.isEmpty) return label;
   final chord = formatShortcutActivator(activators.first, platform);
-  return chord == null ? label : '$label  $chord';
+  return chord == null ? label : l10n.toolbarTooltipWithShortcut(label, chord);
 }
 
 class _ToolbarButton extends StatelessWidget {
@@ -233,7 +233,9 @@ class _ToolbarButton extends StatelessWidget {
     );
     if (badge > 0) {
       icon = Badge(
-        label: Text(badge > 99 ? '99+' : '$badge'),
+        label: Text(
+          badge > 99 ? l10n.badgeCountOverflow : l10n.badgeCount(badge),
+        ),
         backgroundColor: theme.colorScheme.error,
         textColor: theme.colorScheme.onError,
         child: icon,

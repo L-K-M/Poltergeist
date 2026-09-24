@@ -3602,4 +3602,17 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get headerTitleEmpty => 'No location';
+
+  @override
+  String toolbarTooltipWithShortcut(String label, String shortcut) {
+    return '$label  $shortcut';
+  }
+
+  @override
+  String badgeCount(int count) {
+    return '$count';
+  }
+
+  @override
+  String get badgeCountOverflow => '99+';
 }

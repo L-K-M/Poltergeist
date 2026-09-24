@@ -5609,6 +5609,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No location'**
   String get headerTitleEmpty;
+
+  /// A header toolbar button's tooltip: its label, then its first keyboard shortcut ("New Folder  ⇧⌘N").
+  ///
+  /// In en, this message translates to:
+  /// **'{label}  {shortcut}'**
+  String toolbarTooltipWithShortcut(String label, String shortcut);
+
+  /// The number on a count badge (the inspector toggle's alert count, the Transfers tab's live tasks).
+  ///
+  /// In en, this message translates to:
+  /// **'{count}'**
+  String badgeCount(int count);
+
+  /// A count badge's text once the count passes 99.
+  ///
+  /// In en, this message translates to:
+  /// **'99+'**
+  String get badgeCountOverflow;
 }
 
 class _AppLocalizationsDelegate

@@ -157,7 +157,9 @@ class _TabSwitcher extends StatelessWidget {
       );
       if (badge > 0) {
         glyph = Badge(
-          label: Text(badge > 99 ? '99+' : '$badge'),
+          label: Text(
+            badge > 99 ? l10n.badgeCountOverflow : l10n.badgeCount(badge),
+          ),
           backgroundColor: errorBadge ? colors.error : colors.primary,
           textColor: errorBadge ? colors.onError : colors.onPrimary,
           child: glyph,

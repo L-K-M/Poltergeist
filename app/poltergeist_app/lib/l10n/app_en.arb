@@ -4673,5 +4673,30 @@
   "headerTitleEmpty": "No location",
   "@headerTitleEmpty": {
     "description": "Header title while the active pane shows the launcher."
+  },
+  "toolbarTooltipWithShortcut": "{label}  {shortcut}",
+  "@toolbarTooltipWithShortcut": {
+    "description": "A header toolbar button's tooltip: its label, then its first keyboard shortcut (\"New Folder  ⇧⌘N\").",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "shortcut": {
+        "type": "String"
+      }
+    }
+  },
+  "badgeCount": "{count}",
+  "@badgeCount": {
+    "description": "The number on a count badge (the inspector toggle's alert count, the Transfers tab's live tasks).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "badgeCountOverflow": "99+",
+  "@badgeCountOverflow": {
+    "description": "A count badge's text once the count passes 99."
   }
 }
