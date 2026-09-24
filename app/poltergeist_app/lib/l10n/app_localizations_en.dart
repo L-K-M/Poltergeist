@@ -2018,8 +2018,8 @@ class AppLocalizationsEn extends AppLocalizations {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count files have local edits from a previous session.',
-      one: '1 file has local edits from a previous session.',
+      other: '$count files have local edits that aren\'t on the server yet.',
+      one: '1 file has local edits that aren\'t on the server yet.',
     );
     return '$_temp0';
   }

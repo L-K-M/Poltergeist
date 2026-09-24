@@ -104,7 +104,7 @@ void main() {
           // previous session's edit is owed (§3.7's resume offer).
           await pollFor(
             tester,
-            find.text('1 file has local edits from a previous session.'),
+            find.text("1 file has local edits that aren't on the server yet."),
           );
           await tester.tap(find.byKey(const ValueKey('localEdits.review')));
           await tester.pump();
@@ -154,7 +154,7 @@ void main() {
           await pollUntil(
             tester,
             () => find
-                .text('1 file has local edits from a previous session.')
+                .text("1 file has local edits that aren't on the server yet.")
                 .evaluate()
                 .isEmpty,
             reason: 'banner persisted after the upload committed',
@@ -183,7 +183,7 @@ void main() {
 
         await pollFor(
           tester,
-          find.text('1 file has local edits from a previous session.'),
+          find.text("1 file has local edits that aren't on the server yet."),
         );
         await tester.tap(find.byKey(const ValueKey('localEdits.review')));
         await tester.pump();
@@ -226,7 +226,7 @@ void main() {
 
         await pollFor(
           tester,
-          find.text('1 file has local edits from a previous session.'),
+          find.text("1 file has local edits that aren't on the server yet."),
         );
         await tester.tap(find.byKey(const ValueKey('localEdits.review')));
         await tester.pump();
@@ -250,7 +250,7 @@ void main() {
         await pollUntil(
           tester,
           () => find
-              .text('1 file has local edits from a previous session.')
+              .text("1 file has local edits that aren't on the server yet.")
               .evaluate()
               .isEmpty,
           reason: 'banner persisted after the discard',
@@ -282,7 +282,7 @@ void main() {
 
           await pollFor(
             tester,
-            find.text('1 file has local edits from a previous session.'),
+            find.text("1 file has local edits that aren't on the server yet."),
           );
           await tester.tap(find.byKey(const ValueKey('localEdits.review')));
           await tester.pump();
@@ -370,7 +370,7 @@ void main() {
         await mountEditorShell(tester, harness!);
         await pollFor(
           tester,
-          find.text('1 file has local edits from a previous session.'),
+          find.text("1 file has local edits that aren't on the server yet."),
         );
 
         // The favorite row's context menu carries the item; tapping it
@@ -423,7 +423,7 @@ void main() {
           // synchronous with the restore, so a settled pump is honest.
           await tester.pump(const Duration(milliseconds: 100));
           expect(
-            find.textContaining('local edits from a previous session'),
+            find.textContaining("local edits that aren't on the server yet"),
             findsNothing,
           );
         });

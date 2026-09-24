@@ -3190,7 +3190,7 @@ abstract class AppLocalizations {
   /// 06 §3.7's persistent pane banner while a bound server's managed checkouts hold dirty or missing local edits — the resume offer a relaunch owes the user.
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =1{1 file has local edits from a previous session.} other{{count} files have local edits from a previous session.}}'**
+  /// **'{count, plural, =1{1 file has local edits that aren\'t on the server yet.} other{{count} files have local edits that aren\'t on the server yet.}}'**
   String checkoutLocalEditsBanner(int count);
 
   /// The local-edits banner's action — opens the §3.7 review dialog.
