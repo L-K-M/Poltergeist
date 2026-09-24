@@ -11,6 +11,8 @@ import '../../services/sidebar_controller.dart';
 import '../../services/sidebar_probe_owner.dart';
 import '../probe_status_dot.dart';
 import '../server_appearance.dart';
+import '../server_filter.dart';
+import '../server_grouping.dart';
 import '../server_state_indicator.dart';
 
 /// How a favorite's activation resolves against the panes (02 §4):
@@ -25,6 +27,18 @@ enum _DropEdge { before, after }
 /// The collapse key of the fixed Connections section — namespaces it
 /// away from favorite-group keys, which are user content.
 const _connectionsSectionKey = 'sidebar.connections';
+
+/// The collapse key of the shared-mode Séance servers section, and the
+/// prefix its group headers namespace under — a catalog group's key can
+/// collide with a favorite group's, and collapsing one must not fold
+/// the other.
+const _catalogSectionKey = 'sidebar.catalog';
+const _catalogGroupKeyPrefix = 'sidebar.catalog.';
+
+/// Séance's own rule for offering a filter: below five servers it would
+/// just be chrome. Kept identical so the catalog's filter affordance
+/// appears on the same list sizes it does there.
+const _catalogFilterThreshold = 5;
 
 /// The global sidebar (02 §4): the fixed Connections section — the
 /// servers the pool currently holds, with live state — above the
@@ -42,6 +56,16 @@ class SidebarView extends StatelessWidget {
     this.onUpdateWorkspace,
     this.onLocalEdits,
     this.onImportSshConfig,
+    this.catalog,
+    this.catalogListenable,
+    this.catalogSyncing = false,
+    this.catalogSyncError,
+    this.onSyncNow,
+    this.onOpenCatalogServer,
+    this.onAddCatalogServer,
+    this.onEditCatalogServer,
+    this.onDuplicateCatalogServer,
+    this.onDeleteCatalogServer,
     super.key,
   });
 
@@ -91,6 +115,41 @@ class SidebarView extends StatelessWidget {
   /// without the import seam) renders the empty copy alone.
   final VoidCallback? onImportSshConfig;
 
+  /// The shared-mode Séance server catalog (04 §4.2): non-null only while
+  /// the enrolled account is shared. Null renders no catalog section at
+  /// all — separate mode has nothing to show.
+  final SeanceServerCatalog? catalog;
+
+  /// The listenable that repaints the catalog section — the backup
+  /// service, whose notifications land whenever a round materializes a
+  /// new catalog or the sync status changes. The catalog itself is a
+  /// mutable snapshot, not a listenable.
+  final Listenable? catalogListenable;
+
+  /// A sync round is in flight — the section's sync button shows busy.
+  final bool catalogSyncing;
+
+  /// The last round's failure, surfaced on the sync button's tooltip.
+  final String? catalogSyncError;
+
+  /// The reload affordance (04 §4.2): runs one sync round immediately
+  /// rather than waiting for the periodic cycle. Null hides the button —
+  /// a shell without the service has nothing to drive.
+  final VoidCallback? onSyncNow;
+
+  /// Opens a catalog server in the resolved pane (the same modifier
+  /// vocabulary favorites use). Null renders rows non-activatable.
+  final void Function(ServerConfig server, SidebarOpenAction action)?
+  onOpenCatalogServer;
+
+  /// 04 §4.2's management verbs: the section header's add affordance and
+  /// the row menu's edit/duplicate/delete. Each null hides its verb — a
+  /// shell without the editor seam renders the catalog read-only.
+  final VoidCallback? onAddCatalogServer;
+  final void Function(ServerConfig server)? onEditCatalogServer;
+  final void Function(ServerConfig server)? onDuplicateCatalogServer;
+  final void Function(ServerConfig server)? onDeleteCatalogServer;
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -98,6 +157,7 @@ class SidebarView extends StatelessWidget {
         controller,
         ?connections,
         ?probes,
+        ?catalogListenable,
       ]),
       builder: (context, _) => _SidebarBody(view: this),
     );
@@ -253,6 +313,14 @@ class _SidebarBody extends StatelessWidget {
         }
     }
 
+    // The shared-mode catalog (04 §4.2): pulled Séance servers in
+    // Séance's own sectioning, independent of the favorites store's
+    // load state — a failed favorites read must not hide servers that
+    // did arrive.
+    if (view.catalog != null) {
+      children.add(_CatalogSection(view: view));
+    }
+
     return ColoredBox(
       color: scheme.surfaceContainerLow,
       child: ListView(
@@ -319,6 +387,7 @@ class _SectionHeader extends StatefulWidget {
     required this.collapsed,
     required this.onToggle,
     this.onAcceptBookmark,
+    this.trailing,
   });
 
   final String sectionKey;
@@ -330,6 +399,11 @@ class _SectionHeader extends StatefulWidget {
   final bool collapsed;
   final VoidCallback onToggle;
   final void Function(Bookmark bookmark)? onAcceptBookmark;
+
+  /// An optional widget at the header's trailing edge — the catalog
+  /// section parks its sync button there. Excluded from the merged
+  /// semantics node: the button announces itself.
+  final Widget? trailing;
 
   @override
   State<_SectionHeader> createState() => _SectionHeaderState();
@@ -454,23 +528,33 @@ class _SectionHeaderState extends State<_SectionHeader> {
       ),
     );
 
-    if (accept == null) return header;
-    return DragTarget<Bookmark>(
-      onWillAcceptWithDetails: (details) => details.data.id.isNotEmpty,
-      onAcceptWithDetails: (details) {
-        // An accepted drop never fires onLeave — clear the highlight
-        // here or the header stays armed-looking until the next drag.
-        if (_hovering) setState(() => _hovering = false);
-        accept(details.data);
-      },
-      onMove: (_) {
-        if (!_hovering) setState(() => _hovering = true);
-      },
-      onLeave: (_) {
-        if (_hovering) setState(() => _hovering = false);
-      },
-      builder: (context, candidates, rejected) => header,
-    );
+    Widget result = header;
+    if (accept != null) {
+      result = DragTarget<Bookmark>(
+        onWillAcceptWithDetails: (details) => details.data.id.isNotEmpty,
+        onAcceptWithDetails: (details) {
+          // An accepted drop never fires onLeave — clear the highlight
+          // here or the header stays armed-looking until the next drag.
+          if (_hovering) setState(() => _hovering = false);
+          accept(details.data);
+        },
+        onMove: (_) {
+          if (!_hovering) setState(() => _hovering = true);
+        },
+        onLeave: (_) {
+          if (_hovering) setState(() => _hovering = false);
+        },
+        builder: (context, candidates, rejected) => header,
+      );
+    }
+    // The trailing widget sits OUTSIDE the header's semantics merge and
+    // toggle gesture — a sync button must announce and act on itself,
+    // not fold into the section header it ornaments.
+    final trailing = widget.trailing;
+    if (trailing != null) {
+      result = Row(children: [Expanded(child: result), trailing]);
+    }
+    return result;
   }
 }
 
@@ -864,20 +948,12 @@ class _FavoriteBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final accent = serverAccent(context, bookmark.color);
+    final accent = serverAccent(
+      context,
+      ServerTint(named: bookmark.color),
+    );
 
-    final dotColor = switch (appearance.glyph) {
-      ServerIndicatorGlyph.probe => switch (probe) {
-        ProbeStatus.online => ProbeStatusDot.onlineColor,
-        ProbeStatus.offline => scheme.error,
-        _ => scheme.outline,
-      },
-      ServerIndicatorGlyph.connected => ProbeStatusDot.onlineColor,
-      ServerIndicatorGlyph.pending => scheme.primary,
-      ServerIndicatorGlyph.failed ||
-      ServerIndicatorGlyph.blocked => scheme.error,
-      ServerIndicatorGlyph.none || ServerIndicatorGlyph.idle => null,
-    };
+    final dotColor = _indicatorDotColor(scheme, appearance, probe);
 
     return SizedBox(
       width: 30,
@@ -931,6 +1007,27 @@ class _FavoriteBadge extends StatelessWidget {
     BookmarkKind.savedSync => Icons.sync_alt,
   };
 }
+
+/// The corner dot's colour for one composed indicator — shared by the
+/// favorite badge and the catalog badge so both surfaces paint the same
+/// truth the same way.
+Color? _indicatorDotColor(
+  ColorScheme scheme,
+  ServerIndicatorAppearance appearance,
+  ProbeStatus? probe,
+) =>
+    switch (appearance.glyph) {
+      ServerIndicatorGlyph.probe => switch (probe) {
+        ProbeStatus.online => ProbeStatusDot.onlineColor,
+        ProbeStatus.offline => scheme.error,
+        _ => scheme.outline,
+      },
+      ServerIndicatorGlyph.connected => ProbeStatusDot.onlineColor,
+      ServerIndicatorGlyph.pending => scheme.primary,
+      ServerIndicatorGlyph.failed ||
+      ServerIndicatorGlyph.blocked => scheme.error,
+      ServerIndicatorGlyph.none || ServerIndicatorGlyph.idle => null,
+    };
 
 /// The subtitle under a favorite's label: the endpoint the row opens,
 /// or the kind name when there is no single path to show.
@@ -1340,6 +1437,574 @@ class _ConnectionRowState extends State<_ConnectionRow> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The shared-mode "Séance servers" section (04 §4.2's catalog surface):
+/// the pulled `serverConfig` records rendered through Séance's own
+/// grouping and filter rules, so the same account's list reads the same
+/// way here — same groups, same order, same marks — while staying
+/// distinct from the user-ordered favorites above it.
+///
+/// Stateful only for the filter field: the query, its controller, and
+/// the Enter-opens-first-match affordance Séance's list carries.
+class _CatalogSection extends StatefulWidget {
+  const _CatalogSection({required this.view});
+
+  final SidebarView view;
+
+  @override
+  State<_CatalogSection> createState() => _CatalogSectionState();
+}
+
+class _CatalogSectionState extends State<_CatalogSection> {
+  final _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  void _setQuery(String query) => setState(() => _query = query);
+
+  void _clearQuery() {
+    _search.clear();
+    setState(() => _query = '');
+  }
+
+  void _openFirstMatch(List<ServerConfig> matches) {
+    if (matches.isEmpty) return;
+    widget.view.onOpenCatalogServer?.call(
+      matches.first,
+      SidebarOpenAction.plain,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final view = widget.view;
+    final controller = view.controller;
+    final catalog = view.catalog!;
+    final servers = catalog.servers;
+
+    // Séance's stale-query rule: once the list it filtered is empty the
+    // query has nothing to do, so it drops itself. Field assignment, not
+    // setState — this runs inside build.
+    if (servers.isEmpty && _query.isNotEmpty) {
+      _search.clear();
+      _query = '';
+    }
+    final matches = filterServers(servers, _query);
+    // Séance's visibility rule: the field appears at five servers, and
+    // stays while a query is active even below that — a vanished field
+    // would strand a filter with no way to clear it. Never over the
+    // empty state: a box beside "no servers" reads as "hidden", not
+    // "none".
+    final showFilter = servers.isNotEmpty &&
+        (servers.length >= _catalogFilterThreshold || _query.isNotEmpty);
+
+    final collapsed = controller.isCollapsed(_catalogSectionKey);
+    final children = <Widget>[
+      _SectionHeader(
+        sectionKey: _catalogSectionKey,
+        title: l10n.sidebarCatalogSection,
+        itemCount: matches.length,
+        collapsed: collapsed,
+        onToggle: () => controller.toggleCollapsed(_catalogSectionKey),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _addButton(l10n, scheme),
+            _syncButton(context, l10n, scheme),
+          ],
+        ),
+      ),
+    ];
+    if (collapsed) {
+      return Column(children: children);
+    }
+
+    if (showFilter) {
+      children.add(_filterField(l10n, matches, servers.length));
+    }
+    if (matches.isEmpty) {
+      children.add(
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            servers.isEmpty
+                ? l10n.sidebarCatalogEmpty
+                : l10n.sidebarCatalogNoMatches,
+            textAlign: TextAlign.center,
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+      );
+      return Column(children: children);
+    }
+
+    // Séance's collapse rule: a live query overrides folded groups — a
+    // filter reporting "3 of 12" while showing one row reads as broken,
+    // not tidy.
+    final sections = groupServers(matches);
+    final collapsedKeys = <String>{};
+    if (_query.isEmpty) {
+      for (final section in sections) {
+        if (controller.isCollapsed('$_catalogGroupKeyPrefix${section.key}')) {
+          collapsedKeys.add(section.key);
+        }
+      }
+    }
+    for (final row
+        in serverListRows(sections: sections, collapsedKeys: collapsedKeys)) {
+      switch (row) {
+        case ServerGroupHeaderRow(
+          :final name,
+          :final key,
+          :final count,
+          collapsed: final rowCollapsed,
+        ):
+          children.add(
+            _SectionHeader(
+              sectionKey: '$_catalogGroupKeyPrefix$key',
+              title: name == kUngroupedLabel || name == kUnpinnedLabel
+                  ? l10n.sidebarCatalogUngrouped
+                  : name,
+              itemCount: count,
+              collapsed: rowCollapsed,
+              onToggle: () =>
+                  controller.toggleCollapsed('$_catalogGroupKeyPrefix$key'),
+            ),
+          );
+        case ServerRow(:final server):
+          children.add(
+            _CatalogRow(
+              key: ValueKey('sidebar.catalog.row.${server.id}'),
+              server: server,
+              view: view,
+            ),
+          );
+      }
+    }
+    return Column(children: children);
+  }
+
+  /// The header's add affordance (04 §4.2's editor entry): a new server
+  /// drafted blank. Hidden where the shell has no editor seam — the
+  /// catalog then reads as the read-only surface it is.
+  Widget _addButton(AppLocalizations l10n, ColorScheme scheme) {
+    final onAdd = widget.view.onAddCatalogServer;
+    if (onAdd == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 4),
+      child: IconButton(
+        key: const ValueKey('sidebar.catalog.add'),
+        iconSize: 16,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+        visualDensity: VisualDensity.compact,
+        tooltip: l10n.sidebarCatalogAddServer,
+        onPressed: onAdd,
+        icon: Icon(Icons.add, color: scheme.onSurfaceVariant),
+      ),
+    );
+  }
+
+  /// The header's sync affordance (04 §4.2's reload button): one manual
+  /// round on demand — busy while one is in flight, marked with the last
+  /// failure otherwise.
+  Widget _syncButton(
+    BuildContext context,
+    AppLocalizations l10n,
+    ColorScheme scheme,
+  ) {
+    final view = widget.view;
+    final onSyncNow = view.onSyncNow;
+    if (onSyncNow == null) return const SizedBox.shrink();
+    if (view.catalogSyncing) {
+      return const Padding(
+        padding: EdgeInsetsDirectional.only(end: 12),
+        child: SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    final error = view.catalogSyncError;
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 4),
+      child: IconButton(
+        key: const ValueKey('sidebar.catalog.syncNow'),
+        iconSize: 16,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+        visualDensity: VisualDensity.compact,
+        tooltip: error == null
+            ? l10n.sidebarCatalogSyncNow
+            : l10n.sidebarCatalogSyncFailed(error),
+        onPressed: onSyncNow,
+        icon: Icon(
+          error == null ? Icons.sync : Icons.sync_problem,
+          color: error == null ? scheme.onSurfaceVariant : scheme.error,
+        ),
+      ),
+    );
+  }
+
+  /// The catalog's filter field — Séance's affordance, compacted for the
+  /// rail: term matching, Escape clears, Enter opens the first match.
+  Widget _filterField(
+    AppLocalizations l10n,
+    List<ServerConfig> matches,
+    int total,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+      child: Shortcuts(
+        shortcuts: const {
+          SingleActivator(LogicalKeyboardKey.escape): DismissIntent(),
+        },
+        child: Actions(
+          actions: {
+            DismissIntent: CallbackAction<DismissIntent>(
+              onInvoke: (_) {
+                _clearQuery();
+                return null;
+              },
+            ),
+          },
+          child: TextField(
+            controller: _search,
+            onChanged: _setQuery,
+            // _openFirstMatch no-ops on an empty match list, so Enter in
+            // a field matching nothing cannot open a hidden row.
+            onSubmitted: (_) => _openFirstMatch(matches),
+            textInputAction: TextInputAction.go,
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 8,
+              ),
+              prefixIcon: const Icon(Icons.search, size: 16),
+              prefixIconConstraints: const BoxConstraints(
+                minWidth: 32,
+                minHeight: 24,
+              ),
+              hintText: l10n.sidebarCatalogFilter,
+              helperText: _query.isEmpty
+                  ? null
+                  : matches.isEmpty
+                  ? l10n.sidebarCatalogFilterCount(matches.length, total)
+                  : l10n.sidebarCatalogFilterCountOpenFirst(
+                      matches.length,
+                      total,
+                    ),
+              border: const OutlineInputBorder(),
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: l10n.sidebarCatalogFilterClear,
+                      icon: const Icon(Icons.clear, size: 16),
+                      onPressed: _clearQuery,
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One catalog row: the Séance server rendered with its own accent bar
+/// and mark (the appearance both apps now share), the composed status
+/// dot in the badge corner, the same activation vocabulary favorites
+/// use, and a context menu with the open verbs above the management
+/// verbs the shell offers.
+class _CatalogRow extends StatefulWidget {
+  const _CatalogRow({required this.server, required this.view, super.key});
+
+  final ServerConfig server;
+  final SidebarView view;
+
+  @override
+  State<_CatalogRow> createState() => _CatalogRowState();
+}
+
+class _CatalogRowState extends State<_CatalogRow> {
+  final _menuController = MenuController();
+  final _focusNode = FocusNode(debugLabel: 'sidebar.catalogRow');
+
+  @override
+  void initState() {
+    super.initState();
+    // The same visibility mark favorites report: mounting the row is
+    // what makes a catalog server probe-eligible on this device.
+    widget.view.probes?.noteVisible(widget.server.id);
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  SidebarOpenAction _actionForTap() {
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isAltPressed) return SidebarOpenAction.oppositePane;
+    if (keyboard.isControlPressed || keyboard.isMetaPressed) {
+      return SidebarOpenAction.newTab;
+    }
+    return SidebarOpenAction.plain;
+  }
+
+  void _open([SidebarOpenAction? action]) {
+    widget.view.onOpenCatalogServer?.call(
+      widget.server,
+      action ?? _actionForTap(),
+    );
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    final keyboard = HardwareKeyboard.instance;
+    if (key == LogicalKeyboardKey.arrowDown) {
+      node.nextFocus();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      node.previousFocus();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.space) {
+      if (event is KeyRepeatEvent ||
+          widget.view.onOpenCatalogServer == null) {
+        return KeyEventResult.ignored;
+      }
+      _open(SidebarOpenAction.plain);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.contextMenu ||
+        (key == LogicalKeyboardKey.f10 && keyboard.isShiftPressed)) {
+      if (event is KeyRepeatEvent) return KeyEventResult.ignored;
+      _menuController.open();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final view = widget.view;
+    final server = widget.server;
+    final openable = view.onOpenCatalogServer != null;
+
+    final appearance = serverIndicatorOf(
+      l10n,
+      status: _statusOf(view.connections, server.id),
+      probe: view.probes?.statuses[server.id],
+    );
+    final semanticLabel = appearance.label.isEmpty
+        ? server.label
+        : '${server.label}, ${appearance.label}';
+
+    return Focus(
+      focusNode: _focusNode,
+      onKeyEvent: _onKey,
+      child: Builder(
+        builder: (context) {
+          final focused = _focusNode.hasFocus;
+          return Semantics(
+            container: true,
+            button: openable,
+            label: semanticLabel,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (_) => _focusNode.requestFocus(),
+              onTap: openable ? () => _open() : null,
+              onSecondaryTapUp: (_) => _menuController.open(),
+              child: ExcludeSemantics(
+                child: MenuAnchor(
+                  controller: _menuController,
+                  menuChildren: _menuItems(l10n),
+                  child: Container(
+                    height: 40,
+                    padding: const EdgeInsetsDirectional.only(
+                      start: 10,
+                      end: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      border: focused
+                          ? Border.all(color: scheme.primary, width: 2)
+                          : null,
+                      color: focused
+                          ? scheme.primary.withValues(alpha: 0.08)
+                          : null,
+                    ),
+                    child: Row(
+                      children: [
+                        // Séance's row mark: the thin accent line every
+                        // coloured server draws at its edge.
+                        ServerAccentBar(
+                          tint: ServerTint.of(server),
+                          height: 30,
+                        ),
+                        const SizedBox(width: 8),
+                        _CatalogBadge(
+                          server: server,
+                          appearance: appearance,
+                          probe: view.probes?.statuses[server.id],
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                server.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.bodyMedium,
+                              ),
+                              Text(
+                                '${server.username}@${server.host}:${server.port}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.labelSmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  List<Widget> _menuItems(AppLocalizations l10n) {
+    final view = widget.view;
+    final server = widget.server;
+    final open = view.onOpenCatalogServer;
+    final manage = view.onEditCatalogServer != null ||
+        view.onDuplicateCatalogServer != null ||
+        view.onDeleteCatalogServer != null;
+    return [
+      MenuItemButton(
+        key: const ValueKey('sidebar.catalog.menu.open'),
+        onPressed: open == null
+            ? null
+            : () => _open(SidebarOpenAction.plain),
+        child: Text(l10n.sidebarOpen),
+      ),
+      MenuItemButton(
+        key: const ValueKey('sidebar.catalog.menu.openNewTab'),
+        onPressed: open == null
+            ? null
+            : () => _open(SidebarOpenAction.newTab),
+        child: Text(l10n.sidebarOpenInNewTab),
+      ),
+      MenuItemButton(
+        key: const ValueKey('sidebar.catalog.menu.openOtherPane'),
+        onPressed: open == null
+            ? null
+            : () => _open(SidebarOpenAction.oppositePane),
+        child: Text(l10n.sidebarOpenInOtherPane),
+      ),
+      if (manage) const Divider(height: 1),
+      if (view.onEditCatalogServer != null)
+        MenuItemButton(
+          key: const ValueKey('sidebar.catalog.menu.edit'),
+          onPressed: () => view.onEditCatalogServer!(server),
+          child: Text(l10n.sidebarCatalogEdit),
+        ),
+      if (view.onDuplicateCatalogServer != null)
+        MenuItemButton(
+          key: const ValueKey('sidebar.catalog.menu.duplicate'),
+          onPressed: () => view.onDuplicateCatalogServer!(server),
+          child: Text(l10n.sidebarCatalogDuplicate),
+        ),
+      if (view.onDeleteCatalogServer != null)
+        MenuItemButton(
+          key: const ValueKey('sidebar.catalog.menu.delete'),
+          onPressed: () => view.onDeleteCatalogServer!(server),
+          child: Text(l10n.sidebarCatalogDelete),
+        ),
+    ];
+  }
+}
+
+/// The catalog row's badge: the shared [ServerBadge] (mark + tint
+/// exactly as Séance draws them) with the same composed corner dot the
+/// favorite badge carries — one indicator, live truth outranking probes.
+class _CatalogBadge extends StatelessWidget {
+  const _CatalogBadge({
+    required this.server,
+    required this.appearance,
+    this.probe,
+  });
+
+  final ServerConfig server;
+  final ServerIndicatorAppearance appearance;
+  final ProbeStatus? probe;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final dotColor = _indicatorDotColor(scheme, appearance, probe);
+    return SizedBox(
+      width: 30,
+      height: 30,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Center(
+            child: ServerBadge(
+              tint: ServerTint.of(server),
+              mark: server.mark,
+              size: 26,
+              semanticsLabel: server.label,
+            ),
+          ),
+          if (dotColor != null)
+            Positioned(
+              right: -1,
+              bottom: -1,
+              child: Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: dotColor,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: scheme.surface, width: 1.5),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

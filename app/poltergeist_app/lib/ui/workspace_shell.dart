@@ -32,6 +32,7 @@ import '../services/quit_guard.dart';
 import '../services/recent_locations.dart';
 import '../services/registered_command.dart';
 import '../services/rsync_endpoints.dart';
+import '../services/server_duplication.dart';
 import '../services/session_persistence.dart';
 import '../services/session_state.dart';
 import '../services/sidebar_controller.dart';
@@ -68,6 +69,7 @@ import 'settings/app_settings_command.dart';
 import 'settings/backup_settings_command.dart';
 import 'settings/general_settings.dart';
 import 'settings/preview_settings.dart';
+import 'server_editor.dart';
 import 'sidebar/sidebar_view.dart';
 import 'sync/rsync_copy.dart';
 import 'sync/sync_commands.dart';
@@ -102,6 +104,7 @@ class WorkspaceShell extends StatefulWidget {
     this.onPaneRatioSaveError,
     this.sshConfigImport,
     this.bookmarkBackup,
+    this.serverEditor,
     this.bookmarks,
     this.workspaces,
     this.recentLocations,
@@ -183,6 +186,13 @@ class WorkspaceShell extends StatefulWidget {
   /// Null leaves the command unregistered — tests and engine-less boots
   /// opt out.
   final BookmarkBackupService? bookmarkBackup;
+
+  /// The server editor's application layer (04 §4.2's management
+  /// verbs): the catalog section's add/edit/duplicate/delete route
+  /// through it, as do the editor's own save and test connection. Null
+  /// renders the catalog read-only — the verbs hide rather than
+  /// dead-end.
+  final ServerEditorDelegate? serverEditor;
 
   /// The persisted bookmark store behind the sidebar's favorites and
   /// Connections sections (03 §6's `BookmarkStore` seam). Null unmounts
@@ -462,6 +472,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _connections = _buildConnections();
     _sidebar = _buildSidebar();
     _probes = _buildProbes();
+    _attachBookmarkBackup(widget.bookmarkBackup);
+    _probes?.syncCatalog(
+      widget.bookmarkBackup?.catalog?.servers ?? const [],
+    );
     _attachLifecycle();
     _buildWorkspace();
     widget.workspaces?.addListener(_onWorkspacesChanged);
@@ -477,6 +491,25 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _checkoutListener?.removeListener(_scanDirtyCheckouts);
     _checkoutListener = session;
     session?.addListener(_scanDirtyCheckouts);
+  }
+
+  BookmarkBackupService? _backupListener;
+
+  /// The backup service's pulse: every round lands a fresh catalog in
+  /// place, so the probe owner's target set re-syncs on each notify —
+  /// a Séance-side add starts probing on the round that pulls it, a
+  /// tombstone stops being dialed.
+  void _attachBookmarkBackup(BookmarkBackupService? service) {
+    if (identical(_backupListener, service)) return;
+    _backupListener?.removeListener(_onBookmarkBackupChanged);
+    _backupListener = service;
+    service?.addListener(_onBookmarkBackupChanged);
+  }
+
+  void _onBookmarkBackupChanged() {
+    _probes?.syncCatalog(
+      widget.bookmarkBackup?.catalog?.servers ?? const [],
+    );
   }
 
   /// The command list is built in [build] — a workspace save or open
@@ -531,6 +564,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // the sidebar reload too; syncFavorites is a reconcile, not an
       // append, so the second seeding is a no-op).
       _probes?.syncFavorites(_sidebar?.bookmarks ?? const []);
+      _probes?.syncCatalog(
+        widget.bookmarkBackup?.catalog?.servers ?? const [],
+      );
     }
     if (!identical(oldWidget.engineSession, widget.engineSession)) {
       // Carry the sidebar's live hidden intent across the workspace
@@ -590,6 +626,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       widget.quitGuard?.bindQueue(_quitGuardQueue);
     }
     _attachCheckoutSession(widget.checkoutSession);
+    _attachBookmarkBackup(widget.bookmarkBackup);
   }
 
   @override
@@ -597,6 +634,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     widget.workspaces?.removeListener(_onWorkspacesChanged);
     widget.quitGuard?.unbindQueue(_quitGuardQueue);
     _attachCheckoutSession(null);
+    _attachBookmarkBackup(null);
     _lifecycleForwarder?.detach();
     _probes?.dispose();
     _sidebar?.dispose();
@@ -2422,8 +2460,169 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           ? null
           : (server) =>
                 unawaited(session.reviewBlockedHostKey(server.serverId)),
+      // 04 §4.2's catalog surface: the service owns the pulled
+      // serverConfig materialization and the round status; its
+      // notifications repaint the section (the catalog mutates in place,
+      // so the view needs the service's pulses, not the snapshot).
+      catalog: widget.bookmarkBackup?.catalog,
+      catalogListenable: widget.bookmarkBackup,
+      catalogSyncing: widget.bookmarkBackup?.syncing ?? false,
+      catalogSyncError: widget.bookmarkBackup?.lastSyncError,
+      onSyncNow: widget.bookmarkBackup == null
+          ? null
+          : () => unawaited(_syncNow()),
+      onOpenCatalogServer: _workspace == null ? null : _openCatalogServer,
+      // 04 §4.2's management verbs: all four ride the editor seam, so
+      // they gate together on it — a null delegate leaves the catalog
+      // read-only rather than offering dead ends.
+      onAddCatalogServer: widget.serverEditor == null
+          ? null
+          : () => unawaited(_editCatalogServer(null)),
+      onEditCatalogServer: widget.serverEditor == null
+          ? null
+          : (server) => unawaited(_editCatalogServer(server)),
+      onDuplicateCatalogServer: widget.serverEditor == null
+          ? null
+          : (server) => unawaited(_duplicateCatalogServer(server)),
+      onDeleteCatalogServer: widget.serverEditor == null
+          ? null
+          : (server) => unawaited(_deleteCatalogServer(server)),
     );
   }
+
+  /// The catalog section's add/edit entry: the shared editor dialog over
+  /// the app's delegate — a null [server] is the editor's add path.
+  /// Null-safe on purpose: the duplicate toast's action outlives the
+  /// build that gated the verbs, and the shell may have been rebuilt
+  /// read-only (no editor) by the time it is tapped.
+  Future<void> _editCatalogServer(ServerConfig? server) async {
+    final editor = widget.serverEditor;
+    if (editor == null) return;
+    await showServerEditor(context, editor, server);
+  }
+
+  /// Copy a catalog server, then offer the editor — upstream's flow
+  /// (server_list_pane._duplicateServer @ 035b0d8): duplicating is
+  /// almost always the first half of "…and change one thing", and the
+  /// toast's action is a shorter route back than finding the new row.
+  Future<void> _duplicateCatalogServer(ServerConfig server) async {
+    final backups = widget.bookmarkBackup;
+    if (backups == null) return;
+    final l10n = AppLocalizations.of(context);
+    final ServerConfig copy;
+    try {
+      copy = await backups.duplicateServer(server);
+    } on SourceServerChanged catch (error) {
+      // Verbatim, as upstream: the message is written as a whole
+      // sentence for this toast.
+      if (mounted) {
+        showTopToastIn(context, message: '$error');
+      } else {
+        ApplicationErrorReporter().report(error, StackTrace.current);
+      }
+      return;
+    } catch (error, stackTrace) {
+      // The vault throws when the OS keyring is locked — say so rather
+      // than leaving the menu looking like it did nothing.
+      ApplicationErrorReporter().report(error, stackTrace);
+      if (mounted) {
+        showTopToastIn(
+          context,
+          message: l10n.sidebarCatalogDuplicateFailed(
+            server.label,
+            '$error',
+          ),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    showTopToastIn(
+      context,
+      message: l10n.sidebarCatalogDuplicated(copy.label),
+      actionLabel: l10n.sidebarCatalogDuplicatedEdit,
+      onAction: () {
+        if (mounted) unawaited(_editCatalogServer(copy));
+      },
+    );
+  }
+
+  /// The catalog row's delete: upstream's confirmation (live managed
+  /// edits counted into the body), the live panes dropped first —
+  /// upstream's `closeAllTabsForServer` analog — then the service's
+  /// tombstoned delete.
+  Future<void> _deleteCatalogServer(ServerConfig server) async {
+    final backups = widget.bookmarkBackup;
+    if (backups == null) return;
+    final l10n = AppLocalizations.of(context);
+    final session = widget.checkoutSession;
+    final edits = (session?.copiesFor(server.id).length ?? 0) +
+        (session?.displacedFor(server.id).length ?? 0);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(l10n.sidebarCatalogDeleteTitle(server.label)),
+        content: Text(
+          edits == 0
+              ? l10n.sidebarCatalogDeleteBody
+              : l10n.sidebarCatalogDeleteBodyEdits(edits),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l10n.sidebarCatalogDeleteCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(l10n.sidebarCatalogDeleteConfirm),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await widget.engineSession?.paneLanes.disconnectServer(server.id);
+      await backups.deleteServer(server);
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+    }
+  }
+
+  /// The "Sync now" round: the service serializes concurrent calls
+  /// itself (`syncing` early-returns); a failed round reports through
+  /// the reporter and leaves its description on the button's tooltip.
+  Future<void> _syncNow() async {
+    try {
+      await widget.bookmarkBackup?.backUpNow();
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+    }
+  }
+
+  /// A catalog row's activation: the pulled [ServerConfig] becomes a
+  /// `serverConfigId`-referencing remotePath bookmark — the same shape a
+  /// synced favorite carries — and rides [_openFavorite]'s pane
+  /// resolution, which resolves the id back through the catalog at
+  /// connect time. The server's own id keys the binding, so a catalog
+  /// open and a referencing favorite share one pool entry.
+  void _openCatalogServer(ServerConfig server, SidebarOpenAction action) {
+    _openFavorite(_catalogOpenBookmark(server), action);
+  }
+
+  /// The transient bookmark a catalog open binds through: never
+  /// persisted — the catalog is the truth; this only carries the
+  /// reference and the display fields the pane chrome reads.
+  Bookmark _catalogOpenBookmark(ServerConfig server) => Bookmark(
+    id: server.id,
+    kind: BookmarkKind.remotePath,
+    label: server.label,
+    color: server.color,
+    icon: server.icon,
+    server: BookmarkServerRef(serverConfigId: server.id),
+    sortKey: '',
+    createdAt: DateTime.fromMillisecondsSinceEpoch(server.createdAt),
+    updatedAt: DateTime.fromMillisecondsSinceEpoch(server.updatedAt),
+  );
 
   /// A favorite activation resolved against the panes (02 §4):
   /// localFolder and remotePath bind the resolved pane's tab per the
@@ -2480,9 +2679,29 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               ),
         );
       case BookmarkKind.remotePath:
+        // A shared-account `serverConfigId` ref resolves through the
+        // pulled catalog (04 §4.2): the pulled config carries fields an
+        // embedded identity cannot express — jumpHostId above all. An id
+        // the catalog cannot answer fails honestly before the dial; an
+        // embedded identity beside it is the older-record fallback.
+        ServerConfig? resolved;
+        final ref = bookmark.server;
+        if (ref?.serverConfigId != null) {
+          resolved = _serverConfigById(ref!.serverConfigId!);
+          if (resolved == null && ref.identity == null) {
+            ApplicationErrorReporter().report(
+              StateError(
+                'sidebar.open: serverConfigId ${ref.serverConfigId} '
+                'resolves to no pulled server',
+              ),
+              StackTrace.current,
+            );
+            return;
+          }
+        }
         unawaited(
           controller
-              .connectRemote(bookmark)
+              .connectRemote(bookmark, resolvedConfig: resolved)
               .catchError(
                 (Object error, StackTrace stackTrace) =>
                     ApplicationErrorReporter().report(error, stackTrace),
@@ -2623,13 +2842,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// resolves through the pulled Séance catalog; absent catalog or id
   /// leaves the ref unresolved so the command disables rather than
   /// emitting a wrong host.
-  ServerConfig? _serverConfigById(String id) {
-    for (final config in widget.bookmarkBackup?.catalog?.servers ??
-        const <ServerConfig>[]) {
-      if (config.id == id) return config;
-    }
-    return null;
-  }
+  ServerConfig? _serverConfigById(String id) =>
+      widget.bookmarkBackup?.catalog?.byId(id);
 
   /// `sync.copyRsyncCommand` (05 §2.1): the active plan's export to
   /// the clipboard — the action-bar button and this menu row share the

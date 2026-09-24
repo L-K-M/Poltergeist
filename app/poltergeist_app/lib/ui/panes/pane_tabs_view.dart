@@ -597,8 +597,8 @@ class _TabChip extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (bookmark != null) ...[
-                      ServerBadge(
-                        color: bookmark.color,
+                      ServerBadge.glyph(
+                        tint: ServerTint(named: bookmark.color),
                         icon: bookmark.icon,
                         size: 16,
                       ),
@@ -683,8 +683,8 @@ class _TabDragAvatar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (bookmark != null) ...[
-                ServerBadge(
-                  color: bookmark.color,
+                ServerBadge.glyph(
+                  tint: ServerTint(named: bookmark.color),
                   icon: bookmark.icon,
                   size: 14,
                 ),

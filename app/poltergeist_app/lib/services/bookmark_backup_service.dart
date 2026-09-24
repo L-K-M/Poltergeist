@@ -12,9 +12,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import 'server_duplication.dart';
 import 'settings_store.dart';
 import 'sync_credentials.dart' show RetainedSyncTokenStore;
 import 'sync_transport.dart';
+import 'uuid.dart';
 
 /// The separate account's facts kept for §4.4's optional post-switch
 /// delete — the retained token alone cannot reach it.
@@ -66,6 +68,8 @@ final class BookmarkBackupService extends ChangeNotifier {
     required SyncTripwireStore tripwires,
     required SyncTransportFactory transportFactory,
     required Future<List<int>?> Function() vaultKey,
+    required SyncTrackingServerStore servers,
+    required VaultStore vaultStore,
     SettingsStore? settings,
     String? Function()? recordQuarantinePath,
     DateTime Function()? now,
@@ -93,6 +97,10 @@ final class BookmarkBackupService extends ChangeNotifier {
         // ignore: prefer_initializing_formals
         _vaultKey = vaultKey,
         // ignore: prefer_initializing_formals
+        _servers = servers,
+        // ignore: prefer_initializing_formals
+        _vaultStore = vaultStore,
+        // ignore: prefer_initializing_formals
         _settings = settings,
         // ignore: prefer_initializing_formals
         _recordQuarantinePath = recordQuarantinePath,
@@ -109,6 +117,16 @@ final class BookmarkBackupService extends ChangeNotifier {
   final SyncTripwireStore _tripwires;
   final SyncTransportFactory _transportFactory;
   final Future<List<int>?> Function() _vaultKey;
+
+  /// The shared-mode `serverConfig` domain store (04 §4.2, amended): the
+  /// coordinator materializes pulled servers into it and seals local
+  /// edits out of it. Persisted in `servers.json` beside bookmarks.json.
+  final SyncTrackingServerStore _servers;
+
+  /// The vault's blob store — paired with the resolved key in
+  /// [_rebuildCoordinator] to make the [SecretVault] the coordinator and
+  /// the editor write through.
+  final VaultStore _vaultStore;
   final SettingsStore? _settings;
   final String? Function()? _recordQuarantinePath;
   final DateTime Function() _now;
@@ -117,6 +135,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   static const _lastSyncErrorKey = 'poltergeist.sync.lastSyncError';
   static const _retainedAccountKey = 'poltergeist.sync.retainedAccount';
   static const _switchSyncedKey = 'poltergeist.sync.switchSynced';
+  static const _syncSecretsKey = 'poltergeist.sync.syncSecrets';
 
   SyncAccount? _account;
   Set<String> _notices = const {};
@@ -134,6 +153,24 @@ final class BookmarkBackupService extends ChangeNotifier {
 
   BookmarkCoordinator? _coordinator;
   RecordCrypto? _crypto;
+
+  /// The shared-mode credential vault the coordinator and the server
+  /// editor write through — rebuilt on every coordinator rebind so it
+  /// always holds the current account key. Null outside shared mode or
+  /// while the keystore is unavailable.
+  SecretVault? _secretVault;
+
+  /// The shared-mode vault, for the server editor's credential fields.
+  SecretVault? get secretVault => _secretVault;
+
+  bool _syncSecrets = false;
+
+  /// The device-level "Sync saved passwords & keys" switch — Séance's
+  /// `syncSecrets`, persisted per device and off by default. While off
+  /// the coordinator neither publishes a credential nor applies a pulled
+  /// one, whatever a server's own credential-sync switch says; the
+  /// editor's credential fields still read and write the local vault.
+  bool get syncSecrets => _syncSecrets;
 
   /// The enrolled account, or null before first enrollment.
   SyncAccount? get account => _account;
@@ -184,7 +221,11 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// Load all durable state and build the coordinator when the vault key
   /// is readable. Called once at composition and again on refresh needs.
   Future<void> load() async {
+    _syncSecrets = await _settings?.get<bool>(_syncSecretsKey) ?? false;
     await _rebuildCoordinator();
+    // Repopulate the catalog from the server store before the first
+    // round runs — locally saved servers persist across restarts.
+    await _coordinator?.rebuildCatalog();
     await refresh();
   }
 
@@ -211,6 +252,126 @@ final class BookmarkBackupService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Flip [syncSecrets]: persist, rebind the coordinator under the new
+  /// value, and — turning it on — work off what change-driven sync
+  /// skipped while it was off (the next round pushes it). Turning it off
+  /// withdraws nothing already published, as in Séance; deleting or
+  /// excluding a server still retracts its credential either way.
+  Future<void> setSyncSecrets(bool enabled) async {
+    _requireNotSyncing();
+    if (enabled == _syncSecrets) return;
+    await _settings?.set(_syncSecretsKey, enabled);
+    _syncSecrets = enabled;
+    await _rebuildCoordinator();
+    await _coordinator?.rebuildCatalog();
+    if (enabled) await _coordinator?.catchUpSecrets();
+    await refresh();
+  }
+
+  /// Shared-mode server writes (04 §4.2, amended): the catalog's row
+  /// verbs and the server editor route through these, never the store
+  /// directly — the coordinator persists the row AND seals its record
+  /// dirty for the next round in one call. A no-op outside shared mode.
+  Future<void> saveServer(ServerConfig server) async {
+    await _coordinator?.onServerSaved(server);
+  }
+
+  /// Delete a shared-mode server: drops the row and seals the tombstone
+  /// that propagates the delete to the fleet (and retracts the orphaned
+  /// credential's record). Serialized with [duplicateServer]: a delete's
+  /// orphaned-credential check reads the store before the tombstone lands,
+  /// and two of them racing is exactly the read-then-write hazard the tail
+  /// exists for (Séance's `_mutate` queue, narrowed to the server domain).
+  Future<void> deleteServer(ServerConfig server) =>
+      _mutateServer(() async {
+        await _coordinator?.onServerDeleted(server);
+      });
+
+  /// The server-domain mutation tail delete and duplicate serialize on.
+  /// Duplicating reads the vault and the label set before writing — the
+  /// read and the write have to see one store, or a delete landing between
+  /// them is invisible to the plan. `saveServer` is deliberately not on
+  /// it: the editor's save is a single coordinator call (atomic), and the
+  /// tail must stay free for the duplicate that calls it mid-plan.
+  Future<void> _serverMutationTail = Future<void>.value();
+
+  Future<T> _mutateServer<T>(Future<T> Function() action) {
+    final result = _serverMutationTail.then((_) => action());
+    _serverMutationTail = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  /// Copy a shared-mode server: the copy gets its own id, its own
+  /// "&lt;label&gt; copy" name, and its own copy of the credential (never a
+  /// shared vault entry — see `planServerDuplication`). The source is
+  /// rechecked against the store before the vault read, so a delete or a
+  /// credential re-pointing that landed between the menu tap and the plan
+  /// fails as [SourceServerChanged] rather than copying a ghost (upstream's
+  /// `AppState.duplicateServer` @ 035b0d8, minus the mutation-queue entry —
+  /// the tail above is this app's equivalent).
+  Future<ServerConfig> duplicateServer(ServerConfig source) {
+    return _mutateServer(() async {
+      ServerConfig? latest;
+      final rows = await _servers.load();
+      for (final candidate in rows) {
+        if (candidate.id == source.id) {
+          latest = candidate;
+          break;
+        }
+      }
+      if (!duplicationSourceUnchanged(latest, source)) {
+        throw SourceServerChanged(latest?.label ?? source.label);
+      }
+      final vault = _secretVault;
+      if (vault == null) {
+        // Reachable only with the account gone mid-tap — the catalog, and
+        // so this verb, exists only where the vault resolved.
+        throw StateError(
+          'the vault is unavailable — cannot duplicate servers',
+        );
+      }
+      final plan = await planServerDuplication(
+        latest!,
+        vault: vault,
+        takenLabels: [for (final server in rows) server.label],
+        id: uuidV4(),
+        secretId: uuidV4(),
+        now: _now().toUtc().millisecondsSinceEpoch,
+      );
+      // Credential before config — `onServerSaved` publishes the opted-in
+      // `secret:` record, which reads the vault entry just written.
+      final secret = plan.secret;
+      if (secret != null) await saveServerSecret(secret);
+      await saveServer(plan.config);
+      return plan.config;
+    });
+  }
+
+  /// Save a credential the server editor entered: writes the vault with
+  /// its own advancing stamp, then publishes the `secret:` record while
+  /// a synced server opts it in. Throws when the vault has no key.
+  Future<void> saveServerSecret(Secret secret) async {
+    final vault = _secretVault;
+    if (vault == null) {
+      throw StateError('the vault is unavailable — cannot save secrets');
+    }
+    await vault.putLocalSecret(secret,
+        updatedAt: _now().toUtc().millisecondsSinceEpoch);
+    await _coordinator?.onServerSecretSaved(secret.id);
+  }
+
+  /// The credential a `secretRef` names, for the editor's fields — null
+  /// when absent or the vault is locked.
+  Future<Secret?> serverSecretById(String id) async {
+    final vault = _secretVault;
+    if (vault == null) return null;
+    try {
+      return await vault.getSecret(id);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// The coordinator re-binds whenever the account, vault key, or record
   /// store changed — each enrollment and the §4.4 wipe produce a new one.
   /// A missing vault key (keystore down) leaves it null: the enrolled
@@ -223,12 +384,14 @@ final class BookmarkBackupService extends ChangeNotifier {
       _coordinator = null;
       _crypto = null;
       _catalog = null;
+      _secretVault = null;
       return;
     }
     final crypto = RecordCrypto(RecordCodec(key));
     _crypto = crypto;
-    _catalog =
-        account.mode == SyncAccountMode.shared ? SeanceServerCatalog() : null;
+    final shared = account.mode == SyncAccountMode.shared;
+    _catalog = shared ? SeanceServerCatalog() : null;
+    _secretVault = shared ? SecretVault(_vaultStore, key) : null;
     _coordinator = BookmarkCoordinator(
       records: _records,
       bookmarks: _bookmarks,
@@ -238,6 +401,9 @@ final class BookmarkBackupService extends ChangeNotifier {
       pinVerdicts: _pinVerdicts,
       tripwires: _tripwires,
       catalog: _catalog,
+      servers: shared ? _servers : null,
+      secrets: _secretVault,
+      syncSecrets: _syncSecrets,
       enrollment: _enrollmentState,
       now: _now,
     );
@@ -382,6 +548,7 @@ final class BookmarkBackupService extends ChangeNotifier {
     _coordinator = null;
     _crypto = null;
     _catalog = null;
+    _secretVault = null;
     _lastSyncAt = null;
     _lastSyncError = null;
     await _persistStatus();

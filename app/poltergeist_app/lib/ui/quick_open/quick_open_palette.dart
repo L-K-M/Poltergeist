@@ -687,7 +687,10 @@ class _QuickOpenPaletteState extends State<_QuickOpenPalette> {
   /// The favorite row's leading badge: the server accent + icon, kept
   /// small beside the sidebar's 26px badge — a disabled row dims both.
   Widget _favoriteBadge(Bookmark bookmark, bool enabled, ThemeData theme) {
-    final accent = serverAccent(context, bookmark.color);
+    final accent = serverAccent(
+      context,
+      ServerTint(named: bookmark.color),
+    );
     final scheme = theme.colorScheme;
     return Container(
       width: 22,

@@ -695,10 +695,11 @@ class BookmarkCoordinator {
 
 Two collaborator types are defined here. `RecordCrypto` wraps `RecordCodec`
 plus the vault key — encrypt/decrypt/tombstone methods — so the coordinator
-never touches key material directly. `SeanceServerCatalog` is an in-memory,
-read-only materialization of pulled `serverConfig` records, rebuilt from
-the persistent record store on each `applyPulled`; it has no file of its
-own, and its API is `List<CatalogServer> servers`.
+never touches key material directly. `SeanceServerCatalog` is an in-memory
+materialization of the `ServerConfig` store (writable per the 2026-09-24
+§4.2 amendment — local saves and pulled records alike land in the store,
+and the catalog rebuilds from it after each apply or local mutation); it
+has no file of its own, and its API is `List<CatalogServer> servers`.
 
 `applyPulled` iterates the store's records, each wrapped in a per-record
 try/catch (one malformed payload skips that record, never aborts the loop —
@@ -717,20 +718,21 @@ under the bare `server.id` (a UUID — no `serverConfig:` prefix exists
 on the wire, and a dispatch that matched one would skip every catalog
 record with zero diagnostics, since skipping is silent by design; a
 shared-mode test that materializes the catalog from a Séance-written
-record pins the real convention). `secret:`, `snippet:`, and
+record pins the real convention). `snippet:` and
 unrecognized `<prefix>:` ids are skip-preserved without ever being
-decrypted — prefixless ids too in separate mode, where no catalog
-exists —
-in shared mode this keeps the user's Séance password vault out of
-Poltergeist's memory entirely instead of decrypting it every round only
-to discard it (the §3.4 trust stance made mechanical). The dispatch on
+decrypted — prefixless and `secret:` ids too in separate mode, where no
+server store or vault exists. (Amended 2026-09-24: `secret:` ids decrypt
+in shared mode — the writable-vault amendment above makes the credential
+domain Poltergeist's own. `snippet:` stays never-decrypted, keeping that
+content out of Poltergeist's memory entirely.) The dispatch on
 the decrypted kinds:
 
 | Pulled kind | Action |
 |---|---|
 | `bookmark` | upsert into `BookmarkStore`; tombstone → remove — **both under the same tuple guard**, stated once here rather than twice below: Delta events are applied in seq order, and a pulled record — upsert or tombstone alike — is applied when its LWW tuple (`updatedAt`, `deviceId`) **beats or ties** the tuple **last materialized into `BookmarkStore`**, which the store persists per row (the winning envelope's `(updatedAt, deviceId)`) — after the SyncEngine's merge the §3.1 record store holds only the winner, so there is nothing else to compare against, and `putRemote` never overwrites a dirty local record. A **tie** is the same winning envelope arriving again — this device's own pushed record echoed back by a later delta, the §3.1 corruption recovery's re-seal with the row's persisted winning tuple, or any full-resync re-pull re-delivering an unchanged winner — so it applies as an idempotent no-op (content-identical by construction: one `(id, updatedAt, deviceId)` tuple names exactly one save) and counts toward `lastAppliedSeq` advancing; treating a tie as neither applied nor superseded would strand the cursor at the first tied record forever; every full re-pull re-scans the entire lifetime record set every round after that, breaking the delta-scales invariant this design exists to provide. Only a record that **loses to** a dirty, not-yet-pushed local tombstone or edit is left for the next round (after the pending dirty record pushes) rather than blindly applied, so a just-deleted bookmark never transiently resurrects, a pending offline edit is never clobbered at the apply layer, and a pulled tombstone cannot transiently remove a row out from under a dirty local edit that would out-tuple it once pushed |
 | `hostKey` | `hostKeys.put` — pins flow in (both modes) **unless the pulled key conflicts with a locally known pin for that host:port**: a conflicting pin is quarantined unapplied behind a durable MITM warning until the user resolves it — durable meaning the quarantine survives restarts and dismissed dialogs: it is **re-derived on every `applyPulled` by diffing the stored `hostkey:` records against the local TOFU store**, never held only in memory, because the §3.1 store's delta pulls advance past the merged record and never re-deliver it to re-arm a dropped warning (the record store still LWW-merges — only *trusting* the key is gated; an LWW auto-install would let one compromised device displace every device's trusted key, making the warning cosmetic — D4). Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both — and a local **untrust** ("forget host") tombstones the matching record **and records a durable local negative pin**: auto-apply requires a present record with no local pin *and no negative pin*. The tombstone alone cannot hold — patched Séance treats prefixed-id tombstones as no-ops (§5.2 item 4, whose `hostkey:` carve-out routes those tombstones to pin-store deletion) yet re-collects and re-pushes its pins with fresh LWW timestamps every round (§3.1/§4.2), so any *still-trusting* Séance device resurrects the record and the diff would auto-apply the key the user just removed under MITM suspicion; that habitual re-seal is not the "genuinely newer pin edit" the LWW carve-out means. The negative pin holds the untrust verdict until the user explicitly re-trusts (accepting the key at connect time). Negative pins persist in **app settings**, never inside the §3.1 record store — so the corrupt-store quarantine (store restarts empty) cannot erase an untrust verdict and let the very next `applyPulled` diff auto-apply a key the user removed under MITM suspicion. PR-S1 item 4 additionally routes `hostkey:`-prefixed tombstones to Séance's pin-store deletion so the two apps' untrust stays symmetric; an acceptance test pins that a Séance round re-pushing the pin does not restore auto-trust |
-| `serverConfig` | shared mode: update the read-only `SeanceServerCatalog`; separate mode: unreachable (the account has none) |
+| `serverConfig` | shared mode: upsert into the `ServerConfig` store under the same materialized-tuple guard `bookmark` uses — an excluded local row is never overwritten (the retraction re-dates past the pulled winner once and settles), and a tombstone removes the row unless the row is excluded or the tombstone carries this install's own device id over a live row (a reversed exclusion: the live row re-dates past it). The catalog view rebuilds from the store after every apply; separate mode: unreachable (the account has none) |
+| `secret` | shared mode only (a vault exists): apply into `SecretVault` under the exclusion shield (a credential referenced only by excluded servers never lands) and the freshness floor (a strictly newer local credential wins; the envelope stamp persists so a later unrelated save cannot manufacture "newer"). `secret:` **tombstones are no-ops** — vault material is not strippable by an envelope-only signal, matching `hostkey:`'s posture; separate mode: never decrypted |
 | anything that throws mid-decrypt/decode (malformed payload of a decrypted prefix) | skip-and-preserve: never applied, never re-encoded, never re-pushed, never tombstoned — **and, when the decrypt succeeded but strict decode then failed, raises the §4.2 durable tripwire** (a wrong-key decrypt *failure* is a different signal — §4.2/§4.5 — not this), unlike the silent never-decrypted-prefix skips above. Strict decode is **prefix-aware**: a `bookmark:` id must decode as `bookmark`, a prefixless id as `serverConfig`, a `hostkey:` id as `hostKey` (a prefix/kind mismatch is the row below). The encrypted record simply stays in the store |
 | decrypted `kind` ≠ the kind the id prefix implied (e.g. a `bookmark:`-prefixed id whose payload decodes as `secret`, or a prefixless id decoding as anything but `serverConfig`) | skip-and-preserve, and — like malformed — **raises the §4.2 durable tripwire** (decrypt-success + a prefix/kind mismatch is the primary in-place corruption signature: the re-sealed `bookmark:` record §4.2's acceptance test pins): the id prefix gates *which key decrypts*, the decrypted kind gates *what is applied*. The plaintext id is peer-writable on a shared account, so a relabeled blob — a `secret:` ciphertext re-uploaded under a `bookmark:` id — must never be applied (nor even upserted), or the relabeled secret would be parsed and persisted as bookmark data — though the decrypt itself already places the plaintext in memory, so relabeling does bypass the never-decrypt *courtesy*; only AEAD-binding the id (below) closes that. (Longer term, binding the record id as AEAD associated data in `RecordCodec` makes relabeling fail at decrypt outright.) |
 
@@ -923,11 +925,42 @@ key is scoped.
 
 What shared mode unlocks:
 
-- **Read-only Séance server catalog.** Pulled `serverConfig` records
-  materialize a "Your Séance servers" section in the bookmark picker and
-  sidebar — ready-made SFTP targets (same host/port/username/auth; SFTP rides
-  SSH). Bookmarks reference them by `serverConfigId`, so edits in Séance
-  propagate.
+- **Writable Séance server catalog (amended 2026-09-24, owner directive).**
+  Pulled `serverConfig` records materialize a "Séance servers" section in
+  the sidebar — ready-made SFTP targets (same host/port/username/auth;
+  SFTP rides SSH) — and the section is a **read-write** surface: servers
+  added, edited, duplicated, or deleted in Poltergeist seal `serverConfig`
+  records under the same bare-id convention and LWW rules Séance uses, so
+  a server managed in either app appears in both (Séance requires no
+  change — a Poltergeist-written record is indistinguishable from a second
+  Séance device's). Bookmarks reference them by `serverConfigId`, so edits
+  on either side propagate. This supersedes the original read-only design
+  below: the catalog is backed by a writable `ServerConfig` store
+  (`servers.json`, the bookmark store's file+tuple shape), and Poltergeist
+  writes `serverConfig` records — including tombstones, which server
+  deletion requires for propagation — and `secret:` records for
+  credentials whose referencing servers opted into `syncSecret` (the
+  v1.x enhancement noted at the end of this chapter, promoted into v1 by
+  the same directive: a Poltergeist-authored server is useless in Séance
+  without its credential). Secret publication follows Séance's rules:
+  only while the device-level **"Sync saved passwords & keys"** switch
+  (Séance's `syncSecrets`, per device, off by default — Settings →
+  Backup, shared mode) is on and a non-excluded `syncSecret` server
+  references the credential; retracted (tombstoned) when the last sharer
+  is deleted or excluded, whatever the switch says (an earlier session may
+  have published it); and re-dated past this device's own stale
+  retraction on re-inclusion. The switch gates the pull side too: while
+  it is off pulled `secret:` records stay stored but unapplied, and
+  turning it on applies them and publishes what it held back. Pulled
+  `secret:` records apply into the vault under Séance's two guards — the
+  exclusion shield (a credential referenced only by excluded servers
+  never lands) and the freshness floor (a strictly newer local edit is
+  never overwritten) — while `secret:` and `hostkey:` **tombstones stay
+  no-ops**: an envelope-only signal may not strip vault material or trust
+  pins. `excludeFromSync` stays a local privacy boundary both ways: an
+  excluded server's pulled live record never replaces the local row (the
+  retraction re-dates past it once and settles), and an excluded row's
+  own tombstone cannot delete it after re-inclusion.
 - **Host-key pin reuse.** Pulled `hostkey:` records feed `TofuVerifier` —
   a host verified in Séance connects silently in Poltergeist, and vice versa.
 - One passphrase, one server, zero re-enrollment friction.
@@ -937,7 +970,9 @@ Hard rules in shared mode:
 - **Never expose account deletion.** `DELETE /v1/account` nukes both apps'
   data. Settings show only "Sign out on this device" (forgets the local
   token and keys; server data untouched).
-- Poltergeist writes only `bookmark` and `hostkey` records (§3.2).
+- Poltergeist writes `bookmark`, `hostkey`, `serverConfig`, and opted-in
+  `secret` records (§3.2; `serverConfig`/`secret` added by the 2026-09-24
+  amendment above) — never `snippet` or unknown kinds.
 - Enrollment is login-only (the account exists); registration UI is hidden.
 
 ### 4.3 Setup screen copy (Settings → Backup)
@@ -1546,11 +1581,14 @@ its full cost so nobody "simplifies" the delay away).
   (currently 1). A future bump is coordinated through the pin, never
   improvised.
 - In shared mode, Séance's re-collect-everything habit means Poltergeist
-  pulls fresh re-encodes of Séance's records regularly; they are applied
-  read-only (catalog, pins) or skipped, and cost nothing at this scale.
-- A possible v1.x enhancement, deliberately not in v1: honoring Séance's
-  opt-in synced `secret` records read-only at connect time in shared mode.
-  It would need its own decision-log entry before anyone builds it.
+  pulls fresh re-encodes of Séance's records regularly; they apply through
+  the same tuple-guarded paths Poltergeist's own writes take, and cost
+  nothing at this scale.
+- Synced `secret` records are in v1 after all — promoted by the
+  2026-09-24 §4.2 amendment (bidirectional server management requires the
+  credential to travel with its config). Séance's publish/shield/
+  freshness-floor rules apply verbatim; `secret:` tombstones remain
+  no-ops.
 
 ## Definition of done
 

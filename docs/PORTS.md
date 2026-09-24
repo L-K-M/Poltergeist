@@ -123,6 +123,19 @@ port candidates.
   missing serialized mutation queue: a `putSecret`/`deleteSecret`
   racing the batch can interleave flushes (the port-back candidate
   below already records that gap).
+- 2026-09-24: the re-key journal IS adopted — bidirectional server sync
+  (04 §4.2 amendment) makes `SecureSyncCredentialStore.writeVaultKey` a
+  real re-key path, and swapping the OS-keystore key without the
+  two-generation journal would orphan every credential on any crash or
+  refusal between the vault rewrite and the keystore write. `FileVaultStore`
+  now implements `VaultRekeyJournal` verbatim from upstream: staged
+  old/new encrypted snapshots in `vault.json.rekey`, settle-on-next-open,
+  keystore-probe-driven generation choice on failure, mutation lockout
+  while staged. The serialized mutation queue still stays upstream — the
+  journal serializes against itself and the vault has no concurrent
+  writers beyond it yet. `LockedSecretVault` also picked up upstream's
+  `readableSecret`/`putSecrets` overrides in the same pass (still
+  throw-on-touch; the pulled-`secret` apply path calls `readableSecret`).
 - Divergences: only `FileVaultStore` and `FileHostKeyStore` are ported —
   `FileConfigStore`/`FileSnippetStore` have no Poltergeist counterpart
   (bookmark identities carry connections per 04 §2.1–2.2; the synced record
@@ -152,6 +165,20 @@ port candidates.
 - Divergences: the dropped API-key methods' tests map to `setKeystoreKey`
   write-failure coverage plus a master-key entry-name assertion; imports via
   the poltergeist_core barrel.
+- Port-back candidates: none.
+
+## app/poltergeist_app/test/vault_rekey_journal_test.dart
+
+- Source: app/seance_app/test/vault_rekey_journal_test.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (tag v0.9.1)
+- Ported: 2026-09-24
+- Divergences: the `AppServices`-driven groups are replaced by
+  `SecureSyncCredentialStore.writeVaultKey` coverage over a fake keystore
+  (Poltergeist has no AppServices — the re-key path lives in the sync
+  credential store per 04 §4.5); quarantine assertions match this repo's
+  UTC-stamped `.corrupt-<stamp>` names instead of upstream's `.corrupt`;
+  a `failWrite` keystore mode covers refusal-without-storing, which
+  upstream's file-level fakes did not exercise.
 - Port-back candidates: none.
 
 ## app/poltergeist_app/lib/ui/prompts/host_key_dialog.dart
@@ -432,36 +459,194 @@ counterpart is ported here.
 ## app/poltergeist_app/lib/ui/server_appearance.dart
 
 - Source: app/seance_app/lib/ui/server_appearance.dart
-- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (rev pin, no
-  tag — the live pin this task shipped against)
-- Ported: 2026-09-15
+- Séance commit: ded9228aaf8aa45fe2a5fb7df9559db8c820ec4d (main, ahead of
+  the `v0.9.1` pin — the file's mark/tint rework landed upstream after
+  the tag; the protocol types it consumes are all in the pin)
+- Ported: 2026-09-15; re-diffed and expanded 2026-09-24 for the synced
+  Séance-server catalog surface
+- 2026-09-24: the port now carries the full module — `ServerTint`
+  (named + custom colour), the memoized custom-accent derivation,
+  `ServerBadge` over the protocol's resolved `ServerMark` (glyph, emoji,
+  image), `ServerAccentBar`, the glyph table with labels/keywords, and
+  the picker helpers (`serverIconLabel`, `serverIconMatches`,
+  `serverIconGroups`, `serverColorSeed`, `serverColorLabel`,
+  `formatServerCustomColor`, `parseServerCustomColor`,
+  `nearestServerColor`). Identical records draw identical badges in
+  both apps, which is the point of carrying the whole mapping rather
+  than the earlier subset.
 - 2026-09-21 at the `v0.9.1` pin (`035b0d8`): upstream reworked the file
   for custom colours/SVG marks and row accents (#101/#102) and widened
   the `ServerIcon` enum to ~45 values. The port's `serverIconData`
   switch was extended exhaustively over the widened enum using the
-  upstream glyph choices; the rest of the rework stays unported per the
-  divergences below.
-- Divergences: only the seed map, `ServerAccent`/`serverAccent`,
-  `serverIconData`, and `ServerBadge` are carried — the tab chip needs
-  the badge, not the rest. `ServerAvatar` (badge + status-dot overhang)
-  is not ported: the strip composes `ServerBadge` with the shared
-  `ServerStateGlyph` side by side instead, per 02 §3. `serverIconLabel`
-  and `serverColorLabel` (editor-picker tooltips) are omitted — no
-  bookmark editor exists yet, and human labels belong in ARB under the
-  localization contract anyway. Doc references re-pointed from
-  `SeanceTheme` to the app theme.
-- Port-back candidates: none — the elided surface is editor and
-  list-row chrome Poltergeist does not have.
+  upstream glyph choices; the rest of the rework stayed unported until
+  the 2026-09-24 expansion above.
+- Divergences: `ServerAvatar`/`_SessionRing` (badge + connected-session
+  ring keyed on Séance's `TerminalStatus`/`StatusColors`) is not ported
+  — Poltergeist's surfaces compose `ServerBadge` with their own
+  connection indicators per 02 §3–4, and the catalog rows keep that
+  contract. Label vocabulary (`serverIconLabel`, `serverColorLabel`,
+  the group headings) stays upstream English: it is glyph vocabulary,
+  not product copy; any picker that lands with the server editor can
+  ARB-wrap it then. Doc references re-pointed from `SeanceTheme` to the
+  app theme.
+- Port-back candidates: none — Séance owns the source.
 
 ## app/poltergeist_app/test/ui/server_appearance_test.dart
 
-- Source: app/seance_app/test/server_appearance_test.dart (badge and
-  accent cases only)
-- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379
-- Ported: 2026-09-15
-- Divergences: the `ServerAvatar` and label-function cases are dropped
-  with the widgets they cover; the kept cases assert the same seed and
-  glyph contracts against the carried code.
+- Source: app/seance_app/test/server_appearance_test.dart
+- Séance commit: ded9228aaf8aa45fe2a5fb7df9559db8c820ec4d
+- Ported: 2026-09-15; expanded 2026-09-24 to the full file minus the
+  `ServerAvatar` group
+- Divergences: the `ServerAvatar` group is dropped with the widget it
+  covers; the two cases that used the avatar as the badge's host ('a
+  config draws the mark its fields resolve to', 'a server's colour
+  fills its badge, unframed') are adapted to `ServerBadge` directly —
+  the resolution and fill under test are unchanged.
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/server_grouping.dart
+
+- Source: app/seance_app/lib/ui/server_grouping.dart
+- Séance commit: ded9228aaf8aa45fe2a5fb7df9559db8c820ec4d
+- Ported: 2026-09-24
+- Divergences: none — carried verbatim (imports re-pointed). The file is
+  deliberately Flutter-free upstream; the catalog section renders pulled
+  `ServerConfig`s through the same sectioning Séance uses, so identical
+  data produces identical placement.
+- Port-back candidates: none — Séance owns the source.
+
+## app/poltergeist_app/lib/ui/server_filter.dart
+
+- Source: app/seance_app/lib/ui/server_filter.dart
+- Séance commit: ded9228aaf8aa45fe2a5fb7df9559db8c820ec4d
+- Ported: 2026-09-24
+- Divergences: none — carried verbatim (imports re-pointed). Operates on
+  `ServerConfig`, so the catalog's filter matches Séance's haystack
+  term-for-term.
+- Port-back candidates: none — Séance owns the source.
+
+## app/poltergeist_app/test/ui/server_grouping_test.dart
+
+- Source: app/seance_app/test/server_grouping_test.dart
+- Séance commit: ded9228aaf8aa45fe2a5fb7df9559db8c820ec4d
+- Ported: 2026-09-24
+- Divergences: none — carried verbatim (imports re-pointed).
+- Port-back candidates: none.
+
+## app/poltergeist_app/test/ui/server_filter_test.dart
+
+- Source: app/seance_app/test/server_filter_test.dart
+- Séance commit: ded9228aaf8aa45fe2a5fb7df9559db8c820ec4d
+- Ported: 2026-09-24
+- Divergences: none — carried verbatim (imports re-pointed).
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/services/badge_image.dart
+
+- Source: app/seance_app/lib/services/badge_image.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: none — carried verbatim (imports re-pointed). SVG
+  rasterization adds the `flutter_svg` direct dependency, the same use
+  upstream makes of it.
+- Port-back candidates: none — Séance owns the source.
+
+## app/poltergeist_app/lib/services/server_duplication.dart
+
+- Source: app/seance_app/lib/services/server_duplication.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: the macOS security-scoped bookmark machinery is dropped —
+  Poltergeist is not sandboxed, so identity files travel as plain paths
+  and the duplicate simply carries `identityFilePath` over. The label
+  grammar, stale-source check (`SourceServerChanged`), and credential
+  copy shape are upstream's.
+- Port-back candidates: none — the omission is sandbox-specific.
+
+## app/poltergeist_app/lib/services/server_editor_backend.dart
+
+- Source: adapted from app/seance_app (the `AppState.testServerConnection`
+  composition and the editor's credential-resolution rules)
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: this is the production implementation of the ported
+  editor's `ServerEditorDelegate` seam, not a file-for-file port —
+  upstream's editor reaches into `AppState` directly. Credential
+  precedence (draft over vault over identity-file), trial-only host-key
+  approval, and the no-login-script test posture mirror upstream.
+- Port-back candidates: the delegate seam itself, if Séance ever wants
+  the editor testable without a full `AppState`.
+
+## app/poltergeist_app/lib/ui/connection_log_view.dart
+
+- Source: app/seance_app/lib/ui/connection_log_view.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: user-facing strings moved to ARB (Poltergeist's
+  localization contract); layout and log rendering verbatim.
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/connection_test_report.dart
+
+- Source: app/seance_app/lib/ui/connection_test_report.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: user-facing strings moved to ARB; report structure and
+  the connection-log embedding verbatim.
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/server_color_picker.dart
+
+- Source: app/seance_app/lib/ui/server_color_picker.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: strings moved to ARB; preview badges pass the picked
+  `ServerTint` because Poltergeist's `ServerBadge` requires one
+  (upstream's defaults to a neutral badge).
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/server_mark_picker.dart
+
+- Source: app/seance_app/lib/ui/server_mark_picker.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: strings moved to ARB; the curated emoji table keeps
+  upstream's `\u{...}` escapes for re-diffability. Same `ServerBadge`
+  tint adaptation as the color picker.
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/server_editor.dart
+
+- Source: app/seance_app/lib/ui/server_editor.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: `AppState` is replaced by the narrow `ServerEditorDelegate`
+  seam (servers, syncConfigured, themeSeed, pickIdentityFile, readSecret,
+  save, testConnection) — Poltergeist composes services rather than a
+  monolithic state. Strings moved to ARB. The macOS security-scoped
+  identity bookmark becomes a plain path field (not sandboxed). Field
+  set, credential planning, exclusion confirmation, monotonic
+  `updatedAt`, and the vault-first save order are upstream's.
+- Port-back candidates: the delegate seam (see the backend entry).
+
+## app/poltergeist_app/test/services/server_duplication_test.dart
+
+- Source: app/seance_app/test/server_duplication_test.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: the security-bookmark and `ServerTile` cases are dropped
+  with the machinery they exercise; label grammar and stale-source
+  coverage carried verbatim.
+- Port-back candidates: none.
+
+## app/poltergeist_app/test/ui/server_editor_test.dart
+
+- Source: adapted from app/seance_app/test/server_editor_test.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (v0.9.1 pin)
+- Ported: 2026-09-24
+- Divergences: upstream boots real services around `AppState`; the port
+  drives the same editor surface through a fake `ServerEditorDelegate`,
+  so cases about vault plumbing collapse into delegate assertions.
 - Port-back candidates: none.
 
 ## app/poltergeist_app/lib/ui/top_toast.dart

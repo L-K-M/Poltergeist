@@ -1775,6 +1775,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get backupPinAcceptSynced => 'Use synced key';
 
   @override
+  String get backupSyncSecretsTitle => 'Sync saved passwords & keys';
+
+  @override
+  String get backupSyncSecretsSubtitle =>
+      'End-to-end encrypted. Only includes servers where credential sync is also on.';
+
+  @override
   String get backupPinKeepLocal => 'Keep local key';
 
   @override
@@ -3038,6 +3045,46 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sidebarImportSshConfig => 'Import from ssh config…';
 
   @override
+  String get sidebarCatalogSection => 'Séance servers';
+
+  @override
+  String get sidebarCatalogUngrouped => 'Ungrouped';
+
+  @override
+  String get sidebarCatalogEmpty =>
+      'No servers on this account yet. Add one in Séance and sync to see it here.';
+
+  @override
+  String get sidebarCatalogNoMatches => 'No servers match the filter.';
+
+  @override
+  String get sidebarCatalogFilter => 'Filter servers';
+
+  @override
+  String sidebarCatalogFilterCount(int matches, int total) {
+    return '$matches of $total';
+  }
+
+  @override
+  String sidebarCatalogFilterCountOpenFirst(int matches, int total) {
+    return '$matches of $total · ↵ opens the first';
+  }
+
+  @override
+  String get sidebarCatalogFilterClear => 'Clear filter';
+
+  @override
+  String get sidebarCatalogSyncNow => 'Sync now';
+
+  @override
+  String get sidebarCatalogSyncing => 'Syncing…';
+
+  @override
+  String sidebarCatalogSyncFailed(String error) {
+    return 'Last sync failed: $error';
+  }
+
+  @override
   String panePathSegmentGoTo(String segment) {
     return 'Go to $segment';
   }
@@ -3046,4 +3093,378 @@ class AppLocalizationsEn extends AppLocalizations {
   String sidebarSectionSemantics(String title, String count) {
     return '$title, $count';
   }
+
+  @override
+  String get sidebarCatalogAddServer => 'Add server';
+
+  @override
+  String get sidebarCatalogEdit => 'Edit';
+
+  @override
+  String get sidebarCatalogDuplicate => 'Duplicate';
+
+  @override
+  String get sidebarCatalogDelete => 'Delete';
+
+  @override
+  String sidebarCatalogDeleteTitle(String label) {
+    return 'Delete \"$label\"?';
+  }
+
+  @override
+  String get sidebarCatalogDeleteBody =>
+      'This removes the server and any stored secret, on this device and — if it synced — your other devices.';
+
+  @override
+  String sidebarCatalogDeleteBodyEdits(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'This removes the server, its stored secret, and # managed local edits. Any changes not uploaded to the server will be deleted.',
+      one:
+          'This removes the server, its stored secret, and # managed local edit. Any changes not uploaded to the server will be deleted.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get sidebarCatalogDeleteCancel => 'Cancel';
+
+  @override
+  String get sidebarCatalogDeleteConfirm => 'Delete';
+
+  @override
+  String sidebarCatalogDuplicateFailed(String label, String error) {
+    return 'Could not duplicate \"$label\": $error';
+  }
+
+  @override
+  String sidebarCatalogDuplicated(String label) {
+    return 'Duplicated as \"$label\"';
+  }
+
+  @override
+  String get sidebarCatalogDuplicatedEdit => 'Edit';
+
+  @override
+  String get serverEditorAddTitle => 'Add server';
+
+  @override
+  String get serverEditorEditTitle => 'Edit server';
+
+  @override
+  String get serverEditorLabel => 'Label';
+
+  @override
+  String get serverEditorHost => 'Host';
+
+  @override
+  String get serverEditorPort => 'Port';
+
+  @override
+  String get serverEditorUsername => 'Username';
+
+  @override
+  String get serverEditorAuthentication => 'Authentication';
+
+  @override
+  String get serverEditorAuthAgent => 'ssh-agent';
+
+  @override
+  String get serverEditorAuthPassword => 'Password';
+
+  @override
+  String get serverEditorAuthPrivateKey => 'Private key';
+
+  @override
+  String get serverEditorAgentInfo =>
+      'Keys are provided by your ssh-agent; nothing is stored.';
+
+  @override
+  String get serverEditorAgentUnsupported =>
+      'ssh-agent auth isn\'t supported yet — connecting will fail. Choose Password or Private key for now.';
+
+  @override
+  String get serverEditorPasswordLabel => 'Password';
+
+  @override
+  String get serverEditorReferenceKeyTitle => 'Reference a key file on disk';
+
+  @override
+  String get serverEditorReferenceKeySubtitle =>
+      'Don\'t store the key — read it at connect';
+
+  @override
+  String get serverEditorIdentityFileHint => '~/.ssh/id_ed25519';
+
+  @override
+  String get serverEditorIdentityFilePath => 'Identity file path';
+
+  @override
+  String get serverEditorBrowse => 'Browse…';
+
+  @override
+  String get serverEditorPrivateKeyPem => 'Private key (PEM/OpenSSH)';
+
+  @override
+  String get serverEditorKeyPassphrase => 'Key passphrase (optional)';
+
+  @override
+  String get serverEditorLoginScript => 'Login script (optional)';
+
+  @override
+  String get serverEditorLoginScriptHint =>
+      'e.g. cd ~/work && tmux attach -t work || tmux new -s work';
+
+  @override
+  String get serverEditorLoginScriptNote =>
+      'Runs as if typed at the prompt right after connecting. Its text and output land in scrollback — keep secrets out. Blank for none.';
+
+  @override
+  String get serverEditorAppearance => 'Appearance';
+
+  @override
+  String get serverEditorGroup => 'Group';
+
+  @override
+  String get serverEditorGroupHint =>
+      'Production, Home lab, … — blank for none';
+
+  @override
+  String get serverEditorColour => 'Colour';
+
+  @override
+  String get serverEditorMark => 'Mark';
+
+  @override
+  String get serverEditorChooseMark => 'Choose…';
+
+  @override
+  String get serverEditorDefaultMarkTooltip => 'Use the default mark';
+
+  @override
+  String get serverEditorSyncSecretTitle => 'Allow this credential to sync';
+
+  @override
+  String get serverEditorSyncSecretExcluded =>
+      'Not used while this server is excluded from sync.';
+
+  @override
+  String get serverEditorSyncSecretSubtitle =>
+      'End-to-end encrypted. Also needs sync set up with \"Sync saved passwords & keys\" enabled.';
+
+  @override
+  String get serverEditorExcludeTitle => 'Exclude from sync';
+
+  @override
+  String get serverEditorExcludeOnSubtitle =>
+      'Kept on this device only. A copy that synced earlier is removed from the sync server and from your other devices.';
+
+  @override
+  String get serverEditorExcludeOffSubtitle =>
+      'Keep this server on this device only — never upload it.';
+
+  @override
+  String get serverEditorTest => 'Test connection';
+
+  @override
+  String get serverEditorTesting => 'Testing…';
+
+  @override
+  String get serverEditorTestingSemantic => 'Testing connection';
+
+  @override
+  String get serverEditorCancel => 'Cancel';
+
+  @override
+  String get serverEditorSave => 'Save';
+
+  @override
+  String get serverEditorTestDisclaimer =>
+      'Testing authenticates without opening a shell or running the login script. A host key you approve here is trusted for the test only — the first real connection asks again.';
+
+  @override
+  String get serverEditorRequired => 'Required';
+
+  @override
+  String get serverEditorPortRange => '1–65535';
+
+  @override
+  String get serverEditorTestFailedSummary => 'Could not test the connection.';
+
+  @override
+  String serverEditorSaveFailed(String error) {
+    return 'Could not save: $error';
+  }
+
+  @override
+  String get serverEditorExcludeConfirmTitle => 'Exclude from sync?';
+
+  @override
+  String get serverEditorExcludeConfirmBody =>
+      'If this server synced earlier, it is removed from the sync server and from your other devices, along with any credential that synced with it. This device keeps its copy.';
+
+  @override
+  String get serverEditorExcludeConfirmCancel => 'Cancel';
+
+  @override
+  String get serverEditorExcludeConfirmAction => 'Exclude';
+
+  @override
+  String get serverEditorCustomColour => 'Custom colour…';
+
+  @override
+  String serverEditorCustomColourValue(String hex) {
+    return 'Custom colour ($hex)';
+  }
+
+  @override
+  String get serverMarkPickerTitle => 'Server mark';
+
+  @override
+  String get serverMarkPickerIconsTab => 'Icons';
+
+  @override
+  String get serverMarkPickerEmojiTab => 'Emoji';
+
+  @override
+  String get serverMarkPickerImageTab => 'Image';
+
+  @override
+  String get serverMarkPickerCancel => 'Cancel';
+
+  @override
+  String get serverMarkPickerSearchHint =>
+      'Search icons — try k8s, psql, prod…';
+
+  @override
+  String get serverMarkPickerNoMatch => 'No icon matches.';
+
+  @override
+  String get serverMarkPickerDefault => 'Default';
+
+  @override
+  String get serverMarkPickerEmojiHintMacOS =>
+      'Press Control-Command-Space for the system emoji picker.';
+
+  @override
+  String get serverMarkPickerEmojiHintWindows =>
+      'Press Windows-. for the system emoji picker.';
+
+  @override
+  String get serverMarkPickerEmojiHintLinux =>
+      'Your desktop may offer an emoji picker with Control-Shift-E or Control-.';
+
+  @override
+  String get serverMarkPickerEmojiHintOther => 'Switch your keyboard to emoji.';
+
+  @override
+  String get serverMarkPickerAnyEmoji => 'Any emoji';
+
+  @override
+  String get serverMarkPickerOneEmoji => 'One emoji, please.';
+
+  @override
+  String get serverMarkPickerUse => 'Use';
+
+  @override
+  String get serverMarkPickerEmojiFontNote =>
+      'An emoji is drawn with the system’s own emoji font, so a device without one shows a box — the icon chosen under Icons is what it falls back to there.';
+
+  @override
+  String get serverMarkPickerOpenFailed =>
+      'That file could not be opened. Try another.';
+
+  @override
+  String get serverMarkPickerTooLarge =>
+      'That file is too big to read. Crop or export it smaller first.';
+
+  @override
+  String get serverMarkPickerUndecodable =>
+      'That file could not be read as an image.';
+
+  @override
+  String get serverMarkPickerEncodeFailed =>
+      'That image could not be prepared. Try again, or pick another.';
+
+  @override
+  String get serverMarkPickerIncompressible =>
+      'That image would not fit in a server record even at badge size. Try a smaller or simpler one.';
+
+  @override
+  String get serverMarkPickerNoImage => 'No image on this server yet.';
+
+  @override
+  String get serverMarkPickerHasImage => 'This server carries an image.';
+
+  @override
+  String get serverMarkPickerChooseImage => 'Choose image…';
+
+  @override
+  String get serverMarkPickerReplaceImage => 'Replace image…';
+
+  @override
+  String get serverMarkPickerRemoveImage => 'Remove image';
+
+  @override
+  String get serverMarkPickerImageFormats => 'PNG, JPEG, WebP or SVG';
+
+  @override
+  String get serverMarkPickerImageFormatsIos => 'PNG, JPEG or WebP';
+
+  @override
+  String serverMarkPickerImageExplanation(String formats, int side) {
+    return '$formats. The image is cropped square, stored at $side pixels, and travels inside this server’s own settings — so it reaches your other devices with everything else about the server, and never arrives without it. Anything larger than a badge can show would only be paid for on every sync. A transparent image shows the badge’s own background through it.';
+  }
+
+  @override
+  String get serverColorPickerTitle => 'Custom colour';
+
+  @override
+  String get serverColorPickerHexLabel => 'Hex';
+
+  @override
+  String get serverColorPickerHexError => 'Six hex digits';
+
+  @override
+  String get serverColorPickerHue => 'Hue';
+
+  @override
+  String get serverColorPickerSaturation => 'Saturation';
+
+  @override
+  String get serverColorPickerBrightness => 'Brightness';
+
+  @override
+  String serverColorPickerDegrees(int degrees) {
+    return '$degrees degrees';
+  }
+
+  @override
+  String serverColorPickerPercent(int percent) {
+    return '$percent percent';
+  }
+
+  @override
+  String get serverColorPickerHint =>
+      'Drawn as picked, with the mark kept legible on it in both themes. Devices running an older version show the nearest of the named colours instead.';
+
+  @override
+  String get serverColorPickerCancel => 'Cancel';
+
+  @override
+  String get serverColorPickerUse => 'Use colour';
+
+  @override
+  String get connectionLogCopied => 'Log copied';
+
+  @override
+  String get connectionLogCopyFailed => 'Could not copy the log';
+
+  @override
+  String get connectionTestSucceeded => 'Connection test succeeded';
+
+  @override
+  String get connectionTestFailed => 'Connection test failed';
 }

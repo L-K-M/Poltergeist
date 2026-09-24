@@ -390,3 +390,69 @@ final class FakeSyncTrackingBookmarkStore
   /// Closes the inner store's change lane like [FakeBookmarkStore.close].
   Future<void> close() => _inner.close();
 }
+
+/// A [SyncTrackingServerStore] in memory: rows keyed by id plus the
+/// materialized-tuple map the apply/recovery paths read.
+final class FakeSyncTrackingServerStore
+    implements SyncTrackingServerStore {
+  FakeSyncTrackingServerStore([List<ServerConfig> servers = const []])
+      : _servers = {for (final server in servers) server.id: server};
+
+  final Map<String, ServerConfig> _servers;
+  final tuples = <String, ServerSyncTuple>{};
+
+  List<ServerConfig> get rows =>
+      _servers.values.toList()
+        ..sort((a, b) {
+          final byLabel = a.label.toLowerCase().compareTo(b.label.toLowerCase());
+          return byLabel != 0 ? byLabel : a.id.compareTo(b.id);
+        });
+
+  @override
+  Future<List<ServerConfig>> load() async => List.unmodifiable(rows);
+
+  @override
+  Future<ServerConfig?> byId(String id) async => _servers[id];
+
+  @override
+  Future<ServerConfig> save(ServerConfig server) async {
+    _servers[server.id] = server;
+    tuples[server.id] = ServerSyncTuple(
+      updatedAt: server.updatedAt,
+      deviceId: 'test-device',
+      deleted: false,
+    );
+    return server;
+  }
+
+  @override
+  Future<bool> remove(String id) async {
+    if (_servers.remove(id) == null) return false;
+    tuples[id] = const ServerSyncTuple(
+      updatedAt: 1,
+      deviceId: 'test-device',
+      deleted: true,
+    );
+    return true;
+  }
+
+  @override
+  Future<ServerSyncTuple?> syncTupleOf(String id) async => tuples[id];
+
+  @override
+  Future<Map<String, ServerSyncTuple>> syncTuples() async => Map.of(tuples);
+
+  @override
+  Future<void> applySyncedRecord(
+      ServerConfig server, ServerSyncTuple winner) async {
+    _servers[server.id] = server;
+    tuples[server.id] = winner;
+  }
+
+  @override
+  Future<void> removeSyncedRecord(
+      String id, ServerSyncTuple tombstone) async {
+    _servers.remove(id);
+    tuples[id] = tombstone;
+  }
+}

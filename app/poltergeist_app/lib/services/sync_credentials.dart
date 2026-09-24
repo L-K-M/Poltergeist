@@ -7,6 +7,7 @@ import 'dart:async';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import 'file_stores.dart' show VaultRekeyJournal;
 import 'secure_master_key.dart';
 import 'settings_store.dart';
 import 'uuid.dart';
@@ -61,12 +62,21 @@ final class SecureRetainedSyncTokenStore implements RetainedSyncTokenStore {
 /// the vault key live ONLY here — never settings.json, never the sync
 /// record store.
 final class SecureSyncCredentialStore implements SyncCredentialStore {
-  SecureSyncCredentialStore({required MasterKeyManager keys})
-      : // Keep the collaborator private.
+  SecureSyncCredentialStore({
+    required MasterKeyManager keys,
+    VaultRekeyJournal? vaultJournal,
+  })  : // Keep the collaborators private.
         // ignore: prefer_initializing_formals
-        _keys = keys;
+        _keys = keys,
+        // ignore: prefer_initializing_formals
+        _vaultJournal = vaultJournal;
 
   final MasterKeyManager _keys;
+
+  /// The vault file's re-key journal — see [writeVaultKey]. Null means the
+  /// caller has no durable vault (tests); the keystore swap then risks
+  /// nothing because nothing exists to re-seal.
+  final VaultRekeyJournal? _vaultJournal;
 
   /// Throws [KeystoreException] on a locked keystore — enrollment must
   /// fail loudly rather than drop a live session.
@@ -87,9 +97,44 @@ final class SecureSyncCredentialStore implements SyncCredentialStore {
   /// The §4.5 re-key: the passphrase-derived vault key replaces the local
   /// master-key entry — the same keystore slot [MasterKeyManager]'s probe
   /// minted, so the vault follows the enrolled account key.
+  ///
+  /// The swap has to move two stores that no operation spans — the vault
+  /// file and the keystore — so the journal stages both sealed
+  /// generations first (Séance's `_rekeyVault` order): a crash or a
+  /// keystore refusal between them settles back to whichever generation
+  /// the installed key still opens, rather than leaving credentials
+  /// sealed under a key nothing holds. Without a journal the write is
+  /// the plain swap it always was.
   @override
-  Future<void> writeVaultKey(List<int> vaultKey) =>
-      _keys.setKeystoreKey(vaultKey);
+  Future<void> writeVaultKey(List<int> vaultKey) async {
+    final journal = _vaultJournal;
+    if (journal == null) {
+      await _keys.setKeystoreKey(vaultKey);
+      return;
+    }
+    // Settle any journal an interrupted earlier attempt left staged —
+    // staging a second one over it is refused — then read the key the
+    // keystore actually holds. A locked keystore reads as no key.
+    final current = await _keys.probeKeystore();
+    if (current != null) await journal.settleRekey(current);
+    // Staging re-seals every stored entry, which a keyless vault cannot
+    // produce: fail like the locked vault rather than stage a generation
+    // built from entries nothing could read.
+    if (current == null) throw const VaultLockedException();
+    await journal.stageRekey(currentKey: current, newKey: vaultKey);
+    try {
+      await _keys.setKeystoreKey(vaultKey);
+    } catch (_) {
+      // The keystore threw — but it may still have kept the new key
+      // (a keyring can store and then fail its own verdict). Read back
+      // what it actually holds and settle against that; a keyring that
+      // cannot testify leaves the journal staged rather than guess.
+      final installed = await _keys.probeKeystore();
+      if (installed != null) await journal.settleRekey(installed);
+      rethrow;
+    }
+    await journal.settleRekey(vaultKey);
+  }
 }
 
 /// The [SyncEnrollmentState] over [SettingsStore] (settings.json): durable
