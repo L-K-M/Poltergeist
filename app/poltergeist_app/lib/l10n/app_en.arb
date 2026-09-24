@@ -5446,5 +5446,9 @@
   "syncRowToggleHint": "Space includes or skips this row",
   "@syncRowToggleHint": {
     "description": "Tooltip of a plan review row checkbox."
+  },
+  "deleteDialogNameSeparator": "”, “",
+  "@deleteDialogNameSeparator": {
+    "description": "Joins the quoted item names inside the delete headline (“a.txt”, “b.txt”): closes one quote, separates, opens the next. Use your locale's quotation marks, matching deleteDialogDeleteNames."
   }
 }

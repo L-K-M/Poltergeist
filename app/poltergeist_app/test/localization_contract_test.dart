@@ -972,7 +972,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'header.title'",
     "'header.filter'",
     "'header.activityRing'",
-    "'connect.dialog'",
     r"'revealInPane: no bookmark for $serverId'",
     // The header subtitle's address grammar (10 §4): `user@host:path`
     // and `label:path` — machine data like the sidebar's addresses.
@@ -1532,14 +1531,45 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The activity panel's registered command id (D21 plumbing).
   'lib/ui/activity/activity_commands.dart': {"'queue.togglePause'"},
-  // D32's shell command ids (D21 plumbing).
+  // D32's shell command ids (D21 plumbing) and the Help menu's
+  // repository links — machine identifiers and URLs, not copy.
   'lib/ui/shell/shell_commands.dart': {
     "'view.toggleInspector'",
     "'view.showAlerts'",
     "'connect.quickConnect'",
     "'selection.transferToOtherPane'",
     "'selection.moveToOtherPane'",
+    "'file.reveal'",
+    "'file.newFolder'",
+    "'file.newFile'",
+    "'file.delete'",
+    "'file.deletePermanently'",
+    "'file.duplicate'",
+    "'help.keyboardShortcuts'",
+    "'help.releaseNotes'",
+    "'help.reportIssue'",
+    "'https://github.com/L-K-M/Poltergeist/releases'",
+    "'https://github.com/L-K-M/Poltergeist/issues'",
   },
+  // The shortcuts sheet's key and the typographic joiner between a
+  // command's alternative chords (glyph strings, not prose).
+  'lib/ui/shell/keyboard_shortcuts_dialog.dart': {
+    "'  ·  '",
+    "'help.shortcuts.dialog'",
+  },
+  // The delete dialog's widget keys, the prepare-failure detail passed
+  // as a placeholder, and the empty size stand-in for an unsized count.
+  'lib/ui/shell/delete_confirm_dialog.dart': {
+    "'delete.dialog'",
+    "'delete.cancel'",
+    "'delete.confirm'",
+    "'delete.headline'",
+    "'delete.serverTrash'",
+    "'delete.trashUnavailable'",
+    r"'$_error'",
+    "''",
+  },
+  'lib/ui/shell/connect_dialog.dart': {"'connect.dialog'"},
   // The header's button and overflow-menu keys, keyed to the registry's
   // command ids — widget plumbing, not authored copy.
   'lib/ui/shell/header_toolbar.dart': {

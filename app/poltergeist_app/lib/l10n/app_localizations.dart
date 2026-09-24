@@ -6363,6 +6363,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Space includes or skips this row'**
   String get syncRowToggleHint;
+
+  /// Joins the quoted item names inside the delete headline (“a.txt”, “b.txt”): closes one quote, separates, opens the next. Use your locale's quotation marks, matching deleteDialogDeleteNames.
+  ///
+  /// In en, this message translates to:
+  /// **'”, “'**
+  String get deleteDialogNameSeparator;
 }
 
 class _AppLocalizationsDelegate

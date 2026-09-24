@@ -4190,4 +4190,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncRowToggleHint => 'Space includes or skips this row';
+
+  @override
+  String get deleteDialogNameSeparator => '”, “';
 }

@@ -147,7 +147,7 @@ class _DeleteDialogState extends State<_DeleteDialog> {
         : formatPaneSize(confirmation.totalBytes!, platform: theme.platform);
     final location = widget.locationLabel;
     final names = confirmation.rootPaths.length <= 3
-        ? confirmation.names.join('”, “')
+        ? confirmation.names.join(l10n.deleteDialogNameSeparator)
         : null;
 
     final String headline;
