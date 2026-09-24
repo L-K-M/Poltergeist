@@ -16,6 +16,7 @@ void main() {
     group('${brightness.name} theme', () {
       final theme = buildPoltergeistTheme(brightness);
       final scheme = theme.colorScheme;
+      final chrome = theme.extension<PoltergeistChrome>()!;
 
       test('text tokens stay ≥ 4.5:1 on their surfaces', () {
         final pairs = <(String, Color, Color)>[
@@ -53,6 +54,19 @@ void main() {
           ),
           // Tooltips paint the inverse surface pair.
           ('tooltip', scheme.onInverseSurface, scheme.inverseSurface),
+          // D32 §6: the active pane's selected rows (name and caption
+          // columns both paint on-accent) and the linked sync chip.
+          (
+            'text on active selection',
+            chrome.onSelection,
+            chrome.selectionFill,
+          ),
+          (
+            'caption on inactive selection',
+            chrome.secondaryText,
+            chrome.inactiveSelectionFill,
+          ),
+          ('caption on capsule', chrome.secondaryText, chrome.capsuleFill),
         ];
         for (final (name, fg, bg) in pairs) {
           expect(
@@ -85,6 +99,18 @@ void main() {
           // The unknown-dot/semantic `outline` IS meaningful, so it is
           // pinned instead.
           ('outline', scheme.outline, scheme.surface),
+          // D32 §6's kind-glyph tints on the listing surface.
+          ('folder glyph', scheme.primary, chrome.paneBackground),
+          ('image/media glyph', scheme.tertiary, chrome.paneBackground),
+          ('archive glyph', scheme.secondary, chrome.paneBackground),
+          ('pdf glyph', scheme.error, chrome.paneBackground),
+          ('generic glyph', chrome.secondaryText, chrome.paneBackground),
+          // The active pane's 2 px marker against the strip it underlines.
+          (
+            'active pane line',
+            chrome.activePaneIndicator,
+            chrome.headerBackground,
+          ),
           // theme.disabledColor (the dimmed glyph/text on inactive rows)
           // is deliberately exempt: WCAG exempts inactive UI components
           // from the contrast floor, and §13's readable element on a

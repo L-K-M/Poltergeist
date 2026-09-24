@@ -851,18 +851,16 @@ void main() {
       await apply;
     });
 
-    test('closing the panel ends a pending confirmation untouched',
-        () async {
+    test('cancelling ends a pending confirmation untouched', () async {
       final (controller, channel) = await _browsedPane([
         _entry('docs', type: RemoteFileType.directory, mode: 0x41ED),
       ]);
-      final strip = testPaneStrip(controller);
+      testPaneStrip(controller);
       addTearDown(controller.dispose);
       channel.listings['/home/tester/docs'] = [
         _entry('a.txt', root: '/home/tester/docs', mode: 0x81A4),
       ];
       _cursorTo(controller, 'docs');
-      strip.toggleInfoPanel();
 
       final answer = Completer<bool>();
       final apply = controller.requestApplyToEnclosed(
@@ -872,7 +870,7 @@ void main() {
       await _settle();
       expect(controller.enclosedApply?.stage, EnclosedApplyStage.confirming);
 
-      strip.closeInfoPanel();
+      controller.cancelEnclosedApply();
       await _settle();
       expect(controller.enclosedApply, isNull);
       expect(controller.applyToEnclosedInFlight, isFalse);

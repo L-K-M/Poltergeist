@@ -504,6 +504,15 @@ class PaneController extends ChangeNotifier {
   /// reopen restores it.
   PaneViewMode _viewMode = PaneViewMode.details;
 
+  /// D32 §6's column-header sort, per tab: the key and direction the
+  /// visible listing is ordered by. [_sortedListing] keeps the §2.3
+  /// default order (name, ascending) as the snapshot every restore path
+  /// shares; a non-default sort re-orders the hidden-file projection
+  /// on top of it, so no listing, snapshot, or rollback ever has to
+  /// know which column the user clicked.
+  FileSortKey _sortKey = FileSortKey.name;
+  FileSortDirection _sortDirection = FileSortDirection.ascending;
+
   /// The open inline-rename session (02 §2.6); null while the row's
   /// field is closed. The pane owns its invalidation: a location change
   /// ends it at navigation-issue time, every row-set replacement ends it
@@ -1437,6 +1446,44 @@ class PaneController extends ChangeNotifier {
   set viewMode(PaneViewMode value) {
     if (_disposed || value == _viewMode) return;
     _viewMode = value;
+    notifyListeners();
+  }
+
+  /// The column the visible listing is sorted by (D32 §6).
+  FileSortKey get sortKey => _sortKey;
+
+  /// The direction of [sortKey]'s order.
+  FileSortDirection get sortDirection => _sortDirection;
+
+  /// A column-header click (D32 §6): the sorted column flips its
+  /// direction; any other column starts at its own initial direction —
+  /// ascending, except Size and Date, which start descending
+  /// ([FileSortKey.initialDirection], 02 §2.3).
+  void sortByColumn(FileSortKey key) {
+    if (key != _sortKey) {
+      setSort(key, key.initialDirection);
+      return;
+    }
+    setSort(
+      key,
+      _sortDirection == FileSortDirection.ascending
+          ? FileSortDirection.descending
+          : FileSortDirection.ascending,
+    );
+  }
+
+  /// Re-orders the visible listing by [key] in [direction] without a
+  /// re-list. Selection, cursor, and anchor are identities, so they
+  /// survive the reorder; an open Quick Select or rename session ends
+  /// with the row set it opened on, the same as any listing replacement.
+  void setSort(FileSortKey key, FileSortDirection direction) {
+    if (_disposed || (key == _sortKey && direction == _sortDirection)) {
+      return;
+    }
+    _sortKey = key;
+    _sortDirection = direction;
+    _setListing(_hiddenFiltered(_sortedListing));
+    _applyEntries(_filteredListing());
     notifyListeners();
   }
 
@@ -3536,13 +3583,28 @@ class PaneController extends ChangeNotifier {
   /// runs and Unicode simple folding — and `sortFileEntries` returns an
   /// unmodifiable copy over new row order, so the VFS-returned list is
   /// never mutated.
+  ///
+  /// A non-default column sort (D32 §6) re-orders the projection here,
+  /// after the policy, so the default-ordered [_sortedListing] stays
+  /// the one snapshot every restore path shares.
   List<RemoteFileEntry> _hiddenFiltered(List<RemoteFileEntry> sorted) {
+    final defaultOrder =
+        _sortKey == FileSortKey.name &&
+        _sortDirection == FileSortDirection.ascending;
+    final Iterable<RemoteFileEntry> visible = _showHidden
+        ? sorted
+        : sorted.where((entry) => !entry.name.startsWith('.'));
+    if (!defaultOrder) {
+      return sortFileEntries(
+        visible,
+        key: _sortKey,
+        direction: _sortDirection,
+      );
+    }
     if (_showHidden) return sorted;
     // unmodifiable, not just non-growable: [entries]' §2.3 contract is
     // that mutating the accepted listing throws.
-    return List.unmodifiable(
-      sorted.where((entry) => !entry.name.startsWith('.')),
-    );
+    return List.unmodifiable(visible);
   }
 
   /// Assigns the accepted listing and rebuilds the lowercased-name cache

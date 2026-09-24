@@ -5450,5 +5450,89 @@
   "deleteDialogNameSeparator": "”, “",
   "@deleteDialogNameSeparator": {
     "description": "Joins the quoted item names inside the delete headline (“a.txt”, “b.txt”): closes one quote, separates, opens the next. Use your locale's quotation marks, matching deleteDialogDeleteNames."
+  },
+  "paneColumnName": "Name",
+  "@paneColumnName": {
+    "description": "Listing column header: the item name column (click to sort)."
+  },
+  "paneColumnSize": "Size",
+  "@paneColumnSize": {
+    "description": "Listing column header: the size column (click to sort)."
+  },
+  "paneColumnModified": "Date Modified",
+  "@paneColumnModified": {
+    "description": "Listing column header: the modification date column (click to sort)."
+  },
+  "paneColumnSortedAscending": "Sorted ascending",
+  "@paneColumnSortedAscending": {
+    "description": "Accessibility value of the column header the listing is sorted by, ascending."
+  },
+  "paneColumnSortedDescending": "Sorted descending",
+  "@paneColumnSortedDescending": {
+    "description": "Accessibility value of the column header the listing is sorted by, descending."
+  },
+  "paneColumnSortHint": "Sort by this column",
+  "@paneColumnSortHint": {
+    "description": "Accessibility hint of a listing column header."
+  },
+  "paneSelectionSummary": "{selected} of {total} selected",
+  "@paneSelectionSummary": {
+    "description": "Location header's second line while rows are selected.",
+    "placeholders": {
+      "selected": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "paneSelectionSummaryWithSize": "{summary} · {size}",
+  "@paneSelectionSummaryWithSize": {
+    "description": "Location header's selection line with the selected files' total size, e.g. '3 of 329 selected · 42.1 MB'.",
+    "placeholders": {
+      "summary": {
+        "type": "String"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "paneAncestorMenuTooltip": "Enclosing folders",
+  "@paneAncestorMenuTooltip": {
+    "description": "Tooltip of the location header's menu button listing the enclosing folders."
+  },
+  "viewToggleHiddenLabel": "Show Hidden Files",
+  "@viewToggleHiddenLabel": {
+    "description": "View menu toggle: show or hide dotfiles in the active tab."
+  },
+  "selectionCopyPathLabel": "Copy Path",
+  "@selectionCopyPathLabel": {
+    "description": "Copies the selected items' full paths (or the folder's) to the clipboard."
+  },
+  "tabCloseOthersLabel": "Close Other Tabs",
+  "@tabCloseOthersLabel": {
+    "description": "Tab context menu: closes every other tab in this pane."
+  },
+  "tabDuplicateLabel": "Duplicate Tab",
+  "@tabDuplicateLabel": {
+    "description": "Tab context menu: opens a new tab at this tab's location."
+  },
+  "tabMoveToOtherPaneLabel": "Move to Other Pane",
+  "@tabMoveToOtherPaneLabel": {
+    "description": "Tab context menu: moves the tab to the other pane's tab strip."
+  },
+  "tabCopyPathLabel": "Copy Path",
+  "@tabCopyPathLabel": {
+    "description": "Tab context menu: copies the tab's folder path to the clipboard."
+  },
+  "quickConnectAddressHostHint": "host[:port]",
+  "@quickConnectAddressHostHint": {
+    "description": "Helper under the prefilled Quick Connect field: what to type after the user name."
+  },
+  "viewSortByLabel": "Sort By",
+  "@viewSortByLabel": {
+    "description": "View menu submenu: sort the listing by Name, Size, or Date Modified."
   }
 }

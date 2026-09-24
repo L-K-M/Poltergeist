@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -25,7 +27,12 @@ class QuickConnectView extends StatefulWidget {
     required this.onConnect,
     required this.focusNode,
     this.onImportSshConfig,
+    this.environment,
   });
+
+  /// The process environment the `$USER@` prefill reads (D32 §6); null
+  /// reads the real one. Tests pass a fixed map.
+  final Map<String, String>? environment;
 
   /// Binds [bookmark] on a fresh tab; [initialPath] overrides the
   /// landing directory. Fire-and-forget safe: the connect flow owns all
@@ -46,9 +53,38 @@ class QuickConnectView extends StatefulWidget {
   State<QuickConnectView> createState() => _QuickConnectViewState();
 }
 
+/// D32 §6's launcher prefill: `$USER@` (`%USERNAME%` on Windows), so
+/// the common case is typing just the host. Empty when the environment
+/// names no user — the field then starts blank.
+String quickConnectUserPrefill(Map<String, String> environment) {
+  final user = environment['USER'] ?? environment['USERNAME'] ?? '';
+  return user.isEmpty ? '' : '$user@';
+}
+
 class _QuickConnectViewState extends State<QuickConnectView> {
-  final _field = TextEditingController();
-  QuickConnectParse _parse = parseQuickConnectAddress('');
+  late final String _prefill = quickConnectUserPrefill(
+    widget.environment ?? _processEnvironment(),
+  );
+  late final _field = TextEditingController.fromValue(
+    TextEditingValue(
+      text: _prefill,
+      selection: TextSelection.collapsed(offset: _prefill.length),
+    ),
+  );
+  late QuickConnectParse _parse = parseQuickConnectAddress(_prefill);
+
+  /// Whether the field still holds the untouched prefill: a bare
+  /// `user@` is not an address yet, so it raises no error until the
+  /// user types — it shows the `host[:port]` helper instead.
+  bool _pristine = true;
+
+  static Map<String, String> _processEnvironment() {
+    try {
+      return Platform.environment;
+    } on UnsupportedError {
+      return const {};
+    }
+  }
 
   @override
   void dispose() {
@@ -57,6 +93,7 @@ class _QuickConnectViewState extends State<QuickConnectView> {
   }
 
   void _onChanged(String value) {
+    _pristine = false;
     var parse = parseQuickConnectAddress(value);
     final sanitized = parse.sanitizedInput;
     if (sanitized != null && sanitized != value) {
@@ -111,10 +148,13 @@ class _QuickConnectViewState extends State<QuickConnectView> {
                 decoration: InputDecoration(
                   labelText: l10n.quickConnectAddressLabel,
                   hintText: l10n.quickConnectAddressHint,
+                  helperText: _pristine && _prefill.isNotEmpty
+                      ? l10n.quickConnectAddressHostHint
+                      : null,
                   // The rejection hints carry an example; let them wrap
                   // instead of truncating it away.
                   errorMaxLines: 3,
-                  errorText: _errorText(l10n, parse),
+                  errorText: _pristine ? null : _errorText(l10n, parse),
                 ),
                 textInputAction: TextInputAction.done,
                 onChanged: _onChanged,

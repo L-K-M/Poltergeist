@@ -10,6 +10,7 @@ import 'package:poltergeist_app/services/pane_location.dart';
 import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/services/quick_select_state.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
+import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -190,6 +191,38 @@ void main() {
     expect(find.text('fresh.txt'), findsOneWidget);
     expect(find.byKey(const ValueKey('pane.banner')), findsNothing);
     expect(channel.closeCalls, 1);
+  });
+
+  testWidgets('one banner slot: lost connection outranks a notice, which '
+      'outranks the save-favorite bar', (tester) async {
+    final channel = controller_test.FakePaneChannel('/srv/home');
+    channel.listings['/srv/home'] = [_entry('cached.txt')];
+    lanes.nextRemoteChannel = channel;
+    await right.connectRemote(_bookmark('adhoc:one'));
+    await pumpShell(tester);
+    final saveBar = find.byKey(const ValueKey('saveFavorite.bar'));
+    final notice = find.byKey(const ValueKey('pane.right.notice.dismiss'));
+    final lost = find.byKey(const ValueKey('pane.banner'));
+    expect(saveBar, findsOneWidget);
+
+    right.notePathCopied();
+    await tester.pump();
+    expect(notice, findsOneWidget);
+    expect(saveBar, findsNothing, reason: 'one banner at a time');
+
+    lanes.emitState(
+      'adhoc:one',
+      const ServerStatus(ServerConnectionState.reconnecting),
+    );
+    await tester.pump();
+    expect(lost, findsOneWidget);
+    expect(notice, findsNothing);
+    expect(saveBar, findsNothing);
+
+    // The notice expires; the save bar keeps its slot below the loss.
+    await tester.pump(const Duration(seconds: 5));
+    expect(lost, findsOneWidget);
+    expect(saveBar, findsNothing);
   });
 
   testWidgets('renders a local listing: name, kind glyph, size, mtime', (
@@ -1242,7 +1275,8 @@ void main() {
     expect(find.textContaining('lost'), findsNothing);
   });
 
-  testWidgets('path bar segments navigate to their ancestor', (tester) async {
+  testWidgets('the location header names the folder; its ancestor menu '
+      'navigates, parent first', (tester) async {
     final channel = controller_test.FakePaneChannel('/home/tester/docs');
     channel.listings['/home/tester/docs'] = [_entry('deep.txt')];
     channel.listings['/home/tester'] = [_entry('shallow.txt')];
@@ -1252,27 +1286,145 @@ void main() {
     await pumpShell(tester);
     await tester.pump();
 
-    expect(find.text('home'), findsOneWidget);
-    expect(find.text('tester'), findsOneWidget);
-    expect(find.text('docs'), findsOneWidget);
-    // Root first, deepest last (02 §2.1's ancestor order).
-    final offsets = [
-      tester.getTopLeft(find.text('/')).dx,
-      tester.getTopLeft(find.text('home')).dx,
-      tester.getTopLeft(find.text('tester')).dx,
-      tester.getTopLeft(find.text('docs')).dx,
-    ];
+    final header = find.byKey(const ValueKey('pane.left.path'));
+    // D32 §6: the folder name alone — ancestors live in the ▾ menu,
+    // never as a segment row.
     expect(
-      offsets,
-      equals(offsets.toList()..sort()),
-      reason: 'path segments render root → deepest, left to right',
+      find.descendant(of: header, matching: find.text('docs')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: header, matching: find.text('tester')),
+      findsNothing,
+    );
+    expect(
+      tester.widget<Text>(
+        find.byKey(const ValueKey('pane.left.path.summary')),
+      ).data,
+      '1 item',
     );
 
-    await tester.tap(find.text('tester'));
+    await tester.tap(find.byKey(const ValueKey('pane.left.path.ancestors')));
+    await tester.pumpAndSettle();
+    final items = [
+      for (var i = 0; i < 3; i++)
+        find.byKey(ValueKey('pane.left.path.ancestor.$i')),
+    ];
+    for (final (index, label) in ['tester', 'home', '/'].indexed) {
+      expect(
+        find.descendant(of: items[index], matching: find.text(label)),
+        findsOneWidget,
+        reason: 'Finder\'s title-menu order: parent first, root last',
+      );
+    }
+    expect(
+      tester.getTopLeft(items[0]).dy,
+      lessThan(tester.getTopLeft(items[2]).dy),
+    );
+
+    await tester.tap(items[0]);
     await tester.pumpAndSettle();
 
     expect(left.location, const LocalPaneLocation('/home/tester'));
     expect(find.text('shallow.txt'), findsOneWidget);
+  });
+
+  testWidgets('clicking the folder name opens the path field in place', (
+    tester,
+  ) async {
+    localChannelWithEntries();
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await tester.tap(find.byKey(const ValueKey('pane.left.path.name')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(left.pathFieldOpen, isTrue);
+    final field = find.byKey(const ValueKey('pane.left.path.field'));
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('pane.left.path')),
+        matching: field,
+      ),
+      findsOneWidget,
+      reason: 'the field swaps in inside the header',
+    );
+    expect(left.pathFieldSeed, '/home/tester');
+  });
+
+  testWidgets('the header summarizes the selection: files-only bytes', (
+    tester,
+  ) async {
+    localChannelWithEntries();
+    await left.openLocalHome();
+    await pumpShell(tester);
+    String summary() => tester
+        .widget<Text>(find.byKey(const ValueKey('pane.left.path.summary')))
+        .data!;
+
+    expect(summary(), '3 items');
+    // docs (a folder) + report.txt (2048 B): the folder counts toward
+    // the selection but never toward the bytes.
+    left.selectAll();
+    await tester.pump();
+    expect(summary(), '3 of 3 selected · 2 KB');
+
+    left.setCursorIndex(0); // docs alone
+    await tester.pump();
+    expect(summary(), '1 of 3 selected');
+  });
+
+  testWidgets('column headers sort; Size and Date start descending', (
+    tester,
+  ) async {
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entry('b.txt', size: 10, modified: DateTime(2026, 9, 1)),
+      _entry('a.txt', size: 30, modified: DateTime(2026, 9, 3)),
+      _entry('c.txt', size: 20, modified: DateTime(2026, 9, 2)),
+    ];
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await pumpShell(tester);
+    List<String> names() => [for (final e in left.entries) e.name];
+
+    expect(names(), ['a.txt', 'b.txt', 'c.txt']);
+    await tester.tap(find.byKey(const ValueKey('pane.left.column.size')));
+    await tester.pump();
+    expect(left.sortKey, FileSortKey.size);
+    expect(left.sortDirection, FileSortDirection.descending);
+    expect(names(), ['a.txt', 'c.txt', 'b.txt']);
+
+    // A second click on the sorted column flips it.
+    await tester.tap(find.byKey(const ValueKey('pane.left.column.size')));
+    await tester.pump();
+    expect(names(), ['b.txt', 'c.txt', 'a.txt']);
+
+    await tester.tap(find.byKey(const ValueKey('pane.left.column.modified')));
+    await tester.pump();
+    expect(left.sortDirection, FileSortDirection.descending);
+    expect(names(), ['a.txt', 'c.txt', 'b.txt']);
+
+    await tester.tap(find.byKey(const ValueKey('pane.left.column.name')));
+    await tester.pump();
+    expect(left.sortDirection, FileSortDirection.ascending);
+    expect(names(), ['a.txt', 'b.txt', 'c.txt']);
+    // The rendered order follows, not just the controller.
+    expect(
+      tester.getTopLeft(find.text('a.txt')).dy,
+      lessThan(tester.getTopLeft(find.text('c.txt')).dy),
+    );
+    // The header sits outside the listing: row 0 is the list's origin.
+    final list = find.byType(ListView).first;
+    expect(
+      tester.getTopLeft(list).dy,
+      greaterThanOrEqualTo(
+        tester
+            .getBottomLeft(find.byKey(const ValueKey('pane.left.columns')))
+            .dy,
+      ),
+    );
   });
 
   testWidgets('a navigation from a scrolled listing reveals the top', (
@@ -1307,35 +1459,50 @@ void main() {
     expect(listing.controller!.position.pixels, 0);
   });
 
-  testWidgets('the focused pane path renders in the accent color', (
-    tester,
-  ) async {
+  testWidgets('the active pane selects in the accent; the inactive one '
+      'in neutral grey', (tester) async {
     localChannelWithEntries();
     await left.openLocalHome();
     final rightChannel = controller_test.FakePaneChannel('/home/tester');
-    rightChannel.listings['/home/tester'] = const [];
+    rightChannel.listings['/home/tester'] = [_entry('other.txt')];
     lanes.nextLocalChannel = rightChannel;
     await right.openLocalHome();
     await pumpShell(tester);
-
-    Text pathSegment(String pane, String label) => tester.widget<Text>(
-      find
-          .descendant(
-            of: find.byKey(ValueKey('pane.$pane.path')),
-            matching: find.text(label),
-          )
-          .first,
+    leftNode.requestFocus();
+    left.setCursorIndex(
+      left.entries.indexWhere((entry) => entry.name == 'report.txt'),
     );
-    final accent = Theme.of(
+    right.setCursorIndex(0);
+    await tester.pump();
+
+    Color? rowFill(String name) {
+      for (final box in tester.widgetList<DecoratedBox>(
+        find.ancestor(of: find.text(name), matching: find.byType(DecoratedBox)),
+      )) {
+        final decoration = box.decoration;
+        if (decoration is BoxDecoration && decoration.color != null) {
+          return decoration.color;
+        }
+      }
+      return null;
+    }
+
+    final chrome = PoltergeistChrome.of(
       tester.element(find.byKey(const ValueKey('pane.left.path'))),
-    ).colorScheme.primary;
-    expect(pathSegment('left', 'tester').style?.color, accent);
+    );
+    expect(rowFill('report.txt'), chrome.selectionFill);
+    expect(
+      tester.widget<Text>(find.text('report.txt')).style?.color,
+      chrome.onSelection,
+    );
+    expect(rowFill('other.txt'), chrome.inactiveSelectionFill);
 
     rightNode.requestFocus();
     await tester.pump();
-    expect(pathSegment('right', 'tester').style?.color, accent);
-    // The left pane lost focus: its segments dropped to the variant tone.
-    expect(pathSegment('left', 'tester').style?.color, isNot(accent));
+    await tester.pump();
+    expect(workspace.activePane, rightStrip);
+    expect(rowFill('other.txt'), chrome.selectionFill);
+    expect(rowFill('report.txt'), chrome.inactiveSelectionFill);
   });
 
   testWidgets('rows announce name, size, and date to semantics', (
@@ -1618,71 +1785,38 @@ void main() {
     });
   });
 
-  group('filter field', () {
-    final field = find.byKey(const ValueKey('pane.left.filter.field'));
-    final clear = find.byKey(const ValueKey('pane.left.filter.clear'));
-
-    // Resolve the field's own EditableText — primaryFocus scanning for
-    // any editable would report a different text surface as a hit.
-    bool fieldHasFocus(WidgetTester tester) {
-      final editable = find
-          .descendant(of: field, matching: find.byType(EditableText))
-          .evaluate();
-      // Strip closed → the field can't hold focus.
-      if (editable.isEmpty) return false;
-      return (editable.single.widget as EditableText).focusNode.hasFocus;
-    }
-
-    testWidgets('view.filter opens the strip, filters live, Enter keeps', (
-      tester,
-    ) async {
+  group('header-owned filter (D32 §4)', () {
+    testWidgets('the pane mounts no filter strip; the header query '
+        'filters the rows live', (tester) async {
       localChannelWithEntries();
       await left.openLocalHome();
       await pumpShell(tester);
       leftNode.requestFocus();
       await tester.pump();
-      expect(field, findsNothing);
 
+      // The legacy view.filter fallback opens nothing in the pane: the
+      // header owns the only filter field now.
       left.openFilter();
       await tester.pump();
-      await tester.pump();
+      expect(find.byType(TextField), findsNothing);
 
-      // 02 §2.5: the strip drops in below the path bar and the field
-      // owns primary focus.
-      expect(field, findsOneWidget);
-      expect(
-        tester.getTopLeft(field).dy,
-        greaterThanOrEqualTo(
-          tester
-              .getBottomLeft(find.byKey(const ValueKey('pane.left.path')))
-              .dy,
-        ),
-        reason: 'the field must sit below the path bar',
-      );
-      expect(fieldHasFocus(tester), isTrue);
-
-      await tester.enterText(field, 'r');
+      left.setFilterQuery('r');
       await tester.pump();
       expect(left.entries.map((e) => e.name), ['report.txt']);
-      // The rendered rows themselves must change, not just the
-      // controller state.
+      // The rendered rows themselves change, not just the controller.
       expect(find.text('report.txt'), findsOneWidget);
       expect(find.text('docs'), findsNothing);
       expect(find.text('link'), findsNothing);
-      // The `12 of 348` helper: visible of total.
-      expect(find.text('1 of 3'), findsOneWidget);
-
-      // Enter keeps the active filter and returns focus to the listing;
-      // the strip stays mounted so the lens is visibly on.
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pump();
-      expect(field, findsOneWidget);
-      expect(left.filterActive, isTrue);
-      expect(leftNode.hasFocus, isTrue);
-      expect(find.text('1 of 3'), findsOneWidget);
+      // The location header counts the visible rows.
+      expect(
+        tester.widget<Text>(
+          find.byKey(const ValueKey('pane.left.path.summary')),
+        ).data,
+        '1 item',
+      );
     });
 
-    testWidgets('Enter on an empty query closes the inert strip', (
+    testWidgets('Esc on the listing clears an active filter', (
       tester,
     ) async {
       localChannelWithEntries();
@@ -1691,71 +1825,14 @@ void main() {
       leftNode.requestFocus();
       await tester.pump();
 
-      left.openFilter();
+      left.setFilterQuery('report');
       await tester.pump();
-      await tester.pump();
-      expect(field, findsOneWidget);
-      expect(left.filterActive, isFalse);
-
-      // Nothing to keep — Enter dismisses the strip outright rather
-      // than leaving an inert field mounted between path bar and list.
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pump();
-      expect(field, findsNothing);
-      expect(left.filterFieldOpen, isFalse);
-      expect(leftNode.hasFocus, isTrue);
-    });
-
-    testWidgets('Esc in the field is the field tier: clear and close', (
-      tester,
-    ) async {
-      localChannelWithEntries();
-      await left.openLocalHome();
-      await pumpShell(tester);
-      leftNode.requestFocus();
-      await tester.pump();
-
-      left.openFilter();
-      await tester.pump();
-      await tester.pump();
-      await tester.enterText(field, 'report');
-      await tester.pump();
-      expect(left.entries.map((e) => e.name), ['report.txt']);
-      expect(fieldHasFocus(tester), isTrue);
-
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pump();
-
-      expect(field, findsNothing);
-      expect(left.filterActive, isFalse);
-      expect(left.entries.length, 3);
-      expect(leftNode.hasFocus, isTrue);
-    });
-
-    testWidgets('Esc on the listing is the below-navigation tier: an '
-        'active unfocused filter clears', (tester) async {
-      localChannelWithEntries();
-      await left.openLocalHome();
-      await pumpShell(tester);
-      leftNode.requestFocus();
-      await tester.pump();
-
-      left.openFilter();
-      await tester.pump();
-      await tester.pump();
-      await tester.enterText(field, 'report');
-      await tester.pump();
-      // Commit: filter stays, focus returns to the listing.
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pump();
-      expect(leftNode.hasFocus, isTrue);
       expect(left.filterActive, isTrue);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
 
       expect(left.filterActive, isFalse);
-      expect(field, findsNothing);
       expect(left.entries.length, 3);
     });
 
@@ -1768,11 +1845,7 @@ void main() {
       leftNode.requestFocus();
       await tester.pump();
 
-      left.openFilter();
-      await tester.pump();
-      await tester.pump();
-      await tester.enterText(field, 'report');
-      await tester.testTextInput.receiveAction(TextInputAction.done);
+      left.setFilterQuery('report');
       await tester.pump();
       expect(left.filterActive, isTrue);
 
@@ -1813,10 +1886,7 @@ void main() {
       leftNode.requestFocus();
       await tester.pump();
 
-      left.openFilter();
-      await tester.pump();
-      await tester.pump();
-      await tester.enterText(field, 'zzz');
+      left.setFilterQuery('zzz');
       await tester.pump();
 
       // 02 §2.7: the dedicated message and Clear affordance — never a
@@ -1835,116 +1905,6 @@ void main() {
       await tester.pump();
       expect(left.filterActive, isFalse);
       expect(left.entries.length, 3);
-    });
-
-    testWidgets('the strip Clear affordance clears from anywhere', (
-      tester,
-    ) async {
-      localChannelWithEntries();
-      await left.openLocalHome();
-      await pumpShell(tester);
-      leftNode.requestFocus();
-      await tester.pump();
-
-      left.openFilter();
-      await tester.pump();
-      await tester.pump();
-      await tester.enterText(field, 'report');
-      await tester.pump();
-
-      await tester.tap(clear);
-      await tester.pump();
-      expect(left.filterActive, isFalse);
-      expect(field, findsNothing);
-      expect(left.entries.length, 3);
-      expect(leftNode.hasFocus, isTrue);
-
-      // The persistent state: committed query, focus on the listing —
-      // the primary real-world Clear path.
-      left.openFilter();
-      await tester.pump();
-      await tester.pump();
-      await tester.enterText(field, 'report');
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pump();
-      expect(leftNode.hasFocus, isTrue);
-
-      await tester.tap(clear);
-      await tester.pump();
-      expect(left.filterActive, isFalse);
-      expect(field, findsNothing);
-      expect(left.entries.length, 3);
-      expect(leftNode.hasFocus, isTrue);
-    });
-
-    testWidgets('listing keys and type-ahead stay inert while the field '
-        'holds focus', (tester) async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
-      try {
-        localChannelWithEntries();
-        await left.openLocalHome();
-        final rightChannel =
-            controller_test.FakePaneChannel('/home/tester');
-        rightChannel.listings['/home/tester'] = const [];
-        lanes.nextLocalChannel = rightChannel;
-        await right.openLocalHome();
-        await pumpShell(tester);
-        leftNode.requestFocus();
-        await tester.pump();
-
-        left.openFilter();
-        await tester.pump();
-        await tester.pump();
-        expect(fieldHasFocus(tester), isTrue);
-
-        // 02 §8.2: every pane-owned single key is inert under a focused
-        // text surface — no cursor move, no Tab swap, no type-ahead.
-        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-        await tester.pump();
-        expect(left.cursorIndex, isNull);
-
-        await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
-        await tester.pump();
-        expect(left.typeAheadBuffer, '',
-            reason: 'type-ahead must not accumulate under a text field');
-
-        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-        await tester.pump();
-        expect(rightNode.hasFocus, isFalse);
-        expect(workspace.activePane, leftStrip);
-      } finally {
-        debugDefaultTargetPlatformOverride = null;
-      }
-    });
-
-    testWidgets('a re-invocation of view.filter re-focuses the mounted '
-        'field', (tester) async {
-      localChannelWithEntries();
-      await left.openLocalHome();
-      await pumpShell(tester);
-      leftNode.requestFocus();
-      await tester.pump();
-
-      left.openFilter();
-      await tester.pump();
-      await tester.pump();
-      await tester.enterText(field, 'report');
-      await tester.pump();
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pump();
-      expect(leftNode.hasFocus, isTrue);
-      expect(fieldHasFocus(tester), isFalse);
-
-      // ⌘F over a live filter must reopen editing, not no-op.
-      left.openFilter();
-      await tester.pump();
-      await tester.pump();
-      expect(fieldHasFocus(tester), isTrue);
-      expect(
-        find.widgetWithText(TextField, 'report'),
-        findsOneWidget,
-        reason: 'the live query stays for editing',
-      );
     });
   });
 }

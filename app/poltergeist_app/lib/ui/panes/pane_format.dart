@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:intl/intl.dart';
+import 'package:poltergeist_core/poltergeist_core.dart'
+    show RemoteFileEntry, RemoteFileType;
 
 /// Presentation formatting for pane rows (02 §2.3's rendering rules,
 /// foundation subset). The literals here are technical (units, the
@@ -114,3 +116,64 @@ String formatPosixModeSymbolic(int mode) {
 /// sticky, so nothing the symbolic render folded into its slots is lost.
 String formatPosixModeOctal(int mode) =>
     (mode & 0xFFF).toRadixString(8).padLeft(4, '0');
+
+/// The listing's kind-glyph families (D32 §6: "kind glyphs are tinted
+/// by category"). A glyph is a sighted-user hint only — the announced
+/// kind stays the entry's file type (02 §13), so a wrong guess from an
+/// extension never misleads assistive tech.
+enum PaneKindCategory { folder, link, image, text, archive, pdf, media, other }
+
+// Extension families, lowercase, one space-separated table per family —
+// machine data the classifier splits once, never rendered.
+const _imageExtensions =
+    'png jpg jpeg gif webp bmp tif tiff heic heif svg ico avif psd raw';
+const _textExtensions =
+    'txt md markdown rst log csv tsv json yaml yml toml xml html htm css';
+const _codeExtensions =
+    'scss js mjs ts jsx tsx dart py rb go rs java kt swift c h cc cpp hpp';
+const _scriptExtensions =
+    'm mm cs php sh bash zsh fish ps1 bat sql ini conf cfg env lock';
+const _archiveExtensions =
+    'zip tar gz tgz bz2 xz 7z rar zst lz4 dmg iso deb rpm pkg jar apk';
+const _mediaExtensions =
+    'mp3 wav flac aac ogg m4a opus mp4 mov mkv avi webm m4v wmv mpg';
+
+Set<String> _extensionSet(List<String> tables) => {
+  for (final table in tables) ...table.split(' '),
+};
+
+final _categoryByExtension = <String, PaneKindCategory>{
+  for (final ext in _extensionSet([_imageExtensions]))
+    ext: PaneKindCategory.image,
+  for (final ext in _extensionSet([
+    _textExtensions,
+    _codeExtensions,
+    _scriptExtensions,
+  ]))
+    ext: PaneKindCategory.text,
+  for (final ext in _extensionSet([_archiveExtensions]))
+    ext: PaneKindCategory.archive,
+  for (final ext in _extensionSet([_mediaExtensions]))
+    ext: PaneKindCategory.media,
+  'pdf': PaneKindCategory.pdf,
+};
+
+/// The kind-glyph family for [entry]: its file type first (folders and
+/// links are never guessed from a name), then the lowercase extension
+/// after the last dot — a leading dot is part of a dotfile's stem, so
+/// `.bashrc` has no extension and reads as a generic file.
+PaneKindCategory paneKindCategory(RemoteFileEntry entry) {
+  switch (entry.type) {
+    case RemoteFileType.directory:
+      return PaneKindCategory.folder;
+    case RemoteFileType.symbolicLink:
+      return PaneKindCategory.link;
+    case RemoteFileType.file || RemoteFileType.other:
+      break;
+  }
+  final name = entry.name;
+  final dot = name.lastIndexOf('.');
+  if (dot <= 0 || dot == name.length - 1) return PaneKindCategory.other;
+  final extension = name.substring(dot + 1).toLowerCase();
+  return _categoryByExtension[extension] ?? PaneKindCategory.other;
+}

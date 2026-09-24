@@ -1,7 +1,13 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, kIsWeb;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
+import 'package:flutter/gestures.dart'
+    show
+        kDoubleTapSlop,
+        kDoubleTapTimeout,
+        kPrimaryMouseButton,
+        kSecondaryMouseButton,
+        kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart';
@@ -17,17 +23,22 @@ import '../../services/pane_tabs_controller.dart';
 import '../../services/preview_session.dart';
 import '../../services/quick_connect_address.dart';
 import '../../services/quick_select_state.dart';
+import '../../services/registered_command.dart';
 import '../../services/selection_state.dart';
 import '../../services/sync_browsing_controller.dart';
+import '../../services/view_preferences.dart' show PaneViewMode;
 import '../../services/workspace_controller.dart';
+import '../../theme/app_theme.dart';
 import '../local_edits_review.dart';
-import 'info_panel.dart';
+import '../server_appearance.dart';
+import 'pane_column_header.dart';
+import 'pane_context_menu.dart';
 import 'pane_drop_area.dart';
 import 'pane_format.dart';
 import 'save_favorite_bar.dart';
 import 'sync_browse_chip.dart';
 
-/// 02 §2.8's anti-flash grace: no spinner, dim, footer swap, or cancel
+/// 02 §2.8's anti-flash grace: no spinner, dim, loading line, or cancel
 /// affordance before this, so fast navigations never flash.
 const _antiFlashGrace = Duration(milliseconds: 150);
 
@@ -63,36 +74,30 @@ String? _typeAheadCharacter(KeyEvent event) {
   return character;
 }
 
-/// 02 §11's comfortable row density (28 px), scaled by the active text
-/// scale so scaled text never clips (D20). Recomputed per build, which
-/// preserves the fixed-extent virtualization. One definition, shared by
-/// the row extent and the cursor-reveal scroll arithmetic.
-const _comfortableRowExtent = 28.0;
+/// D32 §6's row extent — 22 px on desktop, 48 on touch
+/// ([PoltergeistChrome.rowExtent]) — scaled by the active text scale so
+/// scaled text never clips (D20). Recomputed per build, which preserves
+/// the fixed-extent virtualization. One definition, shared by the row
+/// extent, the drop zone's hit math, and the cursor-reveal scroll
+/// arithmetic.
+double scaledPaneRowExtent(BuildContext context) => MediaQuery.textScalerOf(
+  context,
+).scale(PoltergeistChrome.of(context).rowExtent);
 
-/// Width of the leading cursor bar: the cursor row must stay
-/// identifiable inside a multi-selection by shape, not tint alone —
-/// M3's container tints are too close for that (02 §13's focus-visible
-/// principle applied to the listing cursor). Every row reserves the
-/// space so the cursor never shifts row content as it moves.
-const _cursorBarWidth = 3.0;
+/// Whether rows take touch gestures (D32 §9: a tap opens, a long-press
+/// selects and opens the action sheet) rather than desktop pointer
+/// gestures (select on pointer-down, double-click opens).
+bool _touchRows(BuildContext context) =>
+    !isDesktopPlatform(Theme.of(context).platform);
 
-/// The inline-rename editor's horizontal insets over the edited row's
-/// name cell: past the leading padding, the cursor bar, and the kind
-/// icon (start), up to the size/modified columns' leading edge (end).
-/// They mirror `_PaneRow`'s column metrics — a row-layout change must
-/// change them with it.
-const _renameNameCellStart = 8 + _cursorBarWidth + 22;
-const _renameNameCellEnd = 8.0 + 12 + 64 + 12 + 120;
-
-double scaledPaneRowExtent(BuildContext context) =>
-    MediaQuery.textScalerOf(context).scale(_comfortableRowExtent);
-
-/// One pane's browsing surface (foundation slice): path bar with
-/// clickable ancestor segments, fixed-extent listing rows (name, kind,
-/// size, mtime), inline errors over cached entries, latency-honest
-/// loading states, the connection-lost banner, and the keyboard-first
-/// interactions (arrows, Enter, Esc, Tab, Home/End, Backspace — 02 §8.2
-/// scoped to the pane's focus node).
+/// One pane's browsing surface (D32 §6's anatomy): the location header
+/// (folder name with its ancestor menu, the item/selection summary, the
+/// sync-browsing chip and loading affordances), one banner slot, the
+/// sortable column header, and fixed-extent listing rows that select
+/// on pointer-down — plus inline errors over cached entries,
+/// latency-honest loading states, the registry-built context menu, and
+/// the keyboard-first interactions (arrows, Enter, Esc, Tab, Home/End,
+/// Backspace, Shift+F10 — 02 §8.2 scoped to the pane's focus node).
 ///
 /// The pane never blocks the UI isolate (D8): every byte of file data
 /// crosses through the engine channel the controller drives.
@@ -111,6 +116,8 @@ class PaneView extends StatefulWidget {
     this.preview,
     this.checkoutSession,
     this.onReviewLocalEdits,
+    this.commands,
+    this.onRunCommand,
     this.clock = _systemClock,
   });
 
@@ -166,6 +173,15 @@ class PaneView extends StatefulWidget {
   /// bound server id — the shell owns the modal.
   final void Function(String serverId)? onReviewLocalEdits;
 
+  /// The registry the context menu renders from (D32 §6, D21): the
+  /// shell's command list. Null (or a null [onRunCommand]) mounts no
+  /// context menu — a pane without a registry has no verbs to offer.
+  final List<RegisteredCommand>? commands;
+
+  /// Runs a context-menu row through the shell's runner, so enablement
+  /// and error reporting match the menus and chords.
+  final Future<void> Function(RegisteredCommand command)? onRunCommand;
+
   /// Injectable clock for deterministic relative-date rendering.
   final DateTime Function() clock;
 
@@ -181,18 +197,18 @@ class _PaneViewState extends State<PaneView> {
   // merge would churn both subscriptions on every cursor move. Refreshed
   // in didUpdateWidget — a session swap replaces the controllers under a
   // reused element.
-  late Listenable _listenable = Listenable.merge([
+  late Listenable _listenable = _merged();
+
+  Listenable _merged() => Listenable.merge([
     widget.controller,
     widget.workspace,
     // 02 §7's link chip state — suspension transitions must repaint the
-    // path bar even when the pane's own controller did not change.
+    // location header even when the pane's own controller did not
+    // change.
     widget.workspace.syncBrowsing,
-    // 02 §2.6's inspector flag lives on the strip — its open/close
-    // notifies here, not through the tab's controller.
-    widget.pane,
-    // 06 §3.7's banner follows the checkout truth: a dirty edge mounts
-    // it, a clean upload unmounts it — neither comes through the pane
-    // controller.
+    // 06 §3.7's banner follows the checkout truth: a dirty edge takes
+    // the banner slot, a clean upload frees it — neither comes through
+    // the pane controller.
     ?widget.checkoutSession,
   ]);
   Timer? _graceTimer;
@@ -200,13 +216,6 @@ class _PaneViewState extends State<PaneView> {
   bool _disposed = false;
   bool _quickSelectWasActive = false;
   final _quickSelectFieldKey = GlobalKey();
-  // The filter field's focus node lives here (not inside the strip's
-  // state) so `view.filter` can re-focus an already-mounted strip — the
-  // controller's focus-generation bump is the request signal.
-  final _filterFocusNode = FocusNode();
-  final _filterStripKey = GlobalKey();
-  int _filterFocusSeen = 0;
-  bool _filterStripWasVisible = false;
   // The path field's focus node and invocation bookkeeping, owned here
   // for the same reason as the filter's: `go.editPath`/`go.toFolder`
   // re-invocations must re-focus (and the view re-seeds) an
@@ -220,11 +229,6 @@ class _PaneViewState extends State<PaneView> {
   // mirroring the other field strips (02 §2.6).
   final _renameEditorKey = GlobalKey();
   bool _renameWasActive = false;
-  // The inspector's hit-test boundary (a click inside it must not bounce
-  // focus to the listing) and its close bookkeeping — the same shape as
-  // the field strips above.
-  final _infoPanelKey = GlobalKey();
-  bool _infoPanelWasOpen = false;
   String? _revealedLocationPath;
   List<RemoteFileEntry>? _revealedEntries;
   // D14's drop plumbing: the listing's ListView key (row hit-testing
@@ -233,6 +237,27 @@ class _PaneViewState extends State<PaneView> {
   // the highlight (02 §5.1).
   final _listAreaKey = GlobalKey();
   int? _dropTargetRow;
+
+  // D32 §6's context menu: one anchor over the whole pane surface,
+  // opened at the pointer (or the cursor row for Shift+F10), with the
+  // section list chosen by what the press landed on.
+  final _contextMenu = MenuController();
+  final _contextMenuAnchorKey = GlobalKey();
+  final _contextMenuFirstItem = FocusNode();
+  List<List<String>> _contextMenuSections = kPaneRowContextMenu;
+
+  /// The pointer a row press already claimed — the listing-level
+  /// handler under the rows sees the same press and must not open the
+  /// empty-area menu over it.
+  int? _rowClaimedPointer;
+
+  /// The row a primary press armed for a double-click: the next press
+  /// on the same row, within [kDoubleTapSlop] and before
+  /// [kDoubleTapTimeout] disarms it, opens instead of reselecting. The
+  /// window is timed by us, so a single click selects immediately —
+  /// nothing waits out a double-tap recognizer (D32 §6).
+  ({int row, Offset position})? _armedClick;
+  Timer? _armedClickTimer;
 
   /// The drop zone's hovered-folder report — the row highlight is view
   /// state, so the zone never reaches into the listing directly.
@@ -246,15 +271,8 @@ class _PaneViewState extends State<PaneView> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.controller, widget.controller) ||
         !identical(oldWidget.workspace, widget.workspace) ||
-        !identical(oldWidget.pane, widget.pane) ||
         !identical(oldWidget.checkoutSession, widget.checkoutSession)) {
-      _listenable = Listenable.merge([
-        widget.controller,
-        widget.workspace,
-        widget.workspace.syncBrowsing,
-        widget.pane,
-        ?widget.checkoutSession,
-      ]);
+      _listenable = _merged();
     }
     if (!identical(oldWidget.controller, widget.controller)) {
       // The old controller's grace/reveal bookkeeping must not leak
@@ -266,23 +284,16 @@ class _PaneViewState extends State<PaneView> {
       _pastGrace = false;
       _quickSelectWasActive = false;
       // Adopt the incoming controller's generation without treating it
-      // as a fresh focus request, and leave the visibility latch alone
-      // so a rebind-driven strip unmount is still seen as `justClosed`.
-      _filterFocusSeen = widget.controller.filterFocusGeneration;
+      // as a fresh focus request.
       _pathFieldSeen = widget.controller.pathFieldGeneration;
       _renameWasActive = false;
-      _infoPanelWasOpen = false;
       _revealedLocationPath = null;
       _revealedEntries = null;
       // A pane that swaps controllers mid-drag keeps no hover row — the
-      // index belongs to the old listing's geometry.
+      // index belongs to the old listing's geometry — and no armed
+      // double-click either.
       _dropTargetRow = null;
-    }
-    // The flag tracks the STRIP's state, not the controller's — a pane
-    // swap without a controller swap adopts the new strip's truth so a
-    // stale true can't fake a just-closed on the next build.
-    if (!identical(oldWidget.pane, widget.pane)) {
-      _infoPanelWasOpen = widget.pane.infoPanelOpen;
+      _disarmClick();
     }
   }
 
@@ -290,9 +301,10 @@ class _PaneViewState extends State<PaneView> {
   void dispose() {
     _disposed = true;
     _graceTimer?.cancel();
+    _armedClickTimer?.cancel();
     _scrollController.dispose();
-    _filterFocusNode.dispose();
     _pathFieldFocusNode.dispose();
+    _contextMenuFirstItem.dispose();
     super.dispose();
   }
 
@@ -369,39 +381,7 @@ class _PaneViewState extends State<PaneView> {
     });
   }
 
-  /// The filter strip's two focus chores. A `view.filter` invocation
-  /// bumps the controller's focus generation — including over an
-  /// already-mounted strip — so the field re-claims primary focus on a
-  /// change. And when the strip unmounts under a still-focused field —
-  /// a Clear click, a controller-side clear, a rebind — primary focus
-  /// strands at the root; return it to the listing unless a deliberate
-  /// target already claimed it (same rule as Quick Select's close).
-  void _syncFilterFocus() {
-    final controller = widget.controller;
-    final stripVisible = controller.filterFieldOpen || controller.filterActive;
-    final focusRequest = controller.filterFocusGeneration != _filterFocusSeen;
-    _filterFocusSeen = controller.filterFocusGeneration;
-    final justClosed = _filterStripWasVisible && !stripVisible;
-    _filterStripWasVisible = stripVisible;
-    if (!focusRequest && !justClosed) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_disposed || !mounted) return;
-      if (focusRequest && stripVisible) {
-        _filterFocusNode.requestFocus();
-        return;
-      }
-      if (justClosed) {
-        final primary = FocusManager.instance.primaryFocus;
-        if (primary == null ||
-            primary.context == null ||
-            identical(primary, FocusManager.instance.rootScope)) {
-          widget.focusNode.requestFocus();
-        }
-      }
-    });
-  }
-
-  /// The path field's two focus chores, mirroring the filter's. A
+  /// The path field's two focus chores. A
   /// `go.editPath`/`go.toFolder` invocation bumps the controller's
   /// generation — including over an already-mounted field — so the
   /// field re-claims primary focus on a change. And when the field
@@ -478,6 +458,21 @@ class _PaneViewState extends State<PaneView> {
     final platform = Theme.of(context).platform;
     final key = event.logicalKey;
 
+    // A pointer-opened context menu leaves focus on the listing (no row
+    // highlights until asked): Esc still dismisses it, and an arrow key
+    // moves into it, as a native menu does.
+    if (_contextMenu.isOpen) {
+      if (key == LogicalKeyboardKey.escape) {
+        _contextMenu.close();
+        return KeyEventResult.handled;
+      }
+      if (key == LogicalKeyboardKey.arrowDown ||
+          key == LogicalKeyboardKey.arrowUp) {
+        _contextMenuFirstItem.requestFocus();
+        return KeyEventResult.handled;
+      }
+    }
+
     // 02 §2.5: shift + a cursor key extends the anchored selection
     // instead of single-selecting the target row.
     final cursorUpdate = HardwareKeyboard.instance.isShiftPressed
@@ -509,7 +504,9 @@ class _PaneViewState extends State<PaneView> {
         key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.f2 ||
         key == LogicalKeyboardKey.backspace ||
-        key == LogicalKeyboardKey.space;
+        key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.contextMenu ||
+        key == LogicalKeyboardKey.f10;
     if ((controller.connectionLost ||
             controller.error != null ||
             controller.inlineRenameActive ||
@@ -596,6 +593,19 @@ class _PaneViewState extends State<PaneView> {
         if (preview == null) return KeyEventResult.ignored;
         if (event is! KeyRepeatEvent) preview.previewFocused();
         return KeyEventResult.handled;
+      case LogicalKeyboardKey.contextMenu:
+        // D32 §6's keyboard path onto the context menu: the Menu key
+        // opens it over the cursor row. Repeats never re-open it.
+        if (event is! KeyRepeatEvent) _openContextMenuFromKeyboard();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.f10:
+        // Shift+F10 is the other platform-standard menu chord; plain
+        // F10 belongs to whoever binds it.
+        if (!HardwareKeyboard.instance.isShiftPressed) {
+          return KeyEventResult.ignored;
+        }
+        if (event is! KeyRepeatEvent) _openContextMenuFromKeyboard();
+        return KeyEventResult.handled;
       case LogicalKeyboardKey.escape:
         return _handleEscapeTier(event);
       case LogicalKeyboardKey.tab:
@@ -627,31 +637,9 @@ class _PaneViewState extends State<PaneView> {
     }
   }
 
-  /// When the inspector unmounts under a still-focused control — an Esc
-  /// close, the ✕, a ⌘I toggle — primary focus strands at the root.
-  /// Return it to the listing unless a deliberate target claimed it
-  /// (the field strips' rule, 02 §8.2).
-  void _syncInfoPanelFocus() {
-    final open = widget.pane.infoPanelOpen;
-    final justClosed = _infoPanelWasOpen && !open;
-    _infoPanelWasOpen = open;
-    if (!justClosed) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_disposed || !mounted) return;
-      final primary = FocusManager.instance.primaryFocus;
-      if (primary == null ||
-          primary.context == null ||
-          primary is FocusScopeNode) {
-        widget.focusNode.requestFocus();
-      }
-    });
-  }
-
-  /// 02 §8.2's Esc tiers in their total order — the ONE chain both Esc
-  /// entry points run: the listing's own key path (primary focus on the
-  /// pane node) and the inspector's focused-control path (a panel
-  /// button holding focus must not skip the tiers above the panel's
-  /// slot). One press fires one tier.
+  /// 02 §8.2's Esc tiers in their total order, run from the listing's
+  /// own key path (primary focus on the pane node). One press fires one
+  /// tier.
   KeyEventResult _handleEscapeTier(KeyEvent event) {
     // One press fires one tier — a held Esc's repeats are consumed here
     // rather than cascading down to the next tier on each repeat.
@@ -660,7 +648,7 @@ class _PaneViewState extends State<PaneView> {
     }
     // 02 §8.2's total order puts the preview tier first: an open Quick
     // Look or docked panel answers Esc before the pane's own rename,
-    // navigation, inspector, filter, and type-ahead slots see it. The
+    // navigation, filter, and type-ahead slots see it. The
     // session answers false while no preview surface is live, leaving
     // the tiers below untouched — one press still fires one tier.
     if (widget.preview?.escape() ?? false) {
@@ -692,16 +680,14 @@ class _PaneViewState extends State<PaneView> {
         return KeyEventResult.handled;
       }
       widget.onCancelRecovery();
-    } else if (widget.pane.infoPanelOpen) {
-      // 02 §8.2: the Get Info panel's slot sits below navigation-cancel
-      // and above the unfocused filter.
-      widget.pane.closeInfoPanel();
     } else if (controller.filterActive || controller.filterFieldOpen) {
-      // 02 §8.2's Esc order: an active-but-unfocused filter clears
-      // below navigation-cancel (a filtered loading pane's first
-      // Esc still cancels the load) and above the type-ahead
-      // buffer. The field-focused Esc never reaches here — the
-      // strip's own Focus handles it at the field tier.
+      // 02 §8.2's Esc order: an active filter clears below
+      // navigation-cancel (a filtered loading pane's first Esc still
+      // cancels the load) and above the type-ahead buffer. D32 moved
+      // the field into the header, whose own Esc handles the
+      // field-focused tier; this is the listing's tier. (The Get Info
+      // overlay's tier left with the overlay — the inspector's Info
+      // tab owns Get Info now.)
       controller.clearFilter();
     } else if (controller.typeAheadActive) {
       // 02 §8.2's Esc order: a pending type-ahead buffer clears
@@ -722,15 +708,11 @@ class _PaneViewState extends State<PaneView> {
     controller.openEntry(controller.entries[cursor]);
   }
 
-  /// Resolves a row tap's selection gesture from the modifiers captured
+  /// Resolves a row press's selection gesture from the modifiers held
   /// at POINTER-DOWN and the platform (02 §2.5): plain click singles,
   /// meta on macOS / control elsewhere toggles, shift extends the
   /// anchored range. Shift wins the modifier race on every platform so
-  /// a ctrl/⌘+shift click keeps one predictable range meaning. The
-  /// modifiers come from the row's pointer-down listener — a tap
-  /// commits up to kDoubleTapTimeout later (onTap coexists with
-  /// onDoubleTap), so reading HardwareKeyboard at commit time would
-  /// miss a modifier released inside that window.
+  /// a ctrl/⌘+shift click keeps one predictable range meaning.
   SelectionUpdate _selectionUpdateFor(
     _PointerModifiers? modifiers,
     TargetPlatform platform,
@@ -772,6 +754,215 @@ class _PaneViewState extends State<PaneView> {
       widget.controller.phase == PanePhase.openingLocal ||
       widget.controller.phase == PanePhase.connectingRemote;
 
+  void _disarmClick() {
+    _armedClickTimer?.cancel();
+    _armedClickTimer = null;
+    _armedClick = null;
+  }
+
+  void _openRow(int index) {
+    final entries = widget.controller.entries;
+    if (index < entries.length) widget.controller.openEntry(entries[index]);
+  }
+
+  /// A plain press on a row inside a multi-selection: the single-select
+  /// waits for pointer-up so a drag can still carry the whole selection
+  /// (Finder's rule); movement past the touch slop cancels it.
+  ({int pointer, int row, Offset position})? _deferredSelect;
+
+  /// D32 §6: selection happens on pointer-DOWN. A primary press selects
+  /// at once with its modifiers; a second plain press on the same row
+  /// inside the double-click window opens it. A secondary press — or
+  /// macOS's control-click — retargets an unselected row and opens the
+  /// context menu at the pointer (a press inside the selection keeps it
+  /// as the menu's subject).
+  void _onRowPointerDown(int index, PointerDownEvent event) {
+    final controller = widget.controller;
+    if (index >= controller.entries.length) return;
+    _rowClaimedPointer = event.pointer;
+    _deferredSelect = null;
+    final platform = Theme.of(context).platform;
+    final keyboard = HardwareKeyboard.instance;
+    final modifiers = _PointerModifiers(
+      shift: keyboard.isShiftPressed,
+      meta: keyboard.isMetaPressed,
+      control: keyboard.isControlPressed,
+    );
+    final primary = event.buttons & kPrimaryMouseButton != 0;
+    final secondary =
+        event.buttons & kSecondaryMouseButton != 0 ||
+        (primary && platform == TargetPlatform.macOS && modifiers.control);
+    if (secondary) {
+      _disarmClick();
+      if (!controller.isRowSelected(index)) controller.setCursorIndex(index);
+      widget.focusNode.requestFocus();
+      _openContextMenu(kPaneRowContextMenu, event.position);
+      return;
+    }
+    if (!primary) return;
+    final plain = !modifiers.shift && !modifiers.meta && !modifiers.control;
+    final armed = _armedClick;
+    if (plain &&
+        armed != null &&
+        armed.row == index &&
+        (event.position - armed.position).distance <= kDoubleTapSlop) {
+      _disarmClick();
+      _openRow(index);
+      return;
+    }
+    if (plain &&
+        controller.isRowSelected(index) &&
+        controller.selectedCount > 1) {
+      _deferredSelect = (
+        pointer: event.pointer,
+        row: index,
+        position: event.position,
+      );
+    } else {
+      controller.setCursorIndex(
+        index,
+        update: _selectionUpdateFor(modifiers, platform),
+      );
+    }
+    widget.focusNode.requestFocus();
+    _armedClickTimer?.cancel();
+    _armedClick = plain ? (row: index, position: event.position) : null;
+    _armedClickTimer = plain ? Timer(kDoubleTapTimeout, _disarmClick) : null;
+  }
+
+  void _onRowPointerMove(PointerMoveEvent event) {
+    final deferred = _deferredSelect;
+    if (deferred == null || deferred.pointer != event.pointer) return;
+    if ((event.position - deferred.position).distance > kTouchSlop) {
+      _deferredSelect = null;
+    }
+  }
+
+  void _onRowPointerUp(PointerUpEvent event) {
+    final deferred = _deferredSelect;
+    _deferredSelect = null;
+    if (deferred == null || deferred.pointer != event.pointer) return;
+    widget.controller.setCursorIndex(deferred.row);
+  }
+
+  /// D32 §9's touch rows: a tap opens (folders navigate, files take the
+  /// double-click action) — there is no hover or double-click to wait
+  /// for on a finger.
+  void _onRowTap(int index) {
+    widget.controller.setCursorIndex(index);
+    widget.focusNode.requestFocus();
+    _openRow(index);
+  }
+
+  /// A long-press selects the row and opens the action sheet.
+  void _onRowLongPress(int index) {
+    final controller = widget.controller;
+    if (!controller.isRowSelected(index)) controller.setCursorIndex(index);
+    widget.focusNode.requestFocus();
+    _showContextSheet(kPaneRowContextMenu);
+  }
+
+  /// A secondary press that no row claimed: the empty area's menu.
+  void _onListingPointerDown(PointerDownEvent event) {
+    if (_rowClaimedPointer == event.pointer) return;
+    // The inline editor floats over the listing; its presses are the
+    // field's own (a right-click there is the text field's menu).
+    final editor = _renameEditorKey.currentContext?.findRenderObject();
+    if (editor is RenderBox &&
+        editor.hasSize &&
+        editor.size.contains(editor.globalToLocal(event.position))) {
+      return;
+    }
+    final macControlClick =
+        event.buttons & kPrimaryMouseButton != 0 &&
+        Theme.of(context).platform == TargetPlatform.macOS &&
+        HardwareKeyboard.instance.isControlPressed;
+    if (event.buttons & kSecondaryMouseButton == 0 && !macControlClick) {
+      return;
+    }
+    widget.focusNode.requestFocus();
+    _openContextMenu(kPaneEmptyContextMenu, event.position);
+  }
+
+  List<List<RegisteredCommand>> _resolvedSections(List<List<String>> sections) {
+    final commands = widget.commands;
+    if (commands == null || widget.onRunCommand == null) return const [];
+    return resolvePaneContextSections(commands, sections);
+  }
+
+  void _openContextMenu(List<List<String>> sections, Offset global) {
+    if (_resolvedSections(sections).isEmpty) return;
+    final anchor = _contextMenuAnchorKey.currentContext?.findRenderObject();
+    if (anchor is! RenderBox || !anchor.hasSize) return;
+    setState(() => _contextMenuSections = sections);
+    _contextMenu.open(position: anchor.globalToLocal(global));
+  }
+
+  /// Shift+F10 / the Menu key (D32 §5's keyboard path): the menu opens
+  /// under the cursor row — the empty-area menu when there is no cursor
+  /// — and focus lands on its first row. Touch platforms get the sheet.
+  void _openContextMenuFromKeyboard() {
+    final cursor = widget.controller.cursorIndex;
+    final sections = cursor == null
+        ? kPaneEmptyContextMenu
+        : kPaneRowContextMenu;
+    if (_touchRows(context)) {
+      _showContextSheet(sections);
+      return;
+    }
+    final anchor = _contextMenuAnchorKey.currentContext?.findRenderObject();
+    if (anchor is! RenderBox || !anchor.hasSize) return;
+    final list = _listAreaKey.currentContext?.findRenderObject();
+    var global = anchor.localToGlobal(const Offset(24, 24));
+    if (list is RenderBox && list.hasSize) {
+      final extent = _rowExtent();
+      final scrolled = _scrollController.hasClients
+          ? _scrollController.offset
+          : 0.0;
+      final y = cursor == null ? 0.0 : (cursor + 1) * extent - scrolled;
+      global = list.localToGlobal(
+        Offset(
+          PaneColumnMetrics.startPadding + PaneColumnMetrics.glyphSize,
+          y.clamp(0.0, list.size.height),
+        ),
+      );
+    }
+    _openContextMenu(sections, global);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted || !_contextMenu.isOpen) return;
+      _contextMenuFirstItem.requestFocus();
+    });
+  }
+
+  void _showContextSheet(List<List<String>> sections) {
+    final run = widget.onRunCommand;
+    final resolved = _resolvedSections(sections);
+    if (run == null || resolved.isEmpty) return;
+    final cursor = widget.controller.cursorIndex;
+    final entries = widget.controller.entries;
+    unawaited(
+      showPaneContextSheet(
+        context,
+        title: cursor != null && cursor < entries.length
+            ? entries[cursor].name
+            : null,
+        sections: resolved,
+        onRun: run,
+      ),
+    );
+  }
+
+  List<Widget> _contextMenuChildren(BuildContext context) {
+    final run = widget.onRunCommand;
+    if (run == null) return const [];
+    return buildPaneContextMenuItems(
+      context: context,
+      sections: _resolvedSections(_contextMenuSections),
+      onRun: run,
+      firstItemFocus: _contextMenuFirstItem,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -781,14 +972,10 @@ class _PaneViewState extends State<PaneView> {
         _syncGrace(_graceBusy());
         _syncReveal();
         _syncQuickSelectFocus();
-        _syncFilterFocus();
         _syncPathFieldFocus();
         _syncRenameFocus();
-        _syncInfoPanelFocus();
-        final active = identical(
-          widget.workspace.activePane,
-          widget.pane,
-        );
+        final active = identical(widget.workspace.activePane, widget.pane);
+        final touch = _touchRows(context);
         return Semantics(
           container: true,
           label: widget.pane.isLeftPane ? l10n.paneAName : l10n.paneBName,
@@ -802,19 +989,17 @@ class _PaneViewState extends State<PaneView> {
               // Clicking anywhere in the pane focuses its listing (and so
               // activates the pane) — the two-pane muscle-memory basic. A
               // raw pointer listener, not a gesture: a pane-level tap
-              // recognizer would join the arena against the row InkWells
-              // and both would lose.
+              // recognizer would join the arena against the rows' own
+              // gestures and both would lose.
               onPointerDown: (event) {
-                // The pane's field strips keep their own clicks: a
-                // pointer down inside the Quick Select or filter strip
-                // must not bounce focus to the listing before the
-                // field's own tap handler runs.
+                // The pane's fields keep their own clicks: a pointer
+                // down inside the Quick Select strip, the path field, or
+                // the rename editor must not bounce focus to the listing
+                // before the field's own tap handler runs.
                 for (final key in [
                   _quickSelectFieldKey,
-                  _filterStripKey,
                   _pathFieldStripKey,
                   _renameEditorKey,
-                  _infoPanelKey,
                 ]) {
                   final fieldBox =
                       key.currentContext?.findRenderObject() as RenderBox?;
@@ -828,53 +1013,56 @@ class _PaneViewState extends State<PaneView> {
                 }
                 widget.focusNode.requestFocus();
               },
-              child: _PaneSurface(
-                controller: widget.controller,
-                pane: widget.pane,
-                syncLink: widget.workspace.syncBrowsing,
-                active: active,
-                graceVisible: _pastGrace,
-                scrollController: _scrollController,
-                clock: widget.clock,
-                bookmarks: widget.bookmarks,
-                dropDelegate: widget.dropDelegate,
-                supportsOsDrop: widget.supportsOsDrop,
-                checkoutSession: widget.checkoutSession,
-                onReviewLocalEdits: widget.onReviewLocalEdits,
-                listAreaKey: _listAreaKey,
-                dropTargetRow: _dropTargetRow,
-                onDropHoverRow: _onDropHoverRow,
-                onCancelNavigation: widget.controller.cancelNavigation,
-                onRetry: () => unawaited(widget.controller.retry()),
-                onCancelRecovery: widget.onCancelRecovery,
-                onQuickSelectClosed: () => widget.focusNode.requestFocus(),
-                quickSelectFieldKey: _quickSelectFieldKey,
-                filterStripKey: _filterStripKey,
-                filterFocusNode: _filterFocusNode,
-                onFilterClosed: () => widget.focusNode.requestFocus(),
-                pathFieldStripKey: _pathFieldStripKey,
-                pathFieldFocusNode: _pathFieldFocusNode,
-                onPathFieldClosed: () => widget.focusNode.requestFocus(),
-                renameEditorKey: _renameEditorKey,
-                infoPanelKey: _infoPanelKey,
-                onCloseInfoPanel: widget.pane.closeInfoPanel,
-                onInfoPanelEscape: _handleEscapeTier,
-                onActivateRow: (index, modifiers) {
-                  widget.controller.setCursorIndex(
-                    index,
-                    update: _selectionUpdateFor(
-                      modifiers,
-                      Theme.of(context).platform,
+              child: MenuAnchor(
+                controller: _contextMenu,
+                // An outside click only dismisses the menu — it must not
+                // also select a row or run a header button.
+                consumeOutsideTap: true,
+                menuChildren: _contextMenuChildren(context),
+                child: KeyedSubtree(
+                  key: _contextMenuAnchorKey,
+                  child: _PaneSurface(
+                    controller: widget.controller,
+                    pane: widget.pane,
+                    syncLink: widget.workspace.syncBrowsing,
+                    active: active,
+                    graceVisible: _pastGrace,
+                    scrollController: _scrollController,
+                    clock: widget.clock,
+                    bookmarks: widget.bookmarks,
+                    dropDelegate: widget.dropDelegate,
+                    supportsOsDrop: widget.supportsOsDrop,
+                    checkoutSession: widget.checkoutSession,
+                    onReviewLocalEdits: widget.onReviewLocalEdits,
+                    listAreaKey: _listAreaKey,
+                    dropTargetRow: _dropTargetRow,
+                    onDropHoverRow: _onDropHoverRow,
+                    onCancelNavigation: widget.controller.cancelNavigation,
+                    onRetry: () => unawaited(widget.controller.retry()),
+                    onCancelRecovery: widget.onCancelRecovery,
+                    onQuickSelectClosed: () => widget.focusNode.requestFocus(),
+                    quickSelectFieldKey: _quickSelectFieldKey,
+                    pathFieldStripKey: _pathFieldStripKey,
+                    pathFieldFocusNode: _pathFieldFocusNode,
+                    onPathFieldClosed: () => widget.focusNode.requestFocus(),
+                    renameEditorKey: _renameEditorKey,
+                    gestures: _RowGestures(
+                      touch: touch,
+                      onPointerDown: _onRowPointerDown,
+                      onPointerMove: _onRowPointerMove,
+                      onPointerUp: _onRowPointerUp,
+                      onTap: _onRowTap,
+                      onLongPress: _onRowLongPress,
+                      onOpen: _openRow,
+                      onRename: (index) {
+                        widget.controller.setCursorIndex(index);
+                        widget.focusNode.requestFocus();
+                        widget.controller.startRename();
+                      },
+                      onListingPointerDown: _onListingPointerDown,
                     ),
-                  );
-                  widget.focusNode.requestFocus();
-                },
-                onOpenRow: (index) {
-                  final entries = widget.controller.entries;
-                  if (index < entries.length) {
-                    widget.controller.openEntry(entries[index]);
-                  }
-                },
+                  ),
+                ),
               ),
             ),
           ),
@@ -882,6 +1070,42 @@ class _PaneViewState extends State<PaneView> {
       },
     );
   }
+}
+
+/// The row gesture callbacks the pane state owns (selection, the
+/// double-click window, the context menu), handed down to the listing
+/// in one bundle.
+@immutable
+class _RowGestures {
+  const _RowGestures({
+    required this.touch,
+    required this.onPointerDown,
+    required this.onPointerMove,
+    required this.onPointerUp,
+    required this.onTap,
+    required this.onLongPress,
+    required this.onOpen,
+    required this.onRename,
+    required this.onListingPointerDown,
+  });
+
+  /// Touch rows (D32 §9) take tap/long-press; desktop rows take raw
+  /// pointer presses.
+  final bool touch;
+  final void Function(int index, PointerDownEvent event) onPointerDown;
+  final void Function(PointerMoveEvent event) onPointerMove;
+  final void Function(PointerUpEvent event) onPointerUp;
+  final void Function(int index) onTap;
+  final void Function(int index) onLongPress;
+
+  /// The row's primary verb for assistive tech (open).
+  final void Function(int index) onOpen;
+
+  /// §13's rename custom action: select the row, then open the editor.
+  final void Function(int index) onRename;
+
+  /// Presses on the listing no row claimed (the empty-area menu).
+  final void Function(PointerDownEvent event) onListingPointerDown;
 }
 
 class _PaneSurface extends StatelessWidget {
@@ -906,28 +1130,21 @@ class _PaneSurface extends StatelessWidget {
     required this.onCancelRecovery,
     required this.onQuickSelectClosed,
     required this.quickSelectFieldKey,
-    required this.filterStripKey,
-    required this.filterFocusNode,
-    required this.onFilterClosed,
     required this.pathFieldStripKey,
     required this.pathFieldFocusNode,
     required this.onPathFieldClosed,
     required this.renameEditorKey,
-    required this.infoPanelKey,
-    required this.onCloseInfoPanel,
-    required this.onInfoPanelEscape,
-    required this.onActivateRow,
-    required this.onOpenRow,
+    required this.gestures,
   });
 
   final PaneController controller;
 
-  /// The strip owning the tab — the inspector's open flag lives on it
-  /// (02 §2.6's pane chrome, retargeted to whichever tab is active).
+  /// The strip owning the tab — its side decides which pane's sync
+  /// chip announces (one announcer per link state change).
   final PaneTabsController pane;
 
-  /// The workspace's Sync Browsing link (02 §7) — the path bar's
-  /// link chip reads its state.
+  /// The workspace's Sync Browsing link (02 §7) — the location
+  /// header's link chip reads its state.
   final SyncBrowsingController syncLink;
   final bool active;
   final bool graceVisible;
@@ -967,19 +1184,8 @@ class _PaneSurface extends StatelessWidget {
   final VoidCallback onQuickSelectClosed;
   final GlobalKey quickSelectFieldKey;
 
-  /// The filter strip's hit-test boundary for the pane's pointer-down
-  /// listener (clicks inside it must not bounce focus to the listing).
-  final GlobalKey filterStripKey;
-
-  /// The filter field's focus node, owned by the pane state so a
-  /// `view.filter` re-invocation can re-focus the mounted field.
-  final FocusNode filterFocusNode;
-
-  /// Returns focus to the listing after the field's own Enter/Esc.
-  final VoidCallback onFilterClosed;
-
   /// The path field's hit-test boundary for the pane's pointer-down
-  /// listener (clicks inside the editing bar must not bounce focus to
+  /// listener (clicks inside the editing field must not bounce focus to
   /// the listing before the field's own tap runs).
   final GlobalKey pathFieldStripKey;
 
@@ -995,37 +1201,56 @@ class _PaneSurface extends StatelessWidget {
   /// pointer-down listener (clicks inside it keep the field's focus).
   final GlobalKey renameEditorKey;
 
-  /// The inspector's hit-test boundary — clicks inside the panel keep
-  /// the focus they claim instead of bouncing to the listing.
-  final GlobalKey infoPanelKey;
+  /// The row and listing gestures the pane state owns.
+  final _RowGestures gestures;
 
-  /// The inspector's ✕ — the strip's close, at §8.2's panel slot.
-  final VoidCallback onCloseInfoPanel;
-
-  /// Esc pressed while a panel control holds focus still runs the
-  /// pane's shared tier chain.
-  final KeyEventResult Function(KeyEvent event) onInfoPanelEscape;
-
-  final ValueChanged<int> onOpenRow;
-  final void Function(int index, _PointerModifiers? modifiers) onActivateRow;
+  /// Whether the listing (and so the column header) is on screen: a
+  /// bound pane showing rows, cached or live.
+  bool get _listingShown =>
+      controller.hasEngine &&
+      (controller.connectionLost ||
+          controller.phase == PanePhase.browsing ||
+          controller.phase == PanePhase.restored);
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final loadingVisible = graceVisible && !controller.connectionLost;
+    return ColoredBox(
+      color: PoltergeistChrome.of(context).paneBackground,
+      // One width measure for the column header and every row, so the
+      // two can never disagree about which columns fit.
+      child: LayoutBuilder(
+        builder: (context, constraints) => PaneColumnMetricsScope(
+          metrics: PaneColumnMetrics.forWidth(
+            constraints.maxWidth,
+            MediaQuery.textScalerOf(context),
+          ),
+          child: _surfaceColumn(context, l10n, loadingVisible),
+        ),
+      ),
+    );
+  }
+
+  Widget _surfaceColumn(
+    BuildContext context,
+    AppLocalizations l10n,
+    bool loadingVisible,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _PathBar(
+        _LocationHeader(
           controller: controller,
+          announceSyncChip: pane.isLeftPane,
           syncLink: syncLink,
-          active: active,
-          loadingVisible: graceVisible && !controller.connectionLost,
+          loadingVisible: loadingVisible,
           onCancel: onCancelNavigation,
           pathFieldKey: pathFieldStripKey,
           pathFieldFocusNode: pathFieldFocusNode,
           onPathFieldClosed: onPathFieldClosed,
         ),
-        // 02 §2.5: the Quick Select field drops in below the path bar
+        // 02 §2.5: the Quick Select field drops in below the header
         // while the controller reports an open session.
         if (controller.quickSelectActive)
           _QuickSelectField(
@@ -1033,53 +1258,22 @@ class _PaneSurface extends StatelessWidget {
             controller: controller,
             onClosed: onQuickSelectClosed,
           ),
-        // The filter strip: open for editing on `view.filter`, and held
-        // mounted while a query stays active after the field yields
-        // focus — its helper text is the only visible proof the lens is
-        // on (02 §2.5).
-        if (controller.filterFieldOpen || controller.filterActive)
-          _FilterField(
-            key: filterStripKey,
-            controller: controller,
-            focusNode: filterFocusNode,
-            onClosed: onFilterClosed,
+        ..._bannerSlot(context),
+        // D32 §6's column header: outside the listing's scroll view,
+        // so the drop zone's list origin stays row 0.
+        if (_listingShown && controller.viewMode == PaneViewMode.details)
+          PaneColumnHeader(
+            paneTabId: controller.paneTabId,
+            sortKey: controller.sortKey,
+            sortDirection: controller.sortDirection,
+            onSort: controller.sortByColumn,
+            enabled:
+                !controller.connectionLost &&
+                !controller.restoredPending &&
+                !controller.staleRows,
           ),
-        // 02 §10's transient notice: the honest "not yet" when the
-        // Double-click action resolves to a registered-but-deferred
-        // verb (remote Open, Edit, Transfer). Informational — never an
-        // error — so it strips in under the chrome rather than taking
-        // the error overlay.
-        if (controller.notice != null) _NoticeStrip(controller: controller),
-        // 02 §2.7's "Save as favorite…" bar: a live adhoc session past
-        // a successful connect, prefilled from that session. Keyed to
-        // the adhoc id so a save hides the bar for good — parent
-        // rebuilds cannot resurrect it.
-        if (_saveBarBookmark(controller) case final adhoc?)
-          SaveFavoriteBar(
-            key: ValueKey('saveFavorite.${adhoc.id}'),
-            bookmark: adhoc,
-            currentPath: switch (controller.location) {
-              RemotePaneLocation(path: final path) => path,
-              _ => null,
-            },
-            store: bookmarks,
-            onNoStore: controller.noteSaveFavoriteUnavailable,
-          ),
-        // 06 §3.7's resume surface: while this pane's bound server has
-        // checkouts holding dirty/missing local edits — the relaunch
-        // case above all — the banner persists until they're resolved.
-        // remoteBookmark is the pane's server binding (it survives a
-        // connection-lost phase, where Upload would dead-end but the
-        // review dialog stays reachable).
-        if (checkoutSession != null && controller.remoteBookmark != null)
-          LocalEditsBanner(
-            session: checkoutSession!,
-            serverId: controller.remoteBookmark!.id,
-            onReview: () =>
-                onReviewLocalEdits?.call(controller.remoteBookmark!.id),
-          ),
-        // D14's drop zone wraps the listing body only — the path bar,
-        // field strips, and footer stay outside it. The OS-drop gate
+        // D14's drop zone wraps the listing body only — the header,
+        // banners, and column header stay outside it. The OS-drop gate
         // resolves per build: a busy or unbound pane advertises no
         // droppable bounds at all.
         Expanded(
@@ -1094,12 +1288,70 @@ class _PaneSurface extends StatelessWidget {
             child: _body(context, l10n),
           ),
         ),
-        _PaneFooter(
-          controller: controller,
-          graceVisible: graceVisible && !controller.connectionLost,
-        ),
       ],
     );
+  }
+
+  /// D32 §6's one banner slot: only the highest-priority banner shows —
+  /// lost connection > reconnect > local edits > notice > save as
+  /// favorite. The save bar stays mounted (offstage) under a higher
+  /// banner: it owns its typed name and its saved-for-good latch, which
+  /// an unmount would reset.
+  List<Widget> _bannerSlot(BuildContext context) {
+    final bookmark = controller.remoteBookmark;
+    Widget? banner;
+    if (controller.connectionLost) {
+      banner = _LostConnectionBanner(
+        label: bookmark?.label ?? '',
+        onCancel: onCancelRecovery,
+        onRetry: controller.canRetryRecovery ? onRetry : null,
+      );
+    } else if (controller.phase == PanePhase.restored && bookmark != null) {
+      // 02 §3's session-restored remote tab: its cached listing stays
+      // inert behind the Reconnect bar. A restored LOCAL tab needs no
+      // bar: activation rebinds it on the spot.
+      banner = _SessionReconnectBar(
+        label: bookmark.label,
+        onReconnect: () => unawaited(controller.resumeRestored()),
+      );
+    } else if (checkoutSession != null &&
+        bookmark != null &&
+        LocalEditsBanner.localEditCount(checkoutSession!, bookmark.id) > 0) {
+      // 06 §3.7's resume surface: while this pane's bound server has
+      // checkouts holding dirty/missing local edits the banner holds
+      // the slot until they're resolved. remoteBookmark is the pane's
+      // server binding (it survives a connection-lost phase, where the
+      // review dialog stays reachable).
+      banner = LocalEditsBanner(
+        session: checkoutSession!,
+        serverId: bookmark.id,
+        onReview: () => onReviewLocalEdits?.call(bookmark.id),
+      );
+    } else if (controller.notice != null) {
+      // 02 §10's transient notice: the honest "not yet", or a copy
+      // confirmation — informational, never the error overlay.
+      banner = _NoticeStrip(controller: controller);
+    }
+    return [
+      ?banner,
+      // 02 §2.7's "Save as favorite…" bar: a live adhoc session past a
+      // successful connect, prefilled from that session. Keyed to the
+      // adhoc id so a save hides the bar for good.
+      if (_saveBarBookmark(controller) case final adhoc?)
+        Offstage(
+          offstage: banner != null,
+          child: SaveFavoriteBar(
+            key: ValueKey('saveFavorite.${adhoc.id}'),
+            bookmark: adhoc,
+            currentPath: switch (controller.location) {
+              RemotePaneLocation(path: final path) => path,
+              _ => null,
+            },
+            store: bookmarks,
+            onNoStore: controller.noteSaveFavoriteUnavailable,
+          ),
+        ),
+    ];
   }
 
   /// Whether pointer drags are this platform's gesture (02 §5.1):
@@ -1163,7 +1415,7 @@ class _PaneSurface extends StatelessWidget {
         ),
         // WCAG 4.1.3: the rows leaving the semantics tree at issue must
         // not be silent — while they're disowned, a live region
-        // announces the transition with the same string the footer shows
+        // announces the transition with the same string the header shows
         // once the grace dim lands. The node stays mounted permanently
         // and the label transitions '' → loading string at issue: live
         // regions announce label CHANGES on an existing node, while
@@ -1211,46 +1463,30 @@ class _PaneSurface extends StatelessWidget {
               child: _TypeAheadBadge(buffer: controller.typeAheadBuffer),
             ),
           ),
-        // 02 §2.6's Get Info inspector: the non-modal slide-over pinned
-        // to the pane's right edge, above the listing and its transient
-        // layers. A Stack sibling, never a route — the rows beneath it
-        // stay live, and selection changes retarget it.
-        if (pane.infoPanelOpen)
-          PositionedDirectional(
-            end: 0,
-            top: 0,
-            bottom: 0,
-            child: InfoPanel(
-              key: infoPanelKey,
-              controller: controller,
-              clock: clock,
-              onClose: onCloseInfoPanel,
-              onEscape: onInfoPanelEscape,
-            ),
-          ),
       ],
     );
-    // 02 §3's session-restored remote tab: its persisted cached listing
-    // renders inert behind the Reconnect bar — the §2.8 banner rules
-    // (bar, scrim, inert rows) applied to a tab that never connected
-    // this session. A restored LOCAL tab needs no bar: activation
-    // rebinds it on the spot.
-    if (controller.phase == PanePhase.restored &&
-        controller.remoteBookmark != null) {
-      return _SessionReconnectBar(
-        label: controller.remoteBookmark!.label,
-        onReconnect: () => unawaited(controller.resumeRestored()),
-        child: content,
-      );
-    }
-    if (!controller.connectionLost) return content;
-
-    // Reserve banner space so even a short cached listing remains visible.
-    return _LostConnectionBanner(
-      label: controller.remoteBookmark?.label ?? '',
-      onCancel: onCancelRecovery,
-      onRetry: controller.canRetryRecovery ? onRetry : null,
-      child: content,
+    // The banner slot's two binding banners (lost connection, the
+    // restored tab's Reconnect) own the pane's single dim layer: the
+    // cached listing stays visible under the scrim but inert — absorb,
+    // not ignore, so a click cannot fall through onto stale rows.
+    final scrimmed =
+        controller.connectionLost ||
+        (controller.phase == PanePhase.restored &&
+            controller.remoteBookmark != null);
+    if (!scrimmed) return content;
+    return Stack(
+      children: [
+        Positioned.fill(child: content),
+        Positioned.fill(
+          child: AbsorbPointer(
+            child: ColoredBox(
+              color: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerLowest.withValues(alpha: 0.6),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1292,6 +1528,23 @@ class _PaneSurface extends StatelessWidget {
   }
 
   Widget _listing(BuildContext context, AppLocalizations l10n) {
+    // The listing's own presses: a secondary press no row claimed opens
+    // the empty-area menu. Translucent, so the rows and the scroll view
+    // underneath keep every press.
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: gestures.onListingPointerDown,
+      child: _listingBody(context, l10n),
+    );
+  }
+
+  Widget _listingBody(BuildContext context, AppLocalizations l10n) {
+    // The inline editor floats over the edited row's name cell: past
+    // the leading padding and the kind glyph, up to the size/date
+    // columns — the metrics the rows themselves lay out with.
+    final metrics = PaneColumnMetrics.of(context);
+    final renameStart = metrics.nameStart - 6;
+    final renameEnd = metrics.trailingExtent;
     if (controller.entries.isEmpty) {
       // Never claim emptiness while a load is in flight (02 §2.8's
       // nothing-before-grace rule): the first listing of an empty
@@ -1321,12 +1574,9 @@ class _PaneSurface extends StatelessWidget {
                         controller.location is RemotePaneLocation
                             ? l10n.paneDropHintRemote
                             : l10n.paneDropHintLocal,
-                        style: Theme.of(context).textTheme.bodySmall
-                            ?.copyWith(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurfaceVariant,
-                            ),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: PoltergeistChrome.of(context).secondaryText,
+                        ),
                       ),
                     ),
                 ],
@@ -1342,8 +1592,8 @@ class _PaneSurface extends StatelessWidget {
           children: [
             Positioned.fill(child: emptyState),
             PositionedDirectional(
-              start: _renameNameCellStart,
-              end: _renameNameCellEnd,
+              start: renameStart,
+              end: renameEnd,
               top: 0,
               child: _RenameEditor(
                 key: renameEditorKey,
@@ -1387,13 +1637,8 @@ class _PaneSurface extends StatelessWidget {
                   ? scrollController.offset
                   : 0.0;
               return PositionedDirectional(
-                // The row's name cell: past the leading padding, the
-                // cursor bar, and the kind icon …up to the
-                // size/modified columns' leading edge. These mirror
-                // _PaneRow's column metrics — a row-layout change must
-                // change them with it.
-                start: _renameNameCellStart,
-                end: _renameNameCellEnd,
+                start: renameStart,
+                end: renameEnd,
                 // No clamp: a row scrolled above the viewport carries
                 // its editor off with it — the Stack clips the
                 // overflow, and clipped pixels never hit-test. A
@@ -1411,31 +1656,41 @@ class _PaneSurface extends StatelessWidget {
     );
   }
 
-  /// One listing row (02 §2.3), plus the D14 drag wiring: while a queue
+  /// One listing row (D32 §6), plus the D14 drag wiring: while a queue
   /// seam exists and the pane's verbs are live, each row is a
   /// `Draggable` whose payload snapshots the selection at grab time —
   /// a grabbed row inside a multi-selection drags the whole selection
   /// (02 §5.1). `childWhenDragging` leaves the dimmed ghost in place —
   /// the move is not committed until a target accepts it.
   Widget _buildRow(BuildContext context, int index) {
+    final highlighted = controller.cursorIndex == index;
+    final selected = controller.isRowSelected(index);
     final row = _PaneRow(
       entry: controller.entries[index],
-      highlighted: controller.cursorIndex == index,
-      selected: controller.isRowSelected(index),
+      highlighted: highlighted,
+      // The cursor ring marks the cursor by SHAPE (02 §2.5): needed
+      // wherever the tint alone cannot say which row it is — inside a
+      // multi-selection, or on an unselected row. A lone selected
+      // cursor row is its own marker.
+      cursorRing: highlighted && !(selected && controller.selectedCount == 1),
+      selected: selected,
       dropTargeted: dropTargetRow == index,
       active: active,
       clock: clock,
-      onTap: (modifiers) => onActivateRow(index, modifiers),
-      onDoubleTap: () => onOpenRow(index),
+      touch: gestures.touch,
+      onPointerDown: (event) => gestures.onPointerDown(index, event),
+      onPointerMove: gestures.onPointerMove,
+      onPointerUp: gestures.onPointerUp,
+      onTap: () => gestures.onTap(index),
+      onLongPress: () => gestures.onLongPress(index),
+      onOpen: () => gestures.onOpen(index),
       // 02 §13's row-level rename action: select the row (rename acts on
       // the cursor), then open the inline editor. Flagged names carry
       // no action — their reason is spelled out in the row's label.
       onRename:
-          controller.verbsEnabled && !nameIsFlagged(controller.entries[index].name)
-          ? () {
-              onActivateRow(index, null);
-              controller.startRename();
-            }
+          controller.verbsEnabled &&
+              !nameIsFlagged(controller.entries[index].name)
+          ? () => gestures.onRename(index)
           : null,
     );
     // Rows drag only where a pointer drag is the platform's gesture —
@@ -1590,7 +1845,8 @@ class _RenameEditorState extends State<_RenameEditor> {
           controller: _text,
           focusNode: _fieldFocus,
           autofocus: true,
-          style: Theme.of(context).textTheme.bodySmall,
+          // The row's own 13 px name style, so the edit reads in place.
+          style: Theme.of(context).textTheme.bodyMedium,
           decoration: InputDecoration(
             isDense: true,
             // An opaque fill occludes the row's own name text under the
@@ -1599,7 +1855,7 @@ class _RenameEditorState extends State<_RenameEditor> {
             fillColor: colors.surface,
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 6,
-              vertical: 5,
+              vertical: 3,
             ),
             border: const OutlineInputBorder(),
             enabledBorder: OutlineInputBorder(
@@ -1675,15 +1931,33 @@ class _TypeAheadBadge extends StatelessWidget {
   }
 }
 
-/// The path bar (02 §2.1, foundation subset): one clickable segment per
-/// ancestor, focused-pane accent, the 2 px progress line, and the cancel
-/// affordance while a navigation is outstanding.
-class _PathBar extends StatefulWidget {
-  const _PathBar({
+/// The ancestors of [path], parent first and root last — Finder's title
+/// menu order: ('/home', 'home'), ('/', '/') for `/home/tester`. Empty
+/// at a root.
+List<(String, String)> _ancestorsOf(String path) {
+  final ancestors = <(String, String)>[];
+  var walking = paneParentPath(path);
+  var previous = path;
+  while (walking != previous) {
+    ancestors.add((paneLastSegment(walking), walking));
+    previous = walking;
+    walking = paneParentPath(walking);
+  }
+  return ancestors;
+}
+
+/// D32 §6's location header (44 px), replacing the segmented path bar:
+/// the location glyph, the folder name in semibold with its ▾ ancestor
+/// menu (Finder's title menu), and a second line with the item count or
+/// the selection summary. Clicking the name — or `go.editPath` (⌘L) —
+/// swaps in the editable path field in place. Trailing: the Sync
+/// Browsing chip, and past the anti-flash grace a spinner with cancel.
+class _LocationHeader extends StatelessWidget {
+  const _LocationHeader({
     required this.controller,
-    required this.active,
-    required this.loadingVisible,
+    required this.announceSyncChip,
     required this.syncLink,
+    required this.loadingVisible,
     required this.onCancel,
     required this.pathFieldKey,
     required this.pathFieldFocusNode,
@@ -1691,17 +1965,23 @@ class _PathBar extends StatefulWidget {
   });
 
   final PaneController controller;
-  final bool active;
-  final bool loadingVisible;
+
+  /// Whether this header's link chip is the screen-reader announcer —
+  /// both anchored panes show a chip, and only one may announce a state
+  /// change (the left pane's, by convention).
+  final bool announceSyncChip;
 
   /// The workspace's Sync Browsing link (02 §7): while enabled, both
-  /// anchored path bars carry the link chip — quiet while linked, amber
-  /// link-broken while suspended.
+  /// anchored headers carry the link chip.
   final SyncBrowsingController syncLink;
+
+  /// Past the anti-flash grace (02 §2.8) and not under the lost-
+  /// connection banner.
+  final bool loadingVisible;
   final VoidCallback onCancel;
 
   /// The editable field's hit-test boundary for the pane's pointer-down
-  /// listener — clicks inside the editing bar keep the field's focus.
+  /// listener — clicks inside the field keep its focus.
   final GlobalKey pathFieldKey;
 
   /// The field's focus node, owned by the pane state (open
@@ -1712,186 +1992,248 @@ class _PathBar extends StatefulWidget {
   final VoidCallback onPathFieldClosed;
 
   @override
-  State<_PathBar> createState() => _PathBarState();
+  Widget build(BuildContext context) {
+    final chrome = PoltergeistChrome.of(context);
+    final l10n = AppLocalizations.of(context);
+    final loading = controller.loading && loadingVisible;
+    return Container(
+      key: ValueKey('${controller.paneTabId}.path'),
+      constraints: BoxConstraints(
+        minHeight: MediaQuery.textScalerOf(context).scale(44),
+      ),
+      color: chrome.paneBackground,
+      padding: const EdgeInsetsDirectional.fromSTEB(10, 4, 6, 4),
+      child: Row(
+        children: [
+          _LocationGlyph(controller: controller),
+          const SizedBox(width: 8),
+          Expanded(
+            // The title keeps the larger share: a long suspended-link
+            // cause ellipsizes inside its chip rather than squeezing the
+            // folder name out.
+            flex: 3,
+            // `go.editPath`/`go.toFolder` swap the name for the editable
+            // field in place (02 §2.1) — the glyph and the trailing
+            // affordances stay put around it.
+            child: controller.pathFieldOpen
+                ? _PathEditorField(
+                    key: pathFieldKey,
+                    controller: controller,
+                    focusNode: pathFieldFocusNode,
+                    onClosed: onPathFieldClosed,
+                  )
+                : _LocationTitle(controller: controller, loading: loading),
+          ),
+          // 02 §7: the anchored tabs' headers carry the chip. A
+          // non-anchored tab's header shows none: its navigation is not
+          // the pair's.
+          if (controller.syncAnchorActive) ...[
+            const SizedBox(width: 6),
+            Flexible(
+              flex: 2,
+              child: SyncBrowseChip(
+                key: ValueKey('${controller.paneTabId}.syncChip'),
+                link: syncLink,
+                announce: announceSyncChip,
+              ),
+            ),
+          ],
+          if (loading) ...[
+            const SizedBox(width: 8),
+            // 02 §2.8's post-grace progress affordance.
+            SizedBox(
+              key: ValueKey('${controller.paneTabId}.progress'),
+              width: 14,
+              height: 14,
+              child: const CircularProgressIndicator(strokeWidth: 2),
+            ),
+            IconButton(
+              key: ValueKey('${controller.paneTabId}.cancel'),
+              tooltip: l10n.paneCancelLoading,
+              onPressed: onCancel,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.close, size: 16),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
-class _PathBarState extends State<_PathBar> {
-  final _segmentScroll = ScrollController();
-  String? _revealedPath;
+/// The header's 20 px location glyph: the server's mark for a remote
+/// binding, a volume at a root, a folder otherwise.
+class _LocationGlyph extends StatelessWidget {
+  const _LocationGlyph({required this.controller});
 
-  @override
-  void initState() {
-    super.initState();
-    // First mount with a deep path: didUpdateWidget never fires for
-    // it, so seed the reveal here too.
-    final path = widget.controller.location?.path;
-    _revealedPath = path;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_segmentScroll.hasClients) return;
-      _segmentScroll.jumpTo(_segmentScroll.position.maxScrollExtent);
-    });
-  }
-
-  @override
-  void dispose() {
-    _segmentScroll.dispose();
-    super.dispose();
-  }
-
-  // Deep paths overflow the bar: the deepest segment — where the user
-  // IS — must be the visible one, so reveal the tail on every location
-  // change (02 §2.1's "where am I" is the bar's whole job).
-  @override
-  void didUpdateWidget(_PathBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final path = widget.controller.location?.path;
-    if (path == _revealedPath) return;
-    _revealedPath = path;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_segmentScroll.hasClients) return;
-      _segmentScroll.jumpTo(_segmentScroll.position.maxScrollExtent);
-    });
-  }
+  final PaneController controller;
 
   @override
   Widget build(BuildContext context) {
-    final controller = widget.controller;
-    final colors = Theme.of(context).colorScheme;
-    final l10n = AppLocalizations.of(context);
-    final location = controller.location;
-    final segments = location == null
-        ? <(String, String)>[]
-        : _segmentsOf(location.path);
+    const size = 20.0;
+    final bookmark = controller.remoteBookmark;
+    if (bookmark != null) {
+      return ServerBadge.glyph(
+        tint: ServerTint(named: bookmark.color),
+        icon: bookmark.icon,
+        size: size,
+      );
+    }
+    final path = controller.location?.path;
+    final root = path != null && paneParentPath(path) == path;
+    return ExcludeSemantics(
+      child: Icon(
+        root ? Icons.storage_outlined : Icons.folder,
+        size: size,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    );
+  }
+}
 
-    // 02 §2.1: the focused pane's segments render in the accent color so
-    // the transfer-deciding side is always visible.
-    final segmentColor = widget.active
-        ? colors.primary
-        : colors.onSurfaceVariant;
+/// The header's two text lines: the clickable folder name with its ▾
+/// ancestor menu, and the item or selection summary under it.
+class _LocationTitle extends StatelessWidget {
+  const _LocationTitle({required this.controller, required this.loading});
+
+  final PaneController controller;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final chrome = PoltergeistChrome.of(context);
+    final theme = Theme.of(context);
+    final location = controller.location;
+    final path = location?.path;
+    final name = path != null
+        ? paneLastSegment(path)
+        : controller.remoteBookmark?.label ?? '';
+    final ancestors = path == null
+        ? const <(String, String)>[]
+        : _ancestorsOf(path);
+    final editable = controller.acceptsPathInput;
+
+    Widget title = Text(
+      name,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.titleSmall,
+    );
+    title = Semantics(
+      button: editable,
+      label: name,
+      hint: editable ? l10n.goEditPathLabel : null,
+      onTap: editable ? controller.editPath : null,
+      excludeSemantics: true,
+      child: InkWell(
+        key: ValueKey('${controller.paneTabId}.path.name'),
+        borderRadius: BorderRadius.circular(4),
+        hoverColor: chrome.hoverFill,
+        onTap: editable ? controller.editPath : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: title,
+        ),
+      ),
+    );
+    // Paths are secondary facts (D32 §2): the full path rides the
+    // tooltip, never a second line.
+    if (path != null) title = Tooltip(message: path, child: title);
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          key: ValueKey('${controller.paneTabId}.path'),
-          height: MediaQuery.textScalerOf(context).scale(34),
-          color: colors.surfaceContainerLow,
-          padding: const EdgeInsetsDirectional.symmetric(horizontal: 8),
-          child: Row(
-            children: [
-              Icon(
-                location is RemotePaneLocation
-                    ? Icons.dns_outlined
-                    : Icons.folder_outlined,
-                size: 16,
-                color: segmentColor,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                // `go.editPath`/`go.toFolder` swap the segments for the
-                // editable field in place (02 §2.1) — the glyph and the
-                // cancel affordance stay put around it.
-                child: controller.pathFieldOpen
-                    ? _PathEditorField(
-                        key: widget.pathFieldKey,
-                        controller: controller,
-                        focusNode: widget.pathFieldFocusNode,
-                        onClosed: widget.onPathFieldClosed,
-                      )
-                    : ListView(
-                        controller: _segmentScroll,
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          for (final (label, path) in segments)
-                            Padding(
-                              padding: const EdgeInsetsDirectional.only(end: 2),
-                              // 02 §13: one button node per segment —
-                              // "Go to var", not the bare path fragment.
-                              child: Semantics(
-                                button: true,
-                                label: l10n.panePathSegmentGoTo(label),
-                                onTap: () => controller.navigate(path),
-                                child: ExcludeSemantics(
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(4),
-                                    onTap: () => controller.navigate(path),
-                                    child: Padding(
-                                      padding:
-                                          const EdgeInsetsDirectional.symmetric(
-                                        horizontal: 6,
-                                        vertical: 8,
-                                      ),
-                                      child: Text(
-                                        label,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(color: segmentColor),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-              ),
-              // 02 §7: the anchored tabs' path bars carry the chip —
-              // quiet while linked, amber link-broken while suspended.
-              // A non-anchored tab's bar shows none: its navigation is
-              // not the pair's.
-              if (controller.syncAnchorActive) ...[
-                const SizedBox(width: 4),
-                SyncBrowseChip(
-                  key: ValueKey('${controller.paneTabId}.syncChip'),
-                  link: widget.syncLink,
-                  // The status bar's chip is the live-region announcer —
-                  // three chips announcing one state change would
-                  // duplicate the screen-reader line.
-                  announce: false,
-                ),
-              ],
-              if (controller.loading && widget.loadingVisible)
-                IconButton(
-                  key: ValueKey('${controller.paneTabId}.cancel'),
-                  tooltip: l10n.paneCancelLoading,
-                  onPressed: widget.onCancel,
-                  icon: const Icon(Icons.close, size: 16),
-                ),
-            ],
+        Row(
+          children: [
+            Flexible(child: title),
+            if (ancestors.isNotEmpty)
+              _AncestorMenu(controller: controller, ancestors: ancestors),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 2),
+          child: Text(
+            _summary(context, l10n, name),
+            key: ValueKey('${controller.paneTabId}.path.summary'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: chrome.secondaryText,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
         ),
-        // 02 §2.8: a 2 px indeterminate progress line under the path bar
-        // once the anti-flash grace has passed.
-        if (controller.loading && widget.loadingVisible)
-          SizedBox(
-            key: ValueKey('${controller.paneTabId}.progress'),
-            height: 2,
-            child: const LinearProgressIndicator(),
-          ),
       ],
     );
   }
 
-  /// ('/', '/'), ('home', '/home'), ('tester', '/home/tester') — one
-  /// clickable segment per ancestor, root first.
-  List<(String, String)> _segmentsOf(String path) {
-    final separator = path.startsWith('/') ? '/' : '\\';
-    final segments = <(String, String)>[];
-    var walking = path;
-    while (true) {
-      final parent = paneParentPath(walking);
-      if (parent == walking) break;
-      segments.add((
-        walking.substring(parent.length).replaceAll(separator, ''),
-        walking,
-      ));
-      walking = parent;
+  /// `329 items`, or `3 of 329 selected · 42.1 MB` — bytes count files
+  /// only (a folder's listed size is not its contents). Past the grace a
+  /// navigation's loading line takes the slot (02 §2.8/§2.9).
+  String _summary(BuildContext context, AppLocalizations l10n, String name) {
+    if (loading) return l10n.paneLoadingFolder(name);
+    if (controller.location == null) return '';
+    final total = controller.entries.length;
+    final selected = controller.selectedCount;
+    if (selected == 0) return l10n.paneItemCount(total);
+    var bytes = 0;
+    var files = 0;
+    for (final entry in controller.selectedEntries) {
+      final size = entry.size;
+      if (entry.type != RemoteFileType.file || size == null) continue;
+      bytes += size;
+      files++;
     }
-    // Collected deepest-first; flip so children follow parents, with
-    // the root leading (02 §2.1's ancestor order).
-    final ordered = segments.reversed.toList();
-    ordered.insert(0, (walking, walking)); // the root ('/' or 'C:\')
-    return ordered;
+    final summary = l10n.paneSelectionSummary(selected, total);
+    if (files == 0) return summary;
+    return l10n.paneSelectionSummaryWithSize(
+      summary,
+      formatPaneSize(bytes, platform: Theme.of(context).platform),
+    );
+  }
+}
+
+/// The ▾ beside the folder name: every enclosing folder, parent first
+/// (Finder's title menu). Choosing one navigates there.
+class _AncestorMenu extends StatelessWidget {
+  const _AncestorMenu({required this.controller, required this.ancestors});
+
+  final PaneController controller;
+  final List<(String, String)> ancestors;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final chrome = PoltergeistChrome.of(context);
+    return MenuAnchor(
+      menuChildren: [
+        for (var i = 0; i < ancestors.length; i++)
+          MenuItemButton(
+            key: ValueKey('${controller.paneTabId}.path.ancestor.$i'),
+            leadingIcon: Icon(
+              i == ancestors.length - 1
+                  ? Icons.storage_outlined
+                  : Icons.folder_outlined,
+              size: 16,
+            ),
+            onPressed: () => controller.navigate(ancestors[i].$2),
+            child: Text(ancestors[i].$1),
+          ),
+      ],
+      builder: (context, menu, _) => IconButton(
+        key: ValueKey('${controller.paneTabId}.path.ancestors'),
+        tooltip: l10n.paneAncestorMenuTooltip,
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 22, height: 22),
+        iconSize: 16,
+        color: chrome.secondaryText,
+        onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+        icon: const Icon(Icons.keyboard_arrow_down),
+      ),
+    );
   }
 }
 
@@ -2034,11 +2376,8 @@ class _PathEditorFieldState extends State<_PathEditorField> {
   }
 }
 
-/// The pointer modifiers of one row tap, captured at POINTER-DOWN: a
-/// tap commits up to kDoubleTapTimeout later (rows carry both onTap
-/// and onDoubleTap), so reading HardwareKeyboard at commit time would
-/// miss a modifier released inside that window and silently downgrade
-/// a range or toggle gesture to a plain single-select.
+/// The keyboard modifiers held at a row press's POINTER-DOWN — the
+/// moment D32 §6 selects on.
 @immutable
 class _PointerModifiers {
   const _PointerModifiers({
@@ -2052,16 +2391,49 @@ class _PointerModifiers {
   final bool control;
 }
 
+/// The kind glyph's icon and category tint (D32 §6). The tint is a
+/// scheme role per family — never an ad-hoc hue — and the active
+/// selection repaints every glyph on-accent.
+(IconData, Color) _kindGlyph(
+  PaneKindCategory category,
+  ColorScheme colors,
+  PoltergeistChrome chrome,
+) => switch (category) {
+  PaneKindCategory.folder => (Icons.folder, colors.primary),
+  PaneKindCategory.link => (Icons.shortcut_outlined, chrome.secondaryText),
+  PaneKindCategory.image => (Icons.image_outlined, colors.tertiary),
+  PaneKindCategory.text => (Icons.description_outlined, chrome.secondaryText),
+  PaneKindCategory.archive => (Icons.inventory_2_outlined, colors.secondary),
+  PaneKindCategory.pdf => (Icons.picture_as_pdf_outlined, colors.error),
+  PaneKindCategory.media => (Icons.play_circle_outline, colors.tertiary),
+  PaneKindCategory.other => (
+    Icons.insert_drive_file_outlined,
+    chrome.secondaryText,
+  ),
+};
+
+/// One dense listing row (D32 §6): kind glyph, 13 px name, and the size
+/// and date columns in the secondary tone with tabular figures. The
+/// ACTIVE pane's selection paints the accent fill with on-accent text;
+/// the inactive pane's is neutral grey. Desktop rows select on
+/// pointer-down (the pane state owns the double-click window); touch
+/// rows open on tap and select on long-press.
 class _PaneRow extends StatefulWidget {
   const _PaneRow({
     required this.entry,
     required this.highlighted,
+    required this.cursorRing,
     required this.selected,
     required this.dropTargeted,
     required this.active,
     required this.clock,
+    required this.touch,
+    required this.onPointerDown,
+    required this.onPointerMove,
+    required this.onPointerUp,
     required this.onTap,
-    required this.onDoubleTap,
+    required this.onLongPress,
+    required this.onOpen,
     this.onRename,
   });
 
@@ -2070,18 +2442,31 @@ class _PaneRow extends StatefulWidget {
   /// Whether the cursor is on this row.
   final bool highlighted;
 
+  /// Whether the cursor's shape marker shows (a subtle ring) — the
+  /// cursor must stay identifiable inside a multi-selection by shape,
+  /// not tint alone (02 §2.5).
+  final bool cursorRing;
+
   /// Whether this row is in the selection (02 §2.5).
   final bool selected;
 
   /// Whether a live drag hover names this folder row its destination
-  /// (02 §5.1's target highlight) — a ringed tint, distinct from both
-  /// cursor and selection.
+  /// (02 §5.1's target highlight) — a ring distinct from both cursor
+  /// and selection.
   final bool dropTargeted;
 
+  /// Whether this row's pane is the active one.
   final bool active;
   final DateTime Function() clock;
-  final ValueChanged<_PointerModifiers?> onTap;
-  final VoidCallback onDoubleTap;
+  final bool touch;
+  final ValueChanged<PointerDownEvent> onPointerDown;
+  final ValueChanged<PointerMoveEvent> onPointerMove;
+  final ValueChanged<PointerUpEvent> onPointerUp;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  /// The row's primary verb for assistive tech: open.
+  final VoidCallback onOpen;
 
   /// §13's rename affordance on the row's semantics node (keyboard/AT
   /// parity with Enter/F2). Null when rename is unavailable — verbs
@@ -2093,14 +2478,17 @@ class _PaneRow extends StatefulWidget {
 }
 
 class _PaneRowState extends State<_PaneRow> {
-  _PointerModifiers? _downModifiers;
+  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final widget = this.widget;
     final l10n = AppLocalizations.of(context);
-    final colors = Theme.of(context).colorScheme;
-    final platform = Theme.of(context).platform;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final chrome = PoltergeistChrome.of(context);
+    final metrics = PaneColumnMetrics.of(context);
+    final platform = theme.platform;
 
     final size = formatPaneSize(
       widget.entry.type == RemoteFileType.directory ? null : widget.entry.size,
@@ -2114,24 +2502,46 @@ class _PaneRowState extends State<_PaneRow> {
       yesterday: l10n.paneDateYesterday,
     );
 
-    // 02 §2.1: the unfocused pane's selection highlight drops to a
-    // neutral tone. Selected rows keep a quieter tint than the cursor
-    // row so the cursor stays identifiable inside a multi-selection
-    // (02 §2.5's visible-selection rule).
-    final Color? rowColor = widget.dropTargeted
-        ? colors.primaryContainer
-        : widget.highlighted
-        ? (widget.active
-              ? colors.primaryContainer
-              : colors.surfaceContainerHighest)
+    // D32 §3: the accent selection belongs to the pane that decides
+    // transfers; the other pane's selection drops to neutral grey.
+    final accentSelected = widget.selected && widget.active;
+    final Color? fill = accentSelected
+        ? chrome.selectionFill
         : widget.selected
-        ? (widget.active
-              ? colors.secondaryContainer
-              : colors.surfaceContainerHigh)
+        ? chrome.inactiveSelectionFill
+        : (widget.dropTargeted || _hovered)
+        ? chrome.hoverFill
+        : null;
+    final foreground = accentSelected ? chrome.onSelection : colors.onSurface;
+    final secondary = accentSelected
+        ? chrome.onSelection
+        : chrome.secondaryText;
+    final captionStyle = theme.textTheme.bodySmall?.copyWith(
+      color: secondary,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    final (glyph, tint) = _kindGlyph(
+      paneKindCategory(widget.entry),
+      colors,
+      chrome,
+    );
+
+    // 02 §5.1's folder-row target ring outranks the cursor ring; both
+    // paint in the foreground so they never shift the row's layout.
+    final Border? ring = widget.dropTargeted
+        ? Border.all(color: colors.primary, width: 2)
+        : widget.cursorRing
+        ? Border.all(
+            color: widget.active
+                ? (accentSelected
+                      ? chrome.onSelection.withValues(alpha: 0.7)
+                      : chrome.activePaneIndicator)
+                : chrome.secondaryText.withValues(alpha: 0.6),
+          )
         : null;
 
     // 02 §13: the row's kind is part of the announced label
-    // (Name-Kind-Size-Date order); the icon carries it only visually.
+    // (Name-Kind-Size-Date order); the glyph carries it only visually.
     final kind = switch (widget.entry.type) {
       RemoteFileType.file => l10n.paneRowKindFile,
       RemoteFileType.directory => l10n.paneRowKindDirectory,
@@ -2143,6 +2553,101 @@ class _PaneRowState extends State<_PaneRow> {
     // row keeps a warning badge + tooltip visually and spells the
     // reason into the semantics label; rename is withheld above.
     final flagged = nameIsFlagged(widget.entry.name);
+
+    Widget content = DecoratedBox(
+      decoration: BoxDecoration(color: fill),
+      position: DecorationPosition.background,
+      child: DecoratedBox(
+        decoration: BoxDecoration(border: ring),
+        position: DecorationPosition.foreground,
+        child: Padding(
+          padding: const EdgeInsetsDirectional.only(
+            start: PaneColumnMetrics.startPadding,
+            end: PaneColumnMetrics.endPadding,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                glyph,
+                size: PaneColumnMetrics.glyphSize,
+                color: accentSelected ? chrome.onSelection : tint,
+              ),
+              const SizedBox(width: PaneColumnMetrics.glyphGap),
+              Expanded(
+                child: Text(
+                  widget.entry.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: foreground,
+                  ),
+                ),
+              ),
+              // 02 §13's flagged-name marker: the name already shows
+              // U+FFFD; the badge + tooltip say why.
+              if (flagged)
+                Tooltip(
+                  message: l10n.paneFlaggedNameTooltip,
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 4),
+                    child: Icon(
+                      Icons.warning_amber_outlined,
+                      size: 14,
+                      color: accentSelected ? chrome.onSelection : colors.error,
+                    ),
+                  ),
+                ),
+              if (metrics.showsSize) ...[
+                const SizedBox(width: PaneColumnMetrics.columnGap),
+                SizedBox(
+                  width: metrics.sizeWidth,
+                  child: Text(
+                    size,
+                    textAlign: TextAlign.end,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: captionStyle,
+                  ),
+                ),
+              ],
+              const SizedBox(width: PaneColumnMetrics.columnGap),
+              SizedBox(
+                width: metrics.modifiedWidth,
+                child: Text(
+                  modified,
+                  textAlign: TextAlign.end,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: captionStyle,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    content = widget.touch
+        ? GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onTap,
+            onLongPress: widget.onLongPress,
+            child: content,
+          )
+        : MouseRegion(
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: Listener(
+              // Raw presses, never a tap recognizer: the row selects the
+              // moment the button goes down, and the pane state times the
+              // double-click itself (D32 §6).
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: widget.onPointerDown,
+              onPointerMove: widget.onPointerMove,
+              onPointerUp: widget.onPointerUp,
+              child: content,
+            ),
+          );
 
     return Semantics(
       label: flagged
@@ -2161,7 +2666,7 @@ class _PaneRowState extends State<_PaneRow> {
       // AT activation opens the row: a screen reader's activate gesture
       // is the row's primary verb here (the cursor-set single click is
       // a sighted-user convention; Enter covers it for keyboards).
-      onTap: widget.onDoubleTap,
+      onTap: widget.onOpen,
       // Announced membership follows the actual selection (02 §13),
       // never the cursor: a plain move single-selects its row, so the
       // cursor is announced selected except in the one state where it
@@ -2174,162 +2679,7 @@ class _PaneRowState extends State<_PaneRow> {
           CustomSemanticsAction(label: l10n.fileRenameLabel):
               widget.onRename!,
       },
-      child: Material(
-        // The row owns its surface so ink feedback paints above the
-        // row color (an opaque ColoredBox inside the InkWell would
-        // cover the splash entirely).
-        color: rowColor ?? colors.surface,
-        child: Listener(
-          // Capture the gesture's modifiers at pointer-down: the tap
-          // callback commits after the double-tap window.
-          onPointerDown: (event) {
-            final keyboard = HardwareKeyboard.instance;
-            _downModifiers = _PointerModifiers(
-              shift: keyboard.isShiftPressed,
-              meta: keyboard.isMetaPressed,
-              control: keyboard.isControlPressed,
-            );
-          },
-          child: InkWell(
-            onTap: () => widget.onTap(_downModifiers),
-            onDoubleTap: widget.onDoubleTap,
-            child: Stack(
-              children: [
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(
-                    start: 8 + _cursorBarWidth,
-                    end: 8,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        switch (widget.entry.type) {
-                          RemoteFileType.directory => Icons.folder_outlined,
-                          RemoteFileType.symbolicLink =>
-                            Icons.shortcut_outlined,
-                          _ => Icons.insert_drive_file_outlined,
-                        },
-                        size: 16,
-                        color: colors.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          widget.entry.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                      // 02 §13's flagged-name marker: the name already
-                      // shows U+FFFD; the badge + tooltip say why.
-                      if (flagged)
-                        Tooltip(
-                          message: l10n.paneFlaggedNameTooltip,
-                          child: Padding(
-                            padding: const EdgeInsetsDirectional.only(
-                              start: 4,
-                            ),
-                            child: Icon(
-                              Icons.warning_amber_outlined,
-                              size: 14,
-                              color: colors.error,
-                            ),
-                          ),
-                        ),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        width: MediaQuery.textScalerOf(context).scale(64),
-                        child: Text(
-                          size,
-                          textAlign: TextAlign.end,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: colors.onSurfaceVariant),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        width: MediaQuery.textScalerOf(context).scale(120),
-                        child: Text(
-                          modified,
-                          textAlign: TextAlign.end,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: colors.onSurfaceVariant),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // The cursor's shape marker, on the row's leading edge in
-                // both the active and the unfocused pane's tones.
-                if (widget.highlighted)
-                  PositionedDirectional(
-                    start: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: _cursorBarWidth,
-                    child: ColoredBox(
-                      color: widget.active
-                          ? colors.primary
-                          : colors.onSurfaceVariant,
-                    ),
-                  ),
-                // 02 §5.1's folder-row target highlight: a ring over the
-                // tint, so the destination row reads unambiguously even
-                // inside a selection.
-                if (widget.dropTargeted)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(color: colors.primary, width: 2),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PaneFooter extends StatelessWidget {
-  const _PaneFooter({required this.controller, required this.graceVisible});
-
-  final PaneController controller;
-  final bool graceVisible;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final colors = Theme.of(context).colorScheme;
-    // 02 §2.8/§2.9: the footer doubles as the loading line, behind the
-    // same anti-flash grace as the dim.
-    final String text = controller.loading && graceVisible
-        ? l10n.paneLoadingFolder(paneLastSegment(controller.location?.path))
-        : l10n.paneItemCount(controller.entries.length);
-
-    return Container(
-      key: const ValueKey('pane.footer'),
-      height: MediaQuery.textScalerOf(context).scale(24),
-      padding: const EdgeInsetsDirectional.symmetric(horizontal: 10),
-      color: colors.surfaceContainerLow,
-      child: Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: Text(
-          text,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.labelSmall,
-        ),
-      ),
+      child: content,
     );
   }
 }
@@ -2450,103 +2800,77 @@ class _ErrorOverlay extends StatelessWidget {
 
 /// 02 §3's Reconnect bar for a session-restored remote tab: the same
 /// banner contract as the connection-lost banner — the persisted cached
-/// listing stays visible behind a scrim, inert — but the session's
-/// truth is "offline until asked", not "transport lost": a neutral
-/// surface, one Reconnect action, no Cancel (there is nothing to
-/// cancel — the binding was never opened).
+/// listing stays visible behind the body's scrim, inert — but the
+/// session's truth is "offline until asked", not "transport lost": a
+/// neutral surface, one Reconnect action, no Cancel (there is nothing
+/// to cancel — the binding was never opened).
 class _SessionReconnectBar extends StatelessWidget {
-  const _SessionReconnectBar({
-    required this.label,
-    required this.onReconnect,
-    required this.child,
-  });
+  const _SessionReconnectBar({required this.label, required this.onReconnect});
 
   final String label;
   final VoidCallback onReconnect;
-  final Widget child;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final colors = Theme.of(context).colorScheme;
 
-    return Column(
-      children: [
-        Container(
-          key: const ValueKey('pane.reconnectBar'),
-          width: double.infinity,
-          padding: const EdgeInsetsDirectional.symmetric(
-            horizontal: 12,
-            vertical: 8,
+    return Container(
+      key: const ValueKey('pane.reconnectBar'),
+      width: double.infinity,
+      padding: const EdgeInsetsDirectional.symmetric(
+        horizontal: 12,
+        vertical: 8,
+      ),
+      color: colors.secondaryContainer,
+      child: Row(
+        children: [
+          Icon(
+            Icons.cloud_off_outlined,
+            size: 16,
+            color: colors.onSecondaryContainer,
           ),
-          color: colors.secondaryContainer,
-          child: Row(
-            children: [
-              Icon(
-                Icons.cloud_off_outlined,
-                size: 16,
-                color: colors.onSecondaryContainer,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                // Live region like the connection banner: the restored
-                // rows under the scrim are excluded from semantics, so
-                // the bar is the only announcement of the tab's state.
-                child: Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    l10n.paneRestoredOffline(label),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.onSecondaryContainer,
-                    ),
-                  ),
+          const SizedBox(width: 8),
+          Expanded(
+            // Live region like the connection banner: the restored
+            // rows under the scrim are excluded from semantics, so
+            // the bar is the only announcement of the tab's state.
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                l10n.paneRestoredOffline(label),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colors.onSecondaryContainer,
                 ),
               ),
-              TextButton(
-                key: const ValueKey('pane.reconnectBar.reconnect'),
-                onPressed: onReconnect,
-                style: TextButton.styleFrom(
-                  foregroundColor: colors.onSecondaryContainer,
-                ),
-                child: Text(l10n.paneReconnect),
-              ),
-            ],
+            ),
           ),
-        ),
-        Expanded(
-          // Absorb, not ignore — same rule as the connection banner:
-          // the cached rows are presentation until the rebind lands.
-          child: Stack(
-            children: [
-              Positioned.fill(child: child),
-              Positioned.fill(
-                child: AbsorbPointer(
-                  child: ColoredBox(
-                    color: colors.surfaceContainerLowest.withValues(alpha: 0.6),
-                  ),
-                ),
-              ),
-            ],
+          TextButton(
+            key: const ValueKey('pane.reconnectBar.reconnect'),
+            onPressed: onReconnect,
+            style: TextButton.styleFrom(
+              foregroundColor: colors.onSecondaryContainer,
+            ),
+            child: Text(l10n.paneReconnect),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// 02 §2.7's connection-lost banner: keyed on connection state, it owns
-/// the pane's single dim layer while the transport reconnects.
+/// 02 §2.7's connection-lost banner: keyed on connection state, it tops
+/// the banner slot while the transport reconnects (the body owns the
+/// matching dim layer).
 class _LostConnectionBanner extends StatelessWidget {
   const _LostConnectionBanner({
     required this.label,
     required this.onCancel,
-    required this.child,
     this.onRetry,
   });
 
   final String label;
   final VoidCallback onCancel;
-  final Widget child;
   final VoidCallback? onRetry;
 
   @override
@@ -2554,80 +2878,59 @@ class _LostConnectionBanner extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final colors = Theme.of(context).colorScheme;
 
-    return Column(
-      children: [
-        Container(
-          key: const ValueKey('pane.banner'),
-          width: double.infinity,
-          padding: const EdgeInsetsDirectional.symmetric(
-            horizontal: 12,
-            vertical: 8,
+    return Container(
+      key: const ValueKey('pane.banner'),
+      width: double.infinity,
+      padding: const EdgeInsetsDirectional.symmetric(
+        horizontal: 12,
+        vertical: 8,
+      ),
+      color: colors.errorContainer,
+      child: Row(
+        children: [
+          Icon(
+            Icons.cloud_off_outlined,
+            size: 16,
+            color: colors.onErrorContainer,
           ),
-          color: colors.errorContainer,
-          child: Row(
-            children: [
-              Icon(
-                Icons.cloud_off_outlined,
-                size: 16,
-                color: colors.onErrorContainer,
+          const SizedBox(width: 8),
+          Expanded(
+            // Live region: the banner's appearance is announced to
+            // assistive tech (the scrim hides the stale content from
+            // semantics, so the banner is the only signal).
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                onRetry == null
+                    ? l10n.paneConnectionLost(label)
+                    : l10n.paneConnectionRecoveryFailed(label),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.onErrorContainer),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                // Live region: the banner's appearance is announced to
-                // assistive tech (the scrim hides the stale content from
-                // semantics, so the banner is the only signal).
-                child: Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    onRetry == null
-                        ? l10n.paneConnectionLost(label)
-                        : l10n.paneConnectionRecoveryFailed(label),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.onErrorContainer,
-                    ),
-                  ),
-                ),
-              ),
-              if (onRetry != null)
-                TextButton(
-                  key: const ValueKey('pane.banner.retry'),
-                  onPressed: onRetry,
-                  child: Text(l10n.connectionRetry),
-                ),
-              TextButton(
-                key: const ValueKey('pane.banner.cancel'),
-                onPressed: onCancel,
-                style: TextButton.styleFrom(
-                  foregroundColor: colors.onErrorContainer,
-                ),
-                child: Text(l10n.paneConnectionLostCancel),
-              ),
-            ],
+            ),
           ),
-        ),
-        Expanded(
-          // Absorb, not ignore: the stale listing under the scrim must
-          // not take interactions while the transport is down (the
-          // banner above the scrim stays reachable).
-          child: Stack(
-            children: [
-              Positioned.fill(child: child),
-              Positioned.fill(
-                child: AbsorbPointer(
-                  child: ColoredBox(
-                    color: colors.surfaceContainerLowest.withValues(alpha: 0.6),
-                  ),
-                ),
-              ),
-            ],
+          if (onRetry != null)
+            TextButton(
+              key: const ValueKey('pane.banner.retry'),
+              onPressed: onRetry,
+              child: Text(l10n.connectionRetry),
+            ),
+          TextButton(
+            key: const ValueKey('pane.banner.cancel'),
+            onPressed: onCancel,
+            style: TextButton.styleFrom(
+              foregroundColor: colors.onErrorContainer,
+            ),
+            child: Text(l10n.paneConnectionLostCancel),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// 02 §2.5's Quick Select strip: a small field below the path bar with an
+/// 02 §2.5's Quick Select strip: a small field below the header with an
 /// Add/Remove segmented toggle. The controller owns the session — the
 /// field is pure plumbing between keystrokes and the controller's
 /// quick-select verbs, so every query or mode edit recomputes the live
@@ -2707,9 +3010,7 @@ class _QuickSelectFieldState extends State<_QuickSelectField> {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: colors.surfaceContainerLow,
-          border: Border(
-            bottom: BorderSide(color: colors.outlineVariant),
-          ),
+          border: Border(bottom: BorderSide(color: colors.outlineVariant)),
         ),
         child: Padding(
           padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 8, 6),
@@ -2777,165 +3078,6 @@ class _QuickSelectFieldState extends State<_QuickSelectField> {
   }
 }
 
-/// 02 §2.5's Filter strip (`view.filter`): a small field below the path
-/// bar that re-filters the visible listing live as a case-insensitive
-/// substring, plus the `visible of total` helper while a query is active
-/// and a Clear affordance. Esc is the field tier of §8.2's order —
-/// clearing the filter and closing the strip; Enter keeps the filter
-/// and returns focus to the listing.
-class _FilterField extends StatefulWidget {
-  const _FilterField({
-    super.key,
-    required this.controller,
-    required this.focusNode,
-    required this.onClosed,
-  });
-
-  final PaneController controller;
-
-  /// Owned by the pane state so `view.filter` re-invocations can
-  /// re-focus the field while the strip stays mounted.
-  final FocusNode focusNode;
-
-  /// Returns focus to the listing after Enter commits or Esc clears.
-  final VoidCallback onClosed;
-
-  @override
-  State<_FilterField> createState() => _FilterFieldState();
-}
-
-class _FilterFieldState extends State<_FilterField> {
-  late final TextEditingController _query = TextEditingController(
-    text: widget.controller.filterQuery,
-  );
-
-  @override
-  void didUpdateWidget(_FilterField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // The field is the query's only editor; if the controller's query
-    // ever differs from the field's text (a controller-side change that
-    // left the strip mounted), the controller wins.
-    if (widget.controller.filterQuery != _query.text) {
-      _query.text = widget.controller.filterQuery;
-    }
-  }
-
-  @override
-  void dispose() {
-    _query.dispose();
-    super.dispose();
-  }
-
-  void _clear() {
-    widget.controller.clearFilter();
-    widget.onClosed();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final colors = Theme.of(context).colorScheme;
-    final controller = widget.controller;
-    return Focus(
-      // Esc clears from anywhere inside the strip — the field tier of
-      // §8.2's order. This node sits in the focus ancestry above the
-      // field and sees only keys the focused child did not consume.
-      canRequestFocus: false,
-      skipTraversal: true,
-      onKeyEvent: (node, event) {
-        if (event is! KeyDownEvent ||
-            event.logicalKey != LogicalKeyboardKey.escape) {
-          return KeyEventResult.ignored;
-        }
-        _clear();
-        return KeyEventResult.handled;
-      },
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerLow,
-          border: Border(
-            bottom: BorderSide(color: colors.outlineVariant),
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 8, 6),
-          child: Row(
-            children: [
-              Padding(
-                padding: const EdgeInsetsDirectional.only(end: 6),
-                child: Icon(
-                  Icons.filter_list_outlined,
-                  size: 18,
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
-              Expanded(
-                // A floated label cannot fit this strip's height; the
-                // field's accessible name rides Semantics instead and
-                // the hint states the match shape (02 §2.5's plain
-                // substring — no glob, no diacritic folding).
-                child: Semantics(
-                  label: l10n.paneFilterFieldLabel,
-                  child: TextField(
-                    key: ValueKey(
-                      '${widget.controller.paneTabId}.filter.field',
-                    ),
-                    controller: _query,
-                    focusNode: widget.focusNode,
-                    autofocus: true,
-                    style: Theme.of(context).textTheme.bodySmall,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      border: const OutlineInputBorder(),
-                      hintText: l10n.paneFilterFieldHint,
-                    ),
-                    onChanged: controller.changeFilterQuery,
-                    // Enter keeps the active filter and returns focus to
-                    // the listing — the strip stays mounted while a
-                    // query is live so the helper text remains visible.
-                    // An empty query has nothing to keep: close the
-                    // strip instead of leaving an inert field mounted.
-                    onSubmitted: (_) {
-                      if (_query.text.isEmpty) {
-                        _clear();
-                      } else {
-                        widget.onClosed();
-                      }
-                    },
-                  ),
-                ),
-              ),
-              if (controller.filterActive) ...[
-                const SizedBox(width: 8),
-                Text(
-                  // 02 §2.5's `12 of 348` helper: visible of total.
-                  l10n.paneFilterCount(
-                    controller.entries.length,
-                    controller.unfilteredCount,
-                  ),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ],
-              const SizedBox(width: 4),
-              IconButton(
-                key: ValueKey(
-                  '${widget.controller.paneTabId}.filter.clear',
-                ),
-                tooltip: l10n.paneFilterClear,
-                onPressed: _clear,
-                icon: const Icon(Icons.close, size: 16),
-                visualDensity: VisualDensity.compact,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// 02 §2.7's filtered-to-nothing empty state: the dedicated
 /// `No items match "q"` message with the Clear button — never a blank
 /// pane while a filter hides every row.
@@ -2994,9 +3136,7 @@ class _NoticeStrip extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: colors.surfaceContainerLow,
-          border: Border(
-            bottom: BorderSide(color: colors.outlineVariant),
-          ),
+          border: Border(bottom: BorderSide(color: colors.outlineVariant)),
         ),
         child: Padding(
           padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 8, 6),

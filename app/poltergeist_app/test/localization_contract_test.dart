@@ -1216,6 +1216,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'tab.reopenClosed'",
     "'tab.next'",
     "'tab.previous'",
+    // D32's view.toggleHidden and selection.copyPath ids, and the
+    // newline that joins several copied paths — machine data.
+    "'view.toggleHidden'",
+    "'selection.copyPath'",
+    "'view.sortBy'",
+    r"'$kViewSortByCommandId:${key.name}'",
+    r"'\n'",
     r"'Duplicate shortcut activator $activator: later command wins'",
   },
   // The tab strip's widget keys and pane-id name lookup — widget plumbing
@@ -1227,6 +1234,15 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.tabDropIndicator'",
     // The entry-drop wrapper's reorder key — plumbing, not copy.
     r"'entry-drop-${tab.id}'",
+    // D32's active-pane marker and the tab menu's row keys — plumbing
+    // keyed to the strip and tab ids, never authored copy.
+    r"'${tabs.paneId}.activeIndicator'",
+    r"'${tabs.paneId}.inactiveSeparator'",
+    r"'${tab.id}.menu.close'",
+    r"'${tab.id}.menu.closeOthers'",
+    r"'${tab.id}.menu.duplicate'",
+    r"'${tab.id}.menu.moveToOtherPane'",
+    r"'${tab.id}.menu.copyPath'",
     // Root-path fallback in the remote tooltip — path data, not copy.
     "'/'",
     // The sync tab's endpoint tooltip plumbing: the pair's two paths
@@ -1238,7 +1254,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'remote'",
   },
   'lib/ui/panes/pane_view.dart': {
-    "'pane.footer'",
     "'pane.error.retry'",
     "'pane.banner'",
     "'pane.banner.cancel'",
@@ -1255,16 +1270,33 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${widget.controller.paneTabId}.quickSelect.field'",
     r"'${widget.controller.paneTabId}.rename.field'",
     r"'${widget.controller.paneTabId}.path.field'",
-    r"'${widget.controller.paneTabId}.filter.field'",
-    r"'${widget.controller.paneTabId}.filter.clear'",
+    // D32 §6's location-header keys: the name, the summary line, and
+    // the ancestor menu with its rows — plumbing, never copy.
+    r"'${controller.paneTabId}.path.name'",
+    r"'${controller.paneTabId}.path.summary'",
+    r"'${controller.paneTabId}.path.ancestors'",
+    r"'${controller.paneTabId}.path.ancestor.$i'",
     r"'${controller.paneTabId}.filter.emptyClear'",
     r"'${controller.paneTabId}.notice.dismiss'",
     r"'${controller.paneTabId}.syncChip'",
     "''",
     // The rename editor's stem-selection dot — name arithmetic, not copy.
     "'.'",
-    "'/'",
-    "'\\\\'",
+  },
+  // D32 §6's column header keys — plumbing keyed to the tab id and the
+  // sort key's enum name, never authored copy.
+  'lib/ui/panes/pane_column_header.dart': {
+    r"'$paneTabId.columns'",
+    r"'$paneTabId.column.${key.name}'",
+  },
+  // The context menu's command-id slots for verbs another slice
+  // registers, and its row keys — registry plumbing, never copy.
+  'lib/ui/panes/pane_context_menu.dart': {
+    "'file.duplicate'",
+    "'file.newFolder'",
+    "'file.newFile'",
+    "'file.delete'",
+    r"'pane.context.${command.id}'",
   },
   // The missing-mirror cause's empty-name fallback — a null-safety
   // placeholder, never rendered as copy.
@@ -1283,6 +1315,17 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$text ${_byteUnits[unit]}'",
     // The octal pad's fill character — formatting mechanics, not copy.
     "'0'",
+    // The kind-glyph classifier's extension tables, their separator,
+    // and the extension dot — file-name machine data, never rendered.
+    "'png jpg jpeg gif webp bmp tif tiff heic heif svg ico avif psd raw'",
+    "'txt md markdown rst log csv tsv json yaml yml toml xml html htm css'",
+    "'scss js mjs ts jsx tsx dart py rb go rs java kt swift c h cc cpp hpp'",
+    "'m mm cs php sh bash zsh fish ps1 bat sql ini conf cfg env lock'",
+    "'zip tar gz tgz bz2 xz 7z rar zst lz4 dmg iso deb rpm pkg jar apk'",
+    "'mp3 wav flac aac ogg m4a opus mp4 mov mkv avi webm m4v wmv mpg'",
+    "' '",
+    "'pdf'",
+    "'.'",
   },
   // The inspector's widget keys — widget plumbing keyed for tests and
   // the pointer-bounce boundary, never authored copy. '' is the empty
@@ -1291,7 +1334,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // and their uppercase first letters render the rwx column heads.
   'lib/ui/panes/info_panel.dart': {
     "''",
-    "'infoPanel.close'",
     "'infoPanel.calculateSize'",
     "'infoPanel.cancelSize'",
     "'infoPanel.retrySize'",
@@ -1383,6 +1425,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$quickConnectAdhocIdPrefix${uuidV4()}'",
     r"'$username@${_hostLabel(target)}'",
     r"'${target.host}:${target.port}'",
+    // The `$USER@` prefill's environment keys and its user@ join (D32
+    // §6) — process-environment machine data, never authored copy.
+    "'USER'",
+    "'USERNAME'",
+    r"'$user@'",
   },
   // The save bar's widget keys and the live-session label compositions
   // (endpoint machine data beside ARB-authored copy) — plumbing, never
