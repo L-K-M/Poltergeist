@@ -7689,6 +7689,47 @@ if risk 8's cut line is ever exercised). None is started here. Item
 23's remote-transfer wiring is the de-facto headline fast-follow even
 though §3.13 predates naming it.
 
+## M3 follow-through — pane directory watch wiring (2026-09-24)
+
+03 §7.5's pane policy over the engine seam of 2026-09-13, reimplemented
+on current main (supersedes #113, which predated pane tabs and the
+replacement rollback). `AppBrowseChannel` gains `directoryChanges`,
+`watchDirectory`, and `unwatchDirectory`, forwarded to
+`EngineBrowseChannel`. Each `PaneController` watches the local directory
+its tab shows while that tab is its strip's visible tab (`setTabActive`,
+stamped by `PaneTabsController` on every active-tab or tab-set change):
+
+- The watch arms before the listing reads the directory, so no change
+  falls between the two; a same-directory refresh keeps it, a
+  navigation retargets it (the engine swaps atomically), and a remote
+  binding never asks. A navigation superseded before its watch arms
+  never reaches the listing.
+- `changed` re-lists quietly: no recents visit, no history entry, and
+  the tab close guard ignores it (`navigationInFlight`). Signals during
+  an in-flight listing coalesce into one follow-up re-list; an open
+  Quick Select session, a pending type-ahead buffer, or an error on
+  screen holds the re-list until it ends.
+- `lost` rescans at once and re-arms. A `lost` that lands before a
+  retarget's reply (the replaced target's, or the new watch dying at
+  subscribe) re-arms to tell the two apart. Three consecutive losses
+  stop re-arming and post `PaneNotice.watchStopped`; a delivered
+  change, a new directory, a refresh, or re-activation restores the
+  budget.
+- A failed listing drops the watch (notably `notFound`, which the
+  backend may never report as a loss); Retry re-arms. A refused watch
+  request leaves the listing unwatched and the listing reports the
+  path's own fault; an untyped failure reports.
+- Background tabs release their watch and re-list on activation. Esc's
+  snapshot restore re-arms the restored directory without re-listing:
+  a change made during the cancelled navigation shows on the next
+  signal, refresh, or activation. A cancelled replacement keeps the
+  parked local watch and re-lists on restore only if it signalled.
+
+Validation: 20 tests in `test/services/pane_watch_test.dart` over the
+scripted channel's new watch seam; the full app suite and
+`flutter analyze` pass locally. Native backend behavior stays with the
+engine seam's records (items 14 and 18).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
