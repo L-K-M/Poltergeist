@@ -5,6 +5,7 @@ import 'package:poltergeist_app/services/folder_size.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/services/selection_state.dart';
+import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../support/fake_pane_channel.dart';
@@ -276,6 +277,76 @@ void main() {
 
       controller.cancelFolderSize();
       expect(controller.folderSizeInFlight, isFalse);
+    });
+
+    test('leaving the Info tab ends the walk it was showing', () async {
+      // D32: the walk's only consumer is the Info tab, so every path
+      // that takes it off screen ends the demand — the old overlay's
+      // close did this before the inspector column replaced it.
+      for (final leave in <(String, void Function(WorkspaceController))>[
+        ('hiding the inspector', (w) => w.setInspectorHidden(true)),
+        ('toggling it', (w) => w.toggleInspector()),
+        (
+          'selecting Transfers',
+          (w) => w.selectInspectorTab(InspectorTab.transfers),
+        ),
+        ('showing Alerts', (w) => w.showInspector(InspectorTab.alerts)),
+        ('the Transfers toggle', (w) => w.toggleActivityPanel()),
+      ]) {
+        final (controller, channel) = await _browsedPane([
+          _entry('docs', type: RemoteFileType.directory),
+        ]);
+        final other = PaneController(
+          paneTabId: 'pane.right',
+          lanes: FakePaneLanes(),
+        );
+        final workspace = WorkspaceController(
+          left: testPaneStrip(controller),
+          right: testPaneStrip(other),
+        );
+        channel.holdNext = Completer<void>();
+        channel.listings['/home/tester/docs'] = const [];
+        controller.setCursorIndex(0);
+        controller.startFolderSize();
+        expect(controller.folderSizeInFlight, isTrue, reason: leave.$1);
+
+        leave.$2(workspace);
+        expect(controller.folderSizeInFlight, isFalse, reason: leave.$1);
+        workspace.dispose();
+      }
+    });
+
+    test('the walk survives while the Info tab stays on screen', () async {
+      final (controller, channel) = await _browsedPane([
+        _entry('docs', type: RemoteFileType.directory),
+      ]);
+      final other = PaneController(
+        paneTabId: 'pane.right',
+        lanes: FakePaneLanes(),
+      );
+      final workspace = WorkspaceController(
+        left: testPaneStrip(controller),
+        right: testPaneStrip(other),
+      );
+      addTearDown(workspace.dispose);
+      channel.holdNext = Completer<void>();
+      channel.listings['/home/tester/docs'] = const [];
+      controller.setCursorIndex(0);
+      controller.startFolderSize();
+
+      // Re-showing Info, re-selecting it, and moving focus to the other
+      // pane keep the Info tab up: the walk keeps running.
+      workspace.showInspector(InspectorTab.info);
+      workspace.selectInspectorTab(InspectorTab.info);
+      workspace.setActivePane(workspace.right);
+      expect(controller.folderSizeInFlight, isTrue);
+
+      // A hidden inspector re-opened on Transfers never showed Info.
+      workspace.setInspectorHidden(true);
+      expect(controller.folderSizeInFlight, isFalse);
+      controller.startFolderSize();
+      workspace.showInspector(InspectorTab.transfers);
+      expect(controller.folderSizeInFlight, isTrue);
     });
 
     test('the tab close guard fires while a walk is in flight', () async {
