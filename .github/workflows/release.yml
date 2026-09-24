@@ -407,7 +407,7 @@ jobs:
               7z a -bd poltergeist-windows-x64.zip poltergeist-windows-x64
               ;;
           esac
-      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v2 (SHA-pinned: a retargeted tag would be arbitrary code with contents: write)
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 (SHA-pinned: a retargeted tag would be arbitrary code with contents: write)
         with:
           # On a tag push these two resolve to the pushed tag (and the
           # commitish is ignored); on workflow_dispatch they make the first
