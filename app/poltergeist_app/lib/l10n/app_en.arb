@@ -5734,5 +5734,29 @@
         "type": "String"
       }
     }
+  },
+  "quickLookOverlayLabel": "Quick Look",
+  "@quickLookOverlayLabel": {
+    "description": "Screen-reader name of the in-app Quick Look overlay Space opens on Linux and Windows (D32, 06 §5.1)."
+  },
+  "quickLookClose": "Close Quick Look",
+  "@quickLookClose": {
+    "description": "Tooltip of the Quick Look overlay's close button; Space and Esc close it too."
+  },
+  "quickLookPosition": "{index} of {count}",
+  "@quickLookPosition": {
+    "description": "The Quick Look overlay's place in a multi-item selection, e.g. '2 of 5'.",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "quickLookNoPreview": "No preview for this kind of item.",
+  "@quickLookNoPreview": {
+    "description": "Shown under the name in the Quick Look overlay for folders and file kinds it cannot render."
   }
 }

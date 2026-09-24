@@ -1730,6 +1730,17 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/shell/connect_dialog.dart': {"'connect.dialog'"},
   // The header's button and overflow-menu keys, keyed to the registry's
   // command ids — widget plumbing, not authored copy.
+  // The Quick Look overlay's widget keys and the line break it splits
+  // the first line on for syntax detection — plumbing, never copy.
+  'lib/ui/quick_look_overlay.dart': {
+    r"'\n'",
+    "'quickLook.overlay'",
+    "'quickLook.title'",
+    "'quickLook.close'",
+    "'quickLook.text'",
+    "'quickLook.image'",
+    "'quickLook.noPreview'",
+  },
   // The activity button's ring key — test plumbing, never copy.
   'lib/ui/shell/header_activity_button.dart': {"'header.activityRing'"},
   'lib/ui/shell/header_toolbar.dart': {

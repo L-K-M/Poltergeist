@@ -4386,4 +4386,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String sidebarFreeSpaceSemantics(String size) {
     return '$size available';
   }
+
+  @override
+  String get quickLookOverlayLabel => 'Quick Look';
+
+  @override
+  String get quickLookClose => 'Close Quick Look';
+
+  @override
+  String quickLookPosition(int index, int count) {
+    return '$index of $count';
+  }
+
+  @override
+  String get quickLookNoPreview => 'No preview for this kind of item.';
 }

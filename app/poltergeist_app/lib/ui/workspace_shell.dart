@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +24,7 @@ import '../services/double_click_action.dart';
 import '../services/editor_registry_controller.dart';
 import '../services/engine_session.dart';
 import '../services/external_file_opener.dart';
+import '../services/in_app_quick_look.dart';
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
 import '../services/pane_file_ops.dart';
@@ -64,6 +66,7 @@ import 'panes/pane_commands.dart';
 import 'panes/pane_tabs_view.dart';
 import 'pdf_preview.dart';
 import 'preview_panel.dart';
+import 'quick_look_overlay.dart';
 import 'quick_open/quick_open_palette.dart';
 import 'settings/app_settings_command.dart';
 import 'settings/backup_settings_command.dart';
@@ -413,7 +416,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// rebuilds share the one native binding (06 §5.1).
   QuickLookChannel? _defaultQuickLook;
   QuickLookChannel get _resolvedQuickLook =>
-      widget.quickLook ?? (_defaultQuickLook ??= MethodChannelQuickLook());
+      widget.quickLook ?? (_defaultQuickLook ??= _platformQuickLook());
+
+  /// D32: Space is Quick Look on every desktop — the native panel on
+  /// macOS, the in-window overlay on Linux and Windows. Touch platforms
+  /// have no surface; Space answers on the Info tab there.
+  static QuickLookChannel _platformQuickLook() =>
+      switch (defaultTargetPlatform) {
+        TargetPlatform.macOS => MethodChannelQuickLook(),
+        TargetPlatform.linux || TargetPlatform.windows => InAppQuickLook(),
+        _ => const NoopQuickLookChannel(),
+      };
 
   /// The pane pair and active pane (03 §6's WorkspaceController, foundation
   /// slice) plus the per-pane listing focus nodes (02 §8.2). Rebuilt when
@@ -675,6 +688,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _headerFilterFocus.dispose();
     _connections?.dispose();
     _disposeWorkspace();
+    if (_defaultQuickLook case final InAppQuickLook overlay) overlay.dispose();
     _leftFocus?.dispose();
     _leftFocus = null;
     _rightFocus?.dispose();
@@ -1583,6 +1597,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               ? const SizedBox.shrink()
               : paneTabs(workspace.right, rightFocus, workspace.left),
         ),
+        if (preview != null)
+          if (_resolvedQuickLook case final InAppQuickLook quickLook)
+            QuickLookOverlay(
+              controller: quickLook,
+              nameFor: preview.quickLookNameFor,
+              pdfRenderer: pdfPreviewBuilder,
+            ),
         if (preview != null) PreviewQuickLookOverlay(session: preview),
         if (inspectorOverlay)
           PositionedDirectional(

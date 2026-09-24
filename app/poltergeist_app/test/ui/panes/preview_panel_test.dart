@@ -342,6 +342,21 @@ void main() {
       expect(preview.enabled(), isTrue);
     });
 
+    test('file.preview does not stay live just because the Info tab '
+        'shows', () async {
+      final h = await PreviewHarness.create(infoTabShown: true);
+      final preview = buildPaneCommands(
+        workspace: h.workspace,
+        focusLeft: () {},
+        focusRight: () {},
+        swapFocus: () {},
+        preview: h.session,
+      ).firstWhere((c) => c.id == kFilePreviewCommandId);
+      expect(h.workspace.previewPanelHidden, isFalse);
+      // No focused row and no Quick Look open: nothing for Space to do.
+      expect(preview.enabled(), isFalse);
+    });
+
     test('file.preview names the surface Space actually opens', () async {
       final h = await PreviewHarness.create();
       final commands = buildPaneCommands(
@@ -356,13 +371,20 @@ void main() {
       );
       final l10n = AppLocalizationsEn();
 
-      // Quick Look is the macOS-only surface; the docked panel owns
-      // Space everywhere else, so the menu label stays neutral there.
-      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      // Space opens Quick Look on every desktop (D32: the native panel
+      // on macOS, the in-app overlay elsewhere); touch platforms show
+      // the Info tab, so the label stays neutral there.
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
-      expect(preview.label(l10n), 'Quick Look');
+      for (final platform in [
+        TargetPlatform.macOS,
+        TargetPlatform.linux,
+        TargetPlatform.windows,
+      ]) {
+        debugDefaultTargetPlatformOverride = platform;
+        expect(preview.label(l10n), 'Quick Look', reason: platform.name);
+      }
 
-      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
       expect(preview.label(l10n), 'Preview');
     });
   });

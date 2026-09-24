@@ -11,6 +11,7 @@ import '../../services/pane_permissions.dart' show nameIsFlagged;
 import '../../services/preview_session.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
+import '../../theme/app_theme.dart' show isDesktopPlatform;
 import '../layout/pane_allocation.dart' show desktopStageBoundary;
 
 const kGoBackCommandId = 'go.back';
@@ -350,10 +351,11 @@ List<RegisteredCommand> buildPaneCommands({
     RegisteredCommand(
       id: kFilePreviewCommandId,
       scope: CommandScope.selection,
-      // The label names the surface Space actually opens: Quick Look is
-      // the macOS-only native panel; everywhere else the docked in-app
-      // panel answers, so the label stays neutral there.
-      label: (l10n) => defaultTargetPlatform == TargetPlatform.macOS
+      // The label names the surface Space actually opens: Quick Look on
+      // every desktop (the native panel on macOS, the in-app overlay on
+      // Linux and Windows); touch platforms answer on the Info tab, so
+      // the label stays neutral there.
+      label: (l10n) => isDesktopPlatform(defaultTargetPlatform)
           ? l10n.filePreviewLabel
           : l10n.filePreviewLabelNeutral,
       icon: Icons.visibility_outlined,
@@ -362,14 +364,11 @@ List<RegisteredCommand> buildPaneCommands({
       // dispatches (02 §8.2); the activator documents the binding for
       // menus and reachability, it never fires here.
       activators: (_) => const [SingleActivator(LogicalKeyboardKey.space)],
-      // Live while a previewable surface can answer: a focused row, or
-      // an already-open preview the same key closes (Space toggles —
-      // 06 §5.2's state machine owns the per-phase answer).
+      // Live while Space has something to act on: a focused row, or an
+      // open Quick Look the same key closes. The Info tab being on
+      // screen is not enough — Space never hides the inspector.
       enabled: () {
-        if (preview != null &&
-            (!workspace.previewPanelHidden || preview.quickLookActive)) {
-          return true;
-        }
+        if (preview != null && preview.quickLookActive) return true;
         final pane = activeTab();
         final cursor = pane?.cursorIndex;
         return pane != null &&

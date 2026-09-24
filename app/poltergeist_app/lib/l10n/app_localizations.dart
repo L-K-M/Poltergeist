@@ -6711,6 +6711,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{size} available'**
   String sidebarFreeSpaceSemantics(String size);
+
+  /// Screen-reader name of the in-app Quick Look overlay Space opens on Linux and Windows (D32, 06 §5.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Look'**
+  String get quickLookOverlayLabel;
+
+  /// Tooltip of the Quick Look overlay's close button; Space and Esc close it too.
+  ///
+  /// In en, this message translates to:
+  /// **'Close Quick Look'**
+  String get quickLookClose;
+
+  /// The Quick Look overlay's place in a multi-item selection, e.g. '2 of 5'.
+  ///
+  /// In en, this message translates to:
+  /// **'{index} of {count}'**
+  String quickLookPosition(int index, int count);
+
+  /// Shown under the name in the Quick Look overlay for folders and file kinds it cannot render.
+  ///
+  /// In en, this message translates to:
+  /// **'No preview for this kind of item.'**
+  String get quickLookNoPreview;
 }
 
 class _AppLocalizationsDelegate
