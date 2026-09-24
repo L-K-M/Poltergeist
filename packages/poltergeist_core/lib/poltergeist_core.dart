@@ -413,6 +413,7 @@ export 'src/engine/engine_connection_manager.dart'
         EngineRemoteFileSystem,
         ServerConfigSource;
 export 'src/engine/engine_trash_backend.dart' show EngineTrashBackend;
+export 'src/connection/leased_file_system.dart' show LeasedRemoteFileSystem;
 export 'src/fs/content_digest.dart'
     show ContentDigestSource, remoteContentDigest;
 export 'src/engine/engine_host.dart' show EngineHost, engineMain;
