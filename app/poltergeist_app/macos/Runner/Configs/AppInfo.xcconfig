@@ -12,3 +12,7 @@ PRODUCT_BUNDLE_IDENTIFIER = com.lkm.poltergeistApp
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Unlicense
+
+// Exposes PoltergeistFlutterViewController (the accessibility-lifecycle
+// guard ported from Séance) to Swift.
+SWIFT_OBJC_BRIDGING_HEADER = Runner/Runner-Bridging-Header.h

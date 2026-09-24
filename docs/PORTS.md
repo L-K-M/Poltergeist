@@ -1210,6 +1210,25 @@ pinned `seance_core` and `seance_protocol` package trees. No gitlinks exist. The
 license scan found only those notices, first-party license/config references,
 and Séance's root Unlicense.
 
+## app/poltergeist_app/macos/Runner/PoltergeistFlutterViewController.{h,m}
+
+- Source: app/seance_app/macos/Runner/SeanceFlutterViewController.{h,m}
+  (with Runner-Bridging-Header.h and the AppInfo.xcconfig
+  `SWIFT_OBJC_BRIDGING_HEADER` setting)
+- Séance commit: 15d0fdd (main, 2026-09-24)
+- Ported: 2026-09-24 (D32 §11)
+- Divergences: class and category names only; the controller is injected
+  into `MacOSWindowUtilsViewController(flutterViewController:)` instead of
+  becoming the window's content controller directly. Séance's native
+  regression script (`scripts/test-macos-accessibility.sh`) is not ported
+  yet — its CI gate is the follow-up; until then the workaround is
+  verified only by Séance's gate against the same Flutter line.
+- Why: Flutter 3.47 destroys `AccessibilityBridge::tree_` before
+  detaching native `FlutterTextField`s; with any accessibility client
+  active a text-input callback can read the freed tree (Séance's
+  docs/macos-accessibility-crash.md). Remove when the engine fixes the
+  destruction order.
+
 <!-- SEANCE_PIN_AUDIT_V1:START -->
 ## Séance pin audit
 
