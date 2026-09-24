@@ -262,11 +262,18 @@ class _PaneViewState extends State<PaneView> {
   int? _rowClaimedPointer;
 
   /// The row a primary press armed for a double-click: the next press
-  /// on the same row, within [kDoubleTapSlop] and before
-  /// [kDoubleTapTimeout] disarms it, opens instead of reselecting. The
-  /// window is timed by us, so a single click selects immediately —
-  /// nothing waits out a double-tap recognizer (D32 §6).
-  ({int row, Offset position})? _armedClick;
+  /// on the same row, within [kDoubleTapSlop] and [kDoubleTapTimeout] of
+  /// it, opens instead of reselecting. The window is timed by us, so a
+  /// single click selects immediately — nothing waits out a double-tap
+  /// recognizer (D32 §6).
+  ///
+  /// The window is measured between the two presses' own timestamps:
+  /// activating a pane rebuilds the header and the inspector, and on a
+  /// slow frame a wall-clock timer could lapse before the already-queued
+  /// second press dispatched, turning a real double-click into a
+  /// reselect. [_armedClickTimer] only times synthetic pointers that
+  /// carry no timestamp.
+  ({int row, Offset position, Duration timeStamp})? _armedClick;
   Timer? _armedClickTimer;
 
   /// The drop zone's hovered-folder report — the row highlight is view
@@ -815,7 +822,8 @@ class _PaneViewState extends State<PaneView> {
     if (plain &&
         armed != null &&
         armed.row == index &&
-        (event.position - armed.position).distance <= kDoubleTapSlop) {
+        (event.position - armed.position).distance <= kDoubleTapSlop &&
+        _withinDoubleClick(armed.timeStamp, event.timeStamp)) {
       _disarmClick();
       _openRow(index);
       return;
@@ -836,8 +844,23 @@ class _PaneViewState extends State<PaneView> {
     }
     widget.focusNode.requestFocus();
     _armedClickTimer?.cancel();
-    _armedClick = plain ? (row: index, position: event.position) : null;
-    _armedClickTimer = plain ? Timer(kDoubleTapTimeout, _disarmClick) : null;
+    _armedClick = plain
+        ? (row: index, position: event.position, timeStamp: event.timeStamp)
+        : null;
+    // Stamped presses carry their own clock; only a stampless synthetic
+    // pointer falls back to wall-clock expiry.
+    _armedClickTimer = plain && event.timeStamp == Duration.zero
+        ? Timer(kDoubleTapTimeout, _disarmClick)
+        : null;
+  }
+
+  /// Whether a second press at [second] completes a double-click begun
+  /// at [first]: by the events' own timestamps when both carry one, else
+  /// by the fallback timer, which disarms a stampless press on expiry.
+  static bool _withinDoubleClick(Duration first, Duration second) {
+    if (first == Duration.zero || second == Duration.zero) return true;
+    final gap = second - first;
+    return !gap.isNegative && gap <= kDoubleTapTimeout;
   }
 
   void _onRowPointerMove(PointerMoveEvent event) {

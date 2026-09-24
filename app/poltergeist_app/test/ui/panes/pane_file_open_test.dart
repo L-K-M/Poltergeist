@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
-import 'package:flutter/gestures.dart' show kDoubleTapTimeout;
+import 'package:flutter/gestures.dart' show PointerDeviceKind, kDoubleTapTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -176,6 +176,73 @@ void main() {
     await tester.tap(find.text('report.txt'));
     await tester.pumpAndSettle();
     expect(channel.openCalls, isEmpty);
+  });
+
+  /// One primary mouse click stamped at [at] — the event's own clock,
+  /// which the double-click decision reads (the frame clock can lag it).
+  Future<void> clickAt(WidgetTester tester, String name, Duration at) async {
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.down(tester.getCenter(find.text(name)), timeStamp: at);
+    await gesture.up(timeStamp: at + const Duration(milliseconds: 8));
+    await gesture.removePointer();
+  }
+
+  testWidgets('a double-click is judged by the events\' timestamps, even '
+      'when a slow frame delays the second press', (tester) async {
+    final channel = localChannel();
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await clickAt(tester, 'report.txt', const Duration(seconds: 10));
+    // A heavy rebuild: the frame clock runs far past the window before
+    // the already-queued second press dispatches.
+    await tester.pump(const Duration(milliseconds: 400));
+    await clickAt(tester, 'report.txt', const Duration(milliseconds: 10060));
+    await tester.pumpAndSettle();
+
+    expect(channel.openCalls, ['/home/tester/report.txt']);
+  });
+
+  testWidgets('presses further apart than the window are two clicks, '
+      'however fast the frames', (tester) async {
+    final channel = localChannel();
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await clickAt(tester, 'report.txt', const Duration(seconds: 10));
+    await tester.pump(const Duration(milliseconds: 16));
+    await clickAt(tester, 'report.txt', const Duration(milliseconds: 10400));
+    await tester.pumpAndSettle();
+
+    expect(channel.openCalls, isEmpty);
+    expect(left.isRowSelected(2), isTrue);
+  });
+
+  testWidgets('a double-click in the inactive pane opens there', (
+    tester,
+  ) async {
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entry('archive', type: RemoteFileType.directory),
+      _entry('b.txt', size: 1),
+    ];
+    channel.listings['/home/tester/archive'] = const [];
+    lanes.nextLocalChannel = localChannel();
+    await left.openLocalHome();
+    lanes.nextLocalChannel = channel;
+    await right.openLocalHome();
+    await pumpShell(tester);
+    expect(workspace.activePane, same(leftStrip));
+
+    // The first press activates pane B (a rebuild of both panes and the
+    // inspector's target), then the second lands late on the frame clock.
+    await clickAt(tester, 'archive', const Duration(seconds: 20));
+    await tester.pump(const Duration(milliseconds: 350));
+    await clickAt(tester, 'archive', const Duration(milliseconds: 20070));
+    await tester.pumpAndSettle();
+
+    expect(workspace.activePane, same(rightStrip));
+    expect(right.location?.path, '/home/tester/archive');
   });
 
   testWidgets('two presses on different rows are two clicks, never a '
