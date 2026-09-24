@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:meta/meta.dart';
@@ -106,6 +107,130 @@ typedef SshTransportOpener = Future<SshTransport> Function({
   Duration timeout,
   SshConnectionLog? log,
 });
+
+/// Verifies an endpoint's host key through the TOFU flow on a short-lived,
+/// never-authenticated SSH connection — the pool runs it on a pool's
+/// first connect to an unpinned endpoint BEFORE resolving credentials, so
+/// the user approves the server before being asked for its password
+/// (02 §10's dialog order: trust first, secrets second). Séance's
+/// `openAuthenticatedClient` takes credentials up front and verifies the
+/// key inside the same handshake, so the order cannot be fixed inside one
+/// connect without forking it.
+///
+/// Completes when the key is trusted or approved (and pinned through
+/// [tofu]); throws [SshConnectException] when it was rejected or the
+/// endpoint could not be reached. No authentication is ever attempted on
+/// the preflight connection — the server sees a pre-auth disconnect, not
+/// a failed login.
+typedef SshHostKeyPreflight =
+    Future<void> Function({
+      required ServerConfig config,
+      required TofuVerifier tofu,
+      required HostKeyPrompter onHostKey,
+      Duration timeout,
+      SshConnectionLog? log,
+    });
+
+/// Production [SshHostKeyPreflight] over dartssh2: TCP connect, key
+/// exchange, the same verify-prompt-pin sequence the authenticated
+/// connect runs (Séance's `_verifyHostKey`), then close before userauth.
+/// The verdict is final for this connect; the authenticated connect that
+/// follows re-checks the key and finds it pinned.
+Future<void> preflightDartSshHostKey({
+  required ServerConfig config,
+  required TofuVerifier tofu,
+  required HostKeyPrompter onHostKey,
+  Duration timeout = SshTransport.defaultOpenTimeout,
+  SshConnectionLog? log,
+}) async {
+  final attemptLog = log ?? SshConnectionLog();
+  final target = '${config.username}@${config.host}:${config.port}';
+  final SSHSocket socket;
+  try {
+    attemptLog.add('Verifying the host key of ${config.host}:${config.port} …');
+    socket = await SSHSocket.connect(config.host, config.port, timeout: timeout);
+  } catch (error) {
+    throw SshConnectException(
+      'Could not reach ${config.host}:${config.port} — $error',
+      error,
+      attemptLog,
+    );
+  }
+
+  final verdict = Completer<bool>();
+  final client = SSHClient(
+    socket,
+    username: config.username,
+    onVerifyHostKey: (type, fingerprint) async {
+      try {
+        final presented = HostKey(
+          host: config.host,
+          port: config.port,
+          type: type,
+          fingerprintSha256: utf8.decode(fingerprint),
+          pinnedAt: DateTime.now().millisecondsSinceEpoch,
+        );
+        final decision = await tofu.check(presented);
+        var accepted = decision.isTrusted;
+        if (!accepted) {
+          accepted = await onHostKey(decision);
+          if (accepted) await tofu.pin(presented);
+        }
+        if (!verdict.isCompleted) verdict.complete(accepted);
+      } catch (error, stackTrace) {
+        if (!verdict.isCompleted) verdict.completeError(error, stackTrace);
+      }
+      // Never continue to userauth: the verdict is all this connection
+      // is for, and a rejected "none" login would read as a failed
+      // sign-in on the server.
+      return false;
+    },
+  );
+  // The deliberate abort surfaces through both futures; nobody else
+  // listens to them.
+  unawaited(client.authenticated.then<void>((_) {}, onError: (Object _) {}));
+  unawaited(client.done.then<void>((_) {}, onError: (Object _) {}));
+
+  try {
+    final accepted = await Future.any<bool>([
+      verdict.future,
+      // A connection that dies before key exchange never reaches the
+      // verifier.
+      client.done.then<bool>(
+        (_) => throw StateError('the connection closed before key exchange'),
+        onError: (Object error) => throw error,
+      ),
+    ]).timeout(
+      _preflightTimeout,
+      onTimeout: () => throw TimeoutException(
+        'Host key verification with $target timed out',
+      ),
+    );
+    if (!accepted) {
+      attemptLog.add('The host key was not accepted.');
+      throw SshConnectException(
+        'The host key of ${config.host}:${config.port} was not accepted.',
+        StateError('host key rejected'),
+        attemptLog,
+      );
+    }
+    attemptLog.add('Host key verified.');
+  } on SshConnectException {
+    rethrow;
+  } catch (error) {
+    throw SshConnectException(
+      'Could not verify the host key of ${config.host}:${config.port} — '
+      '$error',
+      error,
+      attemptLog,
+    );
+  } finally {
+    await closeSshResource(() async => client.close());
+  }
+}
+
+/// Room for the user to read and answer the host-key prompt.
+const Duration _preflightTimeout = Duration(minutes: 5);
 
 /// Production opener: `openAuthenticatedClient` + a closable SFTP channel
 /// factory.

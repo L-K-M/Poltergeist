@@ -6,6 +6,7 @@ import 'package:seance_core/seance_core.dart';
 
 import '../connection/connection_manager.dart';
 import '../editor/built_in_text_document.dart';
+import '../fs/content_digest.dart';
 import '../fs/local_fs_safety.dart';
 import '../transfer/transfer_queue.dart';
 import '../transfer/transfer_task.dart';
@@ -703,12 +704,9 @@ final class CheckoutManager {
       return record;
     }
     // The streamed remote read is the digest authority — metadata alone
-    // cannot prove the remote still holds the synthesized content.
-    final remote = await fs.download(
-      record.remotePath,
-      const _DiscardingSink(),
-      computeHash: true,
-    );
+    // cannot prove the remote still holds the synthesized content. An
+    // engine-bridged lease hashes engine-side (D8): no byte crosses.
+    final remote = await remoteContentDigest(fs, record.remotePath);
     if (remote.contentSha256 != recordedDigest) return record;
     final repaired = record.copyWith(
       remoteSnapshot: RemoteFileEntry(
@@ -977,25 +975,4 @@ class _CheckoutFlight {
 
 class _PendingTransfer {
   final Completer<RemoteFileEntry> completer = Completer();
-}
-
-/// The sink the remote-digest repair read discards into — the hash rides
-/// the returned entry, the bytes go nowhere.
-final class _DiscardingSink implements StreamSink<List<int>> {
-  const _DiscardingSink();
-
-  @override
-  Future<void> addStream(Stream<List<int>> stream) => stream.drain<void>();
-
-  @override
-  Future<void> close() async {}
-
-  @override
-  Future<dynamic> get done => Future<dynamic>.value();
-
-  @override
-  void add(List<int> data) {}
-
-  @override
-  void addError(Object error, [StackTrace? stackTrace]) {}
 }

@@ -557,6 +557,7 @@ class PoolHarness {
 
   PoolHarness({
     FakeTransportOpener? opener,
+    SshHostKeyPreflight? hostKeyPreflight,
     PoolPolicy policy = const PoolPolicy(),
     Prober? prober,
     Random? random,
@@ -590,6 +591,7 @@ class PoolHarness {
       },
       policy: policy,
       openTransport: this.opener.opener,
+      hostKeyPreflight: hostKeyPreflight,
       prober: prober ?? FakeReconnectProber(),
       reconnectRandom: random ?? FixedRandom(0),
       incidentStore: this.incidentStore,

@@ -5657,6 +5657,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Other'**
   String get helpShortcutsOtherGroup;
+
+  /// Default name of a folder created by New Folder (file.newFolder); numbered like 'untitled folder (2)' when the name is taken. The inline rename opens on it right away.
+  ///
+  /// In en, this message translates to:
+  /// **'untitled folder'**
+  String get paneNewFolderName;
+
+  /// Default name of an empty file created by New File (file.newFile); numbered like 'untitled file (2)' when the name is taken. The inline rename opens on it right away.
+  ///
+  /// In en, this message translates to:
+  /// **'untitled file'**
+  String get paneNewFileName;
+
+  /// Error when New Folder / New File finds its default name and every numbered variant up to the limit already taken.
+  ///
+  /// In en, this message translates to:
+  /// **'No free name is left for \"{name}\" in this folder.'**
+  String paneCreateNamesExhausted(String name);
+
+  /// Failed transfer, checkout, or sync row: the bookmark names a shared (synced) server that this device's pulled server list does not contain, so there is nothing to connect to.
+  ///
+  /// In en, this message translates to:
+  /// **'The shared server \"{server}\" is not in the synced server list on this device.'**
+  String activityTaskServerNotInCatalog(String server);
 }
 
 class _AppLocalizationsDelegate

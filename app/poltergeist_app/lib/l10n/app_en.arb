@@ -4705,5 +4705,33 @@
   "helpShortcutsOtherGroup": "Other",
   "@helpShortcutsOtherGroup": {
     "description": "Keyboard Shortcuts sheet: group for commands that live in no menu."
+  },
+  "paneNewFolderName": "untitled folder",
+  "@paneNewFolderName": {
+    "description": "Default name of a folder created by New Folder (file.newFolder); numbered like 'untitled folder (2)' when the name is taken. The inline rename opens on it right away."
+  },
+  "paneNewFileName": "untitled file",
+  "@paneNewFileName": {
+    "description": "Default name of an empty file created by New File (file.newFile); numbered like 'untitled file (2)' when the name is taken. The inline rename opens on it right away."
+  },
+  "paneCreateNamesExhausted": "No free name is left for \"{name}\" in this folder.",
+  "@paneCreateNamesExhausted": {
+    "description": "Error when New Folder / New File finds its default name and every numbered variant up to the limit already taken.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "untitled folder"
+      }
+    }
+  },
+  "activityTaskServerNotInCatalog": "The shared server \"{server}\" is not in the synced server list on this device.",
+  "@activityTaskServerNotInCatalog": {
+    "description": "Failed transfer, checkout, or sync row: the bookmark names a shared (synced) server that this device's pulled server list does not contain, so there is nothing to connect to.",
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "web.example.com"
+      }
+    }
   }
 }

@@ -121,36 +121,15 @@ final class EntryComparator {
 /// Streams one entry's content through [RemoteFileSystem.download] with
 /// hashing enabled and returns the computed digest (05 §4's streamed
 /// SHA-256 — sizes are compared first, so this only runs on size-equal
-/// pairs).
+/// pairs). Rides core's [remoteContentDigest], so an engine-bridged
+/// endpoint hashes engine-side instead of streaming the file across the
+/// isolate port (D8).
 Future<String?> streamedSha256(
   RemoteFileSystem fileSystem,
   String path,
 ) async {
-  final sink = _NullSink();
-  final entry = await fileSystem.download(path, sink);
+  final entry = await remoteContentDigest(fileSystem, path);
   return entry.contentSha256;
-}
-
-/// Discards everything written to it — the hash rides the stream.
-final class _NullSink implements StreamSink<List<int>> {
-  final Completer<void> _done = Completer<void>();
-
-  @override
-  void add(List<int> data) {}
-
-  @override
-  void addError(Object error, [StackTrace? stackTrace]) {}
-
-  @override
-  Future<void> addStream(Stream<List<int>> stream) => stream.drain<void>();
-
-  @override
-  Future<void> close() async {
-    if (!_done.isCompleted) _done.complete();
-  }
-
-  @override
-  Future<void> get done => _done.future;
 }
 
 /// A §3 name hazard — a path whose byte form can collide or fail on the

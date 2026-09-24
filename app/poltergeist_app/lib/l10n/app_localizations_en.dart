@@ -3626,4 +3626,20 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get helpShortcutsOtherGroup => 'Other';
+
+  @override
+  String get paneNewFolderName => 'untitled folder';
+
+  @override
+  String get paneNewFileName => 'untitled file';
+
+  @override
+  String paneCreateNamesExhausted(String name) {
+    return 'No free name is left for \"$name\" in this folder.';
+  }
+
+  @override
+  String activityTaskServerNotInCatalog(String server) {
+    return 'The shared server \"$server\" is not in the synced server list on this device.';
+  }
 }

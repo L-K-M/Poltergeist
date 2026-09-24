@@ -3,14 +3,16 @@
 // stamps run ids, and how a pair's endpoints resolve to the
 // RemoteFileSystem objects the scanner and executor speak. Local
 // endpoints bind a LocalFileSystem directly (D3 — one VFS contract);
-// remote endpoints answer the honest `unsupported` refusal until the
-// engine protocol carries filesystem verbs (docs/STATUS.md item 23 —
-// the same posture the app-side transfer queue takes, never a stub).
+// remote endpoints lease engine-side channels through the bridged
+// transfer lease (protocol v13, STATUS item 23) — and answer the honest
+// `unsupported` refusal only when the engine failed to spawn.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_sync/poltergeist_sync.dart';
 
+import 'server_config_source.dart';
 import 'sync_state_store.dart';
 
 /// The `sync_runs/` directory name under app support (05 §8's journal
@@ -27,6 +29,8 @@ final class SyncEnvironment {
     required this.syncRunsDirectory,
     required this.deviceId,
     RemoteFileSystem Function()? localFileSystem,
+    this._connections,
+    this._serverConfigs,
   }) : _localFileSystem = localFileSystem ?? LocalFileSystem.new;
 
   /// The production shape: file-backed state under the app-support
@@ -34,6 +38,8 @@ final class SyncEnvironment {
   factory SyncEnvironment.forSupportDirectory(
     String supportDirectoryPath, {
     required Future<String> Function() deviceId,
+    ConnectionManager? connections,
+    AppServerConfigSource? serverConfigs,
   }) => SyncEnvironment(
     states: FileSyncStateStore(
       Directory(
@@ -45,6 +51,8 @@ final class SyncEnvironment {
         '$supportDirectoryPath${Platform.pathSeparator}'
         '$kSyncRunsDirectoryName',
     deviceId: deviceId,
+    connections: connections,
+    serverConfigs: serverConfigs,
   );
 
   /// §9's per-pair local state (mtime-trust flags, probe cache, trash
@@ -58,24 +66,56 @@ final class SyncEnvironment {
   final Future<String> Function() deviceId;
   final RemoteFileSystem Function() _localFileSystem;
 
-  /// Whether [endpoint] can serve a filesystem in this process — false
-  /// for remote sides until the engine protocol carries the verbs.
-  bool endpointAvailable(SyncEndpoint endpoint) =>
-      endpoint is LocalEndpoint;
+  /// The engine's bridged lease seam; null when the engine failed to
+  /// spawn — remote endpoints then refuse typed.
+  final ConnectionManager? _connections;
+  final AppServerConfigSource? _serverConfigs;
 
-  /// The filesystem [endpoint] resolves to. Remote endpoints throw the
-  /// typed `unsupported` refusal — the plan view catches it and renders
-  /// the honest-absence state rather than a dead scan.
-  RemoteFileSystem fileSystemFor(SyncEndpoint endpoint) =>
-      switch (endpoint) {
-        LocalEndpoint() => _localFileSystem(),
-        RemoteEndpoint() => throw RemoteFileException(
-          kind: RemoteFileErrorKind.unsupported,
-          operation: 'sync endpoint',
-          path: endpoint.path,
-          message: 'remote sync endpoints are not available yet',
-        ),
-      };
+  /// One lease-on-demand filesystem per remote server, shared by every
+  /// scan, diff, and run of every pair naming that server.
+  final Map<String, LeasedRemoteFileSystem> _remote = {};
+
+  /// Whether [endpoint] can serve a filesystem in this process — local
+  /// always; remote once the engine bridge is composed.
+  bool endpointAvailable(SyncEndpoint endpoint) => switch (endpoint) {
+    LocalEndpoint() => true,
+    RemoteEndpoint() => _connections != null && _serverConfigs != null,
+  };
+
+  /// The filesystem [endpoint] resolves to. A remote endpoint leases a
+  /// transfer channel of its server on first use and keeps it until
+  /// [releaseRemoteLeases] (or its idle backstop); without the engine
+  /// bridge it throws the typed `unsupported` refusal — the plan view
+  /// catches it and renders the honest-absence state.
+  RemoteFileSystem fileSystemFor(SyncEndpoint endpoint) {
+    switch (endpoint) {
+      case LocalEndpoint():
+        return _localFileSystem();
+      case RemoteEndpoint(:final server, :final path):
+        final connections = _connections;
+        final configs = _serverConfigs;
+        if (connections == null || configs == null) {
+          throw RemoteFileException(
+            kind: RemoteFileErrorKind.unsupported,
+            operation: 'sync endpoint',
+            path: path,
+            message: 'remote sync endpoints are not available yet',
+          );
+        }
+        final serverId = configs.registerEndpoint(server);
+        return _remote[serverId] ??= LeasedRemoteFileSystem(
+          connections,
+          serverId,
+        );
+    }
+  }
+
+  /// Returns every remote lease sync holds — called when a scan, run,
+  /// retry, or restore settles and when a plan view disposes, so an idle
+  /// pair never pins pool channels. The next remote call leases again.
+  Future<void> releaseRemoteLeases() async {
+    await Future.wait([for (final fs in _remote.values) fs.release()]);
+  }
 
   /// The root path a scan/executor runs under for [endpoint].
   String rootFor(SyncEndpoint endpoint) => switch (endpoint) {
