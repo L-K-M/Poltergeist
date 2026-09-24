@@ -41,6 +41,8 @@ final class _Harness {
   final retained = FakeRetainedSyncTokenStore();
   final state = FakeSyncEnrollmentState();
   final bookmarks = FakeSyncTrackingBookmarkStore();
+  final servers = FakeSyncTrackingServerStore();
+  final vaultStore = InMemoryVaultStore();
   final hostKeys = InMemoryHostKeyStore();
   final pinVerdicts = InMemoryPinVerdictStore();
   final tripwires = InMemorySyncTripwireStore();
@@ -58,6 +60,8 @@ final class _Harness {
         tripwires: tripwires,
         transportFactory: fakeTransportFactory(server, transports),
         vaultKey: () async => credentials.vaultKey,
+        servers: servers,
+        vaultStore: vaultStore,
       );
 
   /// Enroll directly in [mode] and load the service — the starting state

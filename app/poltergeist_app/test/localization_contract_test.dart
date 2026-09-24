@@ -81,6 +81,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // The §3.1 record store's file name inside app support — a path
     // literal, not copy.
     r"'${supportDirectory.path}${Platform.pathSeparator}sync_records.json'",
+    // The writable server store and vault store file names inside app
+    // support — path literals, not copy.
+    r"'${supportDirectory.path}${Platform.pathSeparator}servers.json'",
+    r"'${supportDirectory.path}${Platform.pathSeparator}vault.json'",
     // The M7 preview cache's directory name inside app support — a path
     // literal, not copy.
     r"'${supportDirectory.path}${Platform.pathSeparator}preview-cache'",
@@ -342,6 +346,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'Could not save $what to the OS keyring (${_describe(e)}). Unlock '",
     r"'the login keyring or install gnome-keyring, then try again.'",
   },
+  // Ported Séance vault/rekey-journal format (see docs/PORTS.md): the
+  // document keys, journal file suffix, and thrown diagnostics are the
+  // frozen on-disk format and reported faults, never rendered UI copy.
   'lib/services/file_stores.dart': {
     "'-'",
     "''",
@@ -349,6 +356,16 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'.'",
     r"'${file.path}.corrupt-$stamp'",
     r"'$host:$port'",
+    r"'${file.path}.rekey'",
+    "'version'",
+    "'snapshots'",
+    "'blobs'",
+    "'Expected a vault map.'",
+    "'Invalid vault map entry.'",
+    "'Invalid vault recovery journal.'",
+    "'Finish vault recovery before changing credentials.'",
+    "'A pending vault recovery must be completed first.'",
+    "'No matching snapshot.'",
   },
   'lib/services/settings_store.dart': {
     "'settings root'",
@@ -417,6 +434,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'no retained separate account'",
     "'retained account without a retained token'",
     "'not enrolled — cannot resolve a pin conflict'",
+    // The shared-mode vault precondition fault — a reported programmer/
+    // state error, never rendered copy.
+    "'the vault is unavailable — cannot save secrets'",
   },
   'lib/theme/app_theme.dart': {
     "'JetBrains Mono'",

@@ -284,6 +284,7 @@ final class EngineSession {
     required GlobalKey<NavigatorState> navigatorKey,
     required GlobalKey<ScaffoldMessengerState>? scaffoldMessengerKey,
     required IdentityFileReader identityReader,
+    SecretVault? vault,
     this._trashServer,
   }) : _engine = engine {
     // One prompt coordinator per engine (02 §10): a second subscriber
@@ -293,6 +294,7 @@ final class EngineSession {
       navigatorKey: navigatorKey,
       scaffoldMessengerKey: scaffoldMessengerKey,
       identityReader: identityReader,
+      vault: vault,
       errorReporter: _errors,
     );
     // Prompts subscribe before the session is returned: a connect that
@@ -559,6 +561,7 @@ Future<EngineSession?> startEngineSession({
   AppEngineSpawner spawn = spawnAppEngine,
   HostKeyStore? pinStore,
   IncidentStore? incidentStore,
+  SecretVault? vault,
   TrashChannelServer? Function()? trashServerBinder,
   void Function(Object error, StackTrace)? onError,
 }) async {
@@ -635,6 +638,7 @@ Future<EngineSession?> startEngineSession({
           File('$supportDirectoryPath$separator$_identityAuditLogFileName'),
         ),
       ),
+      vault: vault,
       trashServer: trashServer,
     );
   } on Object catch (error, stackTrace) {

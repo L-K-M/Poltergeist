@@ -51,6 +51,8 @@ final class _Harness {
   final state = FakeSyncEnrollmentState();
   final SettingsStore settings;
   final bookmarks = FakeSyncTrackingBookmarkStore();
+  final servers = FakeSyncTrackingServerStore();
+  final vaultStore = InMemoryVaultStore();
   final hostKeys = InMemoryHostKeyStore();
   final pinVerdicts = InMemoryPinVerdictStore();
   final tripwires = InMemorySyncTripwireStore();
@@ -69,9 +71,24 @@ final class _Harness {
     tripwires: tripwires,
     transportFactory: fakeTransportFactory(server, transports),
     vaultKey: () async => credentials.vaultKey,
+    servers: servers,
+    vaultStore: vaultStore,
     settings: settings,
     now: () => clock,
   );
+
+  /// The shared-mode starting point — catalog, server store and vault
+  /// all live once the service loads.
+  Future<void> enrollSharedDirectly() async {
+    state.enrolled = const SyncAccount(
+      baseUrl: 'https://sync.example',
+      username: 'fleet',
+      mode: SyncAccountMode.shared,
+    );
+    credentials.token = 'shared-token';
+    credentials.vaultKey = List.filled(32, 9);
+    await service.load();
+  }
 
   /// The switch tests' separate-mode starting point — a live token and
   /// a vault key under an enrolled separate-mode account.
@@ -543,6 +560,90 @@ void main() {
       expect(h.service.account!.mode, SyncAccountMode.separate);
       expect(h.service.retainedAccount!.username, 'old');
       expect(h.service.deleteSeparateOffered, isFalse);
+    });
+  });
+
+  group('shared-mode server writes (04 §4.2, amended)', () {
+    ServerConfig config(
+      String id, {
+      String? ref,
+      bool syncSecret = false,
+    }) =>
+        ServerConfig(
+          id: id,
+          label: id,
+          host: '$id.example.com',
+          username: 'u',
+          secretRef: ref,
+          syncSecret: syncSecret,
+          createdAt: 1,
+          updatedAt: 1,
+        );
+
+    test('saveServer persists the row, seals its record, and refreshes '
+        'the catalog', () async {
+      await h.enrollSharedDirectly();
+      await h.service.saveServer(config('web'));
+
+      expect((await h.servers.byId('web'))!.label, 'web');
+      final record = (await h.records.allRecords()).single;
+      expect(record.id, 'web');
+      expect(record.deleted, isFalse);
+      expect(h.service.catalog!.byId('web'), isNotNull);
+    });
+
+    test('deleteServer drops the row and seals the tombstone', () async {
+      await h.enrollSharedDirectly();
+      await h.service.saveServer(config('web'));
+      await h.service.deleteServer(config('web'));
+
+      expect(await h.servers.byId('web'), isNull);
+      expect((await h.records.getRecord('web'))!.deleted, isTrue);
+      expect(h.service.catalog!.byId('web'), isNull);
+      // The tombstone tuple survives locally, blocking stale revivals.
+      expect((await h.servers.syncTupleOf('web'))!.deleted, isTrue);
+    });
+
+    test('saveServerSecret writes the vault and publishes the record '
+        'while a synced server opts it in', () async {
+      await h.enrollSharedDirectly();
+      await h.service.saveServer(
+          config('web', ref: 's1', syncSecret: true));
+      const secret = Secret(
+          id: 's1', kind: SecretKind.password, value: 'hunter2');
+      await h.service.saveServerSecret(secret);
+
+      expect((await h.service.serverSecretById('s1'))!.value, 'hunter2');
+      final record = await h.records.getRecord('secret:s1');
+      expect(record, isNotNull);
+      expect(record!.deleted, isFalse);
+    });
+
+    test('saveServerSecret stays local while no synced server opts the '
+        'credential in', () async {
+      await h.enrollSharedDirectly();
+      // No server references s1 — the vault write lands but no record
+      // publishes.
+      const secret = Secret(
+          id: 's1', kind: SecretKind.password, value: 'hunter2');
+      await h.service.saveServerSecret(secret);
+      expect(await h.service.serverSecretById('s1'), isNotNull);
+      expect(await h.records.getRecord('secret:s1'), isNull);
+    });
+
+    test('the server verbs are honest when no vault exists', () async {
+      // Unenrolled: no coordinator, no vault — a no-op for row writes,
+      // a loud failure for a credential save, null for a read.
+      await h.service.load();
+      await h.service.saveServer(config('web'));
+      await h.service.deleteServer(config('web'));
+      expect(await h.servers.load(), isEmpty);
+      expect(await h.service.serverSecretById('s1'), isNull);
+      await expectLater(
+        () => h.service.saveServerSecret(const Secret(
+            id: 's1', kind: SecretKind.password, value: 'x')),
+        throwsA(isA<StateError>()),
+      );
     });
   });
 }

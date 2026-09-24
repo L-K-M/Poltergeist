@@ -13,6 +13,7 @@ import 'services/application_error_reporter.dart';
 import 'services/bookmark_backup_service.dart';
 import 'services/checkout_session.dart';
 import 'services/desktop_window_lifecycle.dart';
+import 'services/dynamic_secret_vault.dart';
 import 'services/editor_registry_controller.dart';
 import 'services/engine_session.dart';
 import 'services/file_stores.dart';
@@ -58,6 +59,38 @@ Future<void> main() async {
     onError: errorReporter.report,
     syncDeviceId: () => syncEnrollmentState.cachedDeviceId,
   );
+  // The shared-mode server domain (04 §4.2, amended): local ServerConfig
+  // rows plus their LWW tuples — the coordinator materializes pulled
+  // records in and seals local edits out. Same lazy device-id binding as
+  // the bookmark store, so unenrolled installs keep the clean shape.
+  final servers = FileServerConfigStore(
+    path: '${supportDirectory.path}${Platform.pathSeparator}servers.json',
+    onError: errorReporter.report,
+    syncDeviceId: () => syncEnrollmentState.cachedDeviceId,
+  );
+  // The credential vault: one FileVaultStore beside the settings file
+  // feeds every consumer so its serialized-write discipline covers all
+  // of them. DynamicSecretVault re-resolves the key per call —
+  // enrollment's re-key swaps the keystore entry underneath long-lived
+  // consumers like the prompt coordinator.
+  final masterKeys = MasterKeyManager();
+  final vaultStore = FileVaultStore(
+    File('${supportDirectory.path}${Platform.pathSeparator}vault.json'),
+  );
+  // Settle an interrupted re-key before anything else reads the vault:
+  // a crash between the keystore swap and the settle leaves .rekey
+  // behind, and whichever sealed generation the installed key still
+  // opens wins.
+  try {
+    final vaultKey = await masterKeys.probeKeystore();
+    if (vaultKey != null) await vaultStore.settleRekey(vaultKey);
+  } on Object catch (error, stack) {
+    errorReporter.report(error, stack);
+  }
+  final dynamicVault = DynamicSecretVault(vaultStore, () async {
+    final key = await masterKeys.probeKeystore();
+    return key == null ? null : SecretVault(vaultStore, key);
+  });
   final preferences = AppPreferences(store: settingsStore);
   // The external-editor registry (06 §4.1): one versioned document in
   // the shared settings.json — the Open With ▸ submenu and the remote
@@ -166,6 +199,7 @@ Future<void> main() async {
     bookmarks: bookmarks,
     navigatorKey: navigatorKey,
     scaffoldMessengerKey: scaffoldMessengerKey,
+    vault: dynamicVault,
     onError: errorReporter.report,
   );
 
@@ -239,7 +273,6 @@ Future<void> main() async {
   // store behind sync_records.json. The pin store is the engine
   // session's own when one spawned: two FileHostKeyStores over one path
   // would race their load-once caches.
-  final masterKeys = MasterKeyManager();
   final syncRecordsPath =
       '${supportDirectory.path}${Platform.pathSeparator}sync_records.json';
   // Concrete type: the reset closure and the quarantine-path reader both
@@ -250,7 +283,10 @@ Future<void> main() async {
     onError: errorReporter.report,
   );
   final bookmarkBackup = BookmarkBackupService(
-    credentials: SecureSyncCredentialStore(keys: masterKeys),
+    credentials: SecureSyncCredentialStore(
+      keys: masterKeys,
+      vaultJournal: vaultStore,
+    ),
     retainedTokens: SecureRetainedSyncTokenStore(keys: masterKeys),
     enrollmentState: syncEnrollmentState,
     records: syncRecords,
@@ -278,6 +314,8 @@ Future<void> main() async {
     tripwires: SettingsSyncTripwireStore(store: settingsStore),
     transportFactory: httpSyncTransport,
     vaultKey: masterKeys.probeKeystore,
+    servers: servers,
+    vaultStore: vaultStore,
     settings: settingsStore,
     recordQuarantinePath: () => syncRecords.quarantinedPath,
   );

@@ -66,6 +66,8 @@ final class BookmarkBackupService extends ChangeNotifier {
     required SyncTripwireStore tripwires,
     required SyncTransportFactory transportFactory,
     required Future<List<int>?> Function() vaultKey,
+    required SyncTrackingServerStore servers,
+    required VaultStore vaultStore,
     SettingsStore? settings,
     String? Function()? recordQuarantinePath,
     DateTime Function()? now,
@@ -93,6 +95,10 @@ final class BookmarkBackupService extends ChangeNotifier {
         // ignore: prefer_initializing_formals
         _vaultKey = vaultKey,
         // ignore: prefer_initializing_formals
+        _servers = servers,
+        // ignore: prefer_initializing_formals
+        _vaultStore = vaultStore,
+        // ignore: prefer_initializing_formals
         _settings = settings,
         // ignore: prefer_initializing_formals
         _recordQuarantinePath = recordQuarantinePath,
@@ -109,6 +115,16 @@ final class BookmarkBackupService extends ChangeNotifier {
   final SyncTripwireStore _tripwires;
   final SyncTransportFactory _transportFactory;
   final Future<List<int>?> Function() _vaultKey;
+
+  /// The shared-mode `serverConfig` domain store (04 §4.2, amended): the
+  /// coordinator materializes pulled servers into it and seals local
+  /// edits out of it. Persisted in `servers.json` beside bookmarks.json.
+  final SyncTrackingServerStore _servers;
+
+  /// The vault's blob store — paired with the resolved key in
+  /// [_rebuildCoordinator] to make the [SecretVault] the coordinator and
+  /// the editor write through.
+  final VaultStore _vaultStore;
   final SettingsStore? _settings;
   final String? Function()? _recordQuarantinePath;
   final DateTime Function() _now;
@@ -134,6 +150,15 @@ final class BookmarkBackupService extends ChangeNotifier {
 
   BookmarkCoordinator? _coordinator;
   RecordCrypto? _crypto;
+
+  /// The shared-mode credential vault the coordinator and the server
+  /// editor write through — rebuilt on every coordinator rebind so it
+  /// always holds the current account key. Null outside shared mode or
+  /// while the keystore is unavailable.
+  SecretVault? _secretVault;
+
+  /// The shared-mode vault, for the server editor's credential fields.
+  SecretVault? get secretVault => _secretVault;
 
   /// The enrolled account, or null before first enrollment.
   SyncAccount? get account => _account;
@@ -185,6 +210,9 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// is readable. Called once at composition and again on refresh needs.
   Future<void> load() async {
     await _rebuildCoordinator();
+    // Repopulate the catalog from the server store before the first
+    // round runs — locally saved servers persist across restarts.
+    await _coordinator?.rebuildCatalog();
     await refresh();
   }
 
@@ -211,6 +239,46 @@ final class BookmarkBackupService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Shared-mode server writes (04 §4.2, amended): the catalog's row
+  /// verbs and the server editor route through these, never the store
+  /// directly — the coordinator persists the row AND seals its record
+  /// dirty for the next round in one call. A no-op outside shared mode.
+  Future<void> saveServer(ServerConfig server) async {
+    await _coordinator?.onServerSaved(server);
+  }
+
+  /// Delete a shared-mode server: drops the row and seals the tombstone
+  /// that propagates the delete to the fleet (and retracts the orphaned
+  /// credential's record).
+  Future<void> deleteServer(ServerConfig server) async {
+    await _coordinator?.onServerDeleted(server);
+  }
+
+  /// Save a credential the server editor entered: writes the vault with
+  /// its own advancing stamp, then publishes the `secret:` record while
+  /// a synced server opts it in. Throws when the vault has no key.
+  Future<void> saveServerSecret(Secret secret) async {
+    final vault = _secretVault;
+    if (vault == null) {
+      throw StateError('the vault is unavailable — cannot save secrets');
+    }
+    await vault.putLocalSecret(secret,
+        updatedAt: _now().toUtc().millisecondsSinceEpoch);
+    await _coordinator?.onServerSecretSaved(secret.id);
+  }
+
+  /// The credential a `secretRef` names, for the editor's fields — null
+  /// when absent or the vault is locked.
+  Future<Secret?> serverSecretById(String id) async {
+    final vault = _secretVault;
+    if (vault == null) return null;
+    try {
+      return await vault.getSecret(id);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// The coordinator re-binds whenever the account, vault key, or record
   /// store changed — each enrollment and the §4.4 wipe produce a new one.
   /// A missing vault key (keystore down) leaves it null: the enrolled
@@ -223,12 +291,14 @@ final class BookmarkBackupService extends ChangeNotifier {
       _coordinator = null;
       _crypto = null;
       _catalog = null;
+      _secretVault = null;
       return;
     }
     final crypto = RecordCrypto(RecordCodec(key));
     _crypto = crypto;
-    _catalog =
-        account.mode == SyncAccountMode.shared ? SeanceServerCatalog() : null;
+    final shared = account.mode == SyncAccountMode.shared;
+    _catalog = shared ? SeanceServerCatalog() : null;
+    _secretVault = shared ? SecretVault(_vaultStore, key) : null;
     _coordinator = BookmarkCoordinator(
       records: _records,
       bookmarks: _bookmarks,
@@ -238,6 +308,8 @@ final class BookmarkBackupService extends ChangeNotifier {
       pinVerdicts: _pinVerdicts,
       tripwires: _tripwires,
       catalog: _catalog,
+      servers: shared ? _servers : null,
+      secrets: _secretVault,
       enrollment: _enrollmentState,
       now: _now,
     );
@@ -382,6 +454,7 @@ final class BookmarkBackupService extends ChangeNotifier {
     _coordinator = null;
     _crypto = null;
     _catalog = null;
+    _secretVault = null;
     _lastSyncAt = null;
     _lastSyncError = null;
     await _persistStatus();

@@ -145,6 +145,12 @@ export 'src/sync/enrollment.dart'
         syncPassphraseCheckFailedMessage,
         syncRegistrationClosedMessage;
 export 'src/sync/seance_server_catalog.dart' show SeanceServerCatalog;
+export 'src/sync/server_store.dart'
+    show
+        FileServerConfigStore,
+        ServerSyncTuple,
+        SyncTrackingServerStore,
+        serverStoreQuarantinePath;
 export 'src/update/update_check.dart' show poltergeistUpdateRepo;
 export 'src/sync/sync_verdicts.dart'
     show

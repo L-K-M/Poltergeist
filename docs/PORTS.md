@@ -123,6 +123,19 @@ port candidates.
   missing serialized mutation queue: a `putSecret`/`deleteSecret`
   racing the batch can interleave flushes (the port-back candidate
   below already records that gap).
+- 2026-10-06: the re-key journal IS adopted — bidirectional server sync
+  (04 §4.2 amendment) makes `SecureSyncCredentialStore.writeVaultKey` a
+  real re-key path, and swapping the OS-keystore key without the
+  two-generation journal would orphan every credential on any crash or
+  refusal between the vault rewrite and the keystore write. `FileVaultStore`
+  now implements `VaultRekeyJournal` verbatim from upstream: staged
+  old/new encrypted snapshots in `vault.json.rekey`, settle-on-next-open,
+  keystore-probe-driven generation choice on failure, mutation lockout
+  while staged. The serialized mutation queue still stays upstream — the
+  journal serializes against itself and the vault has no concurrent
+  writers beyond it yet. `LockedSecretVault` also picked up upstream's
+  `readableSecret`/`putSecrets` overrides in the same pass (still
+  throw-on-touch; the pulled-`secret` apply path calls `readableSecret`).
 - Divergences: only `FileVaultStore` and `FileHostKeyStore` are ported —
   `FileConfigStore`/`FileSnippetStore` have no Poltergeist counterpart
   (bookmark identities carry connections per 04 §2.1–2.2; the synced record
@@ -152,6 +165,20 @@ port candidates.
 - Divergences: the dropped API-key methods' tests map to `setKeystoreKey`
   write-failure coverage plus a master-key entry-name assertion; imports via
   the poltergeist_core barrel.
+- Port-back candidates: none.
+
+## app/poltergeist_app/test/vault_rekey_journal_test.dart
+
+- Source: app/seance_app/test/vault_rekey_journal_test.dart
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (tag v0.9.1)
+- Ported: 2026-10-06
+- Divergences: the `AppServices`-driven groups are replaced by
+  `SecureSyncCredentialStore.writeVaultKey` coverage over a fake keystore
+  (Poltergeist has no AppServices — the re-key path lives in the sync
+  credential store per 04 §4.5); quarantine assertions match this repo's
+  UTC-stamped `.corrupt-<stamp>` names instead of upstream's `.corrupt`;
+  a `failWrite` keystore mode covers refusal-without-storing, which
+  upstream's file-level fakes did not exercise.
 - Port-back candidates: none.
 
 ## app/poltergeist_app/lib/ui/prompts/host_key_dialog.dart

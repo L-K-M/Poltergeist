@@ -8412,6 +8412,20 @@ though §3.13 predates naming it.
     matching (M8 dated section; item 2 closed). Still open: the
     shared-mode "Your Séance servers" UI surface and its
     running-patched-Séance/real-SSH QA legs.
+    **2026-10-06 — surface + write path landed on
+    `feat/seance-catalog-surface`:** the sidebar renders a "Séance
+    servers" section (Séance's grouping/filter rules, reachability dots,
+    Sync-now button), and `serverConfigId` bookmarks resolve through the
+    catalog at open time. Bidirectionality is now the design per the
+    2026-10-06 §4.2 amendment (owner directive): `SyncTrackingServerStore`
+    (`servers.json`), coordinator `onServerSaved`/`onServerDeleted`/
+    `onServerSecretSaved` write paths with prefixless `serverConfig`
+    records and tombstones, pulled-`secret` vault apply under the
+    exclusion shield + freshness floor, `FileVaultStore` re-key journal
+    (enrollment swaps the keystore key without orphaning credentials),
+    and a `DynamicSecretVault` seam for prompt/engine consumers. Still
+    open: the server editor UI + catalog row verbs (add/edit/duplicate/
+    delete), and the running-patched-Séance/real-SSH QA legs.
 26. **2026-09-21: M7's native-boundary QA is manual — Quick Look's
     real `QLPreviewPanel` runtime and the engine-driven remote
     checkout path.** The §3.8 audit's criterion 4 is met on the

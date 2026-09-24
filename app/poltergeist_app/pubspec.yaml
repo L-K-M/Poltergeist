@@ -8,6 +8,9 @@ environment:
   flutter: '>=3.47.2'
 
 dependencies:
+  # SHA-256 key identification for the vault re-key journal (the same use
+  # Séance's FileVaultStore makes of it).
+  crypto: 3.0.7
   # OS file drop-in for the panes (02 §5.1, D14); desktop platforms only.
   desktop_drop: 0.7.1
   # The native executable picker behind Open With ▸ Other… on
@@ -47,9 +50,6 @@ dev_dependencies:
   # MockClient for the update-check request-shape test (01 §6's pinned
   # egress contract); test-only, nothing shipped.
   http: 1.6.0
-  # Fixture-hash verification in tool/unicode/generate.dart (matches the
-  # version poltergeist_core's dependency already locks).
-  crypto: 3.0.7
   fake_async: 1.3.3
   # flutter drive + the binding for the tier-B profile benchmark suites
   # (integration_test/perf/); app-side use only, nothing shipped.

@@ -5,8 +5,10 @@
 /// `seq > lastAppliedSeq`), and skip-and-preserve throughout: unknown
 /// prefixes are never decrypted, decrypt failures are never rewritten, and
 /// decrypt-success + strict-decode-failure raises the §4.2 durable
-/// tripwire. Poltergeist writes `bookmark:` records and `hostkey:` records
-/// only — never `serverConfig`, `secret`, or `snippet`.
+/// tripwire. Poltergeist writes `bookmark:` and `hostkey:` records in
+/// either mode, and — since the §4.2 amendment — `serverConfig` (bare
+/// prefixless ids) and `secret:` records in shared mode, making the
+/// Séance server list bidirectional. `snippet:` stays read-never.
 library;
 
 import 'dart:math' show min;
@@ -17,6 +19,7 @@ import '../sync/enrollment.dart';
 import '../sync/persistent_record_store.dart';
 import '../sync/record_crypto.dart';
 import '../sync/seance_server_catalog.dart';
+import '../sync/server_store.dart';
 import '../sync/sync_verdicts.dart';
 import 'bookmark_store.dart';
 
@@ -102,6 +105,8 @@ final class BookmarkCoordinator {
     required PinVerdictStore pinVerdicts,
     required SyncTripwireStore tripwires,
     SeanceServerCatalog? catalog,
+    SyncTrackingServerStore? servers,
+    SecretVault? secrets,
     SyncEnrollmentState? enrollment,
     DateTime Function()? now,
     int maxRounds = 5,
@@ -123,6 +128,10 @@ final class BookmarkCoordinator {
         // ignore: prefer_initializing_formals
         _catalog = catalog,
         // ignore: prefer_initializing_formals
+        _servers = servers,
+        // ignore: prefer_initializing_formals
+        _secrets = secrets,
+        // ignore: prefer_initializing_formals
         _enrollment = enrollment,
         _now = now ?? DateTime.now,
         // ignore: prefer_initializing_formals
@@ -131,6 +140,7 @@ final class BookmarkCoordinator {
   static const _kindDelimiter = ':';
   static const _bookmarkPrefix = 'bookmark:';
   static const _hostKeyPrefix = 'hostkey:';
+  static const _secretPrefix = 'secret:';
 
   final SyncRecordStore _records;
   final SyncTrackingBookmarkStore _bookmarks;
@@ -144,6 +154,15 @@ final class BookmarkCoordinator {
   /// records materialize here. Null in separate mode, where prefixless ids
   /// are never decrypted at all.
   final SeanceServerCatalog? _catalog;
+
+  /// Non-null in shared mode, paired with [_catalog]: the writable
+  /// materialization of `serverConfig` records — the catalog is its sorted
+  /// view. Also the plaintext source a corrected-passphrase re-seal reads.
+  final SyncTrackingServerStore? _servers;
+
+  /// Non-null in shared mode when the vault has a key: pulled `secret:`
+  /// records land here, and opted-in credentials publish from here.
+  final SecretVault? _secrets;
 
   /// The durable enrollment state (04 §4.5): while `passphraseUnverified`
   /// holds, [runRound] holds all pushes and the deferred foreign-record
@@ -179,6 +198,160 @@ final class BookmarkCoordinator {
       deviceId: _deviceId,
       deleted: true,
     )));
+  }
+
+  /// A local server save in shared mode (04 §4.2, amended): persist the
+  /// re-stamped row, then seal its prefixless `serverConfig` record dirty
+  /// under that stamp and this install's authorship — the same
+  /// change-driven write path [onBookmarkSaved] uses. An excluded server
+  /// retracts instead: a tombstone dated at the edit drops the account
+  /// copy while the local row survives (Séance's `_retract`), and the
+  /// orphaned credential's record withdraws with it. A no-op in separate
+  /// mode, where no server store exists.
+  Future<void> onServerSaved(ServerConfig server) async {
+    final store = _servers;
+    if (store == null) return;
+    final stored = await store.save(server);
+    if (stored.excludeFromSync) {
+      await _records.putLocal(await _crypto.seal(DecryptedRecord(
+        id: stored.id,
+        kind: RecordKind.serverConfig,
+        updatedAt: stored.updatedAt,
+        deviceId: _deviceId,
+        deleted: true,
+      )));
+      await _retractOrphanedSecret(stored.secretRef, stored.updatedAt);
+    } else {
+      await _sealServerRecord(stored);
+      // The opted-in credential travels with its server — re-dating past
+      // this device's own earlier retraction when needed, or the fleet
+      // keeps it withdrawn.
+      final ref = stored.secretRef;
+      if (stored.syncSecret && ref != null) await _publishSecret(ref);
+    }
+    await _refreshCatalog();
+  }
+
+  /// A local server delete: drop the row and seal a real tombstone dated
+  /// at the deletion — same resurrection-gap fix as
+  /// [onBookmarkDeleted] — then retract the orphaned credential's record.
+  Future<void> onServerDeleted(ServerConfig server) async {
+    final store = _servers;
+    if (store == null) return;
+    await store.remove(server.id);
+    final deletedAt = _now().toUtc().millisecondsSinceEpoch;
+    await _records.putLocal(await _crypto.seal(DecryptedRecord(
+      id: server.id,
+      kind: RecordKind.serverConfig,
+      updatedAt: deletedAt,
+      deviceId: _deviceId,
+      deleted: true,
+    )));
+    await _retractOrphanedSecret(server.secretRef, deletedAt);
+    await _refreshCatalog();
+  }
+
+  /// A credential the editor saved into the vault (via
+  /// [SecretVault.putLocalSecret], so its own stamp advanced): publish it
+  /// while a synced server opts it in — a credential edit on an excluded
+  /// or non-`syncSecret` server stays local (Séance's
+  /// `_publishableSecretRefs` rule). Null-safe when shared mode has no
+  /// vault or store.
+  Future<void> onServerSecretSaved(String secretId) async {
+    if (_secrets == null || _servers == null) return;
+    var publishable = false;
+    for (final server in await _servers.load()) {
+      if (!server.excludeFromSync &&
+          server.syncSecret &&
+          server.secretRef == secretId) {
+        publishable = true;
+        break;
+      }
+    }
+    if (publishable) await _publishSecret(secretId);
+  }
+
+  /// Seal one server under its own stamp — the record id is the bare
+  /// config id, Séance's convention: prefixless ids are `serverConfig`.
+  Future<void> _sealServerRecord(ServerConfig server) async {
+    await _records.putLocal(await _crypto.seal(DecryptedRecord(
+      id: server.id,
+      kind: RecordKind.serverConfig,
+      updatedAt: server.updatedAt,
+      deviceId: _deviceId,
+      data: server.toJson(),
+    )));
+  }
+
+  /// Seal the vault entry [ref] into its `secret:` record, dirty for the
+  /// next push. An unreadable or absent entry publishes nothing — the
+  /// pull side's repair path is what heals it. When this device's own
+  /// earlier retraction still sits in the record store past the
+  /// credential's stamp, re-date the credential past it (and persist the
+  /// bump so vault and record agree): without the bump the tombstone
+  /// wins LWW and the fleet keeps the credential withdrawn — Séance's
+  /// `_reviveSecrets` case.
+  Future<void> _publishSecret(String ref) async {
+    final vault = _secrets;
+    if (vault == null) return;
+    final Secret? secret;
+    try {
+      secret = await vault.readableSecret(ref);
+    } catch (_) {
+      return;
+    }
+    if (secret == null) return;
+    var stamped = secret;
+    final existing = await _records.getRecord('$_secretPrefix$ref');
+    if (existing != null &&
+        existing.deleted &&
+        existing.updatedAt >= stamped.updatedAt) {
+      stamped = stamped.copyWith(updatedAt: existing.updatedAt + 1);
+      try {
+        await vault.putSecret(stamped);
+      } catch (_) {
+        // A vault that cannot take the bump still publishes nothing new;
+        // the next round's pull-side repair gets another chance.
+        return;
+      }
+    }
+    await _records.putLocal(await _crypto.seal(DecryptedRecord(
+      id: '$_secretPrefix$ref',
+      kind: RecordKind.secret,
+      updatedAt: stamped.updatedAt,
+      deviceId: _deviceId,
+      data: stamped.toJson(),
+    )));
+  }
+
+  /// Retract a credential's `secret:` record when no synced server still
+  /// references it — the withdrawal half of delete and exclusion. A
+  /// still-synced sharer keeps the credential published (Séance's
+  /// `syncedSecretRefs` rule, conservatively counting a sharer whose own
+  /// `syncSecret` is off).
+  Future<void> _retractOrphanedSecret(String? ref, int stamp) async {
+    final store = _servers;
+    if (ref == null || store == null) return;
+    for (final server in await store.load()) {
+      if (!server.excludeFromSync && server.secretRef == ref) return;
+    }
+    await _records.putLocal(await _crypto.seal(DecryptedRecord(
+      id: '$_secretPrefix$ref',
+      kind: RecordKind.secret,
+      updatedAt: stamp,
+      deviceId: _deviceId,
+      deleted: true,
+    )));
+  }
+
+  /// Repopulate the shared-mode catalog from the server store — the
+  /// post-mutation and post-restart repaint path, before any round has
+  /// run. A no-op outside shared mode.
+  Future<void> rebuildCatalog() => _refreshCatalog();
+
+  Future<void> _refreshCatalog() async {
+    final catalog = _catalog;
+    if (catalog != null) await _rebuildCatalog(catalog);
   }
 
   /// A locally made or re-trusted TOFU pin: publish it and clear any
@@ -327,6 +500,44 @@ final class BookmarkCoordinator {
         resealed++;
       }
     }
+    // Shared mode's second materialized set: the server store's tuples
+    // re-seal under their own bare ids with the persisted winning
+    // authorship, exactly like the bookmark pass above.
+    final servers = _servers;
+    if (servers != null) {
+      final serverTuples = await servers.syncTuples();
+      final serverRows = {for (final s in await servers.load()) s.id: s};
+      for (final entry in serverTuples.entries) {
+        final tuple = entry.value;
+        final row = serverRows[entry.key];
+        await _records.putLocal(await _crypto.seal(
+          row == null || tuple.deleted
+              ? DecryptedRecord(
+                  id: entry.key,
+                  kind: RecordKind.serverConfig,
+                  updatedAt: tuple.updatedAt,
+                  deviceId: tuple.deviceId,
+                  deleted: true,
+                )
+              : DecryptedRecord(
+                  id: entry.key,
+                  kind: RecordKind.serverConfig,
+                  updatedAt: tuple.updatedAt,
+                  deviceId: tuple.deviceId,
+                  data: row.toJson(),
+                ),
+        ));
+        resealed++;
+      }
+      // Credentials the vault still holds re-seal through the publish
+      // path — it re-sources the plaintext and lands the record dirty.
+      for (final server in serverRows.values) {
+        final ref = server.secretRef;
+        if (!server.excludeFromSync && server.syncSecret && ref != null) {
+          await _publishSecret(ref);
+        }
+      }
+    }
     return resealed;
   }
 
@@ -352,6 +563,8 @@ final class BookmarkCoordinator {
         final kind = switch (prefix) {
           'bookmark' => RecordKind.bookmark,
           'hostkey' => RecordKind.hostKey,
+          'secret' => RecordKind.secret,
+          null => RecordKind.serverConfig,
           _ => null,
         };
         if (kind == null) continue;
@@ -400,6 +613,47 @@ final class BookmarkCoordinator {
             deviceId: record.deviceId,
             data: pin.toJson(),
           )));
+          resealed++;
+        case 'secret':
+          final Secret? secret;
+          try {
+            secret = await _secrets?.readableSecret(
+                record.id.substring(_secretPrefix.length));
+          } catch (_) {
+            continue;
+          }
+          if (secret == null) continue;
+          await _records.putLocal(await _crypto.seal(DecryptedRecord(
+            id: record.id,
+            kind: RecordKind.secret,
+            updatedAt: record.updatedAt,
+            deviceId: record.deviceId,
+            data: secret.toJson(),
+          )));
+          resealed++;
+        case null:
+          final row = await _servers?.byId(record.id);
+          if (row == null) continue;
+          // An excluded server's stale live record re-seals as the
+          // retraction the store says it should be — re-pushing live
+          // payload would un-exclude it on the fleet.
+          await _records.putLocal(await _crypto.seal(
+            row.excludeFromSync
+                ? DecryptedRecord(
+                    id: record.id,
+                    kind: RecordKind.serverConfig,
+                    updatedAt: record.updatedAt,
+                    deviceId: record.deviceId,
+                    deleted: true,
+                  )
+                : DecryptedRecord(
+                    id: record.id,
+                    kind: RecordKind.serverConfig,
+                    updatedAt: record.updatedAt,
+                    deviceId: record.deviceId,
+                    data: row.toJson(),
+                  ),
+          ));
           resealed++;
       }
     }
@@ -612,13 +866,12 @@ final class BookmarkCoordinator {
 
     var advanceTo = cursor;
     int? blockedAt;
-    for (final record in pending) {
-      final outcome = await _dispatch(record, report, holdActive: holdActive);
+    Future<void> account(EncryptedRecord record, _ApplyOutcome outcome) async {
       if (outcome == _ApplyOutcome.deferred) {
         report.deferredIds.add(record.id);
         blockedAt =
-            blockedAt == null ? record.seq : min(blockedAt, record.seq!);
-        continue;
+            blockedAt == null ? record.seq : min(blockedAt!, record.seq!);
+        return;
       }
       if (outcome == _ApplyOutcome.applied) {
         report.appliedIds.add(record.id);
@@ -626,6 +879,26 @@ final class BookmarkCoordinator {
       if (blockedAt == null && record.seq! > advanceTo) {
         advanceTo = record.seq!;
       }
+    }
+
+    // `account` is awaited per record; `seq` is non-null by construction
+    // of `pending`/`secretPending` (filtered above).
+
+    // `secret:` records apply after every other dispatch: the exclusion
+    // shield judges them against the round's *final* server set, not the
+    // store as their seq position found it.
+    final secretPending = <EncryptedRecord>[];
+    for (final record in pending) {
+      if (_prefixOf(record.id) == 'secret') {
+        secretPending.add(record);
+        continue;
+      }
+      await account(
+          record, await _dispatch(record, report, holdActive: holdActive));
+    }
+    for (final record in secretPending) {
+      await account(record,
+          await _applySecretRecord(record, holdActive: holdActive));
     }
 
     // The other deferral channel: pulled losers parked behind a dirty local
@@ -636,11 +909,12 @@ final class BookmarkCoordinator {
       final seq = displaced.seq;
       if (seq != null && seq > cursor) {
         report.deferredIds.add(displaced.id);
-        blockedAt = blockedAt == null ? seq : min(blockedAt, seq);
+        blockedAt = blockedAt == null ? seq : min(blockedAt!, seq);
       }
     }
-    if (blockedAt != null && advanceTo >= blockedAt) {
-      advanceTo = blockedAt - 1;
+    final blocked = blockedAt;
+    if (blocked != null && advanceTo >= blocked) {
+      advanceTo = blocked - 1;
     }
     if (advanceTo > cursor) {
       await _records.setLastAppliedSeq(advanceTo);
@@ -653,9 +927,10 @@ final class BookmarkCoordinator {
 
   /// Route one record by its plaintext id prefix — *before* decrypting
   /// (04 §3.2): the prefix decides whether a record is decrypted at all,
-  /// the decrypted kind decides whether it is applied. `secret:`,
-  /// `snippet:`, and unrecognized `<prefix>:` ids — and prefixless ids in
-  /// separate mode — are skip-preserved without ever being opened.
+  /// the decrypted kind decides whether it is applied. `snippet:` and
+  /// unrecognized `<prefix>:` ids — and `secret:`/prefixless ids outside
+  /// shared mode (no vault / no server store) — are skip-preserved
+  /// without ever being opened.
   /// [holdActive] is §4.5's `passphraseUnverified` state: a decrypt
   /// failure under it is seen-but-deferred, not skipped — the record may
   /// simply be sealed under the passphrase the user has not yet typed
@@ -664,13 +939,15 @@ final class BookmarkCoordinator {
       {required bool holdActive}) async {
     final prefix = _prefixOf(record.id);
     if (record.deleted) {
-      // Tombstones carry no sealed kind, so the prefix alone routes them —
-      // and only `bookmark:` tombstones delete anything. A `hostkey:` (or
-      // `secret:`/`snippet:`) tombstone is deliberately a no-op: the
-      // envelope's `deleted` flag is the one signal a sync server can
-      // assert entirely on its own, and honouring it would hand it a
-      // primitive for stripping this device's pins.
+      // Tombstones carry no sealed kind, so the prefix alone routes them.
+      // `bookmark:` and prefixless (`serverConfig`) tombstones apply —
+      // configs already carry the breach-tolerant exposure of an envelope
+      // a sync server can assert on its own (Séance applies them the same
+      // way). `hostkey:`, `secret:` and `snippet:` tombstones stay no-ops:
+      // honouring those would hand the server a primitive for stripping
+      // this device's pins or vault.
       if (prefix == 'bookmark') return _applyBookmarkTombstone(record);
+      if (prefix == null) return _applyServerConfigTombstone(record);
       return _ApplyOutcome.skipped;
     }
     return switch (prefix) {
@@ -678,9 +955,14 @@ final class BookmarkCoordinator {
         await _applyBookmarkRecord(record, holdActive: holdActive),
       'hostkey' =>
         await _applyHostKeyRecord(record, holdActive: holdActive),
+      // Credentials materialize into the vault — skipped when shared
+      // mode has none to write to.
+      'secret' => _secrets != null
+          ? await _applySecretRecord(record, holdActive: holdActive)
+          : _ApplyOutcome.skipped,
       // Prefixless is Séance's actual serverConfig convention — decrypt it
-      // only when a catalog exists to materialize into (shared mode).
-      null => _catalog != null
+      // only when a server store exists to materialize into (shared mode).
+      null => _servers != null
           ? await _applyServerConfigRecord(record, holdActive: holdActive)
           : _ApplyOutcome.skipped,
       _ => _ApplyOutcome.skipped,
@@ -803,6 +1085,8 @@ final class BookmarkCoordinator {
 
   Future<_ApplyOutcome> _applyServerConfigRecord(EncryptedRecord record,
       {required bool holdActive}) async {
+    final store = _servers;
+    if (store == null) return _ApplyOutcome.skipped;
     final dec = await _openForApply(record);
     if (dec == null) {
       return holdActive ? _ApplyOutcome.deferred : _ApplyOutcome.skipped;
@@ -811,20 +1095,146 @@ final class BookmarkCoordinator {
       await _tripwires.trip(record.id);
       return _ApplyOutcome.skipped;
     }
+    final ServerConfig config;
     try {
-      final config = ServerConfig.fromJson(dec.data);
+      config = ServerConfig.fromJson(dec.data);
       if (config.id != record.id) {
-        await _tripwires.trip(record.id);
-        return _ApplyOutcome.skipped;
+        throw const FormatException('serverConfig id mismatch');
       }
     } catch (_) {
       await _tripwires.trip(record.id);
       return _ApplyOutcome.skipped;
     }
     await _tripwires.clear(record.id);
-    // The catalog itself is rebuilt wholesale below; reaching here means
-    // the record strict-decoded, which is all the apply pass must judge.
+    // The exclusion shield runs before the tuple guard: a locally
+    // excluded server keeps its row but must never re-materialize pulled
+    // state. Its retraction re-dates past a winning pulled copy — once,
+    // then settles; the rival pushes at a fixed stamp, so nothing bids
+    // back (Séance's `rescheduleOutranked` escalation).
+    final local = await store.byId(config.id);
+    if (local != null && local.excludeFromSync) {
+      if (record.updatedAt >= local.updatedAt) {
+        await _records.putLocal(await _crypto.seal(DecryptedRecord(
+          id: record.id,
+          kind: RecordKind.serverConfig,
+          updatedAt: record.updatedAt + 1,
+          deviceId: _deviceId,
+          deleted: true,
+        )));
+      }
+      return _ApplyOutcome.skipped;
+    }
+    if (!_outranksMaterialized(
+        record, await store.syncTupleOf(config.id))) {
+      return _ApplyOutcome.deferred;
+    }
+    await store.applySyncedRecord(
+      config,
+      ServerSyncTuple(
+          updatedAt: record.updatedAt, deviceId: record.deviceId),
+    );
     return _ApplyOutcome.applied;
+  }
+
+  /// A pulled `serverConfig` tombstone deletes the materialized row under
+  /// the same tuple guard an upsert uses — with Séance's two exceptions:
+  /// a locally excluded row never drops (the tombstone is this device's
+  /// own retraction echoing back), and an own-deviceId tombstone over a
+  /// live local row is a reversed exclusion — the live record re-dates
+  /// past it rather than honouring a decision the user undid.
+  Future<_ApplyOutcome> _applyServerConfigTombstone(
+      EncryptedRecord record) async {
+    final store = _servers;
+    if (store == null) return _ApplyOutcome.skipped;
+    final local = await store.byId(record.id);
+    if (local != null && local.excludeFromSync) {
+      return _ApplyOutcome.skipped;
+    }
+    if (local != null && record.deviceId == _deviceId) {
+      final revived = local.copyWith(updatedAt: record.updatedAt + 1);
+      await store.applySyncedRecord(
+        revived,
+        ServerSyncTuple(
+            updatedAt: revived.updatedAt, deviceId: _deviceId),
+      );
+      await _sealServerRecord(revived);
+      return _ApplyOutcome.applied;
+    }
+    if (!_outranksMaterialized(
+        record, await store.syncTupleOf(record.id))) {
+      return _ApplyOutcome.deferred;
+    }
+    await store.removeSyncedRecord(
+      record.id,
+      ServerSyncTuple(
+          updatedAt: record.updatedAt,
+          deviceId: record.deviceId,
+          deleted: true),
+    );
+    return _ApplyOutcome.applied;
+  }
+
+  /// A pulled `secret:` record materializes into the vault under Séance's
+  /// two guards: the exclusion shield (a credential referenced only by
+  /// excluded servers never lands), and the freshness floor (a strictly
+  /// newer local edit is never overwritten — the record layer's own
+  /// tie-break cannot protect a credential this device does not publish).
+  /// Tombstones stay no-ops here — vault material is not something an
+  /// envelope-only signal may strip.
+  Future<_ApplyOutcome> _applySecretRecord(EncryptedRecord record,
+      {required bool holdActive}) async {
+    final vault = _secrets;
+    if (vault == null || record.deleted) return _ApplyOutcome.skipped;
+    final dec = await _openForApply(record);
+    if (dec == null) {
+      return holdActive ? _ApplyOutcome.deferred : _ApplyOutcome.skipped;
+    }
+    if (dec.kind != RecordKind.secret) {
+      await _tripwires.trip(record.id);
+      return _ApplyOutcome.skipped;
+    }
+    final Secret secret;
+    try {
+      secret = Secret.fromJson(dec.data);
+      if (record.id != '$_secretPrefix${secret.id}') {
+        throw const FormatException('secret id mismatch');
+      }
+    } catch (_) {
+      await _tripwires.trip(record.id);
+      return _ApplyOutcome.skipped;
+    }
+    await _tripwires.clear(record.id);
+    if (await _isShieldedSecret(secret.id)) return _ApplyOutcome.skipped;
+    try {
+      final existing = await vault.readableSecret(secret.id);
+      if (existing != null && existing.updatedAt > dec.updatedAt) {
+        return _ApplyOutcome.skipped;
+      }
+      // Persist the envelope stamp so a later local edit can never
+      // manufacture a "newer" version out of an unrelated save —
+      // Séance's rule for legacy records whose payload carries no stamp.
+      await vault.putSecret(secret.copyWith(updatedAt: dec.updatedAt));
+    } catch (_) {
+      // A locked or failing vault leaves the record stored but
+      // unapplied; skipping keeps the pass alive rather than stranding
+      // the cursor — Séance's per-record `skip` posture.
+      return _ApplyOutcome.skipped;
+    }
+    return _ApplyOutcome.applied;
+  }
+
+  /// True when every stored reference to [ref] is excluded — the shield
+  /// that keeps a retracted credential's pulled copies out of the vault.
+  Future<bool> _isShieldedSecret(String ref) async {
+    final store = _servers;
+    if (store == null) return false;
+    var shielded = false;
+    for (final server in await store.load()) {
+      if (server.secretRef != ref) continue;
+      if (!server.excludeFromSync) return false;
+      shielded = true;
+    }
+    return shielded;
   }
 
   /// Decrypt for application: a failure means the record is not for this
@@ -851,24 +1261,36 @@ final class BookmarkCoordinator {
     }
   }
 
-  /// Rebuild the shared-mode catalog from the store's prefixless records —
-  /// live configs materialize, tombstoned and undecodable ones do not.
+  /// Rebuild the shared-mode catalog from the server store. First a
+  /// backfill pass adopts any decodable prefixless record with no
+  /// materialized tuple — pulled by a build that predates the writable
+  /// store, or otherwise never dispatched past the apply cursor — under
+  /// its own envelope tuple; waiting for a seq the cursor already passed
+  /// would leave the catalog empty until the next upstream edit.
   Future<void> _rebuildCatalog(SeanceServerCatalog catalog) async {
-    final servers = <ServerConfig>[];
+    final store = _servers;
+    if (store == null) {
+      catalog.replace(const []);
+      return;
+    }
     for (final record in await _records.allRecords()) {
       if (record.deleted || _prefixOf(record.id) != null) continue;
       final dec = await _openForApply(record);
       if (dec == null || dec.kind != RecordKind.serverConfig) continue;
       try {
         final config = ServerConfig.fromJson(dec.data);
-        if (config.id == record.id) {
-          await _tripwires.clear(record.id);
-          servers.add(config);
-        }
+        if (config.id != record.id) continue;
+        if (await store.syncTupleOf(config.id) != null) continue;
+        await _tripwires.clear(record.id);
+        await store.applySyncedRecord(
+          config,
+          ServerSyncTuple(
+              updatedAt: record.updatedAt, deviceId: record.deviceId),
+        );
       } catch (_) {
         // Left to the apply scan's tripwire.
       }
     }
-    catalog.replace(servers);
+    catalog.replace(await store.load());
   }
 }
