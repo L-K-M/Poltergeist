@@ -7835,6 +7835,65 @@ scripted channel's new watch seam; the full app suite and
 `flutter analyze` pass locally. Native backend behavior stays with the
 engine seam's records (items 14 and 18).
 
+## D32 — the workspace redesign (2026-09-24)
+
+The v1.0 chrome is replaced by the ForkLift/Transmit-style workspace of
+[plan/10](plan/10-WORKSPACE-REDESIGN.md) (decision D32). The shipped
+build rendered every registered command as a toolbar icon (about 40,
+several showing the fallback glyph), stacked six chrome bands above the
+first row, and had three right-hand surfaces plus a status bar that
+always read "Ready".
+
+- **Shell** (`workspace_shell.dart`, `ui/shell/`): a full-height,
+  resizable sidebar (180–360 px); a registry-driven header where a
+  command appears only if it declares a `toolbarPlacement` (D21 holds);
+  and a resizable inspector (240–440 px) with Info, Transfers and
+  Alerts tabs replacing the bottom activity panel, the Get Info
+  overlay, the preview rail and the status bar. Alerts derive from
+  `AlertCenter`. Widths persist; auto-collapse by width never does.
+- **Menus and verbs:** Settings in the macOS app menu, "Commands"
+  renamed Server, a Help menu with a registry-generated shortcuts
+  sheet, and the full tree behind ☰ on Linux and Windows. New verbs:
+  Connect (⌘K), New Folder/File, Duplicate, Delete with D15's
+  confirmation, Copy/Move to Other Pane (F5/F6), Reveal in the file
+  manager.
+- **Panes:** location header with an enclosing-folder menu and
+  selection summary, sortable column header, 22 px rows with kind
+  glyphs, select on pointer-down, registry-built context menus, a tab
+  strip with its own menu, and one banner slot.
+- **Sidebar:** DEVICES / FAVORITES / SERVERS on the portable
+  `sidebar_kit.dart`, which Séance adopted (docs/PORTS.md). Live dots,
+  filter at 8+ servers, bottom bar with "+", sync status and Settings.
+- **Sync:** the Transmit-style Sync Files sheet with a plain-language
+  plan sentence (`sync_policy_sentence.dart`), Simulate / Synchronize,
+  auto-run only for create-only plans, and a review grouped by action.
+- **Platform:** Dock/taskbar progress, the unified macOS toolbar,
+  Séance's accessibility-lifecycle guard, no black flash on Linux
+  resize, and local Open falling back to `gio open` without xdg-utils.
+
+End-to-end check: the Linux debug build against a local sshd (Xvfb,
+xdotool). Connect prompts for the host key before the password and
+remembers it; a 3 MB upload completes (4.7 MB/s) and lands intact with
+its mtime; New Folder, inline rename and Delete (D15 wording) work on
+the server; a remote file opens through a managed checkout and the
+system handler; editing the checkout raises the upload prompt. The run
+found and fixed six bugs, each with a regression test: the Connect
+dialog's disposed focus node (red screen), remote panes never
+refreshing after a transfer (`ServerFsLocation` had no value
+equality), a failed Open disabling the pane's verbs, the missing
+xdg-open fallback, Quick Connect servers shown as `adhoc:<uuid>`, and
+Quick Connect edits that could not be uploaded.
+
+Validation: the full app suite (2093 tests) and `flutter analyze` pass
+locally; the pure-Dart packages pass except two chmod-based checkout
+tests that cannot fail while running as root (CI runs unprivileged).
+Not verified here: anything needing a Mac (toolbar passthrough, the
+ObjC guard, VoiceOver) or an Android device.
+
+Deferred: drag-out to Finder (file promises, D14), column resizing and
+per-location sort persistence, free space in the pane header, and the
+Android slices listed under item 33.
+
 ## D32 — Android and the compact posture (2026-09-24)
 
 Below 600 dp on a touch platform the workspace takes 10 §9's compact
