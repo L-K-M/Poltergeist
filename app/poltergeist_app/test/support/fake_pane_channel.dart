@@ -73,6 +73,74 @@ class FakePaneChannel implements AppBrowseChannel {
     if (failure != null) throw failure;
   }
 
+  /// The scripted watch seam (03 §7.5): requests are recorded,
+  /// [watchFailure] makes every watch request throw, [heldWatch] parks
+  /// the next one until completed (consumed once, like [holdNext]),
+  /// and [onWatch] runs inside the request before it answers — where an
+  /// engine's immediate `lost` lands. [emitWatch] delivers a signal
+  /// synchronously to every current listener.
+  final watchCalls = <String>[];
+  int unwatchCalls = 0;
+  Object? watchFailure;
+  Completer<void>? heldWatch;
+  void Function(String path)? onWatch;
+  final _watchEvents = StreamController<DirectoryWatchEvent>.broadcast(
+    sync: true,
+  );
+
+  final _queuedWatchEvents = <DirectoryWatchEvent>[];
+  bool _deliveringWatchEvent = false;
+
+  /// Whether anything still listens to [directoryChanges].
+  bool get hasWatchListener => _watchEvents.hasListener;
+
+  /// An emit from inside a listener (an [onWatch] reached through a
+  /// signal's own refresh) queues until the current delivery returns,
+  /// still ahead of the pending watch reply, as a port would deliver it.
+  void emitWatch(DirectoryWatchSignal signal, {String? path}) {
+    _queuedWatchEvents.add(
+      DirectoryWatchEvent(
+        channelId: 0,
+        path: path ?? (watchCalls.isEmpty ? '' : watchCalls.last),
+        signal: signal,
+      ),
+    );
+    if (_deliveringWatchEvent) return;
+    _deliveringWatchEvent = true;
+    try {
+      while (_queuedWatchEvents.isNotEmpty) {
+        _watchEvents.add(_queuedWatchEvents.removeAt(0));
+      }
+    } finally {
+      _deliveringWatchEvent = false;
+    }
+  }
+
+  /// Ends [directoryChanges] the way a closed channel or a dead engine
+  /// does.
+  Future<void> closeWatchStream() => _watchEvents.close();
+
+  @override
+  Stream<DirectoryWatchEvent> get directoryChanges => _watchEvents.stream;
+
+  @override
+  Future<void> watchDirectory(String path) async {
+    watchCalls.add(path);
+    final held = heldWatch;
+    if (held != null) {
+      heldWatch = null;
+      await held.future;
+    }
+    final failure = watchFailure;
+    if (failure != null) throw failure;
+    onWatch?.call(path);
+  }
+
+  @override
+  Future<void> unwatchDirectory() async {
+    unwatchCalls++;
+  }
+
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
     listCalls.add(path);

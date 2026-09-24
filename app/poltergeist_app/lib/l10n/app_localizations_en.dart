@@ -870,6 +870,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneNoticePathCopied => 'Path copied to clipboard.';
 
   @override
+  String get paneNoticeWatchStopped =>
+      'This folder stopped updating automatically. Refresh to see new changes.';
+
+  @override
   String get infoPanelLabel => 'Info';
 
   @override

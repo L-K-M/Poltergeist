@@ -1538,6 +1538,12 @@ abstract class AppLocalizations {
   /// **'Path copied to clipboard.'**
   String get paneNoticePathCopied;
 
+  /// Transient notice strip (02 §10): the shown local folder's change watch failed repeatedly, so the listing no longer refreshes on its own until the next navigation, refresh, or tab switch (03 §7.5: watcher failure is never silent).
+  ///
+  /// In en, this message translates to:
+  /// **'This folder stopped updating automatically. Refresh to see new changes.'**
+  String get paneNoticeWatchStopped;
+
   /// Accessible name of the Get Info inspector panel (02 §2.6).
   ///
   /// In en, this message translates to:

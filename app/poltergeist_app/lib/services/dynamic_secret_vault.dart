@@ -9,15 +9,35 @@ import 'secure_master_key.dart';
 /// sealing under the stale key, writing blobs nothing can open.
 /// Delegation makes every operation land on whatever key the provider
 /// currently reports; a null provider result behaves like the locked
-/// vault (nothing readable or writable this session).
+/// vault (nothing readable or writable this session). A provider that
+/// throws (a failing platform keystore) reports through [onError] and
+/// then fails the call: some callers swallow vault faults by design,
+/// so the report is the only trace a broken keystore leaves.
 final class DynamicSecretVault extends SecretVault {
-  DynamicSecretVault(VaultStore store, this._current)
-      : super(store, const <int>[]);
+  DynamicSecretVault(
+    VaultStore store,
+    this._current, {
+    void Function(Object error, StackTrace stackTrace)? onError,
+  })  : // Keep the reporter private while allowing injection.
+        // ignore: prefer_initializing_formals
+        _onError = onError,
+        super(store, const <int>[]);
 
   final Future<SecretVault?> Function() _current;
+  final void Function(Object error, StackTrace stackTrace)? _onError;
 
   Future<SecretVault> _vault() async {
-    final vault = await _current();
+    final SecretVault? vault;
+    try {
+      vault = await _current();
+    } on Object catch (error, stackTrace) {
+      try {
+        _onError?.call(error, stackTrace);
+      } on Object {
+        // Reporting must never mask the keystore fault it reports.
+      }
+      rethrow;
+    }
     if (vault == null) throw const VaultLockedException();
     return vault;
   }

@@ -606,6 +606,35 @@ void main() {
     expect(find.text('report.txt'), findsOneWidget);
   });
 
+  testWidgets('Esc leaves a directory watch re-list running', (
+    tester,
+  ) async {
+    final channel = localChannelWithEntries();
+    await left.openLocalHome();
+    await pumpShell(tester);
+    leftNode.requestFocus();
+    await tester.pump();
+
+    final hold = Completer<void>();
+    channel.holdNext = hold;
+    channel.listings['/home/tester'] = [
+      ...channel.listings['/home/tester']!,
+      _entry('fresh.txt'),
+    ];
+    channel.emitWatch(DirectoryWatchSignal.changed);
+    await tester.pump();
+    expect(left.loading, isTrue);
+
+    // The re-list is the watch's, not a navigation the user started.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(left.loading, isTrue);
+
+    hold.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('fresh.txt'), findsOneWidget);
+  });
+
   Future<void> arrowEnterBackspaceExercise(WidgetTester tester) async {
     localChannelWithEntries();
     await left.openLocalHome();

@@ -47,7 +47,10 @@ void main() {
     ]);
     addTearDown(controller.dispose);
 
+    // Each hop settles: a hop superseded before its watch arms never
+    // reaches the listing seam, and this test counts the hops that do.
     controller.navigate('/home/tester/a');
+    await settle();
     controller.navigate('/home/tester/b');
     await settle();
     expect(controller.location?.path, '/home/tester/b');
@@ -64,6 +67,7 @@ void main() {
     expect(controller.canGoForward, isTrue);
 
     controller.goForward();
+    await settle();
     controller.goForward();
     await settle();
     expect(controller.location?.path, '/home/tester/b');

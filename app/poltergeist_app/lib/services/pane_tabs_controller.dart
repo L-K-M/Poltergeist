@@ -70,7 +70,7 @@ typedef _CloseGuard = (TabCloseTrigger, bool Function(PaneController));
 /// trigger — and the guard, the dialog, and every close route pick it
 /// up unchanged. (Not const: closures cannot be.)
 final _closeGuards = <_CloseGuard>[
-  (TabCloseTrigger.navigation, (c) => c.loading),
+  (TabCloseTrigger.navigation, (c) => c.navigationInFlight),
   (TabCloseTrigger.inlineRename, (c) => c.inlineRenameActive),
   (TabCloseTrigger.folderSize, (c) => c.folderSizeInFlight),
   (TabCloseTrigger.applyToEnclosed, (c) => c.applyToEnclosedInFlight),
@@ -412,6 +412,7 @@ class PaneTabsController extends ChangeNotifier {
     final index = _tabs.indexOf(tab);
     if (index < 0 || index == _activeIndex) return;
     _activeIndex = index;
+    _applyTabActivity();
     notifyListeners();
     _resumeRestoredTab(tab);
   }
@@ -440,6 +441,7 @@ class PaneTabsController extends ChangeNotifier {
     _activeIndex = _tabs.isEmpty
         ? -1
         : state.activeTab.clamp(0, _tabs.length - 1);
+    _applyTabActivity();
     notifyListeners();
     final active = activeTab;
     if (active != null) _resumeRestoredTab(active);
@@ -617,6 +619,7 @@ class PaneTabsController extends ChangeNotifier {
     if (state.tabs.isNotEmpty) {
       _activeIndex = offset + state.activeTab.clamp(0, state.tabs.length - 1);
     }
+    _applyTabActivity();
     notifyListeners();
     // The workspace's active tab resumes exactly like a launch-restored
     // one: local rebinds, remote honors reconnectRestoredTabs.
@@ -651,6 +654,7 @@ class PaneTabsController extends ChangeNotifier {
     if (_disposed || count < 2 || _activeIndex < 0) return;
     // Dart's % is non-negative, so the backward leg wraps for free.
     _activeIndex = (_activeIndex + delta) % count;
+    _applyTabActivity();
     notifyListeners();
     _resumeRestoredTab(_tabs[_activeIndex]);
   }
@@ -751,6 +755,7 @@ class PaneTabsController extends ChangeNotifier {
     } else if (_activeIndex > index) {
       _activeIndex--;
     }
+    _applyTabActivity();
     notifyListeners();
 
     final controller = tab.controller;
@@ -836,11 +841,15 @@ class PaneTabsController extends ChangeNotifier {
     if (_disposed || index < 0) return;
     _tabs.removeAt(index);
     tab.controller.removeListener(_forwardTabChange);
+    // In transit the tab is nobody's visible tab; the destination's
+    // activation re-lists it.
+    tab.controller.setTabActive(false);
     if (_activeIndex == index) {
       _activeIndex = _tabs.isEmpty ? -1 : index.clamp(0, _tabs.length - 1);
     } else if (_activeIndex > index) {
       _activeIndex--;
     }
+    _applyTabActivity();
     notifyListeners();
   }
 
@@ -896,7 +905,18 @@ class PaneTabsController extends ChangeNotifier {
     // browsing state — forward its changes as strip changes.
     controller.addListener(_forwardTabChange);
     _tabs.add(tab);
+    // An arrival behind a visible tab starts in the background; the
+    // strip's first tab stays active for the activation that follows.
+    if (_activeIndex >= 0) controller.setTabActive(false);
     return tab;
+  }
+
+  /// Only the visible tab watches its directory (03 §7.5): re-stamps
+  /// every tab's activity after the tab set or the active tab changes.
+  void _applyTabActivity() {
+    for (var i = 0; i < _tabs.length; i++) {
+      _tabs[i].controller.setTabActive(i == _activeIndex);
+    }
   }
 
   void _forwardTabChange() {

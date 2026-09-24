@@ -236,6 +236,25 @@ class FakePaneChannel implements AppBrowseChannel {
   RemoteFileException? failure;
   Completer<List<RemoteFileEntry>>? heldListing;
 
+  /// Recorded watch requests; the stream stays open like a live
+  /// channel's and never signals.
+  final watchCalls = <String>[];
+  int unwatchCalls = 0;
+  final _watchEvents = StreamController<DirectoryWatchEvent>.broadcast();
+
+  @override
+  Stream<DirectoryWatchEvent> get directoryChanges => _watchEvents.stream;
+
+  @override
+  Future<void> watchDirectory(String path) async {
+    watchCalls.add(path);
+  }
+
+  @override
+  Future<void> unwatchDirectory() async {
+    unwatchCalls++;
+  }
+
   @override
   Future<void> rename(String oldPath, String newPath) async {}
 
