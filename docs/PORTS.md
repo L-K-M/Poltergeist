@@ -123,7 +123,7 @@ port candidates.
   missing serialized mutation queue: a `putSecret`/`deleteSecret`
   racing the batch can interleave flushes (the port-back candidate
   below already records that gap).
-- 2026-10-06: the re-key journal IS adopted — bidirectional server sync
+- 2026-09-24: the re-key journal IS adopted — bidirectional server sync
   (04 §4.2 amendment) makes `SecureSyncCredentialStore.writeVaultKey` a
   real re-key path, and swapping the OS-keystore key without the
   two-generation journal would orphan every credential on any crash or
@@ -171,7 +171,7 @@ port candidates.
 
 - Source: app/seance_app/test/vault_rekey_journal_test.dart
 - Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (tag v0.9.1)
-- Ported: 2026-10-06
+- Ported: 2026-09-24
 - Divergences: the `AppServices`-driven groups are replaced by
   `SecureSyncCredentialStore.writeVaultKey` coverage over a fake keystore
   (Poltergeist has no AppServices — the re-key path lives in the sync

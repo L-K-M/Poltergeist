@@ -696,7 +696,7 @@ class BookmarkCoordinator {
 Two collaborator types are defined here. `RecordCrypto` wraps `RecordCodec`
 plus the vault key — encrypt/decrypt/tombstone methods — so the coordinator
 never touches key material directly. `SeanceServerCatalog` is an in-memory
-materialization of the `ServerConfig` store (writable per the 2026-10-06
+materialization of the `ServerConfig` store (writable per the 2026-09-24
 §4.2 amendment — local saves and pulled records alike land in the store,
 and the catalog rebuilds from it after each apply or local mutation); it
 has no file of its own, and its API is `List<CatalogServer> servers`.
@@ -721,7 +721,7 @@ shared-mode test that materializes the catalog from a Séance-written
 record pins the real convention). `snippet:` and
 unrecognized `<prefix>:` ids are skip-preserved without ever being
 decrypted — prefixless and `secret:` ids too in separate mode, where no
-server store or vault exists. (Amended 2026-10-06: `secret:` ids decrypt
+server store or vault exists. (Amended 2026-09-24: `secret:` ids decrypt
 in shared mode — the writable-vault amendment above makes the credential
 domain Poltergeist's own. `snippet:` stays never-decrypted, keeping that
 content out of Poltergeist's memory entirely.) The dispatch on
@@ -925,7 +925,7 @@ key is scoped.
 
 What shared mode unlocks:
 
-- **Writable Séance server catalog (amended 2026-10-06, owner directive).**
+- **Writable Séance server catalog (amended 2026-09-24, owner directive).**
   Pulled `serverConfig` records materialize a "Séance servers" section in
   the sidebar — ready-made SFTP targets (same host/port/username/auth;
   SFTP rides SSH) — and the section is a **read-write** surface: servers
@@ -971,7 +971,7 @@ Hard rules in shared mode:
   data. Settings show only "Sign out on this device" (forgets the local
   token and keys; server data untouched).
 - Poltergeist writes `bookmark`, `hostkey`, `serverConfig`, and opted-in
-  `secret` records (§3.2; `serverConfig`/`secret` added by the 2026-10-06
+  `secret` records (§3.2; `serverConfig`/`secret` added by the 2026-09-24
   amendment above) — never `snippet` or unknown kinds.
 - Enrollment is login-only (the account exists); registration UI is hidden.
 
@@ -1585,7 +1585,7 @@ its full cost so nobody "simplifies" the delay away).
   the same tuple-guarded paths Poltergeist's own writes take, and cost
   nothing at this scale.
 - Synced `secret` records are in v1 after all — promoted by the
-  2026-10-06 §4.2 amendment (bidirectional server management requires the
+  2026-09-24 §4.2 amendment (bidirectional server management requires the
   credential to travel with its config). Séance's publish/shield/
   freshness-floor rules apply verbatim; `secret:` tombstones remain
   no-ops.
