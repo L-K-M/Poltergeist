@@ -1839,6 +1839,16 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         in widget.bookmarkBackup?.catalog?.servers ?? const <ServerConfig>[]) {
       if (server.id == serverId) return server.label;
     }
+    // A Quick Connect session is in neither list: its only record is
+    // the ad-hoc bookmark bound on the tab that opened it.
+    final workspace = _workspace;
+    if (workspace == null) return null;
+    for (final strip in [workspace.left, workspace.right]) {
+      for (final tab in strip.tabs) {
+        final bookmark = tab.controller.remoteBookmark;
+        if (bookmark != null && bookmark.id == serverId) return bookmark.label;
+      }
+    }
     return null;
   }
 

@@ -134,4 +134,43 @@ void main() {
     expect(remote.listCalls.length, greaterThan(listedBefore));
     expect(remote.listCalls.last, '/home/demo');
   });
+
+  testWidgets('transfer rows name a Quick Connect server by its address', (
+    tester,
+  ) async {
+    final queue = FakeAppTransferQueue();
+    await pumpApp(tester, queue: queue);
+    await runShellCommand(tester, 'connect.quickConnect');
+    await tester.enterText(
+      find.byKey(const ValueKey('quickConnect.field')),
+      'demo@example.com',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    final serverId = engine.openCalls.single.serverId;
+
+    queue.addTask(
+      source: ServerFsLocation(serverId),
+      destination: const LocalFsLocation(),
+      rootPaths: const ['/home/demo/app.log'],
+      destinationDir: '/home/tester',
+      state: TransferTaskState.completed,
+    );
+    await tester.tap(find.byKey(const ValueKey('inspector.tab.transfers')));
+    await tester.pumpAndSettle();
+
+    final panel = find.byKey(const ValueKey('activity.panel'));
+    expect(
+      find.descendant(of: panel, matching: find.textContaining(serverId)),
+      findsNothing,
+      reason: 'an ad-hoc server id is plumbing, never a label',
+    );
+    expect(
+      find.descendant(
+        of: panel,
+        matching: find.textContaining('demo@example.com'),
+      ),
+      findsWidgets,
+    );
+  });
 }
