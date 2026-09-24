@@ -3602,4 +3602,412 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get headerTitleEmpty => 'No location';
+
+  @override
+  String syncPolicyOneWay(
+    String destinationKind,
+    String destination,
+    String sourceKind,
+    String source,
+  ) {
+    String _temp0 = intl.Intl.selectLogic(destinationKind, {
+      'remote': 'remote',
+      'other': 'local',
+    });
+    String _temp1 = intl.Intl.selectLogic(sourceKind, {
+      'remote': 'remote',
+      'other': 'local',
+    });
+    return 'Your $_temp0 folder “$destination” will be updated from your $_temp1 folder “$source”.';
+  }
+
+  @override
+  String syncPolicyReplaceSizeDate(String source, String destination) {
+    return 'Files that differ in size or modification date will be replaced with the version from “$source”, even when the copy in “$destination” is newer.';
+  }
+
+  @override
+  String syncPolicyReplaceSize(String source) {
+    return 'Files that differ in size will be replaced with the version from “$source”. Files of the same size are left alone, even when their dates differ.';
+  }
+
+  @override
+  String syncPolicyReplaceChecksum(String source) {
+    return 'Files whose size or contents differ will be replaced with the version from “$source”. Contents are compared by checksum, which reads every file of matching size on both sides.';
+  }
+
+  @override
+  String get syncPolicySizeOnlyFallback =>
+      'Modification dates proved unreliable for this pair, so only sizes are compared.';
+
+  @override
+  String syncPolicyBackupsInRoot(String trash, String destination) {
+    return 'Previous versions of replaced files are kept in $trash inside “$destination”.';
+  }
+
+  @override
+  String syncPolicyBackupsAt(String trashPath) {
+    return 'Previous versions of replaced files are kept in $trashPath.';
+  }
+
+  @override
+  String get syncPolicyBackupsNone =>
+      'Replaced files are overwritten without a backup.';
+
+  @override
+  String syncPolicyDeleteTrash(
+    String destination,
+    String source,
+    String trash,
+  ) {
+    return 'Files in “$destination” that aren’t in “$source” will be deleted (moved to $trash).';
+  }
+
+  @override
+  String syncPolicyDeletePermanent(String destination, String source) {
+    return 'Files in “$destination” that aren’t in “$source” will be deleted permanently.';
+  }
+
+  @override
+  String get syncPolicyNoDeletes => 'No files will be deleted.';
+
+  @override
+  String syncPolicyBothWays(
+    String leftKind,
+    String left,
+    String rightKind,
+    String right,
+  ) {
+    String _temp0 = intl.Intl.selectLogic(leftKind, {
+      'remote': 'remote',
+      'other': 'local',
+    });
+    String _temp1 = intl.Intl.selectLogic(rightKind, {
+      'remote': 'remote',
+      'other': 'local',
+    });
+    return 'Your $_temp0 folder “$left” and your $_temp1 folder “$right” will each receive the files only the other one has.';
+  }
+
+  @override
+  String get syncPolicyDifferSizeDate =>
+      'Files count as different when their size or modification date differs.';
+
+  @override
+  String get syncPolicyDifferSize =>
+      'Files count as different only when their size differs.';
+
+  @override
+  String get syncPolicyDifferChecksum =>
+      'Files count as different when their size or checksum differs.';
+
+  @override
+  String get syncPolicyConflictAsk =>
+      'Files that differ are held as conflicts for you to decide; nothing is replaced automatically.';
+
+  @override
+  String get syncPolicyConflictNewer =>
+      'When a file differs, the newer copy replaces the older one.';
+
+  @override
+  String syncPolicyConflictKeep(String winner) {
+    return 'When a file differs, the version from “$winner” replaces the other copy.';
+  }
+
+  @override
+  String get syncPolicyConflictSkip => 'Files that differ are left alone.';
+
+  @override
+  String get syncPolicyBackupsEachSide =>
+      'Previous versions of replaced files are kept in each side’s sync trash.';
+
+  @override
+  String get syncPolicyHiddenSkipped => 'Hidden files are left out.';
+
+  @override
+  String syncPolicyRulesSkipped(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Items matching $count rules are left out.',
+      one: 'Items matching 1 rule are left out.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncSheetTitle => 'Sync Files';
+
+  @override
+  String get syncSheetNewSavedTitle => 'New Saved Sync';
+
+  @override
+  String get syncSheetThisComputer => 'This computer';
+
+  @override
+  String get syncSheetServerFallback => 'Server';
+
+  @override
+  String get syncSheetChooseFolders => 'Choose Folders…';
+
+  @override
+  String syncSheetDirectionTooltip(String source, String destination) {
+    return 'From $source to $destination. Click to reverse.';
+  }
+
+  @override
+  String get syncSheetBothWaysTooltip => 'Both ways. Click to sync one way.';
+
+  @override
+  String syncSheetCompareSentence(String choice) {
+    return 'Use the $choice to determine if a file has changed';
+  }
+
+  @override
+  String get syncSheetCompareSizeDate => 'Size and Modification Date';
+
+  @override
+  String get syncSheetCompareSize => 'File Size';
+
+  @override
+  String get syncSheetCompareChecksum => 'Checksum';
+
+  @override
+  String get syncSheetDeleteOrphans => 'Delete orphaned destination files';
+
+  @override
+  String get syncSheetDeleteOrphansBothWays =>
+      'Not available when syncing both ways';
+
+  @override
+  String get syncSheetDeleteToTrash => 'Move to trash (recommended)';
+
+  @override
+  String get syncSheetDeletePermanently => 'Delete permanently';
+
+  @override
+  String get syncSheetIncludeHidden => 'Include hidden files';
+
+  @override
+  String get syncSheetSkipRules => 'Skip items matching rules';
+
+  @override
+  String syncSheetRuleCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count rules',
+      one: '1 rule',
+      zero: 'No rules',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncSheetEditRules => 'Edit Rules…';
+
+  @override
+  String syncSheetTolerance(int seconds) {
+    String _temp0 = intl.Intl.pluralLogic(
+      seconds,
+      locale: localeName,
+      other: 'Modification date tolerance: $seconds seconds',
+      one: 'Modification date tolerance: 1 second',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncSheetToleranceHourShift => 'ignoring exact 1-hour differences';
+
+  @override
+  String syncSheetToleranceOtherShifts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'plus $count custom time shifts',
+      one: 'plus 1 custom time shift',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncSheetToleranceUnused => 'Modification dates aren’t compared';
+
+  @override
+  String get syncSheetTimeOffset => 'Time Offset…';
+
+  @override
+  String get syncSheetPlanLead => 'Here’s the plan:';
+
+  @override
+  String get syncSheetMore => 'More options';
+
+  @override
+  String get syncSheetBothWays => 'Sync Both Ways (Additive)';
+
+  @override
+  String get syncSheetAdvanced => 'Advanced…';
+
+  @override
+  String get syncSheetSimulate => 'Simulate';
+
+  @override
+  String get syncSheetSynchronize => 'Synchronize';
+
+  @override
+  String get syncSheetSimulateTooltip =>
+      'Scan both sides and review the plan. Nothing changes until you run it.';
+
+  @override
+  String get syncSheetSynchronizeTooltip =>
+      'Scan, then copy straight away when nothing would be replaced, deleted, or in conflict. Otherwise you review the plan first.';
+
+  @override
+  String get syncFavoriteNameTitle => 'Save as Favorite';
+
+  @override
+  String get syncRulesTitle => 'Skip Rules';
+
+  @override
+  String get syncRulesHint =>
+      'One pattern per line, gitignore style: *.log, build/, /private.txt, !keep.log';
+
+  @override
+  String get syncRulesDefaultsTitle => 'Always skipped';
+
+  @override
+  String get syncRulesDone => 'Done';
+
+  @override
+  String get syncTimeOffsetTitle => 'Time Offset';
+
+  @override
+  String get syncTimeOffsetToleranceLabel => 'Tolerance in seconds';
+
+  @override
+  String get syncTimeOffsetToleranceHelp =>
+      'Modification dates this close together count as the same.';
+
+  @override
+  String get syncTimeOffsetHourShift => 'Ignore exact 1-hour differences';
+
+  @override
+  String get syncTimeOffsetHourShiftHelp =>
+      'For drives that store local time, such as FAT, across a daylight saving change.';
+
+  @override
+  String syncHoldBanner(String reasons) {
+    return 'This plan $reasons — review before running.';
+  }
+
+  @override
+  String syncHoldDeletes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'deletes $count files',
+      one: 'deletes 1 file',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHoldEmptyFolders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'removes $count empty folders',
+      one: 'removes 1 empty folder',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHoldReplaces(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'replaces $count files',
+      one: 'replaces 1 file',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHoldConflicts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'has $count conflicts',
+      one: 'has 1 conflict',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncSectionCopy => 'Copy';
+
+  @override
+  String get syncSectionUpdate => 'Update';
+
+  @override
+  String get syncSectionDelete => 'Delete';
+
+  @override
+  String get syncSectionConflicts => 'Conflicts';
+
+  @override
+  String get syncSectionSkipped => 'Skipped';
+
+  @override
+  String syncSectionSemantics(String section, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items',
+      one: '1 item',
+    );
+    return '$section, $_temp0';
+  }
+
+  @override
+  String get syncColumnPath => 'Path';
+
+  @override
+  String get syncColumnReason => 'Reason';
+
+  @override
+  String syncRowSemantics(String path, String action, String reason) {
+    return '$path: $action, $reason';
+  }
+
+  @override
+  String syncRowActionCopy(String side) {
+    return 'copy to “$side”';
+  }
+
+  @override
+  String syncRowActionUpdate(String side) {
+    return 'replace in “$side”';
+  }
+
+  @override
+  String syncRowActionMakeDir(String side) {
+    return 'create folder in “$side”';
+  }
+
+  @override
+  String syncRowActionDelete(String side) {
+    return 'delete from “$side”';
+  }
+
+  @override
+  String get syncRowActionConflict => 'conflict';
+
+  @override
+  String get syncRowActionSkip => 'skip';
+
+  @override
+  String get syncRowToggleHint => 'Space includes or skips this row';
 }

@@ -79,6 +79,7 @@ import 'sidebar/sidebar_view.dart';
 import 'sync/rsync_copy.dart';
 import 'sync/sync_commands.dart';
 import 'sync/sync_pair_editor.dart';
+import 'sync/sync_setup_sheet.dart';
 import 'sync/sync_plan_format.dart' show syncEndpointLabel;
 import 'top_toast.dart';
 import 'workspace/workspace_commands.dart';
@@ -2982,9 +2983,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// ── Sync pair openings (05 §9) ───────────────────────────────────
   ///
   /// All three entry points — `sync.synchronizePanes` (⌥⌘Y), the
-  /// sidebar's savedSync row, and `sync.newSavedSync`'s post-save
-  /// open — land on the same path: build or decode the SyncPair, mint
-  /// a SyncPlanController bound to the shared environment and the
+  /// sidebar's savedSync row, and `sync.newSavedSync` — build or decode
+  /// the SyncPair and show it in the Sync sheet (D32 §7). The sheet's
+  /// Simulate/Synchronize land on the same path: mint a
+  /// SyncPlanController bound to the shared environment and the
   /// activity-panel task registry, and open its transient plan tab on
   /// the resolved pane.
 
@@ -3042,31 +3044,44 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         syncEndpointLabel(right, shortenRemotePath: true),
       );
 
-  /// `sync.synchronizePanes` (05 §9): the ad-hoc pair from both
-  /// panes' live locations — never persisted as a favorite, so its
-  /// state keys on the canonical pair id alone (§9's ad-hoc rule).
+  /// `sync.synchronizePanes` (05 §9, D32 §7): the ad-hoc pair from
+  /// both panes' live locations, shown in the Sync sheet first — the
+  /// FOCUSED pane is the source. Never persisted unless the sheet's
+  /// Save as Favorite runs, so its state keys on the canonical pair id
+  /// alone (§9's ad-hoc rule).
   Future<void> _synchronizePanes() async {
+    final pair = _paneSyncPair(name: null);
+    if (pair == null) return;
+    await _showSyncSheet(SyncSheetMode.adHoc, pair);
+  }
+
+  /// Both panes as a pair, direction pointing away from the focused
+  /// pane; null while either pane has no syncable location. [name]
+  /// null uses the ad-hoc "left ⇄ right" label.
+  SyncPair? _paneSyncPair({required String? name}) {
     final workspace = _workspace;
-    if (workspace == null) return;
+    if (workspace == null) return null;
     final left = _syncEndpointFor(workspace.left);
     final right = _syncEndpointFor(workspace.right);
-    if (left == null || right == null) return;
-    final l10n = AppLocalizations.of(context);
-    await _openSyncPlan(
-      SyncPair(
-        id: uuidV4(),
-        name: _syncPairLabel(l10n, left, right),
-        left: left,
-        right: right,
-        rules: const SyncRuleSet(),
+    if (left == null || right == null) return null;
+    final rightFocused = identical(workspace.activePane, workspace.right);
+    return SyncPair(
+      id: uuidV4(),
+      name: name ?? _syncPairLabel(AppLocalizations.of(context), left, right),
+      left: left,
+      right: right,
+      rules: SyncRuleSet(
+        direction: rightFocused
+            ? SyncDirection.rightToLeft
+            : SyncDirection.leftToRight,
       ),
     );
   }
 
-  /// The savedSync favorite's open (05 §9): decode the spec back into
-  /// its SyncPair — a spec-less row is a malformed favorite, reported
-  /// rather than silently ignored — and open its plan view on the
-  /// resolved pane.
+  /// The savedSync favorite's open (05 §9, D32 §7): decode the spec
+  /// back into its SyncPair — a spec-less row is a malformed favorite,
+  /// reported rather than silently ignored — and show it in the Sync
+  /// sheet, whose verbs open the plan view on the resolved pane.
   Future<void> _openSavedSyncFavorite(
     Bookmark bookmark,
     PaneTabsController strip,
@@ -3079,33 +3094,102 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       );
       return;
     }
-    await _openSyncPlan(pair, strip: strip);
+    await _showSyncSheet(SyncSheetMode.saved, pair, strip: strip);
   }
 
-  /// `sync.newSavedSync` (05 §9): the pair editor collects the
-  /// definition, the result persists as a savedSync bookmark, and
-  /// its plan view opens — the same surface the sidebar row lands on.
+  /// `sync.newSavedSync` (05 §9, D32 §7): the Sync sheet in its
+  /// new-favorite mode, prefilled from the panes when both are bound.
+  /// Every verb but Cancel persists the favorite first.
   Future<void> _newSavedSync() async {
+    if (widget.bookmarks == null) return;
+    await _showSyncSheet(SyncSheetMode.newSaved, _paneSyncPair(name: ''));
+  }
+
+  /// The Sync sheet's one entry (D32 §7): gathers what it renders (the
+  /// server choices for Advanced…, the stored pair state for the plan
+  /// sentence), then acts on the verb it closed with. The sheet never
+  /// scans — Simulate and Synchronize open the plan tab exactly as the
+  /// pre-D32 entries did, Synchronize with its auto-run intent.
+  Future<void> _showSyncSheet(
+    SyncSheetMode mode,
+    SyncPair? initial, {
+    PaneTabsController? strip,
+  }) async {
+    final environment = widget.syncEnvironment;
+    if (environment == null) return;
     final store = widget.bookmarks;
-    if (store == null) return;
-    final servers = await _syncServerChoices(store);
+    final servers = store == null
+        ? const <Bookmark>[]
+        : await _syncServerChoices(store);
+    final pairState = initial == null
+        ? null
+        : await _storedSyncPairState(environment, initial);
     if (!mounted) return;
-    final result = await showDialog<SyncPairEditorResult>(
-      context: context,
-      builder: (_) => SyncPairEditorDialog(servers: servers),
+    final result = await showSyncSetupSheet(
+      context,
+      mode: mode,
+      initial: initial,
+      pairState: pairState,
+      servers: servers,
+      endpointAvailable: environment.endpointAvailable,
+      rsyncEndpoints: (pair) =>
+          resolveRsyncEndpoints(pair, serverConfig: _serverConfigById),
+      onSaveFavorite: store == null ? null : _saveSyncPairFromSheet,
+      serverFor: (ref) => switch (ref.serverConfigId) {
+        final String id => _serverConfigById(id),
+        null => null,
+      },
     );
     if (result == null || !mounted) return;
+    if (mode == SyncSheetMode.newSaved) {
+      if (!await _saveSyncPairFromSheet(result.pair)) return;
+      if (result.action == SyncSheetAction.save || !mounted) return;
+    }
+    await _openSyncPlan(
+      result.pair,
+      caseOverrides: result.caseOverrides,
+      strip: strip,
+      intent: result.action == SyncSheetAction.synchronize
+          ? SyncPlanIntent.synchronize
+          : SyncPlanIntent.review,
+    );
+  }
+
+  /// The sheet's pre-scan read of the pair's stored state — a store
+  /// fault reports and leaves the sentence without the clock flags
+  /// rather than blocking the sheet.
+  Future<SyncPairState?> _storedSyncPairState(
+    SyncEnvironment environment,
+    SyncPair pair,
+  ) async {
     try {
-      await _persistSyncPair(result.pair);
+      return await loadStoredSyncPairState(environment.states, pair);
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      return null;
+    }
+  }
+
+  /// Persists a sheet pair as its savedSync favorite and confirms with
+  /// the saved toast; a store fault reports, surfaces the honest
+  /// notice, and answers false so the sheet stays unsaved.
+  Future<bool> _saveSyncPairFromSheet(SyncPair pair) async {
+    try {
+      await _persistSyncPair(pair);
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
       if (mounted) {
         _showSidebarNotice(AppLocalizations.of(context).sidebarActionFailed);
       }
-      return;
+      return false;
     }
-    if (!mounted) return;
-    await _openSyncPlan(result.pair, caseOverrides: result.caseOverrides);
+    if (mounted) {
+      showTopToastIn(
+        context,
+        message: AppLocalizations.of(context).syncSavedFavoriteToast(pair.name),
+      );
+    }
+    return true;
   }
 
   /// The plan view's Save as Favorite (05 §7): persists the open
@@ -3207,11 +3291,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
   /// Every sync open lands here: one SyncPlanController per tab on
   /// the resolved strip (default the active pane), deviceId resolved
-  /// once for the session's run-id prefixes.
+  /// once for the session's run-id prefixes. [intent] is the sheet's
+  /// verb — Synchronize auto-runs a creates-only plan (D32 §7).
   Future<void> _openSyncPlan(
     SyncPair pair, {
     SyncCaseOverrides? caseOverrides,
     PaneTabsController? strip,
+    SyncPlanIntent intent = SyncPlanIntent.review,
   }) async {
     final environment = widget.syncEnvironment;
     final syncTasks = widget.syncTasks;
@@ -3232,6 +3318,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         syncTasks: syncTasks,
         deviceId: deviceId,
         caseOverrides: caseOverrides,
+        intent: intent,
         // 05 §2.1's export seam: shared-mode `serverConfigId` refs
         // resolve through the pulled Séance catalog; embedded
         // identities resolve directly (rsync_endpoints.dart).

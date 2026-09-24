@@ -5609,6 +5609,526 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No location'**
   String get headerTitleEmpty;
+
+  /// Sync sheet plan sentence (D32 §7): a one-way pair's opening clause.
+  ///
+  /// In en, this message translates to:
+  /// **'Your {destinationKind, select, remote{remote} other{local}} folder “{destination}” will be updated from your {sourceKind, select, remote{remote} other{local}} folder “{source}”.'**
+  String syncPolicyOneWay(
+    String destinationKind,
+    String destination,
+    String sourceKind,
+    String source,
+  );
+
+  /// Plan sentence: one-way replacement under the size-and-date comparison. The engine replaces on ANY difference, so the copy never says only older files are replaced.
+  ///
+  /// In en, this message translates to:
+  /// **'Files that differ in size or modification date will be replaced with the version from “{source}”, even when the copy in “{destination}” is newer.'**
+  String syncPolicyReplaceSizeDate(String source, String destination);
+
+  /// Plan sentence: one-way replacement under the size-only comparison.
+  ///
+  /// In en, this message translates to:
+  /// **'Files that differ in size will be replaced with the version from “{source}”. Files of the same size are left alone, even when their dates differ.'**
+  String syncPolicyReplaceSize(String source);
+
+  /// Plan sentence: one-way replacement under the checksum comparison.
+  ///
+  /// In en, this message translates to:
+  /// **'Files whose size or contents differ will be replaced with the version from “{source}”. Contents are compared by checksum, which reads every file of matching size on both sides.'**
+  String syncPolicyReplaceChecksum(String source);
+
+  /// Plan sentence: the engine's automatic size-only fallback after a side refused to keep modification dates.
+  ///
+  /// In en, this message translates to:
+  /// **'Modification dates proved unreliable for this pair, so only sizes are compared.'**
+  String get syncPolicySizeOnlyFallback;
+
+  /// Plan sentence: overwrite backups go to the in-root sync trash folder of the destination.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous versions of replaced files are kept in {trash} inside “{destination}”.'**
+  String syncPolicyBackupsInRoot(String trash, String destination);
+
+  /// Plan sentence: overwrite backups go to a configured out-of-root trash path.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous versions of replaced files are kept in {trashPath}.'**
+  String syncPolicyBackupsAt(String trashPath);
+
+  /// Plan sentence: overwrite backups are turned off (a destructive clause).
+  ///
+  /// In en, this message translates to:
+  /// **'Replaced files are overwritten without a backup.'**
+  String get syncPolicyBackupsNone;
+
+  /// Plan sentence: Mirror deletions into the sync trash (a destructive clause).
+  ///
+  /// In en, this message translates to:
+  /// **'Files in “{destination}” that aren’t in “{source}” will be deleted (moved to {trash}).'**
+  String syncPolicyDeleteTrash(String destination, String source, String trash);
+
+  /// Plan sentence: Mirror deletions without a trash (a destructive clause).
+  ///
+  /// In en, this message translates to:
+  /// **'Files in “{destination}” that aren’t in “{source}” will be deleted permanently.'**
+  String syncPolicyDeletePermanent(String destination, String source);
+
+  /// Plan sentence: the no-deletion assurance.
+  ///
+  /// In en, this message translates to:
+  /// **'No files will be deleted.'**
+  String get syncPolicyNoDeletes;
+
+  /// Plan sentence: an Additive (both ways) pair's opening clause.
+  ///
+  /// In en, this message translates to:
+  /// **'Your {leftKind, select, remote{remote} other{local}} folder “{left}” and your {rightKind, select, remote{remote} other{local}} folder “{right}” will each receive the files only the other one has.'**
+  String syncPolicyBothWays(
+    String leftKind,
+    String left,
+    String rightKind,
+    String right,
+  );
+
+  /// Plan sentence (both ways): what makes two copies differ under size-and-date.
+  ///
+  /// In en, this message translates to:
+  /// **'Files count as different when their size or modification date differs.'**
+  String get syncPolicyDifferSizeDate;
+
+  /// Plan sentence (both ways): what makes two copies differ under size-only.
+  ///
+  /// In en, this message translates to:
+  /// **'Files count as different only when their size differs.'**
+  String get syncPolicyDifferSize;
+
+  /// Plan sentence (both ways): what makes two copies differ under checksum.
+  ///
+  /// In en, this message translates to:
+  /// **'Files count as different when their size or checksum differs.'**
+  String get syncPolicyDifferChecksum;
+
+  /// Plan sentence (both ways): differing files become conflicts.
+  ///
+  /// In en, this message translates to:
+  /// **'Files that differ are held as conflicts for you to decide; nothing is replaced automatically.'**
+  String get syncPolicyConflictAsk;
+
+  /// Plan sentence (both ways): the newer-wins conflict default.
+  ///
+  /// In en, this message translates to:
+  /// **'When a file differs, the newer copy replaces the older one.'**
+  String get syncPolicyConflictNewer;
+
+  /// Plan sentence (both ways): a keep-this-side conflict default.
+  ///
+  /// In en, this message translates to:
+  /// **'When a file differs, the version from “{winner}” replaces the other copy.'**
+  String syncPolicyConflictKeep(String winner);
+
+  /// Plan sentence (both ways): the skip conflict default.
+  ///
+  /// In en, this message translates to:
+  /// **'Files that differ are left alone.'**
+  String get syncPolicyConflictSkip;
+
+  /// Plan sentence (both ways): overwrite backups land in the trash of whichever side is written.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous versions of replaced files are kept in each side’s sync trash.'**
+  String get syncPolicyBackupsEachSide;
+
+  /// Plan sentence: include-hidden is off.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden files are left out.'**
+  String get syncPolicyHiddenSkipped;
+
+  /// Plan sentence: the pair skips items matching its exclude rules.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Items matching 1 rule are left out.} other{Items matching {count} rules are left out.}}'**
+  String syncPolicyRulesSkipped(int count);
+
+  /// Title of the sync options sheet (D32 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Sync Files'**
+  String get syncSheetTitle;
+
+  /// Title of the sync sheet when it creates a saved sync favorite.
+  ///
+  /// In en, this message translates to:
+  /// **'New Saved Sync'**
+  String get syncSheetNewSavedTitle;
+
+  /// Endpoint tile caption for a local folder.
+  ///
+  /// In en, this message translates to:
+  /// **'This computer'**
+  String get syncSheetThisComputer;
+
+  /// Endpoint tile caption for a server whose name is unknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Server'**
+  String get syncSheetServerFallback;
+
+  /// Endpoint tile label when a side has no folder yet; opens the full pair editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose Folders…'**
+  String get syncSheetChooseFolders;
+
+  /// Tooltip and accessibility label of the direction toggle between the endpoint tiles.
+  ///
+  /// In en, this message translates to:
+  /// **'From {source} to {destination}. Click to reverse.'**
+  String syncSheetDirectionTooltip(String source, String destination);
+
+  /// Tooltip of the direction toggle while the pair syncs both ways.
+  ///
+  /// In en, this message translates to:
+  /// **'Both ways. Click to sync one way.'**
+  String get syncSheetBothWaysTooltip;
+
+  /// The comparison row. {choice} marks where the comparison dropdown sits; the text around it renders on either side.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the {choice} to determine if a file has changed'**
+  String syncSheetCompareSentence(String choice);
+
+  /// Comparison dropdown choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Size and Modification Date'**
+  String get syncSheetCompareSizeDate;
+
+  /// Comparison dropdown choice.
+  ///
+  /// In en, this message translates to:
+  /// **'File Size'**
+  String get syncSheetCompareSize;
+
+  /// Comparison dropdown choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Checksum'**
+  String get syncSheetCompareChecksum;
+
+  /// Checkbox: delete destination files the source does not have (Mirror).
+  ///
+  /// In en, this message translates to:
+  /// **'Delete orphaned destination files'**
+  String get syncSheetDeleteOrphans;
+
+  /// Caption under the disabled delete checkbox in Additive mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Not available when syncing both ways'**
+  String get syncSheetDeleteOrphansBothWays;
+
+  /// Radio under the delete checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to trash (recommended)'**
+  String get syncSheetDeleteToTrash;
+
+  /// Radio under the delete checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete permanently'**
+  String get syncSheetDeletePermanently;
+
+  /// Checkbox in the sync sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Include hidden files'**
+  String get syncSheetIncludeHidden;
+
+  /// Checkbox in the sync sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip items matching rules'**
+  String get syncSheetSkipRules;
+
+  /// Button showing how many exclude rules the pair has.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No rules} =1{1 rule} other{{count} rules}}'**
+  String syncSheetRuleCount(int count);
+
+  /// Opens the exclude-rules editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Rules…'**
+  String get syncSheetEditRules;
+
+  /// The time-tolerance row of the sync sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'{seconds, plural, =1{Modification date tolerance: 1 second} other{Modification date tolerance: {seconds} seconds}}'**
+  String syncSheetTolerance(int seconds);
+
+  /// Appended to the tolerance row when 1-hour shifts are accepted.
+  ///
+  /// In en, this message translates to:
+  /// **'ignoring exact 1-hour differences'**
+  String get syncSheetToleranceHourShift;
+
+  /// Appended to the tolerance row for accepted shifts other than one hour (set in older builds or the advanced editor).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{plus 1 custom time shift} other{plus {count} custom time shifts}}'**
+  String syncSheetToleranceOtherShifts(int count);
+
+  /// The tolerance row while the comparison ignores dates.
+  ///
+  /// In en, this message translates to:
+  /// **'Modification dates aren’t compared'**
+  String get syncSheetToleranceUnused;
+
+  /// Opens the time-tolerance dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Time Offset…'**
+  String get syncSheetTimeOffset;
+
+  /// Lead-in above the plain-language plan sentence.
+  ///
+  /// In en, this message translates to:
+  /// **'Here’s the plan:'**
+  String get syncSheetPlanLead;
+
+  /// Tooltip of the sheet’s ⋯ menu button.
+  ///
+  /// In en, this message translates to:
+  /// **'More options'**
+  String get syncSheetMore;
+
+  /// ⋯ menu item that makes the pair copy missing files in both directions.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync Both Ways (Additive)'**
+  String get syncSheetBothWays;
+
+  /// ⋯ menu item opening the full pair editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced…'**
+  String get syncSheetAdvanced;
+
+  /// Sheet button: scan and open the review without changing anything.
+  ///
+  /// In en, this message translates to:
+  /// **'Simulate'**
+  String get syncSheetSimulate;
+
+  /// Sheet button (default): scan, then run when nothing is replaced, deleted, or in conflict.
+  ///
+  /// In en, this message translates to:
+  /// **'Synchronize'**
+  String get syncSheetSynchronize;
+
+  /// Tooltip of the Simulate button.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan both sides and review the plan. Nothing changes until you run it.'**
+  String get syncSheetSimulateTooltip;
+
+  /// Tooltip of the Synchronize button.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan, then copy straight away when nothing would be replaced, deleted, or in conflict. Otherwise you review the plan first.'**
+  String get syncSheetSynchronizeTooltip;
+
+  /// Title of the name dialog that saves a sync pair to the sidebar.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as Favorite'**
+  String get syncFavoriteNameTitle;
+
+  /// Title of the exclude-rules editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip Rules'**
+  String get syncRulesTitle;
+
+  /// Help text of the exclude-rules field.
+  ///
+  /// In en, this message translates to:
+  /// **'One pattern per line, gitignore style: *.log, build/, /private.txt, !keep.log'**
+  String get syncRulesHint;
+
+  /// Heading of the read-only list of built-in exclude patterns.
+  ///
+  /// In en, this message translates to:
+  /// **'Always skipped'**
+  String get syncRulesDefaultsTitle;
+
+  /// Confirms the rules or time-offset dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get syncRulesDone;
+
+  /// Title of the time-tolerance dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Time Offset'**
+  String get syncTimeOffsetTitle;
+
+  /// Field label: dates this close count as equal.
+  ///
+  /// In en, this message translates to:
+  /// **'Tolerance in seconds'**
+  String get syncTimeOffsetToleranceLabel;
+
+  /// Help text under the tolerance field.
+  ///
+  /// In en, this message translates to:
+  /// **'Modification dates this close together count as the same.'**
+  String get syncTimeOffsetToleranceHelp;
+
+  /// Checkbox in the time-offset dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Ignore exact 1-hour differences'**
+  String get syncTimeOffsetHourShift;
+
+  /// Help text under the 1-hour checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'For drives that store local time, such as FAT, across a daylight saving change.'**
+  String get syncTimeOffsetHourShiftHelp;
+
+  /// Banner on the review tab when Synchronize stopped before running. {reasons} is a comma-joined list of the fragments below.
+  ///
+  /// In en, this message translates to:
+  /// **'This plan {reasons} — review before running.'**
+  String syncHoldBanner(String reasons);
+
+  /// Hold-banner fragment.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{deletes 1 file} other{deletes {count} files}}'**
+  String syncHoldDeletes(int count);
+
+  /// Hold-banner fragment.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{removes 1 empty folder} other{removes {count} empty folders}}'**
+  String syncHoldEmptyFolders(int count);
+
+  /// Hold-banner fragment.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{replaces 1 file} other{replaces {count} files}}'**
+  String syncHoldReplaces(int count);
+
+  /// Hold-banner fragment.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{has 1 conflict} other{has {count} conflicts}}'**
+  String syncHoldConflicts(int count);
+
+  /// Plan review section: new files and folders.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get syncSectionCopy;
+
+  /// Plan review section: files that replace an existing copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Update'**
+  String get syncSectionUpdate;
+
+  /// Plan review section: removals.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get syncSectionDelete;
+
+  /// Plan review section: rows that need a decision.
+  ///
+  /// In en, this message translates to:
+  /// **'Conflicts'**
+  String get syncSectionConflicts;
+
+  /// Plan review section: rows that will not change.
+  ///
+  /// In en, this message translates to:
+  /// **'Skipped'**
+  String get syncSectionSkipped;
+
+  /// Accessibility label of a plan review section header.
+  ///
+  /// In en, this message translates to:
+  /// **'{section}, {count, plural, =1{1 item} other{{count} items}}'**
+  String syncSectionSemantics(String section, int count);
+
+  /// Plan review column header.
+  ///
+  /// In en, this message translates to:
+  /// **'Path'**
+  String get syncColumnPath;
+
+  /// Plan review column header.
+  ///
+  /// In en, this message translates to:
+  /// **'Reason'**
+  String get syncColumnReason;
+
+  /// Accessibility label of a plan review row.
+  ///
+  /// In en, this message translates to:
+  /// **'{path}: {action}, {reason}'**
+  String syncRowSemantics(String path, String action, String reason);
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'copy to “{side}”'**
+  String syncRowActionCopy(String side);
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'replace in “{side}”'**
+  String syncRowActionUpdate(String side);
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'create folder in “{side}”'**
+  String syncRowActionMakeDir(String side);
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'delete from “{side}”'**
+  String syncRowActionDelete(String side);
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'conflict'**
+  String get syncRowActionConflict;
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'skip'**
+  String get syncRowActionSkip;
+
+  /// Tooltip of a plan review row checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Space includes or skips this row'**
+  String get syncRowToggleHint;
 }
 
 class _AppLocalizationsDelegate

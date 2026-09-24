@@ -100,6 +100,7 @@ class _SyncPlanViewState extends State<SyncPlanView> {
               l10n: l10n,
               onEditRules: widget.onEditRules,
             ),
+            _ReviewHoldBanner(controller: _controller, l10n: l10n),
             if (_bulkSkipNotice != null)
               MaterialBanner(
                 content: Text(_bulkSkipNotice!),
@@ -598,42 +599,52 @@ class _Header extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(
-                l10n.syncModeLabel,
-                style: theme.textTheme.labelMedium,
-              ),
-              const SizedBox(width: 8),
-              SegmentedButton<SyncMode>(
-                segments: [
-                  ButtonSegment(
-                    value: SyncMode.update,
-                    label: Text(l10n.syncModeUpdate),
+              // A narrow pane (D32's three columns) scrolls the mode
+              // controls instead of overflowing them.
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      Text(
+                        l10n.syncModeLabel,
+                        style: theme.textTheme.labelMedium,
+                      ),
+                      const SizedBox(width: 8),
+                      SegmentedButton<SyncMode>(
+                        segments: [
+                          ButtonSegment(
+                            value: SyncMode.update,
+                            label: Text(l10n.syncModeUpdate),
+                          ),
+                          ButtonSegment(
+                            value: SyncMode.mirror,
+                            label: Text(l10n.syncModeMirror),
+                          ),
+                          ButtonSegment(
+                            value: SyncMode.additive,
+                            label: Text(l10n.syncModeAdditive),
+                          ),
+                        ],
+                        selected: {mode},
+                        onSelectionChanged: controller.isRunning
+                            ? null
+                            : (modes) => unawaited(_setMode(modes.first)),
+                      ),
+                      const SizedBox(width: 8),
+                      if (mode != SyncMode.additive)
+                        IconButton(
+                          tooltip:
+                              '${l10n.syncSideLeft} ⇄ ${l10n.syncSideRight}',
+                          icon: const Icon(Icons.swap_horiz, size: 18),
+                          onPressed: controller.isRunning
+                              ? null
+                              : () => unawaited(_flipDirection()),
+                        ),
+                    ],
                   ),
-                  ButtonSegment(
-                    value: SyncMode.mirror,
-                    label: Text(l10n.syncModeMirror),
-                  ),
-                  ButtonSegment(
-                    value: SyncMode.additive,
-                    label: Text(l10n.syncModeAdditive),
-                  ),
-                ],
-                selected: {mode},
-                onSelectionChanged: controller.isRunning
-                    ? null
-                    : (modes) => unawaited(_setMode(modes.first)),
-              ),
-              const SizedBox(width: 8),
-              if (mode != SyncMode.additive)
-                IconButton(
-                  tooltip:
-                      '${l10n.syncSideLeft} ⇄ ${l10n.syncSideRight}',
-                  icon: const Icon(Icons.swap_horiz, size: 18),
-                  onPressed: controller.isRunning
-                      ? null
-                      : () => unawaited(_flipDirection()),
                 ),
-              const Spacer(),
+              ),
               IconButton(
                 tooltip: l10n.syncRescan,
                 icon: const Icon(Icons.refresh, size: 18),
@@ -853,6 +864,65 @@ class _RefusalBanner extends StatelessWidget {
                 onPressed: onEditRules,
                 child: Text(l10n.syncMaxDeleteSaveAdjust),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// D32 §7's Synchronize stop: the plan needs a look before it runs,
+/// and the banner says exactly why — live over the effective actions,
+/// so skipping the deletions in the review shrinks it.
+class _ReviewHoldBanner extends StatelessWidget {
+  const _ReviewHoldBanner({required this.controller, required this.l10n});
+
+  final SyncPlanController controller;
+  final AppLocalizations l10n;
+
+  @override
+  Widget build(BuildContext context) {
+    final hold = controller.reviewHold;
+    if (hold == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final reasons = [
+      if (hold.deletes > 0) l10n.syncHoldDeletes(hold.deletes),
+      if (hold.emptyFolders > 0) l10n.syncHoldEmptyFolders(hold.emptyFolders),
+      if (hold.replaces > 0) l10n.syncHoldReplaces(hold.replaces),
+      if (hold.conflicts > 0) l10n.syncHoldConflicts(hold.conflicts),
+    ].join(', ');
+    final destructive = hold.deletes > 0 || hold.emptyFolders > 0;
+    return Material(
+      key: const ValueKey('sync.plan.holdBanner'),
+      color: destructive
+          ? theme.colorScheme.errorContainer
+          : theme.colorScheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+        child: Row(
+          children: [
+            Icon(
+              destructive ? Icons.warning_amber_rounded : Icons.info_outline,
+              size: 18,
+              color: destructive
+                  ? theme.colorScheme.onErrorContainer
+                  : theme.colorScheme.onSecondaryContainer,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                l10n.syncHoldBanner(reasons),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: destructive
+                      ? theme.colorScheme.onErrorContainer
+                      : theme.colorScheme.onSecondaryContainer,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: controller.dismissReviewHold,
+              child: Text(l10n.paneNoticeDismiss),
+            ),
           ],
         ),
       ),
