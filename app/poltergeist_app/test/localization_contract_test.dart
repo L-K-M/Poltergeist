@@ -1384,6 +1384,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'Probe truth must be painted by ProbeStatusDot/ServerStateIndicator; '",
     "'ServerStateGlyph has no probe paint.'",
   },
+  // The ported middle-ellipsis glyph and its head/tail compositions —
+  // typography, not copy.
+  'lib/ui/middle_ellipsis_text.dart': {
+    "'…'",
+    r"'${graphemes.take(head).join()}$_ellipsis'",
+    r"'${graphemes.skip(graphemes.length - tail).join()}'",
+  },
   // The sidebar's widget keys, its section-collapse key prefix, the
   // semantics-label compositions (machine data beside ARB copy), and the
   // endpoint line — plumbing, never authored copy.

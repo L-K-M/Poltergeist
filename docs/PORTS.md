@@ -541,6 +541,30 @@ counterpart is ported here.
 - Divergences: none — carried verbatim (imports re-pointed).
 - Port-back candidates: none.
 
+## app/poltergeist_app/lib/ui/middle_ellipsis_text.dart
+
+- Source: app/seance_app/lib/ui/middle_ellipsis_text.dart
+- Séance commit: 15d0fdddccde6507156ce84ed31a254d0b9d5b13 (the file is
+  byte-identical at Séance `367e4ea`, 2026-09-24)
+- Ported: 2026-09-24
+- Divergences: `Characters` comes through `package:flutter/widgets.dart`'s
+  re-export instead of a direct `package:characters` import (Poltergeist
+  does not list `characters` as a direct dependency, and adding one for a
+  re-exported type would be a second version constraint on the same
+  package). Behavior is unchanged. The widget sits at the same relative
+  path in both apps so the shared sidebar kit
+  (`lib/ui/sidebar/sidebar_kit.dart`, D32 §10) imports it verbatim.
+- Port-back candidates: none — Séance owns the source.
+
+## app/poltergeist_app/test/ui/middle_ellipsis_text_test.dart
+
+- Source: app/seance_app/test/middle_ellipsis_text_test.dart
+- Séance commit: 15d0fdddccde6507156ce84ed31a254d0b9d5b13
+- Ported: 2026-09-24
+- Divergences: the same `Characters` import re-point as the widget;
+  otherwise verbatim (imports re-pointed).
+- Port-back candidates: none.
+
 ## app/poltergeist_app/lib/services/badge_image.dart
 
 - Source: app/seance_app/lib/services/badge_image.dart
