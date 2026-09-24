@@ -459,8 +459,16 @@ ThemeData buildPoltergeistTheme(
             ),
           )
         : null,
+    // Desktop dialog titles sit on the 13 px ramp at 17 px semibold
+    // (Material's 24 px headlineSmall reads oversized beside it); touch
+    // keeps Material's title.
     dialogTheme: DialogThemeData(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      titleTextStyle: desktop
+          ? _desktopText(
+              base.textTheme,
+            ).titleLarge?.copyWith(color: scheme.onSurface)
+          : null,
     ),
     extensions: [chrome],
   );
