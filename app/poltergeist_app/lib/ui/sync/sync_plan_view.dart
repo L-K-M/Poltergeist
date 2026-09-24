@@ -15,6 +15,7 @@ import 'package:poltergeist_sync/poltergeist_sync.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/sync_plan_controller.dart';
+import '../../theme/app_theme.dart';
 import 'rsync_copy.dart';
 import 'sync_plan_format.dart';
 import 'sync_plan_table.dart';
@@ -993,16 +994,18 @@ class _FilterBar extends StatelessWidget {
         ),
       ),
     ];
-    return Padding(
+    // One scrolling row: a narrow D32 pane keeps its table height
+    // instead of stacking the chips three deep.
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Wrap(
+      child: Row(
         spacing: 6,
-        runSpacing: 4,
-        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           for (final (value, label) in chips)
             FilterChip(
               label: Text(label),
+              visualDensity: VisualDensity.compact,
               selected: filter == value,
               onSelected: (_) => onFilterChanged(value),
             ),
@@ -1020,6 +1023,7 @@ class _FilterBar extends StatelessWidget {
           ),
           FilterChip(
             label: Text(l10n.syncFilterOnlyActions),
+            visualDensity: VisualDensity.compact,
             selected: onlyActions,
             onSelected: onOnlyActionsChanged,
           ),
@@ -1120,91 +1124,122 @@ class _ActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final chrome = PoltergeistChrome.of(context);
     final stats = controller.stats;
-    return Material(
-      elevation: 2,
-      color: theme.colorScheme.surfaceContainer,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
+    return Container(
+      decoration: BoxDecoration(
+        color: chrome.headerBackground,
+        border: Border(top: BorderSide(color: chrome.separator)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: LayoutBuilder(
+        // A narrow D32 pane scrolls the secondary verbs; the Run button
+        // stays in view at the right, its consequence label ellipsized
+        // past 60 % of the bar.
+        builder: (context, constraints) => Row(
           children: [
-            // §7's action-bar order: Copy as rsync Command · Save as
-            // Favorite… · the Run cluster — the first two render the
-            // registered commands (D21).
-            TextButton.icon(
-              icon: const Icon(Icons.terminal, size: 16),
-              label: Text(l10n.syncCopyRsyncCommand),
-              onPressed: controller.canExportRsync
-                  ? () => unawaited(copyRsyncCommand(context, controller))
-                  : null,
-            ),
-            if (controller.lastRun != null)
-              TextButton.icon(
-                icon: const Icon(Icons.summarize_outlined, size: 16),
-                label: Text(l10n.syncCopyReport),
-                onPressed: () => unawaited(
-                  Clipboard.setData(
-                    ClipboardData(
-                      text: syncReportText(l10n, controller),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    // §7's action-bar order: Copy as rsync Command ·
+                    // Save as Favorite… · the Run cluster — the first
+                    // two render the registered commands (D21).
+                    TextButton.icon(
+                      icon: const Icon(Icons.terminal, size: 16),
+                      label: Text(l10n.syncCopyRsyncCommand),
+                      onPressed: controller.canExportRsync
+                          ? () => unawaited(
+                              copyRsyncCommand(context, controller),
+                            )
+                          : null,
                     ),
-                  ),
+                    if (controller.lastRun != null)
+                      TextButton.icon(
+                        icon: const Icon(
+                          Icons.summarize_outlined,
+                          size: 16,
+                        ),
+                        label: Text(l10n.syncCopyReport),
+                        onPressed: () => unawaited(
+                          Clipboard.setData(
+                            ClipboardData(
+                              text: syncReportText(l10n, controller),
+                            ),
+                          ),
+                        ),
+                      ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.star_outline, size: 16),
+                      label: Text(l10n.syncSaveAsFavorite),
+                      onPressed: onSaveAsFavorite,
+                    ),
+                    const SizedBox(width: 16),
+                    if (controller.canRetryFailed)
+                      TextButton.icon(
+                        icon: const Icon(Icons.replay, size: 16),
+                        label: Text(l10n.syncRetryFailed),
+                        onPressed: onRetry,
+                      ),
+                    if (controller.canRestore)
+                      TextButton.icon(
+                        icon: const Icon(
+                          Icons.restore_from_trash,
+                          size: 16,
+                        ),
+                        label: Text(l10n.syncRestoreTrashed),
+                        onPressed: onRestore,
+                      ),
+                    // §10's run controls — the activity panel exposes
+                    // the same verbs through the task row; the view
+                    // mirrors them here so a run is steerable without
+                    // leaving the tab.
+                    if (controller.isRunning) ...[
+                      TextButton.icon(
+                        icon: Icon(
+                          controller.isPaused
+                              ? Icons.play_arrow
+                              : Icons.pause,
+                          size: 16,
+                        ),
+                        label: Text(
+                          controller.isPaused
+                              ? l10n.syncResume
+                              : l10n.syncPause,
+                        ),
+                        onPressed: () =>
+                            controller.setPaused(!controller.isPaused),
+                      ),
+                      TextButton.icon(
+                        icon: const Icon(Icons.stop, size: 16),
+                        label: Text(l10n.syncCancel),
+                        onPressed: controller.cancelRun,
+                      ),
+                    ],
+                  ],
                 ),
               ),
-            TextButton.icon(
-              icon: const Icon(Icons.star_outline, size: 16),
-              label: Text(l10n.syncSaveAsFavorite),
-              onPressed: onSaveAsFavorite,
             ),
-            // Wrap can't host a Spacer — the gap keeps the run cluster
-            // visually separate from the left-hand affordances.
-            const SizedBox(width: 24),
-            if (controller.canRetryFailed)
-              TextButton.icon(
-                icon: const Icon(Icons.replay, size: 16),
-                label: Text(l10n.syncRetryFailed),
-                onPressed: onRetry,
+            const SizedBox(width: 8),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: constraints.maxWidth * 0.6,
               ),
-            if (controller.canRestore)
-              TextButton.icon(
-                icon: const Icon(Icons.restore_from_trash, size: 16),
-                label: Text(l10n.syncRestoreTrashed),
-                onPressed: onRestore,
-              ),
-            // §10's run controls — the activity panel exposes the same
-            // verbs through the task row; the view mirrors them here so
-            // a run is steerable without leaving the tab.
-            if (controller.isRunning) ...[
-              TextButton.icon(
-                icon: Icon(
-                  controller.isPaused ? Icons.play_arrow : Icons.pause,
-                  size: 16,
-                ),
+              child: FilledButton.icon(
+                icon: controller.isRunning
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.play_arrow, size: 18),
                 label: Text(
-                  controller.isPaused ? l10n.syncResume : l10n.syncPause,
+                  _runLabel(l10n, stats),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                onPressed: () =>
-                    controller.setPaused(!controller.isPaused),
+                onPressed: _runEnabled ? onRun : null,
               ),
-              TextButton.icon(
-                icon: const Icon(Icons.stop, size: 16),
-                label: Text(l10n.syncCancel),
-                onPressed: controller.cancelRun,
-              ),
-            ],
-            FilledButton.icon(
-              icon: controller.isRunning
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.play_arrow, size: 18),
-              label: Text(_runLabel(l10n, stats)),
-              onPressed: _runEnabled ? onRun : null,
             ),
           ],
         ),

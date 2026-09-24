@@ -5,6 +5,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/rsync_endpoints.dart';
@@ -375,6 +376,29 @@ void main() {
     await tester.pumpAndSettle();
     // The full pair editor collects the endpoints.
     expect(find.text('Sync pair'), findsOneWidget);
+  });
+
+  testWidgets('a reopened favorite names itself under the title', (
+    tester,
+  ) async {
+    await _pumpSheet(
+      tester,
+      mode: SyncSheetMode.saved,
+      initial: testSyncPair(name: 'Nightly site backup'),
+    );
+    expect(find.text('Sync Files'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('sync.sheet.favoriteName')),
+      findsOneWidget,
+    );
+    expect(find.text('Nightly site backup'), findsOneWidget);
+  });
+
+  testWidgets('Enter is the default button: Synchronize', (tester) async {
+    final outcome = await _pumpSheet(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(outcome.result!.action, SyncSheetAction.synchronize);
   });
 
   testWidgets('Cancel closes without a result', (tester) async {

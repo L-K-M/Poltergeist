@@ -1915,6 +1915,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "''",
     "'sync.sheet'",
     "'sync.sheet.name'",
+    "'sync.sheet.favoriteName'",
     "'sync.sheet.left'",
     "'sync.sheet.right'",
     "'sync.sheet.deleteOrphans'",
@@ -1950,7 +1951,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sync.sheet.plan'",
     r"'\\'",
     "'/'",
-    r"'…$separator${segments.sublist(segments.length - keep).join(separator)}'",
+    r"'…$separator$tail'",
   },
   // The plan sentence's ICU select keys, its clause join, and the
   // clause's debug toString — machine data, never authored copy.

@@ -79,8 +79,8 @@ import 'sidebar/sidebar_view.dart';
 import 'sync/rsync_copy.dart';
 import 'sync/sync_commands.dart';
 import 'sync/sync_pair_editor.dart';
-import 'sync/sync_setup_sheet.dart';
 import 'sync/sync_plan_format.dart' show syncEndpointLabel;
+import 'sync/sync_setup_sheet.dart';
 import 'top_toast.dart';
 import 'workspace/workspace_commands.dart';
 

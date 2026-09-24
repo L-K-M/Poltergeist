@@ -532,6 +532,7 @@ class _SyncItemRow extends StatelessWidget {
                 width: _Columns.checkWidth,
                 child: Tooltip(
                   message: l10n.syncRowToggleHint,
+                  waitDuration: const Duration(milliseconds: 800),
                   child: _CompactCheckbox(
                     checkKey: ValueKey('sync.row.${item.relativePath}.check'),
                     value: included,

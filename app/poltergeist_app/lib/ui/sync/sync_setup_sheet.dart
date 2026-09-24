@@ -178,13 +178,34 @@ class _SyncSetupSheetState extends State<SyncSetupSheet> {
       : _rules.deletions;
   SyncCaseOverrides? _caseOverrides;
 
+  /// The sheet's own focus — Enter here is the default button.
+  final _rootFocus = FocusNode(debugLabel: 'sync.sheet');
+
   @override
   void dispose() {
     _name.dispose();
+    _rootFocus.dispose();
     super.dispose();
   }
 
-  // -- Derived state ---------------------------------------------------------
+  /// Synchronize is the default button (D32 §7): Enter fires it while
+  /// the sheet itself holds focus. A focused control (a Tab-reached
+  /// button, the name field) keeps Enter for itself.
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key != LogicalKeyboardKey.enter &&
+        key != LogicalKeyboardKey.numpadEnter) {
+      return KeyEventResult.ignored;
+    }
+    if (FocusManager.instance.primaryFocus != _rootFocus) {
+      return KeyEventResult.ignored;
+    }
+    _finish(SyncSheetAction.synchronize);
+    return KeyEventResult.handled;
+  }
+
+  // -- Derived state -------------------------------------------------------
 
   bool get _bothWays => _rules.direction == SyncDirection.bidirectional;
 
@@ -214,7 +235,7 @@ class _SyncSetupSheetState extends State<SyncSetupSheet> {
 
   void _setRules(SyncRuleSet rules) => setState(() => _rules = rules);
 
-  // -- Option edits ------------------------------------------------------------
+  // -- Option edits --------------------------------------------------------
 
   void _toggleDirection() {
     if (_bothWays) {
@@ -398,7 +419,7 @@ class _SyncSetupSheetState extends State<SyncSetupSheet> {
     );
   }
 
-  // -- Layout ----------------------------------------------------------------
+  // -- Layout --------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -415,42 +436,51 @@ class _SyncSetupSheetState extends State<SyncSetupSheet> {
       padding: const EdgeInsets.fromLTRB(12, 8, 20, 16),
       child: _buildButtons(context, l10n),
     );
-    final body = CallbackShortcuts(
-      // Synchronize is the default button (D32 §7). Enter inside the
-      // name field submits the field instead; a focused button
-      // activates itself first.
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.enter): () =>
-            _finish(SyncSheetAction.synchronize),
-        const SingleActivator(LogicalKeyboardKey.numpadEnter): () =>
-            _finish(SyncSheetAction.synchronize),
-      },
-      child: Focus(
-        autofocus: _mode != SyncSheetMode.newSaved,
-        child: compact
-            ? Column(
-                children: [
-                  Expanded(child: content),
-                  buttons,
-                ],
-              )
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-                    child: Text(
-                      title,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
+    final body = Focus(
+      focusNode: _rootFocus,
+      autofocus: _mode != SyncSheetMode.newSaved,
+      onKeyEvent: _onKey,
+      child: compact
+          ? Column(
+              children: [
+                Expanded(child: content),
+                buttons,
+              ],
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+                  child: Column(
+                    children: [
+                      Text(
+                        title,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      // A reopened favorite names itself — the sheet
+                      // edits that favorite's session, not a new pair.
+                      if (_mode == SyncSheetMode.saved)
+                        Text(
+                          _name.text.trim(),
+                          key: const ValueKey('sync.sheet.favoriteName'),
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: PoltergeistChrome.of(
+                                  context,
+                                ).secondaryText,
+                              ),
+                        ),
+                    ],
                   ),
-                  Flexible(child: content),
-                  buttons,
-                ],
-              ),
-      ),
+                ),
+                Flexible(child: content),
+                buttons,
+              ],
+            ),
     );
     if (compact) {
       return Dialog.fullscreen(
@@ -558,7 +588,10 @@ class _SyncSetupSheetState extends State<SyncSetupSheet> {
                     key: const ValueKey('sync.sheet.deleteTrash'),
                     value: DeletionPolicy.trash,
                     dense: true,
-                    visualDensity: VisualDensity.compact,
+                    visualDensity: const VisualDensity(
+                      horizontal: VisualDensity.minimumDensity,
+                      vertical: VisualDensity.minimumDensity,
+                    ),
                     contentPadding: EdgeInsets.zero,
                     title: Text(l10n.syncSheetDeleteToTrash),
                   ),
@@ -566,7 +599,10 @@ class _SyncSetupSheetState extends State<SyncSetupSheet> {
                     key: const ValueKey('sync.sheet.deletePermanent'),
                     value: DeletionPolicy.permanent,
                     dense: true,
-                    visualDensity: VisualDensity.compact,
+                    visualDensity: const VisualDensity(
+                      horizontal: VisualDensity.minimumDensity,
+                      vertical: VisualDensity.minimumDensity,
+                    ),
                     contentPadding: EdgeInsets.zero,
                     title: Text(l10n.syncSheetDeletePermanently),
                   ),
@@ -608,7 +644,8 @@ class _SyncSetupSheetState extends State<SyncSetupSheet> {
           ],
         ),
         Padding(
-          padding: const EdgeInsets.only(left: 40),
+          // Aligned with the checkbox labels above.
+          padding: const EdgeInsets.only(left: 32),
           child: Row(
             children: [
               Expanded(
@@ -737,45 +774,54 @@ class _SyncSetupSheetState extends State<SyncSetupSheet> {
           ),
       ],
     );
-    return Wrap(
-      alignment: WrapAlignment.end,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 8,
-      runSpacing: 8,
+    // The ⋯ menu stays leftmost; the verbs right-align and wrap on a
+    // narrow sheet.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         more,
-        // Wrap cannot host a Spacer; the ⋯ button stays leftmost while
-        // the verbs right-align after it.
-        const SizedBox(width: 24),
-        TextButton(
-          key: const ValueKey('sync.sheet.cancel'),
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(l10n.syncCancel),
-        ),
-        if (_mode == SyncSheetMode.newSaved)
-          OutlinedButton(
-            key: const ValueKey('sync.sheet.save'),
-            onPressed: complete ? () => _finish(SyncSheetAction.save) : null,
-            child: Text(l10n.syncEditorSave),
-          ),
-        Tooltip(
-          message: l10n.syncSheetSimulateTooltip,
-          child: OutlinedButton(
-            key: const ValueKey('sync.sheet.simulate'),
-            onPressed: available
-                ? () => _finish(SyncSheetAction.simulate)
-                : null,
-            child: Text(l10n.syncSheetSimulate),
-          ),
-        ),
-        Tooltip(
-          message: l10n.syncSheetSynchronizeTooltip,
-          child: FilledButton(
-            key: const ValueKey('sync.sheet.synchronize'),
-            onPressed: available
-                ? () => _finish(SyncSheetAction.synchronize)
-                : null,
-            child: Text(l10n.syncSheetSynchronize),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Wrap(
+            alignment: WrapAlignment.end,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              TextButton(
+                key: const ValueKey('sync.sheet.cancel'),
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(l10n.syncCancel),
+              ),
+              if (_mode == SyncSheetMode.newSaved)
+                OutlinedButton(
+                  key: const ValueKey('sync.sheet.save'),
+                  onPressed: complete
+                      ? () => _finish(SyncSheetAction.save)
+                      : null,
+                  child: Text(l10n.syncEditorSave),
+                ),
+              Tooltip(
+                message: l10n.syncSheetSimulateTooltip,
+                child: OutlinedButton(
+                  key: const ValueKey('sync.sheet.simulate'),
+                  onPressed: available
+                      ? () => _finish(SyncSheetAction.simulate)
+                      : null,
+                  child: Text(l10n.syncSheetSimulate),
+                ),
+              ),
+              Tooltip(
+                message: l10n.syncSheetSynchronizeTooltip,
+                child: FilledButton(
+                  key: const ValueKey('sync.sheet.synchronize'),
+                  onPressed: available
+                      ? () => _finish(SyncSheetAction.synchronize)
+                      : null,
+                  child: Text(l10n.syncSheetSynchronize),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -1176,5 +1222,6 @@ String shortenSyncPath(String path) {
   final separator = path.contains('\\') && !path.contains('/') ? '\\' : '/';
   final segments = path.split(separator).where((s) => s.isNotEmpty).toList();
   if (segments.length <= keep) return path;
-  return '…$separator${segments.sublist(segments.length - keep).join(separator)}';
+  final tail = segments.sublist(segments.length - keep).join(separator);
+  return '…$separator$tail';
 }
