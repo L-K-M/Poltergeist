@@ -350,6 +350,9 @@ PoltergeistChrome _chromeFor(Brightness brightness, TargetPlatform platform) {
   );
 }
 
+/// A desktop menu row's height (context menus and the ☰ tree).
+const double _desktopMenuRowExtent = 26;
+
 /// Desktop type ramp (13 px body, 11 px captions — the macOS system
 /// sizes); touch platforms keep Material's defaults.
 TextTheme _desktopText(TextTheme base) => base.copyWith(
@@ -429,8 +432,33 @@ ThemeData buildPoltergeistTheme(
         shape: WidgetStatePropertyAll(
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
+        // Desktop panels hug their compact rows (Finder's 4 px inset).
+        padding: desktop
+            ? const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 4))
+            : null,
       ),
     ),
+    // D32's desktop menu rows (context menus, the ☰ tree, every
+    // MenuAnchor): 26 px, 13 px text, a tight inset. Touch keeps
+    // Material's 48 dp rows. The density is pinned to standard so the
+    // theme-wide compact density does not shave the row below 26 px.
+    menuButtonTheme: desktop
+        ? MenuButtonThemeData(
+            style: ButtonStyle(
+              minimumSize: const WidgetStatePropertyAll(
+                Size(64, _desktopMenuRowExtent),
+              ),
+              padding: const WidgetStatePropertyAll(
+                EdgeInsets.symmetric(horizontal: 10),
+              ),
+              visualDensity: VisualDensity.standard,
+              iconSize: const WidgetStatePropertyAll(16),
+              textStyle: WidgetStatePropertyAll(
+                _desktopText(base.textTheme).bodyMedium,
+              ),
+            ),
+          )
+        : null,
     dialogTheme: DialogThemeData(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/registered_command.dart';
+import '../menus/menu_shortcut_hint.dart';
 import '../shell/shell_commands.dart'
     show
         kFileDeleteCommandId,
@@ -61,18 +62,6 @@ List<List<RegisteredCommand>> resolvePaneContextSections(
   ];
 }
 
-/// The first registered activator, as the menu's display-only hint —
-/// dispatch stays in the chord layer, so hint and binding never drift.
-MenuSerializableShortcut? _displayShortcut(
-  RegisteredCommand command,
-  TargetPlatform platform,
-) {
-  final activators = command.activators?.call(platform);
-  if (activators == null || activators.isEmpty) return null;
-  final first = activators.first;
-  return first is MenuSerializableShortcut ? first : null;
-}
-
 /// The pointer/keyboard menu's rows for [sections] (a [MenuAnchor]'s
 /// children), keyed `pane.context.<id>`. [firstItemFocus] lands on the
 /// first row so a keyboard-opened menu (Shift+F10, the Menu key) can
@@ -116,7 +105,7 @@ List<Widget> buildPaneContextMenuItems({
       return CheckboxMenuButton(
         key: ValueKey('pane.context.${command.id}'),
         focusNode: takeFirstFocus(),
-        shortcut: _displayShortcut(command, platform),
+        trailingIcon: MenuShortcutHint.forCommand(command, platform),
         value: checked(),
         onChanged: enabled ? (_) => unawaited(onRun(command)) : null,
         child: Text(command.label(l10n)),
@@ -126,7 +115,7 @@ List<Widget> buildPaneContextMenuItems({
       key: ValueKey('pane.context.${command.id}'),
       focusNode: takeFirstFocus(),
       leadingIcon: icon,
-      shortcut: _displayShortcut(command, platform),
+      trailingIcon: MenuShortcutHint.forCommand(command, platform),
       onPressed: enabled ? () => unawaited(onRun(command)) : null,
       child: Text(command.label(l10n)),
     );
