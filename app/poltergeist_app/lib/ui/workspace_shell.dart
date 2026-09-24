@@ -2492,8 +2492,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
   /// The catalog section's add/edit entry: the shared editor dialog over
   /// the app's delegate — a null [server] is the editor's add path.
-  Future<void> _editCatalogServer(ServerConfig? server) =>
-      showServerEditor(context, widget.serverEditor!, server);
+  /// Null-safe on purpose: the duplicate toast's action outlives the
+  /// build that gated the verbs, and the shell may have been rebuilt
+  /// read-only (no editor) by the time it is tapped.
+  Future<void> _editCatalogServer(ServerConfig? server) async {
+    final editor = widget.serverEditor;
+    if (editor == null) return;
+    await showServerEditor(context, editor, server);
+  }
 
   /// Copy a catalog server, then offer the editor — upstream's flow
   /// (server_list_pane._duplicateServer @ 035b0d8): duplicating is

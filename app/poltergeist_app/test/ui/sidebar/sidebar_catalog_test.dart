@@ -261,6 +261,35 @@ void main() {
     expect(opens.single.$1.label, 'alpha');
   });
 
+  testWidgets('a query drops itself once the catalog it filtered empties', (
+    tester,
+  ) async {
+    catalog.replace([
+      for (final id in ['a1', 'a2', 'b1', 'c1', 'd1']) _server(id),
+    ]);
+    await pump(tester);
+    await tester.enterText(find.byType(TextField), 'a');
+    await tester.pumpAndSettle();
+
+    // A round lands with no servers while the field still holds a query:
+    // the reset runs inside build, against the still-mounted field.
+    catalog.replace(const []);
+    source.pulse();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(TextField), findsNothing);
+
+    // The query is gone for good: a returning list renders unfiltered.
+    catalog.replace([
+      for (final id in ['a1', 'a2', 'b1', 'c1', 'd1']) _server(id),
+    ]);
+    source.pulse();
+    await tester.pumpAndSettle();
+    expect(find.text('label-b1'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        isEmpty);
+  });
+
   testWidgets('below the threshold no filter field renders', (
     tester,
   ) async {

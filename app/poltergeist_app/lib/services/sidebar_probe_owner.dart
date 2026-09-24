@@ -198,11 +198,13 @@ final class SidebarProbeOwner extends ChangeNotifier {
     final favorites = <ProbeFavorite>[];
     // A syncFavorites/noteRemoved landing mid-loop mutates the config
     // maps — iterate a snapshot so an awaited read cannot throw
-    // ConcurrentModificationError.
-    final targets = [
-      ..._configs.values,
-      ..._catalogConfigs.values,
-    ];
+    // ConcurrentModificationError. One entry per id, with the same
+    // precedence [noteVisible] reads by — a server that is both a local
+    // favorite and a catalog row probes once.
+    final targets = {
+      ..._catalogConfigs,
+      ..._configs,
+    }.values.toList(growable: false);
     for (final config in targets) {
       ProbeServerFacts facts;
       try {

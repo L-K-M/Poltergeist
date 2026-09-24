@@ -106,6 +106,9 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
     final theme = Theme.of(context);
     final color = _color;
     return AlertDialog(
+      // Preview, hex field, three sliders and the hint outgrow a
+      // landscape phone or a large text scale.
+      scrollable: true,
       title: Text(l10n.serverColorPickerTitle),
       content: SizedBox(
         width: 360,

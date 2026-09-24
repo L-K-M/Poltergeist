@@ -209,15 +209,18 @@ void main() {
     ) async {
       final existing = _server('web', updatedAt: 100);
       // A round landed a newer record than the editor opened with; the
-      // stamp has to outrank it, or this edit silently loses LWW.
-      delegate.serverList = [_server('web', updatedAt: 2000000000)];
+      // stamp has to outrank it, or this edit silently loses LWW. Dated
+      // ahead of the wall clock, so only consulting that freshest copy —
+      // not "now" — can pass below.
+      final pulled = DateTime.now().millisecondsSinceEpoch + 60000;
+      delegate.serverList = [_server('web', updatedAt: pulled)];
       await openEditor(tester, existing: existing);
       await scrollTo(tester, find.widgetWithText(FilledButton, 'Save'));
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
 
       final (config, _) = delegate.saved!;
-      expect(config.updatedAt, greaterThan(2000000000));
+      expect(config.updatedAt, greaterThan(pulled));
     });
   });
 
