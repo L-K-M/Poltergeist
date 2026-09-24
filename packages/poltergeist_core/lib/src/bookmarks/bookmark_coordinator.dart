@@ -107,6 +107,7 @@ final class BookmarkCoordinator {
     SeanceServerCatalog? catalog,
     SyncTrackingServerStore? servers,
     SecretVault? secrets,
+    bool syncSecrets = false,
     SyncEnrollmentState? enrollment,
     DateTime Function()? now,
     int maxRounds = 5,
@@ -131,6 +132,8 @@ final class BookmarkCoordinator {
         _servers = servers,
         // ignore: prefer_initializing_formals
         _secrets = secrets,
+        // ignore: prefer_initializing_formals
+        _syncSecrets = syncSecrets,
         // ignore: prefer_initializing_formals
         _enrollment = enrollment,
         _now = now ?? DateTime.now,
@@ -163,6 +166,14 @@ final class BookmarkCoordinator {
   /// Non-null in shared mode when the vault has a key: pulled `secret:`
   /// records land here, and opted-in credentials publish from here.
   final SecretVault? _secrets;
+
+  /// The device-level "Sync saved passwords & keys" switch — Séance's
+  /// `syncSecrets`, off by default. It governs both halves: while off, no
+  /// credential publishes (whatever a server's own `syncSecret` says) and
+  /// no pulled `secret:` record lands in the vault. Retraction stays
+  /// ungated ([_retractOrphanedSecret]); [catchUpSecrets] works off the
+  /// off-to-on transition's backlog.
+  final bool _syncSecrets;
 
   /// The durable enrollment state (04 §4.5): while `passphraseUnverified`
   /// holds, [runRound] holds all pushes and the deferred foreign-record
@@ -232,14 +243,22 @@ final class BookmarkCoordinator {
     await _refreshCatalog();
   }
 
-  /// A local server delete: drop the row and seal a real tombstone dated
-  /// at the deletion — same resurrection-gap fix as
-  /// [onBookmarkDeleted] — then retract the orphaned credential's record.
+  /// A local server delete: drop the row and seal a real tombstone — same
+  /// resurrection-gap fix as [onBookmarkDeleted] — then retract the
+  /// orphaned credential's record. The record takes the stamp the store
+  /// recorded for its tombstone tuple ([deletionStamp]: past every
+  /// version seen, so a peer's fast clock cannot outrank the delete), so
+  /// store and record agree on it.
   Future<void> onServerDeleted(ServerConfig server) async {
     final store = _servers;
     if (store == null) return;
+    final prior = await store.byId(server.id);
     await store.remove(server.id);
-    final deletedAt = _now().toUtc().millisecondsSinceEpoch;
+    final tuple = await store.syncTupleOf(server.id);
+    final deletedAt = tuple != null && tuple.deleted
+        ? tuple.updatedAt
+        : deletionStamp(
+            now: _now(), prior: [prior?.updatedAt, server.updatedAt]);
     await _records.putLocal(await _crypto.seal(DecryptedRecord(
       id: server.id,
       kind: RecordKind.serverConfig,
@@ -255,10 +274,11 @@ final class BookmarkCoordinator {
   /// [SecretVault.putLocalSecret], so its own stamp advanced): publish it
   /// while a synced server opts it in — a credential edit on an excluded
   /// or non-`syncSecret` server stays local (Séance's
-  /// `_publishableSecretRefs` rule). Null-safe when shared mode has no
-  /// vault or store.
+  /// `_publishableSecretRefs` rule), and so does every credential while
+  /// the device-level [_syncSecrets] switch is off. Null-safe when shared
+  /// mode has no vault or store.
   Future<void> onServerSecretSaved(String secretId) async {
-    if (_secrets == null || _servers == null) return;
+    if (!_syncSecrets || _secrets == null || _servers == null) return;
     var publishable = false;
     for (final server in await _servers.load()) {
       if (!server.excludeFromSync &&
@@ -285,15 +305,18 @@ final class BookmarkCoordinator {
 
   /// Seal the vault entry [ref] into its `secret:` record, dirty for the
   /// next push. An unreadable or absent entry publishes nothing — the
-  /// pull side's repair path is what heals it. When this device's own
-  /// earlier retraction still sits in the record store past the
+  /// pull side's repair path is what heals it. Nothing publishes while
+  /// the device-level [_syncSecrets] switch is off — every publish path
+  /// funnels through here, so this is the one gate. When this device's
+  /// own earlier retraction still sits in the record store past the
   /// credential's stamp, re-date the credential past it (and persist the
   /// bump so vault and record agree): without the bump the tombstone
   /// wins LWW and the fleet keeps the credential withdrawn — Séance's
-  /// `_reviveSecrets` case.
+  /// `_reviveSecrets` case. Another device's retraction is not ours to
+  /// overrule: the credential stays withdrawn until it is edited.
   Future<void> _publishSecret(String ref) async {
     final vault = _secrets;
-    if (vault == null) return;
+    if (!_syncSecrets || vault == null) return;
     final Secret? secret;
     try {
       secret = await vault.readableSecret(ref);
@@ -305,6 +328,7 @@ final class BookmarkCoordinator {
     final existing = await _records.getRecord('$_secretPrefix$ref');
     if (existing != null &&
         existing.deleted &&
+        existing.deviceId == _deviceId &&
         existing.updatedAt >= stamped.updatedAt) {
       stamped = stamped.copyWith(updatedAt: existing.updatedAt + 1);
       try {
@@ -328,20 +352,71 @@ final class BookmarkCoordinator {
   /// references it — the withdrawal half of delete and exclusion. A
   /// still-synced sharer keeps the credential published (Séance's
   /// `syncedSecretRefs` rule, conservatively counting a sharer whose own
-  /// `syncSecret` is off).
+  /// `syncSecret` is off). Ungated by [_syncSecrets], as in Séance: this
+  /// device cannot tell whether an earlier session with the switch on
+  /// already published the credential, and leaving one behind costs the
+  /// credential. The tombstone outranks the live `secret:` record this
+  /// device has seen — a credential's stamp advances independently of
+  /// its server's, so the server's [stamp] alone could lose LWW to it.
   Future<void> _retractOrphanedSecret(String? ref, int stamp) async {
     final store = _servers;
     if (ref == null || store == null) return;
     for (final server in await store.load()) {
       if (!server.excludeFromSync && server.secretRef == ref) return;
     }
+    var retractedAt = stamp;
+    final existing = await _records.getRecord('$_secretPrefix$ref');
+    if (existing != null && existing.updatedAt >= retractedAt) {
+      // Already withdrawn at or past this stamp — re-sealing would only
+      // regress the record.
+      if (existing.deleted) return;
+      retractedAt = existing.updatedAt + 1;
+    }
     await _records.putLocal(await _crypto.seal(DecryptedRecord(
       id: '$_secretPrefix$ref',
       kind: RecordKind.secret,
-      updatedAt: stamp,
+      updatedAt: retractedAt,
       deviceId: _deviceId,
       deleted: true,
     )));
+  }
+
+  /// The device-level switch just turned on: work off what change-driven
+  /// sync skipped while it was off. Stored `secret:` records the apply
+  /// pass skipped sit behind the cursor, and no delta pull re-delivers
+  /// them, so apply them now (the freshness floor keeps this
+  /// idempotent); then publish every credential a synced server opts in
+  /// that the account does not already carry at its current stamp. A
+  /// no-op while the switch is off or outside shared mode.
+  Future<void> catchUpSecrets() async {
+    final vault = _secrets;
+    final store = _servers;
+    if (!_syncSecrets || vault == null || store == null) return;
+    final holdActive = await _pushesHeld();
+    for (final record in await _records.allRecords()) {
+      if (record.deleted || _prefixOf(record.id) != 'secret') continue;
+      await _applySecretRecord(record, holdActive: holdActive);
+    }
+    for (final server in await store.load()) {
+      final ref = server.secretRef;
+      if (server.excludeFromSync || !server.syncSecret || ref == null) {
+        continue;
+      }
+      final Secret? secret;
+      try {
+        secret = await vault.readableSecret(ref);
+      } catch (_) {
+        continue;
+      }
+      if (secret == null) continue;
+      final existing = await _records.getRecord('$_secretPrefix$ref');
+      if (existing != null &&
+          !existing.deleted &&
+          existing.updatedAt >= secret.updatedAt) {
+        continue;
+      }
+      await _publishSecret(ref);
+    }
   }
 
   /// Repopulate the shared-mode catalog from the server store — the
@@ -510,8 +585,11 @@ final class BookmarkCoordinator {
       for (final entry in serverTuples.entries) {
         final tuple = entry.value;
         final row = serverRows[entry.key];
+        // An excluded row keeps a live local tuple but is retracted on the
+        // account: re-seal the retraction, as [reSealPendingWrites] does —
+        // live payload would un-exclude it fleet-wide.
         await _records.putLocal(await _crypto.seal(
-          row == null || tuple.deleted
+          row == null || tuple.deleted || row.excludeFromSync
               ? DecryptedRecord(
                   id: entry.key,
                   kind: RecordKind.serverConfig,
@@ -1151,6 +1229,10 @@ final class BookmarkCoordinator {
       return _ApplyOutcome.skipped;
     }
     if (local != null && record.deviceId == _deviceId) {
+      // A row that already outranks its own old retraction (the edit that
+      // re-included it) needs no revive — re-dating it to the tombstone's
+      // stamp + 1 would regress it.
+      if (local.updatedAt > record.updatedAt) return _ApplyOutcome.skipped;
       final revived = local.copyWith(updatedAt: record.updatedAt + 1);
       await store.applySyncedRecord(
         revived,
@@ -1184,7 +1266,11 @@ final class BookmarkCoordinator {
   Future<_ApplyOutcome> _applySecretRecord(EncryptedRecord record,
       {required bool holdActive}) async {
     final vault = _secrets;
-    if (vault == null || record.deleted) return _ApplyOutcome.skipped;
+    // Switch off: the record stays stored, unapplied — [catchUpSecrets]
+    // picks it up if the switch turns on.
+    if (!_syncSecrets || vault == null || record.deleted) {
+      return _ApplyOutcome.skipped;
+    }
     final dec = await _openForApply(record);
     if (dec == null) {
       return holdActive ? _ApplyOutcome.deferred : _ApplyOutcome.skipped;
@@ -1217,8 +1303,10 @@ final class BookmarkCoordinator {
     } catch (_) {
       // A locked or failing vault leaves the record stored but
       // unapplied; skipping keeps the pass alive rather than stranding
-      // the cursor — Séance's per-record `skip` posture.
-      return _ApplyOutcome.skipped;
+      // the cursor — Séance's per-record `skip` posture. Under §4.5's
+      // hold it defers instead, like a decrypt failure: the record must
+      // still be ahead of the cursor when the verified round re-applies.
+      return holdActive ? _ApplyOutcome.deferred : _ApplyOutcome.skipped;
     }
     return _ApplyOutcome.applied;
   }

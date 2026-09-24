@@ -2785,6 +2785,18 @@ abstract class AppLocalizations {
   /// **'Use synced key'**
   String get backupPinAcceptSynced;
 
+  /// Title of the device-level credential-sync switch in shared mode (Séance's syncSecrets); the server editor's credential switch names it.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync saved passwords & keys'**
+  String get backupSyncSecretsTitle;
+
+  /// Subtitle of the device-level credential-sync switch.
+  ///
+  /// In en, this message translates to:
+  /// **'End-to-end encrypted. Only includes servers where credential sync is also on.'**
+  String get backupSyncSecretsSubtitle;
+
   /// Resolves a pin conflict by re-pushing the trusted key (04 §3.2's keep local).
   ///
   /// In en, this message translates to:

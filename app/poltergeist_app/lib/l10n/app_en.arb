@@ -2317,6 +2317,14 @@
   "@backupPinAcceptSynced": {
     "description": "Resolves a pin conflict by installing the pulled key (04 §3.2's accept)."
   },
+  "backupSyncSecretsTitle": "Sync saved passwords & keys",
+  "@backupSyncSecretsTitle": {
+    "description": "Title of the device-level credential-sync switch in shared mode (Séance's syncSecrets); the server editor's credential switch names it."
+  },
+  "backupSyncSecretsSubtitle": "End-to-end encrypted. Only includes servers where credential sync is also on.",
+  "@backupSyncSecretsSubtitle": {
+    "description": "Subtitle of the device-level credential-sync switch."
+  },
   "backupPinKeepLocal": "Keep local key",
   "@backupPinKeepLocal": {
     "description": "Resolves a pin conflict by re-pushing the trusted key (04 §3.2's keep local)."

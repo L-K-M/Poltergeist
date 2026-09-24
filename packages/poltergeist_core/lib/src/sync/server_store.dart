@@ -46,9 +46,10 @@ abstract interface class SyncTrackingServerStore {
   /// persists with a local-authorship tuple. Returns the stored record.
   Future<ServerConfig> save(ServerConfig server);
 
-  /// A local delete: drops the row and records a tombstone tuple, which
-  /// is what stops a stale pulled copy resurrecting the server before
-  /// the tombstone record itself has pushed. False when absent.
+  /// A local delete: drops the row and records a tombstone tuple stamped
+  /// by [deletionStamp], which is what stops a stale pulled copy
+  /// resurrecting the server before the tombstone record itself has
+  /// pushed. False when absent.
   Future<bool> remove(String id);
 
   /// The tuple last materialized for [id], or null when nothing about
@@ -67,6 +68,20 @@ abstract interface class SyncTrackingServerStore {
   /// Materialize a pulled tombstone: the row drops and the winning
   /// tombstone tuple persists so a stale live record cannot resurrect it.
   Future<void> removeSyncedRecord(String id, ServerSyncTuple tombstone);
+}
+
+/// A deletion stamp that beats every version of the record this device
+/// has seen — max(now, prior + 1), Séance's `_deletionStamp` — so a
+/// same-ms tie or a clock trailing a peer's last edit cannot let the
+/// live copy win LWW over its own tombstone, while a peer's genuinely
+/// newer edit still does. Null [prior] entries (a row already gone) fall
+/// back to "now", the honest floor.
+int deletionStamp({required DateTime now, required Iterable<int?> prior}) {
+  var stamp = now.toUtc().millisecondsSinceEpoch;
+  for (final seen in prior) {
+    if (seen != null && seen >= stamp) stamp = seen + 1;
+  }
+  return stamp;
 }
 
 /// The quarantine name for a corrupt store at [path]: UTC ISO-8601 with
@@ -173,10 +188,13 @@ final class FileServerConfigStore implements SyncTrackingServerStore {
     await _writeTail;
     if (!_servers.containsKey(id)) return false;
     var removed = false;
-    // Stamped at the deletion instant like the bookmark store's: the
-    // tuple guards what a pulled stale copy must out-tuple, so a late
-    // sample could outrank an edit that legitimately beat the delete.
-    final tombstone = _localTombstone();
+    // Stamped past every version this store has seen — max(now, prior +
+    // 1), the rule save() uses: a bare "now" on a clock trailing the
+    // row's pulled stamp would lose LWW to the very copy it deletes and
+    // resurrect the server. A peer's genuinely newer edit still wins.
+    final tombstone = _localTombstone(deletionStamp(
+        now: _now(),
+        prior: [_servers[id]?.updatedAt, _syncTuples[id]?.updatedAt]));
     await _writeNext(
       (next) {
         removed = next.remove(id) != null;
@@ -235,11 +253,11 @@ final class FileServerConfigStore implements SyncTrackingServerStore {
     return ServerSyncTuple(updatedAt: updatedAtMs, deviceId: deviceId);
   }
 
-  ServerSyncTuple? _localTombstone() {
+  ServerSyncTuple? _localTombstone(int updatedAtMs) {
     final deviceId = _syncDeviceId?.call();
     if (deviceId == null) return null;
     return ServerSyncTuple(
-      updatedAt: _now().toUtc().millisecondsSinceEpoch,
+      updatedAt: updatedAtMs,
       deviceId: deviceId,
       deleted: true,
     );

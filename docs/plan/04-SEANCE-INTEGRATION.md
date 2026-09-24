@@ -943,10 +943,16 @@ What shared mode unlocks:
   v1.x enhancement noted at the end of this chapter, promoted into v1 by
   the same directive: a Poltergeist-authored server is useless in Séance
   without its credential). Secret publication follows Séance's rules:
-  only while a non-excluded `syncSecret` server references the credential,
-  retracted (tombstoned) when the last sharer is deleted or excluded, and
-  re-dated past a stale retraction on re-inclusion. Pulled `secret:`
-  records apply into the vault under Séance's two guards — the
+  only while the device-level **"Sync saved passwords & keys"** switch
+  (Séance's `syncSecrets`, per device, off by default — Settings →
+  Backup, shared mode) is on and a non-excluded `syncSecret` server
+  references the credential; retracted (tombstoned) when the last sharer
+  is deleted or excluded, whatever the switch says (an earlier session may
+  have published it); and re-dated past this device's own stale
+  retraction on re-inclusion. The switch gates the pull side too: while
+  it is off pulled `secret:` records stay stored but unapplied, and
+  turning it on applies them and publishes what it held back. Pulled
+  `secret:` records apply into the vault under Séance's two guards — the
   exclusion shield (a credential referenced only by excluded servers
   never lands) and the freshness floor (a strictly newer local edit is
   never overwritten) — while `secret:` and `hostkey:` **tombstones stay

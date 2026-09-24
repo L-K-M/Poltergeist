@@ -39,6 +39,7 @@ final class _Device {
     Directory parent,
     String name, {
     bool shared = false,
+    bool syncSecrets = false,
   }) async {
     final device = _Device._()
       ..deviceId = 'device-$name'
@@ -67,20 +68,27 @@ final class _Device {
         : null;
     device.secrets =
         shared ? SecretVault(InMemoryVaultStore(), _key) : null;
-    device.coordinator = BookmarkCoordinator(
-      records: device.records,
-      bookmarks: device.bookmarks,
-      hostKeys: device.hostKeys,
-      crypto: device.crypto,
-      deviceId: device.deviceId,
-      pinVerdicts: device.verdicts,
-      tripwires: device.tripwires,
-      catalog: device.catalog,
-      servers: device.servers,
-      secrets: device.secrets,
-      now: device.clock.call,
-    );
+    device.rebind(syncSecrets: syncSecrets);
     return device;
+  }
+
+  /// A fresh coordinator over the same stores — what the app does when
+  /// the device-level "Sync saved passwords & keys" switch flips.
+  void rebind({required bool syncSecrets}) {
+    coordinator = BookmarkCoordinator(
+      records: records,
+      bookmarks: bookmarks,
+      hostKeys: hostKeys,
+      crypto: crypto,
+      deviceId: deviceId,
+      pinVerdicts: verdicts,
+      tripwires: tripwires,
+      catalog: catalog,
+      servers: servers,
+      secrets: secrets,
+      syncSecrets: syncSecrets,
+      now: clock.call,
+    );
   }
 }
 
@@ -890,6 +898,72 @@ void main() {
       expect(resealed.deviceId, a.deviceId);
     });
 
+    test('a delete outranks a pulled copy stamped by a faster clock',
+        () async {
+      final a = await _Device.create(tempDir, 'a', shared: true);
+      // A peer whose clock runs a minute ahead edited the server.
+      server.seed(await _sealServer(
+          _server('web').copyWith(updatedAt: _epochMs + 60000)));
+      await a.coordinator.runRound(server);
+      expect((await a.servers!.byId('web'))!.updatedAt, _epochMs + 60000);
+
+      // Deleted five seconds later by this device's clock: a bare "now"
+      // would lose LWW to the very copy it deletes.
+      a.clock.ms += 5000;
+      await _deleteServer(a, (await a.servers!.byId('web'))!);
+      final tombstone = await a.records.getRecord('web');
+      expect(tombstone!.deleted, isTrue);
+      expect(tombstone.updatedAt, greaterThan(_epochMs + 60000));
+      expect((await a.servers!.syncTupleOf('web'))!.updatedAt,
+          tombstone.updatedAt);
+
+      await a.coordinator.runRound(server);
+      await a.coordinator.runRound(server);
+      expect(server.records['web']!.deleted, isTrue);
+      expect(await a.servers!.byId('web'), isNull);
+    });
+
+    test('an own-device tombstone older than the live row is left alone',
+        () async {
+      final a = await _Device.create(tempDir, 'a', shared: true);
+      await _saveServer(a, _server('web'));
+      await a.coordinator.runRound(server);
+      // A row newer than its sealed record — a crash between the store
+      // write and the seal leaves exactly this.
+      a.clock.ms += 2000;
+      final saved = await a.servers!.save(
+          (await a.servers!.byId('web'))!.copyWith(label: 'current'));
+      // This device's old retraction, dated between the two: nothing to
+      // revive, and re-dating the row to its stamp + 1 would regress it.
+      server.seed(EncryptedRecord(
+        id: 'web',
+        updatedAt: _epochMs + 500,
+        deviceId: a.deviceId,
+        deleted: true,
+        seq: null,
+        blob: Uint8List(0),
+      ));
+      await a.coordinator.runRound(server);
+      final row = await a.servers!.byId('web');
+      expect(row!.updatedAt, saved.updatedAt);
+      expect(row.label, 'current');
+    });
+
+    test('the store-loss re-seal retracts an excluded server', () async {
+      final a = await _Device.create(tempDir, 'a', shared: true);
+      await _saveServer(a, _server('web'));
+      a.clock.ms += 1000;
+      await a.coordinator.onServerSaved(
+          (await a.servers!.byId('web'))!.copyWith(
+        excludeFromSync: true,
+        updatedAt: a.clock.ms,
+      ));
+
+      await a.coordinator.reSealAfterStoreLoss();
+      expect((await a.records.getRecord('web'))!.deleted, isTrue,
+          reason: 'live payload would un-exclude the server fleet-wide');
+    });
+
     test('server writes are no-ops outside shared mode', () async {
       final device = await _Device.create(tempDir, 'a');
       await device.coordinator.onServerSaved(_server('web'));
@@ -940,8 +1014,10 @@ void main() {
   group('secret records (04 §4.2, amended)', () {
     test('a syncSecret server publishes its credential with the config',
         () async {
-      final a = await _Device.create(tempDir, 'a', shared: true);
-      final b = await _Device.create(tempDir, 'b', shared: true);
+      final a = await _Device.create(tempDir, 'a',
+          shared: true, syncSecrets: true);
+      final b = await _Device.create(tempDir, 'b',
+          shared: true, syncSecrets: true);
       await a.secrets!.putLocalSecret(_secret('s1'), updatedAt: _epochMs);
       await _saveServer(
           a, _server('web', secretRef: 's1', syncSecret: true));
@@ -955,7 +1031,8 @@ void main() {
 
     test('a credential stays published while a synced sharer remains',
         () async {
-      final a = await _Device.create(tempDir, 'a', shared: true);
+      final a = await _Device.create(tempDir, 'a',
+          shared: true, syncSecrets: true);
       await a.secrets!
           .putLocalSecret(_secret('shared-s'), updatedAt: _epochMs);
       await _saveServer(
@@ -981,7 +1058,8 @@ void main() {
 
     test('excluding the last synced sharer retracts the secret record',
         () async {
-      final a = await _Device.create(tempDir, 'a', shared: true);
+      final a = await _Device.create(tempDir, 'a',
+          shared: true, syncSecrets: true);
       await a.secrets!.putLocalSecret(_secret('s1'), updatedAt: _epochMs);
       await _saveServer(
           a, _server('web', secretRef: 's1', syncSecret: true));
@@ -997,7 +1075,8 @@ void main() {
     });
 
     test('deleting the server retracts its orphaned credential', () async {
-      final a = await _Device.create(tempDir, 'a', shared: true);
+      final a = await _Device.create(tempDir, 'a',
+          shared: true, syncSecrets: true);
       await a.secrets!.putLocalSecret(_secret('s1'), updatedAt: _epochMs);
       await _saveServer(
           a, _server('web', secretRef: 's1', syncSecret: true));
@@ -1008,7 +1087,8 @@ void main() {
 
     test('re-including after a retraction re-dates the credential past '
         'it', () async {
-      final a = await _Device.create(tempDir, 'a', shared: true);
+      final a = await _Device.create(tempDir, 'a',
+          shared: true, syncSecrets: true);
       await a.secrets!.putLocalSecret(_secret('s1'), updatedAt: _epochMs);
       await _saveServer(
           a, _server('web', secretRef: 's1', syncSecret: true));
@@ -1036,9 +1116,55 @@ void main() {
           greaterThan(tombstone.updatedAt));
     });
 
+    test('the retraction outranks a credential stamped past its server',
+        () async {
+      final a = await _Device.create(tempDir, 'a',
+          shared: true, syncSecrets: true);
+      // The credential was edited well after its server: its stamp
+      // advances on its own, so the server's delete stamp alone loses.
+      await a.secrets!.putLocalSecret(
+          _secret('s1', updatedAt: _epochMs + 9000),
+          updatedAt: _epochMs + 9000);
+      await _saveServer(
+          a, _server('web', secretRef: 's1', syncSecret: true));
+      await a.coordinator.runRound(server);
+      expect(server.records['secret:s1']!.updatedAt, _epochMs + 9000);
+
+      a.clock.ms += 1000;
+      await _deleteServer(a, (await a.servers!.byId('web'))!);
+      final retraction = await a.records.getRecord('secret:s1');
+      expect(retraction!.deleted, isTrue);
+      expect(retraction.updatedAt, greaterThan(_epochMs + 9000));
+      await a.coordinator.runRound(server);
+      expect(server.records['secret:s1']!.deleted, isTrue);
+    });
+
+    test("another device's retraction is not re-dated past", () async {
+      final a = await _Device.create(tempDir, 'a',
+          shared: true, syncSecrets: true);
+      server.seed(EncryptedRecord(
+        id: 'secret:s1',
+        updatedAt: _epochMs + 5000,
+        deviceId: 'other-device',
+        deleted: true,
+        seq: null,
+        blob: Uint8List(0),
+      ));
+      await a.coordinator.runRound(server);
+      await a.secrets!.putLocalSecret(_secret('s1'), updatedAt: _epochMs);
+      await _saveServer(
+          a, _server('web', secretRef: 's1', syncSecret: true));
+      // Séance's `_reviveSecrets` only overrules this device's own
+      // retraction; the credential stays withdrawn until it is edited.
+      expect((await a.secrets!.getSecret('s1'))!.updatedAt, _epochMs);
+      expect((await a.records.getRecord('secret:s1'))!.updatedAt,
+          _epochMs);
+    });
+
     test('an excluded-only credential is shielded from pulled '
         'application', () async {
-      final device = await _Device.create(tempDir, 'a', shared: true);
+      final device = await _Device.create(tempDir, 'a',
+          shared: true, syncSecrets: true);
       await device.servers!.save(
           _server('priv', secretRef: 's1', excludeFromSync: true));
       server.seed(
@@ -1049,7 +1175,8 @@ void main() {
 
     test('a newer local credential is never overwritten by a stale '
         'pull', () async {
-      final device = await _Device.create(tempDir, 'a', shared: true);
+      final device = await _Device.create(tempDir, 'a',
+          shared: true, syncSecrets: true);
       await device.secrets!.putLocalSecret(
           _secret('s1', updatedAt: _epochMs + 9000),
           updatedAt: _epochMs + 9000);
@@ -1065,7 +1192,8 @@ void main() {
 
     test('secret tombstones are no-ops — vault material survives',
         () async {
-      final device = await _Device.create(tempDir, 'a', shared: true);
+      final device = await _Device.create(tempDir, 'a',
+          shared: true, syncSecrets: true);
       await device.secrets!
           .putLocalSecret(_secret('s1'), updatedAt: _epochMs);
       server.seed(EncryptedRecord(
@@ -1090,6 +1218,70 @@ void main() {
       expect(await device.tripwires.trippedIds(), isEmpty);
       expect(
           (await device.records.getRecord('secret:s1'))!.blob, isNotEmpty);
+    });
+  });
+
+  group('device-level secret switch (Séance syncSecrets)', () {
+    test('while off, nothing publishes and no pulled credential lands',
+        () async {
+      final a = await _Device.create(tempDir, 'a', shared: true);
+      await a.secrets!.putLocalSecret(_secret('s1'), updatedAt: _epochMs);
+      await _saveServer(
+          a, _server('web', secretRef: 's1', syncSecret: true));
+      await a.coordinator.onServerSecretSaved('s1');
+      expect(await a.records.getRecord('secret:s1'), isNull);
+
+      // A synced sharer exists, so neither the shield nor the freshness
+      // floor keeps the pulled credential out — the switch does.
+      await _saveServer(
+          a, _server('web2', secretRef: 's2', syncSecret: true));
+      server.seed(
+          await _sealSecret(_secret('s2'), updatedAt: _epochMs + 1));
+      await a.coordinator.runRound(server);
+      expect(await a.secrets!.getSecret('s2'), isNull);
+      expect(server.records.containsKey('secret:s1'), isFalse);
+      // Stored, not dropped: turning the switch on later can apply it.
+      expect(await a.records.getRecord('secret:s2'), isNotNull);
+    });
+
+    test('while off, deleting the server still retracts its credential',
+        () async {
+      // An earlier session with the switch on may have published it.
+      final a = await _Device.create(tempDir, 'a', shared: true);
+      await a.secrets!.putLocalSecret(_secret('s1'), updatedAt: _epochMs);
+      await _saveServer(
+          a, _server('web', secretRef: 's1', syncSecret: true));
+      await _deleteServer(a, (await a.servers!.byId('web'))!);
+      expect((await a.records.getRecord('secret:s1'))!.deleted, isTrue);
+    });
+
+    test('turning it on publishes opted-in credentials and applies the '
+        'pulls it skipped', () async {
+      final a = await _Device.create(tempDir, 'a', shared: true);
+      await a.secrets!.putLocalSecret(_secret('s1'), updatedAt: _epochMs);
+      await _saveServer(
+          a, _server('web', secretRef: 's1', syncSecret: true));
+      await a.secrets!.putLocalSecret(_secret('s3'), updatedAt: _epochMs);
+      await _saveServer(a, _server('opted-out', secretRef: 's3'));
+      await _saveServer(
+          a, _server('web2', secretRef: 's2', syncSecret: true));
+      server.seed(
+          await _sealSecret(_secret('s2'), updatedAt: _epochMs + 1));
+      await a.coordinator.runRound(server);
+      expect(await a.secrets!.getSecret('s2'), isNull);
+
+      a.rebind(syncSecrets: true);
+      await a.coordinator.catchUpSecrets();
+      // The skipped pull sits behind the cursor; catch-up applies it.
+      expect((await a.secrets!.getSecret('s2'))!.value, 'value-s2');
+      await a.coordinator.runRound(server);
+      expect(server.records['secret:s1']!.deleted, isFalse);
+      // A server's own switch still governs its credential.
+      expect(server.records.containsKey('secret:s3'), isFalse);
+
+      // Idempotent: a second pass has nothing left to publish.
+      await a.coordinator.catchUpSecrets();
+      expect(await a.records.dirtyRecords(), isEmpty);
     });
   });
 }

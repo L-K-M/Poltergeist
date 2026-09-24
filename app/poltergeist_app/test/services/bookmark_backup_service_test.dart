@@ -608,6 +608,7 @@ void main() {
     test('saveServerSecret writes the vault and publishes the record '
         'while a synced server opts it in', () async {
       await h.enrollSharedDirectly();
+      await h.service.setSyncSecrets(true);
       await h.service.saveServer(
           config('web', ref: 's1', syncSecret: true));
       const secret = Secret(
@@ -618,6 +619,41 @@ void main() {
       final record = await h.records.getRecord('secret:s1');
       expect(record, isNotNull);
       expect(record!.deleted, isFalse);
+    });
+
+    test('the device-level switch is off by default: an opted-in '
+        'credential stays local', () async {
+      await h.enrollSharedDirectly();
+      expect(h.service.syncSecrets, isFalse);
+      await h.service.saveServer(
+          config('web', ref: 's1', syncSecret: true));
+      const secret = Secret(
+          id: 's1', kind: SecretKind.password, value: 'hunter2');
+      await h.service.saveServerSecret(secret);
+
+      expect((await h.service.serverSecretById('s1'))!.value, 'hunter2');
+      expect(await h.records.getRecord('secret:s1'), isNull);
+    });
+
+    test('turning the switch on persists and publishes what it held back',
+        () async {
+      await h.enrollSharedDirectly();
+      await h.service.saveServer(
+          config('web', ref: 's1', syncSecret: true));
+      await h.service.saveServerSecret(const Secret(
+          id: 's1', kind: SecretKind.password, value: 'hunter2'));
+      expect(await h.records.getRecord('secret:s1'), isNull);
+
+      await h.service.setSyncSecrets(true);
+      expect(h.service.syncSecrets, isTrue);
+      expect((await h.records.getRecord('secret:s1'))!.deleted, isFalse);
+      // Persisted per device: a restart reads it back.
+      await h.service.load();
+      expect(h.service.syncSecrets, isTrue);
+
+      await h.service.setSyncSecrets(false);
+      await h.service.load();
+      expect(h.service.syncSecrets, isFalse);
     });
 
     test('saveServerSecret stays local while no synced server opts the '

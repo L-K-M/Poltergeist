@@ -444,6 +444,9 @@ void main() {
           findsOneWidget);
       expect(find.byKey(const ValueKey('backup.enrolled.delete')),
           findsOneWidget);
+      // Credentials never travel on a separate account.
+      expect(find.byKey(const ValueKey('backup.enrolled.syncSecrets')),
+          findsNothing);
     });
 
     testWidgets('a closed gate hides the switch button', (tester) async {
@@ -468,6 +471,21 @@ void main() {
           findsNothing);
       expect(find.byKey(const ValueKey('backup.enrolled.signOut')),
           findsOneWidget);
+    });
+
+    testWidgets('shared mode offers the credential switch, off by default',
+        (tester) async {
+      final service = await h.enrolled(mode: SyncAccountMode.shared);
+      await _pumpSection(tester, service, gate: _gateOffered);
+      await tester.pumpAndSettle();
+      const key = ValueKey('backup.enrolled.syncSecrets');
+      expect(find.text('Sync saved passwords & keys'), findsOneWidget);
+      expect(tester.widget<SwitchListTile>(find.byKey(key)).value, isFalse);
+
+      await _tapVisible(tester, key);
+      await tester.pumpAndSettle();
+      expect(service.syncSecrets, isTrue);
+      expect(tester.widget<SwitchListTile>(find.byKey(key)).value, isTrue);
     });
 
     testWidgets('the paused hold renders with the separate way-out',

@@ -1770,6 +1770,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get backupPinAcceptSynced => 'Use synced key';
 
   @override
+  String get backupSyncSecretsTitle => 'Sync saved passwords & keys';
+
+  @override
+  String get backupSyncSecretsSubtitle =>
+      'End-to-end encrypted. Only includes servers where credential sync is also on.';
+
+  @override
   String get backupPinKeepLocal => 'Keep local key';
 
   @override

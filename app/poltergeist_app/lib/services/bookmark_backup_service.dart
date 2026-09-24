@@ -135,6 +135,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   static const _lastSyncErrorKey = 'poltergeist.sync.lastSyncError';
   static const _retainedAccountKey = 'poltergeist.sync.retainedAccount';
   static const _switchSyncedKey = 'poltergeist.sync.switchSynced';
+  static const _syncSecretsKey = 'poltergeist.sync.syncSecrets';
 
   SyncAccount? _account;
   Set<String> _notices = const {};
@@ -161,6 +162,15 @@ final class BookmarkBackupService extends ChangeNotifier {
 
   /// The shared-mode vault, for the server editor's credential fields.
   SecretVault? get secretVault => _secretVault;
+
+  bool _syncSecrets = false;
+
+  /// The device-level "Sync saved passwords & keys" switch — Séance's
+  /// `syncSecrets`, persisted per device and off by default. While off
+  /// the coordinator neither publishes a credential nor applies a pulled
+  /// one, whatever a server's own credential-sync switch says; the
+  /// editor's credential fields still read and write the local vault.
+  bool get syncSecrets => _syncSecrets;
 
   /// The enrolled account, or null before first enrollment.
   SyncAccount? get account => _account;
@@ -211,6 +221,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// Load all durable state and build the coordinator when the vault key
   /// is readable. Called once at composition and again on refresh needs.
   Future<void> load() async {
+    _syncSecrets = await _settings?.get<bool>(_syncSecretsKey) ?? false;
     await _rebuildCoordinator();
     // Repopulate the catalog from the server store before the first
     // round runs — locally saved servers persist across restarts.
@@ -239,6 +250,22 @@ final class BookmarkBackupService extends ChangeNotifier {
         : DateTime.fromMillisecondsSinceEpoch(atMs, isUtc: true);
     _lastSyncError = await _settings?.get<String>(_lastSyncErrorKey);
     notifyListeners();
+  }
+
+  /// Flip [syncSecrets]: persist, rebind the coordinator under the new
+  /// value, and — turning it on — work off what change-driven sync
+  /// skipped while it was off (the next round pushes it). Turning it off
+  /// withdraws nothing already published, as in Séance; deleting or
+  /// excluding a server still retracts its credential either way.
+  Future<void> setSyncSecrets(bool enabled) async {
+    _requireNotSyncing();
+    if (enabled == _syncSecrets) return;
+    await _settings?.set(_syncSecretsKey, enabled);
+    _syncSecrets = enabled;
+    await _rebuildCoordinator();
+    await _coordinator?.rebuildCatalog();
+    if (enabled) await _coordinator?.catchUpSecrets();
+    await refresh();
   }
 
   /// Shared-mode server writes (04 §4.2, amended): the catalog's row
@@ -376,6 +403,7 @@ final class BookmarkBackupService extends ChangeNotifier {
       catalog: _catalog,
       servers: shared ? _servers : null,
       secrets: _secretVault,
+      syncSecrets: _syncSecrets,
       enrollment: _enrollmentState,
       now: _now,
     );
