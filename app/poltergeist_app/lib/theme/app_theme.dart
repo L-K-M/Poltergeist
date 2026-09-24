@@ -1,3 +1,5 @@
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -307,9 +309,12 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
           Color.lerp(statusConnected, other.statusConnected, t)!,
       statusConnecting:
           Color.lerp(statusConnecting, other.statusConnecting, t)!,
-      headerHeight: t < 0.5 ? headerHeight : other.headerHeight,
-      rowExtent: t < 0.5 ? rowExtent : other.rowExtent,
-      sidebarRowExtent: t < 0.5 ? sidebarRowExtent : other.sidebarRowExtent,
+      // Linear like the colours: a stepped extent would snap mid-way
+      // through MaterialApp's theme animation while everything fades.
+      headerHeight: lerpDouble(headerHeight, other.headerHeight, t)!,
+      rowExtent: lerpDouble(rowExtent, other.rowExtent, t)!,
+      sidebarRowExtent:
+          lerpDouble(sidebarRowExtent, other.sidebarRowExtent, t)!,
     );
   }
 }
