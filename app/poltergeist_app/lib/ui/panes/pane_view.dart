@@ -1352,10 +1352,11 @@ class _PaneSurface extends StatelessWidget {
     }
     return [
       ?banner,
-      // 02 §2.7's "Save as favorite…" bar: a live adhoc session past a
-      // successful connect, prefilled from that session. Keyed to the
-      // adhoc id so a save hides the bar for good.
-      if (_saveBarBookmark(controller) case final adhoc?)
+      // 02 §2.7's "Not saved" banner: a live adhoc session past a
+      // successful connect, until a stored server carries its endpoint
+      // or the user dismisses it in this tab.
+      if (_saveBarBookmark(controller) case final adhoc?
+          when !controller.unsavedBannerDismissed)
         Offstage(
           offstage: banner != null,
           child: SaveFavoriteBar(
@@ -1367,6 +1368,7 @@ class _PaneSurface extends StatelessWidget {
             },
             store: bookmarks,
             onNoStore: controller.noteSaveFavoriteUnavailable,
+            onDismiss: controller.dismissUnsavedBanner,
           ),
         ),
     ];

@@ -1418,16 +1418,25 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'USERNAME'",
     r"'$user@'",
   },
-  // The save bar's widget keys and the live-session label compositions
-  // (endpoint machine data beside ARB-authored copy) — plumbing, never
-  // authored copy.
+  // The Not saved banner's widget keys — plumbing, never authored copy.
   'lib/ui/panes/save_favorite_bar.dart': {
     "'saveFavorite.bar'",
     "'saveFavorite.name'",
+    "'saveFavorite.confirm'",
     "'saveFavorite.save'",
+    "'saveFavorite.label'",
     "'saveFavorite.error'",
+    "'saveFavorite.dismiss'",
+  },
+  // The shared name prompt's empty default and the endpoint grammar a
+  // live session is labelled and matched by (`user@host:port`) —
+  // machine data beside ARB-authored copy, never authored copy.
+  'lib/ui/save_to_servers.dart': {
+    "''",
     r"'${identity.host}:${identity.port}'",
-    r"'$username@$host'",
+    r"'${identity.username}@$host'",
+    r"'${identity.username}@${identity.host.toLowerCase()}:'",
+    r"'${identity.port}'",
   },
   'lib/ui/import/ssh_config_import_command.dart': {
     "'favorite.importSshConfig'",
@@ -1495,8 +1504,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.deleteConfirm'",
     "'sidebar.saveServerField'",
     "'sidebar.saveServerSave'",
-    r"'${identity.host}:${identity.port}'",
-    r"'${identity.username}@$host'",
   },
   'lib/ui/sidebar/sidebar_favorites_section.dart': {
     "'sidebar.retry'",
@@ -1518,7 +1525,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   'lib/ui/sidebar/sidebar_servers_section.dart': {
     "''",
-    r"'${bookmark.label} ${_endpointLabel(bookmark)}'",
+    r"'${bookmark.label} ${sessionEndpointLabel(bookmark)}'",
     r"'sidebar.adhoc.${bookmark.id}'",
     r"'sidebar.group.$collapseKey'",
     r"'sidebar.section.$collapseKey'",

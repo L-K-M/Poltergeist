@@ -74,7 +74,7 @@ List<Widget> _serversSection(_SidebarData data) {
   for (final session in sessions) {
     final bookmark = session.bookmark;
     if (!data.countRow(
-      '${bookmark.label} ${_endpointLabel(bookmark)}',
+      '${bookmark.label} ${sessionEndpointLabel(bookmark)}',
       open: view.onOpenFavorite == null
           ? null
           : () => view.onOpenFavorite!(bookmark, SidebarOpenAction.plain),

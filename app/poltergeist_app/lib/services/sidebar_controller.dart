@@ -412,24 +412,14 @@ final class SidebarController extends ChangeNotifier {
     required String? path,
     required String label,
     String? group,
-  }) async {
+  }) {
     _assertLive();
-    final sortKey = await _store.sortKeyForInsert(group: group);
-    final now = DateTime.now();
-    return _store.save(
-      Bookmark(
-        id: uuidV4(),
-        kind: BookmarkKind.remotePath,
-        label: label,
-        group: group,
-        color: live.color,
-        icon: live.icon,
-        server: live.server,
-        remotePath: path ?? live.remotePath,
-        sortKey: sortKey,
-        createdAt: now,
-        updatedAt: now,
-      ),
+    return saveRemoteLocationTo(
+      _store,
+      live: live,
+      path: path,
+      label: label,
+      group: group,
     );
   }
 
@@ -480,3 +470,35 @@ Bookmark _withLabel(Bookmark source, String label) => Bookmark(
   createdAt: source.createdAt,
   updatedAt: source.updatedAt,
 );
+
+/// Saves a live session's endpoint and [path] into [store] as a server
+/// row: a fresh id (a Quick Connect id never enters the store), the live
+/// identity, colour and mark, and a store-minted tail key. Carries no
+/// secret — bookmarks hold `secretRef`s into the vault. The sidebar and
+/// the pane's "Not saved" banner both save through this, so a session
+/// saved from either lands as the same record.
+Future<Bookmark> saveRemoteLocationTo(
+  BookmarkStore store, {
+  required Bookmark live,
+  required String? path,
+  required String label,
+  String? group,
+}) async {
+  final sortKey = await store.sortKeyForInsert(group: group);
+  final now = DateTime.now();
+  return store.save(
+    Bookmark(
+      id: uuidV4(),
+      kind: BookmarkKind.remotePath,
+      label: label,
+      group: group,
+      color: live.color,
+      icon: live.icon,
+      server: live.server,
+      remotePath: path ?? live.remotePath,
+      sortKey: sortKey,
+      createdAt: now,
+      updatedAt: now,
+    ),
+  );
+}

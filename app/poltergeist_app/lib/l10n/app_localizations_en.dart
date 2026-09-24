@@ -851,9 +851,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Only sftp:// addresses are supported here.';
 
   @override
-  String get saveFavoriteTitle => 'Save as favorite…';
-
-  @override
   String get saveFavoriteNameLabel => 'Name';
 
   @override
@@ -4400,4 +4397,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get quickLookNoPreview => 'No preview for this kind of item.';
+
+  @override
+  String paneUnsavedSession(String endpoint) {
+    return 'Not saved · $endpoint';
+  }
+
+  @override
+  String get paneUnsavedDismiss => 'Dismiss';
 }

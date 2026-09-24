@@ -1502,12 +1502,6 @@ abstract class AppLocalizations {
   /// **'Only sftp:// addresses are supported here.'**
   String get quickConnectUnsupportedSchemeError;
 
-  /// Title of the post-connect bar offering to keep the live adhoc session as a favorite (02 §2.7).
-  ///
-  /// In en, this message translates to:
-  /// **'Save as favorite…'**
-  String get saveFavoriteTitle;
-
   /// Label of the favorite-name field in the save bar (02 §2.7).
   ///
   /// In en, this message translates to:
@@ -6735,6 +6729,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No preview for this kind of item.'**
   String get quickLookNoPreview;
+
+  /// The pane's slim banner after a Quick Connect: the live session is not a saved server yet. The endpoint is user@host with any non-default port.
+  ///
+  /// In en, this message translates to:
+  /// **'Not saved · {endpoint}'**
+  String paneUnsavedSession(String endpoint);
+
+  /// Tooltip of the Not saved banner's close button; hides the banner for this tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get paneUnsavedDismiss;
 }
 
 class _AppLocalizationsDelegate

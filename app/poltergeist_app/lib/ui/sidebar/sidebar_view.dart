@@ -19,6 +19,7 @@ import '../../services/workspace_controller.dart';
 import '../../theme/app_theme.dart';
 import '../panes/pane_drop_area.dart' show paneDropModifiers;
 import '../panes/pane_format.dart' show formatPaneSize;
+import '../save_to_servers.dart';
 import '../server_appearance.dart';
 import '../server_filter.dart' show serverSearchHaystack;
 import '../server_state_indicator.dart';

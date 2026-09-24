@@ -1171,10 +1171,6 @@
   "@quickConnectUnsupportedSchemeError": {
     "description": "Error shown for a non-sftp URL pasted into Quick Connect (02 §2.7)."
   },
-  "saveFavoriteTitle": "Save as favorite…",
-  "@saveFavoriteTitle": {
-    "description": "Title of the post-connect bar offering to keep the live adhoc session as a favorite (02 §2.7)."
-  },
   "saveFavoriteNameLabel": "Name",
   "@saveFavoriteNameLabel": {
     "description": "Label of the favorite-name field in the save bar (02 §2.7)."
@@ -5758,5 +5754,18 @@
   "quickLookNoPreview": "No preview for this kind of item.",
   "@quickLookNoPreview": {
     "description": "Shown under the name in the Quick Look overlay for folders and file kinds it cannot render."
+  },
+  "paneUnsavedSession": "Not saved · {endpoint}",
+  "@paneUnsavedSession": {
+    "description": "The pane's slim banner after a Quick Connect: the live session is not a saved server yet. The endpoint is user@host with any non-default port.",
+    "placeholders": {
+      "endpoint": {
+        "type": "String"
+      }
+    }
+  },
+  "paneUnsavedDismiss": "Dismiss",
+  "@paneUnsavedDismiss": {
+    "description": "Tooltip of the Not saved banner's close button; hides the banner for this tab."
   }
 }
