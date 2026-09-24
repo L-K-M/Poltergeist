@@ -122,20 +122,23 @@ Future<BuiltInTextDocument> loadBuiltInTextDocumentDetails(
       'The local copy changed while it was being opened.',
     );
   }
-  final hasUtf8Bom =
-      bytes.length >= 3 &&
-      bytes[0] == 0xef &&
-      bytes[1] == 0xbb &&
-      bytes[2] == 0xbf;
+  // The BOM comes off the BYTES before decode, and every leading one
+  // is skipped: Utf8Decoder drops a BOM at the start of whatever it is
+  // handed, so stripping just one would let it swallow a second that is
+  // document content. Decode the rest (which then cannot start with
+  // one) and give back all but the first as U+FEFF characters — the
+  // same rule as Séance's editor. A U+FEFF anywhere else is content.
+  var leadingBoms = 0;
+  while (_utf8BomAt(bytes, leadingBoms * _utf8Bom.length)) {
+    leadingBoms++;
+  }
+  final hasUtf8Bom = leadingBoms > 0;
   late final String raw;
   try {
-    // The BOM is stripped on BYTES before decode — not after: a U+FEFF
-    // elsewhere in the payload is content and survives (and Dart's
-    // decoder skips a leading BOM itself, so a substring on the decoded
-    // text would eat a real character).
-    raw = const Utf8Decoder(
+    final content = const Utf8Decoder(
       allowMalformed: false,
-    ).convert(hasUtf8Bom ? bytes.sublist(3) : bytes);
+    ).convert(bytes, leadingBoms * _utf8Bom.length);
+    raw = leadingBoms > 1 ? '\uFEFF' * (leadingBoms - 1) + content : content;
   } on FormatException {
     throw const BuiltInEditorException('This file is not valid UTF-8 text.');
   }
@@ -156,6 +159,14 @@ Future<BuiltInTextDocument> loadBuiltInTextDocumentDetails(
     sha256: after,
   );
 }
+
+const _utf8Bom = [0xef, 0xbb, 0xbf];
+
+bool _utf8BomAt(List<int> bytes, int offset) =>
+    bytes.length >= offset + _utf8Bom.length &&
+    bytes[offset] == _utf8Bom[0] &&
+    bytes[offset + 1] == _utf8Bom[1] &&
+    bytes[offset + 2] == _utf8Bom[2];
 
 /// Saves [text] to [file] through the atomic two-sibling dance
 /// (06 §2.1, ported step-for-step):
@@ -194,10 +205,7 @@ Future<String> saveBuiltInTextDocument(
   Future<void> Function(File temporary)? observeTemporary,
 }) async {
   final normalized = _normalizeLineEndings(text, lineEnding);
-  final bytes = <int>[
-    if (hasUtf8Bom) ...const [0xef, 0xbb, 0xbf],
-    ...utf8.encode(normalized),
-  ];
+  final bytes = <int>[if (hasUtf8Bom) ..._utf8Bom, ...utf8.encode(normalized)];
   if (bytes.length > builtInEditorMaximumBytes) {
     throw const BuiltInEditorException(
       'The edited file exceeds the 4 MB built-in editor limit.',
