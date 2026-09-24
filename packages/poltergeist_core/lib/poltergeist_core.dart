@@ -399,7 +399,20 @@ export 'src/import/ssh_config_import.dart'
         SshConfigIncludeNote,
         SshConfigUnreadableException;
 export 'src/engine/engine_client.dart'
-    show EngineBrowseChannel, EngineClient, ProbeBridge, PromptBridge;
+    show
+        EngineBrowseChannel,
+        EngineClient,
+        EngineVfsStream,
+        ProbeBridge,
+        PromptBridge;
+export 'src/engine/engine_connection_manager.dart'
+    show
+        EngineConnectionManager,
+        EngineRemoteFileSystem,
+        ServerConfigSource;
+export 'src/engine/engine_trash_backend.dart' show EngineTrashBackend;
+export 'src/fs/content_digest.dart'
+    show ContentDigestSource, remoteContentDigest;
 export 'src/engine/engine_host.dart' show EngineHost, engineMain;
 export 'src/engine/local_file_opener.dart' show LocalFileOpener;
 export 'src/engine/protocol.dart'
@@ -456,6 +469,44 @@ export 'src/engine/protocol.dart'
         UnwatchServerRequest,
         WatchLocalDirectoryRequest,
         WatchServerRequest,
+        CancelVfsStreamRequest,
+        ChannelTarget,
+        DownloadChunkEvent,
+        DownloadStreamRequest,
+        EngineTrashError,
+        LeaseTarget,
+        LeaseTransferChannelRequest,
+        LocalTrashAvailableRequest,
+        LocalTrashRequest,
+        ReleaseTransferLeaseRequest,
+        StreamCreditRequest,
+        TransferLeaseGranted,
+        TrashAvailability,
+        TrashMoved,
+        UploadAbortRequest,
+        UploadChunkRequest,
+        UploadEndRequest,
+        UploadProgressEvent,
+        UploadReadyEvent,
+        UploadStreamRequest,
+        VfsCanonicalize,
+        VfsContentDigest,
+        VfsCreateDirectory,
+        VfsCreateEmptyFile,
+        VfsCreateSymbolicLink,
+        VfsDelete,
+        VfsEntryResult,
+        VfsListDirectory,
+        VfsOp,
+        VfsOpRequest,
+        VfsReadSymbolicLink,
+        VfsRename,
+        VfsSetMode,
+        VfsSetOwner,
+        VfsSetTimes,
+        VfsStat,
+        VfsStringResult,
+        VfsTarget,
         engineProtocolVersion;
 
 /// The user-facing product name.

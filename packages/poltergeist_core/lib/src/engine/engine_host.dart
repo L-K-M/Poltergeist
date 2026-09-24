@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:isolate';
 
+import 'package:meta/meta.dart';
 import 'package:seance_core/seance_core.dart';
 
 import '../connection/connection_manager.dart';
@@ -12,6 +13,7 @@ import '../fs/local_file_system.dart';
 import '../transfer/trash_service.dart';
 import 'connect_log_coalescer.dart';
 import 'engine_probes.dart';
+import 'lease_host.dart';
 import 'local_directory_watcher.dart';
 import 'local_file_opener.dart';
 import 'protocol.dart';
@@ -65,6 +67,10 @@ class EngineHost {
   late final PooledConnectionManager _manager;
   late final ConnectLogCoalescer _logCoalescer;
   late final EngineProbes _probes;
+
+  /// The bridged transfer leases (protocol v13): lease table, VFS-op
+  /// dispatch over leases and channels, and the byte streams.
+  late final LeaseHost _leases;
   StreamSubscription<ConnectLogLine>? _connectLogSubscription;
 
   final Map<String, ServerConfig> _servers = {};
@@ -153,6 +159,12 @@ class EngineHost {
       incidentStore: _seededIncidentStore(config, events),
       onRecoveryFailure: host._recoveryFailed,
     );
+    host._leases = LeaseHost(
+      manager: host._manager,
+      events: events,
+      channels: host._channels,
+      drainTimeout: host._shutdownDrainTimeout,
+    );
     host._probes = EngineProbes(
       emit: (statuses) {
         if (host._shuttingDown) return;
@@ -174,6 +186,12 @@ class EngineHost {
   }
 
   EngineHost._(this._events) : _prompts = _PromptBroker(_events);
+
+  /// Live bridged leases and byte streams — lets tests prove every lease
+  /// went back to the pool.
+  @visibleForTesting
+  ({int leases, int streams}) get bridgeCounts =>
+      (leases: _leases.leaseCount, streams: _leases.streamCount);
 
   void _recoveryFailed(
     String serverId,
@@ -287,6 +305,58 @@ class EngineHost {
         _guard(request.requestId, () => _setPermissions(request));
       case final OpenLocalFileRequest request:
         _guard(request.requestId, () => _openLocalFile(request));
+      case final LeaseTransferChannelRequest request:
+        _guard(request.requestId, () async {
+          _rejectIfShuttingDown();
+          // A lease can be the first connection-bearing request for its
+          // server (a restored task, a sync run): the config rides along.
+          final config = request.config;
+          if (config != null) {
+            _servers[request.serverId] = config;
+          } else if (!_servers.containsKey(request.serverId)) {
+            // No config from the app and none from a browse open: there
+            // is nothing to dial, and inventing one would be worse.
+            throw RemoteFileException(
+              kind: RemoteFileErrorKind.other,
+              operation: 'lease transfer channel',
+              message:
+                  'The server "${request.serverId}" is not open in this '
+                  'session and has no saved connection details. Connect '
+                  'to it again, then retry.',
+            );
+          }
+          return _leases.lease(request.serverId);
+        });
+      case final ReleaseTransferLeaseRequest request:
+        _guard(request.requestId, () => _leases.release(request.leaseId));
+      case final VfsOpRequest request:
+        _guard(request.requestId, () => _leases.op(request));
+      case final DownloadStreamRequest request:
+        _guard(request.requestId, () => _leases.download(request));
+      case final UploadStreamRequest request:
+        _guard(request.requestId, () => _leases.upload(request));
+      case final StreamCreditRequest request:
+        _leases.credit(request);
+      case final UploadChunkRequest request:
+        _leases.chunk(request);
+      case final UploadEndRequest request:
+        _leases.end(request);
+      case final UploadAbortRequest request:
+        _leases.abort(request);
+      case final CancelVfsStreamRequest request:
+        _leases.cancel(request);
+      case final LocalTrashAvailableRequest request:
+        _guard(
+          request.requestId,
+          () async =>
+              TrashAvailability(available: await localTrash.isAvailable()),
+        );
+      case final LocalTrashRequest request:
+        _guard(
+          request.requestId,
+          () async =>
+              TrashMoved(trashedPath: await localTrash.trash(request.path)),
+        );
       case final WatchServerRequest request:
         _watch(request.serverId);
       case final UnwatchServerRequest request:
@@ -308,7 +378,13 @@ class EngineHost {
         });
       case final DisconnectServerRequest request:
         _guard(request.requestId, () async {
-          await _manager.disconnectServer(request.serverId);
+          try {
+            await _manager.disconnectServer(request.serverId);
+          } finally {
+            // The pool force-released the id's leases: retire them here
+            // too so the proxy's next operation fails typed.
+            _leases.dropServer(request.serverId);
+          }
           return const EngineAck();
         });
       case final RemoveBookmarkRequest request:
@@ -318,6 +394,7 @@ class EngineHost {
           } finally {
             // The bookmark is gone regardless of the cascade's outcome:
             // never keep serving its config or watch afterwards.
+            _leases.dropServer(request.serverId);
             _forgetServer(request.serverId);
           }
           return const EngineAck();
@@ -342,8 +419,13 @@ class EngineHost {
       run().then(
         (result) => _respond(requestId, result),
         onError: (Object error) {
-          final failure = switch (error) {
+          final EngineResult failure = switch (error) {
             final RemoteFileException exception => EngineError.fromException(
+              exception,
+            ),
+            // The trash layer's own taxonomy crosses intact: its callers
+            // interpret only TrashException as "trash failed" (03 §7.3).
+            final TrashException exception => EngineTrashError.fromException(
               exception,
             ),
             _ => EngineError(
@@ -705,6 +787,10 @@ class EngineHost {
     // Still-open prompts are implicit cancels (03 §5): dismiss them so no
     // dialog outlives the engine.
     _prompts.dismissAll();
+    // Leases: refuse new grants and cancel every stream before the pool
+    // teardown below, so in-flight transfers unwind instead of parking
+    // on a window; the returns are awaited after the disconnects.
+    final leasesClosed = _leases.shutdown();
     for (final serverId in _servers.keys.toList()) {
       try {
         await _manager.disconnectServer(serverId);
@@ -716,6 +802,7 @@ class EngineHost {
     // through the opener, so no transcript line can follow — but an early
     // await here would let prompt dismissals win the disconnect race and
     // change the abandoned opens' documented failure kind.
+    await leasesClosed;
     await _connectLogSubscription?.cancel();
     await probesDisposed;
     _logCoalescer.dispose();

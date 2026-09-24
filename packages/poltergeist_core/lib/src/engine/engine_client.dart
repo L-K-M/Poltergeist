@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
 import 'package:seance_core/seance_core.dart';
@@ -42,13 +43,22 @@ abstract interface class ProbeBridge {
 /// event fan-out is a broadcast stream. Controllers talk only to this class;
 /// sockets, prompts, and the pool stay engine-side.
 class EngineClient implements PromptBridge, ProbeBridge {
-  late final Isolate _isolate;
+  /// Null for the in-process test seam ([inProcessForTesting]).
+  Isolate? _isolate;
+
+  /// The in-process seam's command port — closed with the client.
+  ReceivePort? _inProcessCommands;
   final _booted = Completer<SendPort>();
   final _terminated = Completer<void>();
 
   final _pending = <int, Completer<EngineResult>>{};
   final _serverStates = <String, StreamController<ServerStatus>>{};
   final _directoryWatches = <int, StreamController<DirectoryWatchEvent>>{};
+
+  /// Per-stream event routes for the v13 byte streams, keyed by the start
+  /// request's id. Each closes when the stream's final response lands —
+  /// after every event, since one port carries both in order.
+  final _vfsStreams = <int, StreamController<EngineEvent>>{};
   final _prompts = StreamController<EnginePromptEvent>.broadcast();
   final _promptDismissals = StreamController<PromptDismissedEvent>.broadcast();
   final _hostKeyPins = StreamController<HostKeyPinnedEvent>.broadcast();
@@ -84,6 +94,24 @@ class EngineClient implements PromptBridge, ProbeBridge {
     EngineConfig config, {
     required void Function(SendPort) entrypoint,
   }) => _spawn(config, entrypoint);
+
+  /// Serves the protocol from an [EngineHost] in THIS isolate over real
+  /// ports — messages are still copied and [TransferableTypedData] still
+  /// transfers — so a test can inspect the fake filesystem behind the
+  /// host while the client runs its production code paths.
+  @visibleForTesting
+  static EngineClient inProcessForTesting({
+    required EngineHost Function(SendPort events) host,
+  }) {
+    final client = EngineClient._();
+    final commands = ReceivePort();
+    final engine = host(client._events.sendPort);
+    commands.listen(engine.handle);
+    client._inProcessCommands = commands;
+    client._commands = commands.sendPort;
+    client._booted.complete(commands.sendPort);
+    return client;
+  }
 
   static Future<EngineClient> _spawn(
     EngineConfig config,
@@ -299,7 +327,107 @@ class EngineClient implements PromptBridge, ProbeBridge {
       // the same for all three.
     }
     _terminate();
-    _isolate.kill(priority: Isolate.immediate);
+    _isolate?.kill(priority: Isolate.immediate);
+  }
+
+  // ── Bridged transfer leases (protocol v13) ─────────────────────────────
+
+  /// Borrows one transfer channel of [serverId]'s pool (03 §3.2); blocks
+  /// engine-side while the pool is at capacity. Carries the server's
+  /// [ServerConfig] — the lease may be the server's first connection; a
+  /// null [config] leans on the one the server's browse open supplied.
+  Future<int> leaseTransferChannel({
+    required String serverId,
+    ServerConfig? config,
+  }) async {
+    final result = await _call(
+      (id) => LeaseTransferChannelRequest(
+        requestId: id,
+        serverId: serverId,
+        config: config,
+      ),
+    );
+    return (result as TransferLeaseGranted).leaseId;
+  }
+
+  /// Returns a lease; idempotent engine-side.
+  Future<void> releaseTransferLease(int leaseId) async {
+    await _call(
+      (id) => ReleaseTransferLeaseRequest(requestId: id, leaseId: leaseId),
+    );
+  }
+
+  /// Runs one VFS call on a lease or a browse channel; the answer's type
+  /// is the one [VfsOp]'s subtype documents.
+  Future<EngineResult> runVfsOp(VfsTarget target, VfsOp op) =>
+      _call((id) => VfsOpRequest(requestId: id, target: target, op: op));
+
+  /// Starts a download stream on [leaseId] (see [DownloadStreamRequest]).
+  EngineVfsStream openDownloadStream({
+    required int leaseId,
+    required String path,
+    required bool computeHash,
+    required int windowBytes,
+  }) => _openStream(
+    (id) => DownloadStreamRequest(
+      requestId: id,
+      leaseId: leaseId,
+      path: path,
+      computeHash: computeHash,
+      windowBytes: windowBytes,
+    ),
+  );
+
+  /// Starts an upload stream on [leaseId] (see [UploadStreamRequest]).
+  EngineVfsStream openUploadStream({
+    required int leaseId,
+    required String path,
+    int? length,
+    bool overwrite = false,
+    int? preserveMode,
+    RemoteFileEntry? expectedTarget,
+    required bool computeHash,
+    required int windowBytes,
+  }) => _openStream(
+    (id) => UploadStreamRequest(
+      requestId: id,
+      leaseId: leaseId,
+      path: path,
+      length: length,
+      overwrite: overwrite,
+      preserveMode: preserveMode,
+      expectedTarget: expectedTarget,
+      computeHash: computeHash,
+      windowBytes: windowBytes,
+    ),
+  );
+
+  EngineVfsStream _openStream(EngineRequest Function(int requestId) build) {
+    final controller = StreamController<EngineEvent>();
+    late final int streamId;
+    final result = _call((id) {
+      streamId = id;
+      _vfsStreams[id] = controller;
+      return build(id);
+    });
+    return EngineVfsStream._(this, streamId, controller.stream, result);
+  }
+
+  /// Whether the engine's D15 local-trash service can serve.
+  Future<bool> localTrashAvailable() async {
+    final result = await _call(
+      (id) => LocalTrashAvailableRequest(requestId: id),
+    );
+    return (result as TrashAvailability).available;
+  }
+
+  /// Moves one local [path] to the OS trash through the engine; throws
+  /// [TrashException] when the trash cannot take it.
+  Future<String?> moveToLocalTrash(String path) async {
+    final result = await _call(
+      (id) => LocalTrashRequest(requestId: id, path: path),
+    );
+    return (result as TrashMoved).trashedPath;
   }
 
   // ── Wiring ─────────────────────────────────────────────────────────────
@@ -321,6 +449,19 @@ class EngineClient implements PromptBridge, ProbeBridge {
         );
       case final DirectoryWatchEvent event:
         _directoryWatches[event.channelId]?.add(event);
+      case final DownloadChunkEvent event:
+        final route = _vfsStreams[event.streamId];
+        if (route == null) {
+          // A stream nobody tracks (its final response already landed):
+          // release the transferred buffer now.
+          event.bytes.materialize();
+        } else {
+          route.add(event);
+        }
+      case final UploadReadyEvent event:
+        _vfsStreams[event.streamId]?.add(event);
+      case final UploadProgressEvent event:
+        _vfsStreams[event.streamId]?.add(event);
       case final ConnectionLogEvent event:
         _connectLog.add(event);
       case final ProbeStatusesEvent event:
@@ -355,14 +496,21 @@ class EngineClient implements PromptBridge, ProbeBridge {
   }
 
   void _complete(ResponseEvent event) {
+    // A stream's final response follows all of its events on the one
+    // port: closing the route ends the event stream after them.
+    final route = _vfsStreams.remove(event.requestId);
+    if (route != null) unawaited(route.close());
     final completer = _pending.remove(event.requestId);
     if (completer == null || completer.isCompleted) return;
 
     final result = event.result;
-    if (result is EngineError) {
-      completer.completeError(result.toException());
-    } else {
-      completer.complete(result);
+    switch (result) {
+      case final EngineError error:
+        completer.completeError(error.toException());
+      case final EngineTrashError error:
+        completer.completeError(error.toException());
+      case _:
+        completer.complete(result);
     }
   }
 
@@ -428,6 +576,11 @@ class EngineClient implements PromptBridge, ProbeBridge {
       unawaited(controller.close());
     }
     _directoryWatches.clear();
+    for (final controller in _vfsStreams.values) {
+      unawaited(controller.close());
+    }
+    _vfsStreams.clear();
+    _inProcessCommands?.close();
     _prompts.close();
     _promptDismissals.close();
     _hostKeyPins.close();
@@ -563,6 +716,34 @@ class EngineBrowseChannel {
     );
   }
 
+  /// Creates the directory [path] (02 §8.3's `file.newFolder`) — a typed
+  /// failure when it exists or its parent is missing. Local and pool
+  /// channels answer alike through the v13 generic VFS op.
+  Future<void> createDirectory(String path) async {
+    await _client.runVfsOp(ChannelTarget(channelId), VfsCreateDirectory(path));
+  }
+
+  /// Creates an empty regular file at [path] (`file.newFile`) through the
+  /// VFS's own temporary-then-rename upload — an existing path is the
+  /// typed conflict, never an overwrite. Returns the committed entry.
+  Future<RemoteFileEntry> createEmptyFile(String path) async {
+    final result = await _client.runVfsOp(
+      ChannelTarget(channelId),
+      VfsCreateEmptyFile(path),
+    );
+    return (result as VfsEntryResult).entry;
+  }
+
+  /// Stats [path] without following a final symlink — the pane verbs'
+  /// free-name probe (a `notFound` answer means the name is free).
+  Future<RemoteFileEntry> stat(String path) async {
+    final result = await _client.runVfsOp(
+      ChannelTarget(channelId),
+      VfsStat(path, followLinks: false),
+    );
+    return (result as VfsEntryResult).entry;
+  }
+
   /// Closes the channel; idempotent. A dead engine has closed every
   /// channel by definition — disconnected errors complete normally so
   /// disposal code can close defensively during teardown races.
@@ -579,5 +760,60 @@ class EngineBrowseChannel {
       // resolved.
       _client._closeDirectoryWatch(channelId);
     }
+  }
+}
+
+/// One v13 byte stream, mirrored UI-side: the engine's per-stream events
+/// ([DownloadChunkEvent], [UploadReadyEvent], [UploadProgressEvent]) in
+/// order, then the final [result]. [events] is single-subscription and
+/// buffers until listened; it closes once the result has landed — or on
+/// engine death, when [result] fails `disconnected`. The control verbs are
+/// fire-and-forget; after the stream finished the engine ignores them.
+final class EngineVfsStream {
+  EngineVfsStream._(this._client, this.streamId, this.events, this.result);
+
+  final EngineClient _client;
+  final int streamId;
+  final Stream<EngineEvent> events;
+  final Future<EngineResult> result;
+
+  /// Download credit: [bytes] more have been handed to the consumer.
+  void credit(int bytes) {
+    if (bytes <= 0) return;
+    _client._fireAndForget(
+      (id) => StreamCreditRequest(requestId: id, streamId: streamId, bytes: bytes),
+    );
+  }
+
+  /// One upload chunk — copied once into a transferable buffer.
+  void sendChunk(Uint8List bytes) {
+    _client._fireAndForget(
+      (id) => UploadChunkRequest(
+        requestId: id,
+        streamId: streamId,
+        bytes: TransferableTypedData.fromList([bytes]),
+      ),
+    );
+  }
+
+  /// The upload's content ended normally.
+  void end() {
+    _client._fireAndForget(
+      (id) => UploadEndRequest(requestId: id, streamId: streamId),
+    );
+  }
+
+  /// The upload's content failed with [error].
+  void abort(EngineError error) {
+    _client._fireAndForget(
+      (id) => UploadAbortRequest(requestId: id, streamId: streamId, error: error),
+    );
+  }
+
+  /// Trips the engine-side cancellation; [result] still settles.
+  void cancel() {
+    _client._fireAndForget(
+      (id) => CancelVfsStreamRequest(requestId: id, streamId: streamId),
+    );
   }
 }
