@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- **A new workspace.** The window is rebuilt in the style of ForkLift and
+  Transmit:
+  - A calm header: back and forward, the current location, New Folder,
+    Move to Trash and Copy to Other Pane, labelled Sync and Connect
+    buttons, an activity ring, a filter field, and (on Linux and
+    Windows) a ☰ menu with everything else. The toolbar that showed
+    every command as an icon is gone.
+  - A resizable sidebar with DEVICES (home, volumes, free space),
+    FAVORITES and SERVERS (live status dots, filter, and a bottom bar
+    for adding things, sync status and Settings).
+  - An inspector column with Info, Transfers and Alerts tabs, in place
+    of the bottom activity panel, the Get Info overlay and the status
+    bar. Sidebar and inspector widths are remembered, and both give way
+    gracefully as the window narrows.
+  - Panes get a location header with a menu of enclosing folders,
+    sortable columns, denser rows with file-kind icons, selection on
+    press, and right-click menus everywhere.
+- **New verbs.** Connect (⌘K), New Folder, New File, Duplicate, Move to
+  Trash with a clear confirmation, Copy and Move to Other Pane (F5, F6),
+  Show in Finder / File Manager / Explorer, and Help ▸ Keyboard
+  Shortcuts.
+- **Sync like Transmit.** Sync opens a sheet that states in plain words
+  what will happen ("…will be updated from…, 2 files will be deleted"),
+  with Simulate and Synchronize. A plan that only adds files runs
+  straight away; anything that replaces or deletes stops on a review
+  grouped by action, with per-row checkboxes.
+- **Android.** On phones the sidebar is the home screen and the browser
+  shows one pane at a time with an A·B switcher. Long-press selects,
+  and the inspector is a bottom sheet. System back steps through
+  selection, sheets, folders and home.
+- **Shares an account with Séance.** Bookmark sync now preselects the
+  Séance sync account, so both apps show the same servers.
 - **Remote transfers work.** Uploads, downloads, remote→remote copies,
   remote managed checkouts, previews, and remote sync endpoints now run
   through the engine's bridged transfer lease. 1.0.0 failed these tasks
@@ -9,6 +41,16 @@
 - **Trust before secrets.** Connecting to a server for the first time now
   asks you to approve its host key before it asks for a password. An
   unreachable server fails without asking for a password at all.
+- **Fixes:**
+  - Remote panes refresh when a transfer, move or delete lands in the
+    folder they show.
+  - A file that fails to open no longer disables the rest of its pane.
+  - Opening a local file on Linux works without xdg-utils, falling back
+    to `gio open`.
+  - Edits to files opened from a Quick Connect session can be uploaded,
+    and those servers show their address instead of an internal id.
+  - The editor keeps a second leading byte-order mark as content, and
+    Perl's `$#array` and `s#…#…#` no longer highlight as comments.
 - Pre-1.0 history lives in the commit log and the GitHub pre-releases
   (v0.1.0, v0.2.0).
 
