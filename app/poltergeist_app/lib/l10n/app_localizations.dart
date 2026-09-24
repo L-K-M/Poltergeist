@@ -6711,6 +6711,180 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{size} available'**
   String sidebarFreeSpaceSemantics(String size);
+
+  /// D32 §9: hint of the search bar at the top of the compact Home screen (the full-screen sidebar).
+  ///
+  /// In en, this message translates to:
+  /// **'Search servers and folders'**
+  String get compactHomeSearchHint;
+
+  /// D32 §9: tooltip of the ⋮ overflow on the compact app bars; opens the command menus as a sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'More options'**
+  String get compactMoreOptions;
+
+  /// D32 §9: the pane switcher's short name for pane A (the left pane on wide windows).
+  ///
+  /// In en, this message translates to:
+  /// **'A'**
+  String get compactPaneLetterA;
+
+  /// D32 §9: the pane switcher's short name for pane B (the right pane on wide windows).
+  ///
+  /// In en, this message translates to:
+  /// **'B'**
+  String get compactPaneLetterB;
+
+  /// D32 §9: tooltip and announced action of the app bar's A · B pane switcher, e.g. 'Switch to Pane B'.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to {pane}'**
+  String compactPaneSwitchTooltip(String pane);
+
+  /// D32 §9: announced state of the A · B pane switcher, e.g. 'Pane A is showing'.
+  ///
+  /// In en, this message translates to:
+  /// **'{shown} is showing'**
+  String compactPaneSwitcherSemantics(String shown);
+
+  /// D32 §9: tooltip of the compact browser's search action, which filters the listing as you type.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter this folder'**
+  String get compactFilterOpen;
+
+  /// D32 §9: tooltip of the button that closes the compact browser's filter field and clears the filter.
+  ///
+  /// In en, this message translates to:
+  /// **'Close filter'**
+  String get compactFilterClose;
+
+  /// D32 §9: second line of a compact listing row, e.g. '4.2 KB · Today 10:24'.
+  ///
+  /// In en, this message translates to:
+  /// **'{size} · {date}'**
+  String compactRowDetails(String size, String date);
+
+  /// D32 §9: the size slot of a folder row's second line (a folder's listed size is not its contents).
+  ///
+  /// In en, this message translates to:
+  /// **'Folder'**
+  String get compactRowFolder;
+
+  /// D32 §9: the size slot of a symbolic link row's second line.
+  ///
+  /// In en, this message translates to:
+  /// **'Link'**
+  String get compactRowLink;
+
+  /// D32 §9: tooltip of a compact row's trailing ⋮, which opens the item's action sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Actions for {name}'**
+  String compactRowActions(String name);
+
+  /// D32 §9: the contextual app bar's title while items are selected, e.g. '3 selected'. The selected files' size is appended through paneSelectionSummaryWithSize.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 selected} other{{count} selected}}'**
+  String compactSelectionCount(int count);
+
+  /// D32 §9: tooltip of the ✕ that leaves selection mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear selection'**
+  String get compactSelectionClear;
+
+  /// D32 §9: selection bar label of Copy to Other Pane, naming the other pane's letter, e.g. 'Copy to B'.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy to {pane}'**
+  String compactActionCopyTo(String pane);
+
+  /// D32 §9: selection bar label of Move to Other Pane, naming the other pane's letter, e.g. 'Move to B'.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to {pane}'**
+  String compactActionMoveTo(String pane);
+
+  /// D32 §9: selection bar label of the delete verb (Move to Trash locally, Delete on a server).
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get compactActionDelete;
+
+  /// D32 §9: selection bar item that opens the remaining selection verbs as a sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get compactActionMore;
+
+  /// D32 §9: the floating progress pill shown while transfers run.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 transfer} other{{count} transfers}}'**
+  String compactTransfersPill(int count);
+
+  /// D32 §9: the progress pill with the queue's overall progress, e.g. '2 transfers · 45%'.
+  ///
+  /// In en, this message translates to:
+  /// **'{transfers} · {percent}%'**
+  String compactTransfersPillProgress(String transfers, int percent);
+
+  /// D32 §9: announced action of the progress pill; opens the inspector sheet on Transfers.
+  ///
+  /// In en, this message translates to:
+  /// **'Show transfers'**
+  String get compactTransfersPillTooltip;
+
+  /// D32 §9: announced action of the inspector sheet's drag handle.
+  ///
+  /// In en, this message translates to:
+  /// **'Close inspector'**
+  String get compactSheetClose;
+
+  /// D32 §9: dismisses the compact rename dialog without renaming.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get compactCancel;
+
+  /// D32 §9: announced name of the compact browser's horizontally scrolling breadcrumb chips.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder path'**
+  String get compactBreadcrumbsLabel;
+
+  /// D32 §9: hint above Quick Connect when the shown pane has no tab open.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to a server here, or go back to Home to pick a location.'**
+  String get compactLauncherHint;
+
+  /// D32 §9: title of the compact posture's path dialog (Go to Folder and Edit Path).
+  ///
+  /// In en, this message translates to:
+  /// **'Go to folder'**
+  String get compactGoToFolderTitle;
+
+  /// D32 §9: the path dialog's confirm button; navigates to the typed path.
+  ///
+  /// In en, this message translates to:
+  /// **'Go'**
+  String get compactGo;
+
+  /// D32 §9: confirms the compact Quick Select strip, keeping the matched selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get compactDone;
+
+  /// DEVICES row on platforms that list no volumes (Android, iOS): opens the app's own files on this device.
+  ///
+  /// In en, this message translates to:
+  /// **'This device'**
+  String get sidebarThisDevice;
 }
 
 class _AppLocalizationsDelegate

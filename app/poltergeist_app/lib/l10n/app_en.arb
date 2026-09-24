@@ -5734,5 +5734,172 @@
         "type": "String"
       }
     }
+  },
+  "compactHomeSearchHint": "Search servers and folders",
+  "@compactHomeSearchHint": {
+    "description": "D32 §9: hint of the search bar at the top of the compact Home screen (the full-screen sidebar)."
+  },
+  "compactMoreOptions": "More options",
+  "@compactMoreOptions": {
+    "description": "D32 §9: tooltip of the ⋮ overflow on the compact app bars; opens the command menus as a sheet."
+  },
+  "compactPaneLetterA": "A",
+  "@compactPaneLetterA": {
+    "description": "D32 §9: the pane switcher's short name for pane A (the left pane on wide windows)."
+  },
+  "compactPaneLetterB": "B",
+  "@compactPaneLetterB": {
+    "description": "D32 §9: the pane switcher's short name for pane B (the right pane on wide windows)."
+  },
+  "compactPaneSwitchTooltip": "Switch to {pane}",
+  "@compactPaneSwitchTooltip": {
+    "description": "D32 §9: tooltip and announced action of the app bar's A · B pane switcher, e.g. 'Switch to Pane B'.",
+    "placeholders": {
+      "pane": {
+        "type": "String"
+      }
+    }
+  },
+  "compactPaneSwitcherSemantics": "{shown} is showing",
+  "@compactPaneSwitcherSemantics": {
+    "description": "D32 §9: announced state of the A · B pane switcher, e.g. 'Pane A is showing'.",
+    "placeholders": {
+      "shown": {
+        "type": "String"
+      }
+    }
+  },
+  "compactFilterOpen": "Filter this folder",
+  "@compactFilterOpen": {
+    "description": "D32 §9: tooltip of the compact browser's search action, which filters the listing as you type."
+  },
+  "compactFilterClose": "Close filter",
+  "@compactFilterClose": {
+    "description": "D32 §9: tooltip of the button that closes the compact browser's filter field and clears the filter."
+  },
+  "compactRowDetails": "{size} · {date}",
+  "@compactRowDetails": {
+    "description": "D32 §9: second line of a compact listing row, e.g. '4.2 KB · Today 10:24'.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "compactRowFolder": "Folder",
+  "@compactRowFolder": {
+    "description": "D32 §9: the size slot of a folder row's second line (a folder's listed size is not its contents)."
+  },
+  "compactRowLink": "Link",
+  "@compactRowLink": {
+    "description": "D32 §9: the size slot of a symbolic link row's second line."
+  },
+  "compactRowActions": "Actions for {name}",
+  "@compactRowActions": {
+    "description": "D32 §9: tooltip of a compact row's trailing ⋮, which opens the item's action sheet.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "compactSelectionCount": "{count, plural, =1{1 selected} other{{count} selected}}",
+  "@compactSelectionCount": {
+    "description": "D32 §9: the contextual app bar's title while items are selected, e.g. '3 selected'. The selected files' size is appended through paneSelectionSummaryWithSize.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "compactSelectionClear": "Clear selection",
+  "@compactSelectionClear": {
+    "description": "D32 §9: tooltip of the ✕ that leaves selection mode."
+  },
+  "compactActionCopyTo": "Copy to {pane}",
+  "@compactActionCopyTo": {
+    "description": "D32 §9: selection bar label of Copy to Other Pane, naming the other pane's letter, e.g. 'Copy to B'.",
+    "placeholders": {
+      "pane": {
+        "type": "String"
+      }
+    }
+  },
+  "compactActionMoveTo": "Move to {pane}",
+  "@compactActionMoveTo": {
+    "description": "D32 §9: selection bar label of Move to Other Pane, naming the other pane's letter, e.g. 'Move to B'.",
+    "placeholders": {
+      "pane": {
+        "type": "String"
+      }
+    }
+  },
+  "compactActionDelete": "Delete",
+  "@compactActionDelete": {
+    "description": "D32 §9: selection bar label of the delete verb (Move to Trash locally, Delete on a server)."
+  },
+  "compactActionMore": "More",
+  "@compactActionMore": {
+    "description": "D32 §9: selection bar item that opens the remaining selection verbs as a sheet."
+  },
+  "compactTransfersPill": "{count, plural, =1{1 transfer} other{{count} transfers}}",
+  "@compactTransfersPill": {
+    "description": "D32 §9: the floating progress pill shown while transfers run.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "compactTransfersPillProgress": "{transfers} · {percent}%",
+  "@compactTransfersPillProgress": {
+    "description": "D32 §9: the progress pill with the queue's overall progress, e.g. '2 transfers · 45%'.",
+    "placeholders": {
+      "transfers": {
+        "type": "String"
+      },
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "compactTransfersPillTooltip": "Show transfers",
+  "@compactTransfersPillTooltip": {
+    "description": "D32 §9: announced action of the progress pill; opens the inspector sheet on Transfers."
+  },
+  "compactSheetClose": "Close inspector",
+  "@compactSheetClose": {
+    "description": "D32 §9: announced action of the inspector sheet's drag handle."
+  },
+  "compactCancel": "Cancel",
+  "@compactCancel": {
+    "description": "D32 §9: dismisses the compact rename dialog without renaming."
+  },
+  "compactBreadcrumbsLabel": "Folder path",
+  "@compactBreadcrumbsLabel": {
+    "description": "D32 §9: announced name of the compact browser's horizontally scrolling breadcrumb chips."
+  },
+  "compactLauncherHint": "Connect to a server here, or go back to Home to pick a location.",
+  "@compactLauncherHint": {
+    "description": "D32 §9: hint above Quick Connect when the shown pane has no tab open."
+  },
+  "compactGoToFolderTitle": "Go to folder",
+  "@compactGoToFolderTitle": {
+    "description": "D32 §9: title of the compact posture's path dialog (Go to Folder and Edit Path)."
+  },
+  "compactGo": "Go",
+  "@compactGo": {
+    "description": "D32 §9: the path dialog's confirm button; navigates to the typed path."
+  },
+  "compactDone": "Done",
+  "@compactDone": {
+    "description": "D32 §9: confirms the compact Quick Select strip, keeping the matched selection."
+  },
+  "sidebarThisDevice": "This device",
+  "@sidebarThisDevice": {
+    "description": "DEVICES row on platforms that list no volumes (Android, iOS): opens the app's own files on this device."
   }
 }

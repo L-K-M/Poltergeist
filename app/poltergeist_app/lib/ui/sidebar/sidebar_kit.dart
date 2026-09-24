@@ -149,6 +149,14 @@ mixin _KeyboardFocusRing<T extends StatefulWidget> on State<T> {
   }
 }
 
+/// Platforms without hover, where hover-revealed affordances need a
+/// resting state (kept local so the kit stays portable).
+bool _touchPlatform(TargetPlatform platform) => switch (platform) {
+  TargetPlatform.android || TargetPlatform.iOS || TargetPlatform.fuchsia => true,
+  TargetPlatform.linux || TargetPlatform.macOS || TargetPlatform.windows =>
+    false,
+};
+
 /// A row's height after text scaling: the token is the floor, and scaled
 /// text grows the row rather than clipping (D20).
 double _scaledExtent(BuildContext context, double extent) =>
@@ -398,6 +406,13 @@ class _SidebarSectionHeaderState extends State<SidebarSectionHeader>
     final strings = SidebarKitScope.of(context);
     final focused = showFocusRing;
     final revealed = _hovering || focused;
+    // Touch has no hover: the chevron — the collapse state's only glyph —
+    // stays visible there, and the hover-revealed "+" steps aside with
+    // its slot (its verbs live in the "+" menu: the bottom bar, or Home's
+    // FAB).
+    final touch = _touchPlatform(theme.platform);
+    final chevronShown = revealed || touch;
+    final onAdd = touch ? null : widget.onAdd;
     final nested = widget.nested;
 
     final titleStyle = nested
@@ -499,7 +514,7 @@ class _SidebarSectionHeaderState extends State<SidebarSectionHeader>
                         SizedBox(
                           width: 18,
                           child: Visibility.maintain(
-                            visible: revealed,
+                            visible: chevronShown,
                             child: Tooltip(
                               message: widget.collapsed
                                   ? strings.showSection
@@ -510,7 +525,7 @@ class _SidebarSectionHeaderState extends State<SidebarSectionHeader>
                         ),
                       // The "+" floats over this slot (see below), so
                       // the count and chevron never slide under it.
-                      if (widget.onAdd != null) const SizedBox(width: 24),
+                      if (onAdd != null) const SizedBox(width: 24),
                     ],
                   ),
                 ),
@@ -523,7 +538,6 @@ class _SidebarSectionHeaderState extends State<SidebarSectionHeader>
 
     // The "+" sits OUTSIDE the merged node and the toggle gesture: it
     // announces and acts on itself.
-    final onAdd = widget.onAdd;
     if (onAdd == null) return header;
     return Stack(
       children: [
