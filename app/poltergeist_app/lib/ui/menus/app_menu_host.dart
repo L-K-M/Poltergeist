@@ -337,14 +337,19 @@ Widget _anchorMenuRow(
                   : null,
               child: Text(command.label(l10n)),
             )
-          : CheckboxMenuButton(
+          // CheckboxMenuButton forwards its key to the MenuItemButton it
+          // builds, which would put `menu.item.<id>` on two widgets; the
+          // subtree carries it once, like the plain rows.
+          : KeyedSubtree(
               key: ValueKey('menu.item.${command.id}'),
-              shortcut: _displayShortcut(command, platform),
-              value: command.checked!(),
-              onChanged: command.enabled()
-                  ? (_) => unawaited(onRun(command))
-                  : null,
-              child: Text(command.label(l10n)),
+              child: CheckboxMenuButton(
+                shortcut: _displayShortcut(command, platform),
+                value: command.checked!(),
+                onChanged: command.enabled()
+                    ? (_) => unawaited(onRun(command))
+                    : null,
+                child: Text(command.label(l10n)),
+              ),
             ),
     AppMenuSubmenuRow(:final title, :final items) => SubmenuButton(
       menuChildren: [
