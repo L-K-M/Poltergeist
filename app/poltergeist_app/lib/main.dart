@@ -90,10 +90,14 @@ Future<void> main() async {
   } on Object catch (error, stack) {
     errorReporter.report(error, stack);
   }
-  final dynamicVault = DynamicSecretVault(vaultStore, () async {
-    final key = await masterKeys.probeKeystore();
-    return key == null ? null : SecretVault(vaultStore, key);
-  });
+  final dynamicVault = DynamicSecretVault(
+    vaultStore,
+    () async {
+      final key = await masterKeys.probeKeystore();
+      return key == null ? null : SecretVault(vaultStore, key);
+    },
+    onError: errorReporter.report,
+  );
   final preferences = AppPreferences(store: settingsStore);
   // The external-editor registry (06 §4.1): one versioned document in
   // the shared settings.json — the Open With ▸ submenu and the remote

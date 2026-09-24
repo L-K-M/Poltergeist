@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -868,6 +869,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get paneNoticePathCopied => 'Path copied to clipboard.';
+
+  @override
+  String get paneNoticeWatchStopped =>
+      'This folder stopped updating automatically. Refresh to see new changes.';
 
   @override
   String get infoPanelLabel => 'Info';

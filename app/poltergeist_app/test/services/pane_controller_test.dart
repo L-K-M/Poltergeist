@@ -308,9 +308,12 @@ void main() {
     await controller.openLocalHome();
 
     // Hold the listing for a, then navigate away to b before it answers.
+    // The settle lets a's watch arm and its listing go out: a navigation
+    // superseded before that never lists at all.
     final hold = Completer<void>();
     channel.holdNext = hold;
     controller.navigate('/home/tester/a');
+    await Future<void>.delayed(Duration.zero);
     controller.navigate('/home/tester/b');
     await Future<void>.delayed(Duration.zero);
 
@@ -428,6 +431,8 @@ void main() {
     final hold = Completer<void>();
     channel.holdNext = hold;
     controller.navigate('/home/tester/slow');
+    // Past the watch arm: the held listing is in flight.
+    await Future<void>.delayed(Duration.zero);
     controller.cancelNavigation();
 
     expect(controller.loading, isFalse);
