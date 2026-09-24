@@ -299,6 +299,7 @@ class _SidebarViewState extends State<SidebarView> {
       filterClear: l10n.sidebarCatalogFilterClear,
       addMenu: l10n.sidebarAddMenu,
       settings: l10n.sidebarSettings,
+      rowMenu: l10n.sidebarRowMenu,
     );
   }
 

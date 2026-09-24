@@ -4397,4 +4397,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get connectDialogServers => 'Servers';
+
+  @override
+  String get sidebarRowMenu => 'More actions';
 }

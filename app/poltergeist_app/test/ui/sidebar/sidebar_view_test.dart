@@ -685,8 +685,10 @@ void main() {
             matching: find.byType(Container),
           ),
         );
+        // The ring paints over the row (the kit's foreground decoration),
+        // so it never shifts what it frames.
         for (final box in boxes) {
-          final decoration = box.decoration;
+          final decoration = box.foregroundDecoration;
           if (decoration is BoxDecoration && decoration.border != null) {
             return decoration.border! as Border;
           }

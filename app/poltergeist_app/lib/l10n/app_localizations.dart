@@ -6729,6 +6729,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Servers'**
   String get connectDialogServers;
+
+  /// Tooltip of a sidebar row's visible ⋮ button, which opens the row's verbs (the shared sidebar kit's showMenuButton; Séance uses the same words).
+  ///
+  /// In en, this message translates to:
+  /// **'More actions'**
+  String get sidebarRowMenu;
 }
 
 class _AppLocalizationsDelegate

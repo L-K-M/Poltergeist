@@ -18,21 +18,25 @@ final _strings = SidebarKitStrings(
   filterClear: 'kit-clear',
   addMenu: 'kit-add',
   settings: 'kit-settings',
+  rowMenu: 'kit-more',
 );
 
-Future<void> _pump(WidgetTester tester, Widget child) async {
+Future<void> _pump(
+  WidgetTester tester,
+  Widget child, {
+  TargetPlatform platform = TargetPlatform.macOS,
+  Color? background,
+}) async {
   tester.view.physicalSize = const Size(600, 600);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildPoltergeistTheme(
-        Brightness.light,
-        platform: TargetPlatform.macOS,
-      ),
+      theme: buildPoltergeistTheme(Brightness.light, platform: platform),
       home: Scaffold(
         body: SidebarKitScope(
           strings: _strings,
+          background: background,
           child: Align(
             alignment: Alignment.topLeft,
             child: SizedBox(width: 240, child: child),
@@ -263,52 +267,13 @@ void main() {
       final chrome = PoltergeistChrome.of(
         tester.element(find.byType(SidebarRow)),
       );
-      final circles = tester
+      final dot = tester
           .widgetList<Container>(find.byType(Container))
           .map((c) => c.decoration)
           .whereType<BoxDecoration>()
-          .where((d) => d.shape == BoxShape.circle)
-          .toList();
-      // A solid dot is one disc; nothing punches through it.
-      expect(circles, hasLength(1));
-      expect(circles.single.color, Colors.green);
-      expect(
-        (circles.single.border! as Border).top.color,
-        chrome.sidebarBackground,
-      );
-    });
-
-    testWidgets('a ring dot shows the row colour through its middle', (
-      tester,
-    ) async {
-      await _pump(
-        tester,
-        const SidebarRow(
-          mark: Icon(Icons.dns_outlined, size: 16),
-          title: 'demo',
-          selected: true,
-          status: SidebarStatusDot(Colors.green, style: SidebarDotStyle.ring),
-        ),
-      );
-      final chrome = PoltergeistChrome.of(
-        tester.element(find.byType(SidebarRow)),
-      );
-      final pill = Color.alphaBlend(
-        chrome.inactiveSelectionFill,
-        chrome.sidebarBackground,
-      );
-      final circles = tester
-          .widgetList<Container>(find.byType(Container))
-          .map((c) => c.decoration)
-          .whereType<BoxDecoration>()
-          .where((d) => d.shape == BoxShape.circle)
-          .toList();
-      expect(circles, hasLength(2));
-      final (ring, hole) = (circles.first, circles.last);
-      expect(ring.color, Colors.green);
-      // Cut out of the pill, and hollow in the pill's colour.
-      expect((ring.border! as Border).top.color, pill);
-      expect(hole.color, pill);
+          .firstWhere((d) => d.shape == BoxShape.circle);
+      expect(dot.color, Colors.green);
+      expect((dot.border! as Border).top.color, chrome.sidebarBackground);
     });
 
     testWidgets('an activation reports how it happened', (tester) async {
@@ -370,6 +335,260 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('open')));
       await tester.pumpAndSettle();
       expect(opened, 1);
+    });
+  });
+
+  // Séance additions (see docs/POLTERGEIST.md, "The sidebar kit"): the
+  // hollow dot, the host's row surface, the touch posture, and the
+  // visible menu button.
+  group('SidebarRow additions', () {
+    /// The dot's circles, outermost first. Read off the DecoratedBoxes (a
+    /// Container paints through one), so each circle counts once.
+    List<BoxDecoration> circles(WidgetTester tester) => [
+      for (final box in tester.widgetList<DecoratedBox>(
+        find.descendant(
+          of: find.byType(SidebarRow),
+          matching: find.byType(DecoratedBox),
+        ),
+      ))
+        if (box.decoration case final BoxDecoration d
+            when d.shape == BoxShape.circle)
+          d,
+    ];
+
+    testWidgets('a ring dot is a hollow stroke in the status colour', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const SidebarRow(
+          mark: Icon(Icons.dns_outlined, size: 16),
+          title: 'demo',
+          status: SidebarStatusDot(Colors.green, style: SidebarDotStyle.ring),
+        ),
+      );
+      final chrome = PoltergeistChrome.of(
+        tester.element(find.byType(SidebarRow)),
+      );
+      final [outer, inner] = circles(tester);
+      // The hole shows the row's own surface, not a fill of the status
+      // colour: that is what tells it from a solid dot at 7 px.
+      expect(outer.color, chrome.sidebarBackground);
+      expect((outer.border! as Border).top.color, chrome.sidebarBackground);
+      expect(inner.color, isNull);
+      expect((inner.border! as Border).top.color, Colors.green);
+    });
+
+    testWidgets('the cut-out takes the surface the host says it paints', (
+      tester,
+    ) async {
+      const surface = Color(0xFFFFFFFF);
+      await _pump(
+        tester,
+        const SidebarRow(
+          mark: Icon(Icons.dns_outlined, size: 16),
+          title: 'demo',
+          status: SidebarStatusDot(Colors.green),
+        ),
+        background: surface,
+      );
+      final dot = circles(tester).single;
+      expect(dot.color, Colors.green);
+      expect((dot.border! as Border).top.color, surface);
+    });
+
+    testWidgets('a subtitle adds a second line; a trailing icon shows', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const SidebarRow(
+          key: ValueKey('r'),
+          mark: Icon(Icons.dns_outlined, size: 16),
+          title: 'demo',
+          subtitle: 'deploy@demo:22',
+          trailingIcon: Icons.cloud_off_outlined,
+          trailingText: '×2',
+        ),
+      );
+      expect(find.text('deploy@demo:22'), findsOneWidget);
+      expect(find.byIcon(Icons.cloud_off_outlined), findsOneWidget);
+      expect(find.text('×2'), findsOneWidget);
+      expect(tester.getSize(find.byKey(const ValueKey('r'))).height, 40);
+    });
+
+    testWidgets('the menu button opens the menu on desktop', (tester) async {
+      var opened = 0;
+      await _pump(
+        tester,
+        SidebarRow(
+          mark: const Icon(Icons.dns_outlined, size: 16),
+          title: 'demo',
+          showMenuButton: true,
+          menuEntries: () => [
+            SidebarMenuAction(
+              key: const ValueKey('open'),
+              label: 'kit-open',
+              onSelected: () => opened++,
+            ),
+          ],
+        ),
+      );
+      await tester.tap(find.byTooltip('kit-more'));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('open')));
+      await tester.pumpAndSettle();
+      expect(opened, 1);
+    });
+
+    testWidgets('a keyboard-opened menu takes focus; Esc hands it back', (
+      tester,
+    ) async {
+      final picked = <String>[];
+      var activations = 0;
+      await _pump(
+        tester,
+        SidebarRow(
+          key: const ValueKey('r'),
+          mark: const Icon(Icons.folder, size: 16),
+          title: 'Docs',
+          onActivate: (_) => activations++,
+          menuEntries: () => [
+            const SidebarMenuAction(
+              key: ValueKey('off'),
+              label: 'kit-off',
+              onSelected: null,
+            ),
+            SidebarMenuAction(
+              key: const ValueKey('one'),
+              label: 'kit-one',
+              onSelected: () => picked.add('one'),
+            ),
+            SidebarMenuAction(
+              key: const ValueKey('two'),
+              label: 'kit-two',
+              onSelected: () => picked.add('two'),
+            ),
+          ],
+        ),
+      );
+      final row = find.byKey(const ValueKey('r'));
+      await tester.tap(row);
+      activations = 0;
+      await tester.sendKeyEvent(LogicalKeyboardKey.contextMenu);
+      await tester.pumpAndSettle();
+      // The first *enabled* verb: a disabled one cannot hold focus.
+      expect(
+        Focus.of(tester.element(find.text('kit-one'))).hasPrimaryFocus,
+        isTrue,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      // Enter belongs to the focused verb, not to the row behind it.
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(picked, ['two']);
+      expect(activations, 0);
+
+      // A right-clicked menu leaves focus on the row; Esc still closes it.
+      await tester.tap(row, buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      expect(find.text('kit-one'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('kit-one'), findsNothing);
+    });
+
+    testWidgets('the keyboard focus ring does not move what it frames', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        SidebarRow(
+          key: const ValueKey('r'),
+          mark: const Icon(Icons.folder, size: 16),
+          title: 'Docs',
+          onActivate: (_) {},
+        ),
+      );
+      final title = find.text('Docs');
+      final before = tester.getTopLeft(title);
+      Container? ringed() => tester
+          .widgetList<Container>(
+            find.descendant(
+              of: find.byKey(const ValueKey('r')),
+              matching: find.byType(Container),
+            ),
+          )
+          .where((c) => c.foregroundDecoration != null)
+          .firstOrNull;
+      expect(ringed(), isNull);
+
+      // A click focuses without a ring; the next key hands the ring back.
+      await tester.tap(find.byKey(const ValueKey('r')));
+      await tester.pump();
+      expect(ringed(), isNull);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pump();
+      expect(ringed(), isNotNull);
+      expect(tester.getTopLeft(title), before);
+    });
+
+    testWidgets('on touch the row is 48 dp and the menu button opens the '
+        'sheet', (tester) async {
+      var opened = 0;
+      await _pump(
+        tester,
+        SidebarRow(
+          key: const ValueKey('r'),
+          mark: const Icon(Icons.dns_outlined, size: 20),
+          title: 'demo',
+          showMenuButton: true,
+          menuEntries: () => [
+            SidebarMenuAction(
+              key: const ValueKey('open'),
+              label: 'kit-open',
+              onSelected: () => opened++,
+            ),
+          ],
+        ),
+        platform: TargetPlatform.android,
+      );
+      expect(tester.getSize(find.byKey(const ValueKey('r'))).height, 48);
+      await tester.tap(find.byTooltip('kit-more'));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('open')));
+      await tester.pumpAndSettle();
+      expect(opened, 1);
+      expect(find.byType(BottomSheet), findsNothing);
+    });
+
+    testWidgets('on touch a header keeps its chevron drawn and grows', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        SidebarSectionHeader(
+          headerKey: const ValueKey('h'),
+          title: 'Servers',
+          count: 3,
+          collapsed: false,
+          onToggle: () {},
+        ),
+        platform: TargetPlatform.android,
+      );
+      // No hover ever comes on touch: without this the disclosure would
+      // have no visible affordance.
+      final chevron = tester.widget<Visibility>(
+        find.ancestor(
+          of: find.byIcon(Icons.expand_more),
+          matching: find.byType(Visibility),
+        ),
+      );
+      expect(chevron.visible, isTrue);
+      expect(tester.getSize(find.byKey(const ValueKey('h'))).height, 40);
     });
   });
 
