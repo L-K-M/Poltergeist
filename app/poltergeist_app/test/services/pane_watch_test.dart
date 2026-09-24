@@ -242,6 +242,97 @@ void main() {
     expect(channel.listCalls, hasLength(3));
   });
 
+  test('a stream that ends while no watch stands costs nothing', () async {
+    final (controller, channel, _) =
+        await _watchedPane(dirs: ['/home/tester/docs']);
+    // A refused arm leaves the subscription but no standing watch.
+    channel.watchFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.other,
+      operation: 'watch',
+      message: 'The watch target is not a directory.',
+    );
+    controller.navigate('/home/tester/docs');
+    await _settle();
+    expect(channel.listCalls, hasLength(2));
+
+    await channel.closeWatchStream();
+    await _settle();
+    // No loss to count, so no rescan.
+    expect(channel.listCalls, hasLength(2));
+    expect(controller.notice, isNull);
+  });
+
+  test('cancelling a watch re-list leaves the pane dirty', () async {
+    final (controller, channel, _) = await _watchedPane();
+    final hold = Completer<void>();
+    channel.holdNext = hold;
+    channel.emitWatch(DirectoryWatchSignal.changed);
+    await _settle();
+    expect(channel.listCalls, hasLength(2));
+
+    controller.cancelNavigation();
+    hold.complete();
+    await _settle();
+    // No re-list on the cancel itself...
+    expect(channel.listCalls, hasLength(2));
+    expect(controller.loading, isFalse);
+
+    // ...but the restored rows predate a reported change, so the next
+    // flush point re-lists.
+    controller.typeAhead('a');
+    controller.clearTypeAhead();
+    await _settle();
+    expect(channel.listCalls, hasLength(3));
+  });
+
+  test('a navigation that superseded a watch re-list, once cancelled, '
+      'leaves the pane dirty', () async {
+    final (controller, channel, _) =
+        await _watchedPane(dirs: ['/home/tester/docs']);
+    final relist = Completer<void>();
+    channel.holdNext = relist;
+    channel.emitWatch(DirectoryWatchSignal.changed);
+    await _settle();
+
+    final navigation = Completer<void>();
+    channel.holdNext = navigation;
+    controller.navigate('/home/tester/docs');
+    await _settle();
+    controller.cancelNavigation();
+    relist.complete();
+    navigation.complete();
+    await _settle();
+    expect(controller.location, const LocalPaneLocation('/home/tester'));
+    expect(channel.listCalls, hasLength(3));
+
+    // The restored rows predate the change the re-list was for.
+    controller.typeAhead('a');
+    controller.clearTypeAhead();
+    await _settle();
+    expect(channel.listCalls, hasLength(4));
+    expect(channel.listCalls.last, '/home/tester');
+  });
+
+  test('a change during a cancelled refresh leaves the pane dirty',
+      () async {
+    final (controller, channel, _) = await _watchedPane();
+    final hold = Completer<void>();
+    channel.holdNext = hold;
+    controller.refresh();
+    await _settle();
+    channel.emitWatch(DirectoryWatchSignal.changed);
+
+    controller.cancelNavigation();
+    hold.complete();
+    await _settle();
+    expect(channel.listCalls, hasLength(2));
+
+    controller.typeAhead('a');
+    controller.clearTypeAhead();
+    await _settle();
+    expect(channel.listCalls, hasLength(3));
+  });
+
   test('a listing that answers notFound drops the watch', () async {
     final (controller, channel, _) = await _watchedPane();
     channel.listings.remove('/home/tester');

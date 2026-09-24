@@ -316,8 +316,8 @@ enum PaneNotice {
 
   /// The shown local directory's watch kept failing, so the listing no
   /// longer refreshes on its own (03 §7.5: watcher failure is never
-  /// silent). A navigation, a refresh, or re-activating the tab arms it
-  /// again.
+  /// silent). A navigation to another directory, a refresh, or
+  /// re-activating the tab arms it again.
   watchStopped,
 }
 
@@ -1204,14 +1204,28 @@ class PaneController extends ChangeNotifier {
         }
       }
     }
+    final answered = _answeredGeneration;
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
     _snapshot = null;
     notifyListeners();
     // No re-list here: that would re-enter the loading state the user
-    // just cancelled. A change made during the cancelled navigation
-    // shows on the next signal, refresh, or activation.
-    _watchDirty = false;
+    // just cancelled. A change made to the restored directory during a
+    // navigation elsewhere shows on the next signal, refresh, or
+    // activation. The pane stays dirty for the next flush point when
+    // the restored rows predate a change the watch already reported: a
+    // watch re-list issued after them never answered (cancelled itself,
+    // or superseded by the cancelled navigation), or the restored
+    // directory's own standing watch signalled during a cancelled
+    // refresh of it.
+    final relistLost = (_watchRefreshGeneration ?? 0) > answered;
+    final channel = _channel;
+    final location = _location;
+    final ownDirt = _watchDirty &&
+        channel != null &&
+        location is LocalPaneLocation &&
+        _watchHolds(channel, location.path);
+    _watchDirty = relistLost || ownDirt;
     _rewatchRestored(relistIfStale: false);
   }
 
@@ -3565,6 +3579,9 @@ class PaneController extends ChangeNotifier {
   /// nothing can signal again, so this counts as a loss.
   void _onWatchStreamDone(AppBrowseChannel channel) {
     if (_disposed || !identical(channel, _watchChannel)) return;
+    // Only a standing watch is lost here: an earlier `lost` (a stream
+    // error forwards one) or a refused arm already accounted for it.
+    final armed = _watchedPath != null;
     _watchEpoch++;
     _watchArming = false;
     _watchedPath = null;
@@ -3576,6 +3593,7 @@ class PaneController extends ChangeNotifier {
       }
       return;
     }
+    if (!armed) return;
     _countWatchLoss();
     _watchDirty = true;
     _flushWatchRefresh();
@@ -3585,6 +3603,8 @@ class PaneController extends ChangeNotifier {
   /// stops re-arming and says so. A delivered change, a new directory,
   /// an explicit refresh, or re-activation restores the budget.
   bool _countWatchLoss() {
+    // A spent budget stays spent, and its notice posts once.
+    if (_watchLosses >= _maxWatchLosses) return false;
     _watchLosses++;
     if (_watchLosses < _maxWatchLosses) return true;
     _postNotice(PaneNotice.watchStopped);

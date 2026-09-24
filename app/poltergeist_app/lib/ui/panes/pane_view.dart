@@ -675,7 +675,9 @@ class _PaneViewState extends State<PaneView> {
       // in-flight commit has no field left to cancel; its Esc falls
       // through to the navigation tiers like any other.
       controller.cancelRename();
-    } else if (controller.loading) {
+    } else if (controller.navigationInFlight) {
+      // A directory watch's own re-list is not the user's to cancel:
+      // Esc goes to the tiers below while one runs.
       controller.cancelNavigation();
     } else if (controller.error != null) {
       // The inline error's keyboard escape hatch: Esc retries the

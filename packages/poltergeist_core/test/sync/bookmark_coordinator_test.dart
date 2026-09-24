@@ -828,6 +828,9 @@ void main() {
       final tombstone = (await a.records.getRecord('web'))!;
       expect(tombstone.deleted, isTrue);
       expect(tombstone.updatedAt, greaterThan(_epochMs + 60000));
+      // And it wins on the wire over the live copy the account holds.
+      await a.coordinator.runRound(server);
+      expect(server.records['web']!.deleted, isTrue);
     });
 
     test('onServerSaved seals a prefixless record marked dirty and '
