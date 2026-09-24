@@ -1554,6 +1554,18 @@ void main() {
       final savedRow = find.byKey(ValueKey('sidebar.favorite.${saved.id}'));
       expect(savedRow, findsOneWidget);
       expect(rowOf(tester, savedRow).selected, isTrue);
+      // …and the session's own connection: a solid connected dot (not the
+      // probe's reachable ring), and Disconnect drops the live session.
+      final chrome = PoltergeistChrome.of(tester.element(savedRow));
+      expect(
+        rowOf(tester, savedRow).status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+      await tester.tap(savedRow, buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('sidebar.menu.disconnect')));
+      await tester.pump();
+      expect(disconnected.map((server) => server.serverId), ['adhoc:1']);
     });
   });
 

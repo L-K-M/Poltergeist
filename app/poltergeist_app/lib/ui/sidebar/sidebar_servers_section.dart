@@ -248,6 +248,19 @@ ServerStatus? _liveStatus(_SidebarData data, String serverId) {
   return bound == null ? null : ServerStatus(bound.state);
 }
 
+/// The live Quick Connect session a saved row stands in for (10 §5):
+/// "Save to Servers…" leaves the session browsing under its adhoc id and
+/// retires its italic row, so the saved row of the same endpoint paints
+/// that session's status and its Disconnect drops it.
+SidebarAdhocSession? _sessionSavedAs(_SidebarData data, Bookmark bookmark) {
+  final key = _endpointKeyOf(bookmark);
+  if (key == null) return null;
+  for (final session in data.facts.adhoc) {
+    if (_endpointKeyOf(session.bookmark) == key) return session;
+  }
+  return null;
+}
+
 ConnectionServer? _connectionOf(_SidebarData data, String serverId) {
   for (final server in data.view.connections?.servers ?? const []) {
     if (server.serverId == serverId) return server;
@@ -321,7 +334,12 @@ class _SavedServerRow extends StatelessWidget {
     final l10n = data.l10n;
     final view = data.view;
     final id = bookmark.id;
-    final status = _liveStatus(data, id);
+    final own = _liveStatus(data, id);
+    // The row's own connection outranks a saved session's; otherwise the
+    // session it was saved from speaks for it.
+    final session = _isLive(own) ? null : _sessionSavedAs(data, bookmark);
+    final liveId = session?.bookmark.id ?? id;
+    final status = session == null ? own : _liveStatus(data, liveId);
     final probe = view.probes?.statuses[id];
     final (:appearance, :dot) = _serverIndicator(
       context,
@@ -334,9 +352,9 @@ class _SavedServerRow extends StatelessWidget {
     final listed = _connectionOf(data, id);
     final identity = bookmark.server?.identity;
     final server =
-        listed ??
+        (session == null ? listed : null) ??
         ConnectionServer(
-          serverId: id,
+          serverId: liveId,
           label: bookmark.label,
           host: identity?.host ?? '',
           port: identity?.port ?? 22,
@@ -377,7 +395,7 @@ class _SavedServerRow extends StatelessWidget {
       title: bookmark.label,
       depth: depth,
       dropIndicator: indicator,
-      trailingText: _tabsText(data, id),
+      trailingText: _tabsText(data, liveId),
       hoverAction: _disconnectAction(data, server, live),
       tooltip: tooltip.isEmpty ? null : tooltip,
       semanticLabel: semanticLabel,
@@ -576,11 +594,7 @@ class _AdhocRow extends StatelessWidget {
     final view = data.view;
     final bookmark = session.bookmark;
     final status = _liveStatus(data, bookmark.id);
-    final (:appearance, :dot) = _serverIndicator(
-      context,
-      l10n,
-      status: status,
-    );
+    final (:appearance, :dot) = _serverIndicator(context, l10n, status: status);
     final live = _isLive(status);
     final identity = bookmark.server?.identity;
     final connection = ConnectionServer(
