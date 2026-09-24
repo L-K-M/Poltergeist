@@ -6741,6 +6741,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Dismiss'**
   String get paneUnsavedDismiss;
+
+  /// Section label over the saved servers the Connect dialog (⌘K) offers as one-click rows above Quick Connect (D32 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Servers'**
+  String get connectDialogServers;
 }
 
 class _AppLocalizationsDelegate

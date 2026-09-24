@@ -36,7 +36,10 @@ void main() {
       ..listings['/home/demo'] = [_entry('/home/demo', 'remote.txt')];
   });
 
-  Future<void> pumpApp(WidgetTester tester) async {
+  Future<void> pumpApp(
+    WidgetTester tester, {
+    List<Bookmark> saved = const [],
+  }) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -44,7 +47,7 @@ void main() {
     final navigatorKey = GlobalKey<NavigatorState>();
     final supportDir = Directory.systemTemp.createTempSync('pg-connect-');
     addTearDown(() => supportDir.deleteSync(recursive: true));
-    final bookmarks = FakeBookmarkStore();
+    final bookmarks = FakeBookmarkStore(saved);
     final session = await startEngineSession(
       supportDirectoryPath: supportDir.path,
       bookmarks: bookmarks,
@@ -101,5 +104,57 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('connect.dialog')), findsNothing);
     expect(engine.openCalls, isEmpty);
+  });
+
+  testWidgets('a saved server opens from its row on a new tab in the '
+      'active pane, as the sidebar opens it', (tester) async {
+    final now = DateTime.utc(2026, 9, 20);
+    await pumpApp(
+      tester,
+      saved: [
+        Bookmark(
+          id: 'srv-demo',
+          kind: BookmarkKind.remotePath,
+          label: 'Demo box',
+          server: const BookmarkServerRef(
+            identity: EmbeddedHostIdentity(
+              host: 'demo.example.com',
+              port: 2222,
+              username: 'demo',
+              authMethod: AuthMethod.password,
+            ),
+          ),
+          remotePath: '/home/demo',
+          sortKey: 'a',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+    );
+
+    await runShellCommand(tester, 'connect.quickConnect');
+    final row = find.byKey(const ValueKey('connect.server.srv-demo'));
+    expect(row, findsOneWidget);
+    expect(find.text('demo@demo.example.com:2222'), findsOneWidget);
+    // The row sits above the Quick Connect field, which keeps focus.
+    final field = find.byKey(const ValueKey('quickConnect.field'));
+    expect(
+      tester.getTopLeft(row).dy,
+      lessThan(tester.getTopLeft(field).dy),
+    );
+    expect(tester.widget<TextField>(field).focusNode!.hasFocus, isTrue);
+
+    // ↓ highlights the row; Return opens it.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('connect.dialog')), findsNothing);
+    expect(engine.openCalls, hasLength(1));
+    expect(engine.openCalls.single.config.host, 'demo.example.com');
+    expect(engine.openCalls.single.config.port, 2222);
+    expect(find.text('remote.txt'), findsOneWidget);
   });
 }

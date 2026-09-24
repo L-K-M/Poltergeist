@@ -72,6 +72,7 @@ import 'settings/app_settings_command.dart';
 import 'settings/backup_settings_command.dart';
 import 'settings/general_settings.dart';
 import 'settings/preview_settings.dart';
+import 'server_appearance.dart';
 import 'server_editor.dart';
 import 'server_label_scope.dart';
 import 'shell/connect_dialog.dart';
@@ -1871,6 +1872,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     if (workspace == null) return;
     await showConnectDialog(
       context,
+      servers: _connectChoices(),
       onConnect: (bookmark, initialPath) {
         final tab = workspace.activePane.newTab(
           target: NewTabTarget.launcher,
@@ -1880,6 +1882,59 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         );
       },
     );
+  }
+
+  /// The Connect dialog's one-click servers (D32 §4): the SERVERS rows —
+  /// saved server locations and the shared-account catalog — used most
+  /// recently first, each opening a new tab exactly as the sidebar's
+  /// new-tab open does.
+  List<ConnectServerChoice> _connectChoices() {
+    String endpoint(String user, String host, int port) {
+      final address = port == 22 ? host : '$host:$port';
+      return user.isEmpty ? address : '$user@$address';
+    }
+
+    final choices = <ConnectServerChoice>[
+      for (final bookmark in _sidebar?.bookmarks ?? const <Bookmark>[])
+        if (bookmark.kind == BookmarkKind.remotePath)
+          ConnectServerChoice(
+            id: bookmark.id,
+            label: bookmark.label,
+            detail: switch (bookmark.server?.identity) {
+              final identity? => endpoint(
+                identity.username,
+                identity.host,
+                identity.port,
+              ),
+              null => bookmark.remotePath ?? '',
+            },
+            mark: ServerBadge.glyph(
+              tint: ServerTint(named: bookmark.color),
+              icon: bookmark.icon,
+              size: 18,
+            ),
+            open: () => _openFavorite(bookmark, SidebarOpenAction.newTab),
+          ),
+      for (final server
+          in widget.bookmarkBackup?.catalog?.servers ??
+              const <ServerConfig>[])
+        ConnectServerChoice(
+          id: server.id,
+          label: server.label,
+          detail: endpoint(server.username, server.host, server.port),
+          mark: ServerBadge(
+            tint: ServerTint.of(server),
+            mark: server.mark,
+            size: 18,
+          ),
+          open: () => _openCatalogServer(server, SidebarOpenAction.newTab),
+        ),
+    ];
+    return orderConnectChoices(choices, [
+      for (final recent
+          in widget.recentLocations?.entries ?? const <RecentLocation>[])
+        ?recent.serverId,
+    ]);
   }
 
   /// Reveal-in-pane (02 §6): opens the task's destination directory on

@@ -5767,5 +5767,9 @@
   "paneUnsavedDismiss": "Dismiss",
   "@paneUnsavedDismiss": {
     "description": "Tooltip of the Not saved banner's close button; hides the banner for this tab."
+  },
+  "connectDialogServers": "Servers",
+  "@connectDialogServers": {
+    "description": "Section label over the saved servers the Connect dialog (⌘K) offers as one-click rows above Quick Connect (D32 §4)."
   }
 }

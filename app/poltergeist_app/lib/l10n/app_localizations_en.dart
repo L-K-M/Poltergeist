@@ -4405,4 +4405,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get paneUnsavedDismiss => 'Dismiss';
+
+  @override
+  String get connectDialogServers => 'Servers';
 }

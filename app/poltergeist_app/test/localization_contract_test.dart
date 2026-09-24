@@ -971,6 +971,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${bookmark.label}:${loc.path}'",
     // The confirm dialog's bullet list marker — typographic, not copy.
     r"'• ${tabCloseTriggerLabel(l10n, trigger)}'",
+    // The Connect dialog rows' endpoint grammar (`user@host:port`) —
+    // machine data, like the header subtitle's.
+    r"'$host:$port'",
+    r"'$user@$address'",
     // The built-in editor's route keys (06 §4.2) and the reported
     // wiring fault — machine data and a dev-facing diagnostic, never
     // rendered copy (the toast is the ARB string).
@@ -1734,9 +1738,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$_error'",
     "''",
   },
-  'lib/ui/shell/connect_dialog.dart': {"'connect.dialog'"},
-  // The header's button and overflow-menu keys, keyed to the registry's
-  // command ids — widget plumbing, not authored copy.
+  // The Connect dialog's keys and a server row's announced label (its
+  // name and endpoint, both data) — plumbing, never authored copy.
+  'lib/ui/shell/connect_dialog.dart': {
+    "'connect.dialog'",
+    r"'connect.server.${choice.id}'",
+    r"'${choice.label}, ${choice.detail}'",
+  },
   // The Quick Look overlay's widget keys and the line break it splits
   // the first line on for syntax detection — plumbing, never copy.
   'lib/ui/quick_look_overlay.dart': {
@@ -1750,6 +1758,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The activity button's ring key — test plumbing, never copy.
   'lib/ui/shell/header_activity_button.dart': {"'header.activityRing'"},
+  // The header's button and overflow-menu keys, keyed to the registry's
+  // command ids — widget plumbing, not authored copy.
   'lib/ui/shell/header_toolbar.dart': {
     r"'command.${command.id}'",
     r"'toolbar.overflow.${command.id}'",
