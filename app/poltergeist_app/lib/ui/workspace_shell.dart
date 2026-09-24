@@ -62,7 +62,6 @@ import 'menus/app_menu_host.dart';
 import 'panes/open_with_commands.dart';
 import 'panes/pane_commands.dart';
 import 'panes/pane_tabs_view.dart';
-import 'panes/quick_connect_view.dart';
 import 'pdf_preview.dart';
 import 'preview_panel.dart';
 import 'quick_open/quick_open_palette.dart';
@@ -72,6 +71,7 @@ import 'settings/general_settings.dart';
 import 'settings/preview_settings.dart';
 import 'server_editor.dart';
 import 'server_label_scope.dart';
+import 'shell/connect_dialog.dart';
 import 'shell/header_toolbar.dart';
 import 'shell/shell_commands.dart';
 import 'shell/shell_splitter.dart';
@@ -1837,49 +1837,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   Future<void> _openConnectDialog() async {
     final workspace = _workspace;
     if (workspace == null) return;
-    final l10n = AppLocalizations.of(context);
-    final focus = FocusNode();
-    try {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => Dialog(
-          key: const ValueKey('connect.dialog'),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    l10n.connectDialogTitle,
-                    style: Theme.of(dialogContext).textTheme.titleMedium,
-                  ),
-                  QuickConnectView(
-                    focusNode: focus,
-                    onConnect: (bookmark, initialPath) {
-                      Navigator.of(dialogContext).pop();
-                      final tab = workspace.activePane.newTab(
-                        target: NewTabTarget.launcher,
-                      );
-                      unawaited(
-                        tab.controller.connectRemote(
-                          bookmark,
-                          initialPath: initialPath,
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    } finally {
-      focus.dispose();
-    }
+    await showConnectDialog(
+      context,
+      onConnect: (bookmark, initialPath) {
+        final tab = workspace.activePane.newTab(
+          target: NewTabTarget.launcher,
+        );
+        unawaited(
+          tab.controller.connectRemote(bookmark, initialPath: initialPath),
+        );
+      },
+    );
   }
 
   /// Reveal-in-pane (02 §6): opens the task's destination directory on
