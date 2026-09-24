@@ -20,11 +20,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/editor_registry_controller.dart';
+import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/services/settings_store.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/panes/open_with_commands.dart';
 import 'package:poltergeist_app/ui/settings/editor_settings.dart';
 
+import '../../support/shell_menus.dart';
 import 'built_in_editor_checkout_test.dart';
 import 'external_editor_checkout_test.dart' as ext;
 
@@ -162,11 +164,9 @@ void main() {
             tester.element(find.byType(Scaffold).first);
         final l10n = AppLocalizations.of(shellContext());
         // §4.2's Open With ▸ submenu rows inside the File menu — the
-        // MenuBar backend only (macOS serializes to the native menu).
-        if (find.byType(MenuBar).evaluate().isNotEmpty) {
-          await tester.tap(find.text(l10n.menuFile));
-          await tester.pump();
-          await tester.pump(const Duration(milliseconds: 300));
+        // ☰ main menu backend only (macOS serializes to the native menu).
+        if (find.byKey(const ValueKey('menu.main')).evaluate().isNotEmpty) {
+          await openShellMenu(tester, AppMenuId.file);
           await tester.tap(
             find.descendant(
               of: find.byKey(const ValueKey('menu.file')),

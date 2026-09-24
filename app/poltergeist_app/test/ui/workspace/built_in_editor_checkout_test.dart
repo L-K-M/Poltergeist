@@ -21,6 +21,7 @@ import 'package:poltergeist_app/services/editor_registry_controller.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_app/services/external_file_opener.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
+import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/services/session_state.dart';
 import 'package:poltergeist_app/ui/built_in_text_editor.dart';
 import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
@@ -29,6 +30,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
 import '../../support/fake_bookmark_store.dart';
+import '../../support/shell_menus.dart';
 
 /// The remote path the harness seeds — the file the editor tests open.
 const remoteConfigPath = '/srv/www/config.txt';
@@ -36,6 +38,14 @@ const remoteConfigPath = '/srv/www/config.txt';
 /// A second seeded file — lets a test stack one editor route over
 /// another to exercise the buried-editor reveal.
 const remoteNotesPath = '/srv/www/notes.txt';
+
+/// The editor's text field — scoped to the editor screen, since the
+/// shell under the route carries the header's filter field (D32 §4)
+/// and stays onstage until the page transition finishes.
+final editorField = find.descendant(
+  of: find.byType(BuiltInTextEditorScreen),
+  matching: find.byType(TextField),
+);
 final _now = DateTime.utc(2026, 9, 12);
 
 Bookmark _bookmark() => Bookmark(
@@ -539,11 +549,9 @@ Future<void> openEditorViaCommand(
   await tester.pump();
 
   final l10n = AppLocalizations.of(
-    tester.element(find.byType(MenuBar)),
+    tester.element(find.byType(WorkspaceShell)),
   );
-  await tester.tap(find.text(l10n.menuFile));
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 300));
+  await openShellMenu(tester, AppMenuId.file);
   await tester.tap(
     find.widgetWithText(MenuItemButton, l10n.fileEditBuiltInLabel),
   );
@@ -587,7 +595,7 @@ void main() {
         // The checkout's local bytes are the remote's — the editor's
         // real disk load landed them in the field.
         expect(
-          tester.widget<TextField>(find.byType(TextField)).controller?.text,
+          tester.widget<TextField>(editorField).controller?.text,
           'one\ntwo\n',
         );
         // The remote route carries the upload action (06 §4.2).
@@ -600,7 +608,7 @@ void main() {
         );
         expect(harness.fs.downloadCalls, [remoteConfigPath]);
 
-        await tester.enterText(find.byType(TextField), 'remote edit\n');
+        await tester.enterText(editorField, 'remote edit\n');
         await tester.pump();
         await tester.tap(find.byTooltip('Save and upload'));
         await pollFor(tester, find.text('Saved and uploaded.'));
@@ -657,7 +665,7 @@ void main() {
           utf8.encode('server rewrite\n'),
           modifiedAt: DateTime.utc(2026, 3, 3),
         );
-        await tester.enterText(find.byType(TextField), 'local edit\n');
+        await tester.enterText(editorField, 'local edit\n');
         await tester.pump();
         await tester.tap(find.byTooltip('Save and upload'));
         await pollFor(tester, find.text('Remote file changed'));
@@ -717,7 +725,7 @@ void main() {
           utf8.encode('server rewrite\n'),
           modifiedAt: DateTime.utc(2026, 3, 3),
         );
-        await tester.enterText(find.byType(TextField), 'local edit\n');
+        await tester.enterText(editorField, 'local edit\n');
         await tester.pump();
         await tester.tap(find.byTooltip('Save and upload'));
         await pollFor(tester, find.text('Remote file changed'));

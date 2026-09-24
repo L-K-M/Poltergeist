@@ -6,7 +6,7 @@
 // scripted remote endpoint the built-in-editor suite uses. Runs on any
 // desktop host: the fake editor definition follows
 // `currentEditorHostPlatform`. Menu-driving tests assume the
-// Windows/Linux MenuBar backend, like the sibling suite's. Every body
+// Windows/Linux ☰ main menu (D32), like the sibling suite's. Every body
 // rides `runAsync` — the checkout watcher's debounce is a real Timer
 // the fake zone would never fire.
 
@@ -22,12 +22,14 @@ import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/app_transfer_queue.dart';
 import 'package:poltergeist_app/services/editor_registry_controller.dart';
 import 'package:poltergeist_app/services/external_file_opener.dart';
+import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/services/session_state.dart';
 import 'package:poltergeist_app/services/settings_store.dart';
 import 'package:poltergeist_app/ui/workspace_shell.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
+import '../../support/shell_menus.dart';
 import 'built_in_editor_checkout_test.dart';
 
 /// The over-cap remote files: `big.bin` carries a known size (the
@@ -785,11 +787,9 @@ void main() {
   group('Open With ▸ menu and remember-choice (06 §4.1)', () {
     Future<void> openWithSubmenu(WidgetTester tester) async {
       final l10n = l10nOf(tester);
-      await tester.tap(find.text(l10n.menuFile));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      // Scoped to the open File menu — the toolbar carries another
-      // Open With label.
+      await openShellMenu(tester, AppMenuId.file);
+      // Scoped to the open File menu — the Open With toast carries
+      // another Open With label.
       await tester.tap(
         find.descendant(
           of: find.byKey(const ValueKey('menu.file')),

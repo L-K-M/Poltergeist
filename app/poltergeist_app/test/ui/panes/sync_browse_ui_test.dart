@@ -22,6 +22,7 @@ import '../../services/engine_session_test.dart' as session_test;
 import '../../services/pane_controller_test.dart' as controller_test;
 import '../../support/fake_bookmark_store.dart';
 import '../../support/fake_ssh_config_source.dart';
+import '../../support/shell_commands.dart';
 import '../../support/test_panes.dart';
 
 /// 02 §7's UI surface: the link chips on both path bars and the status
@@ -422,20 +423,16 @@ void main() {
       return engine;
     }
 
-    testWidgets('the status bar carries the chip; the anchored tab\'s '
+    testWidgets('the path bars carry the chip; the anchored tab\'s '
         'close is guarded and drops the link on confirm', (tester) async {
       await pumpShell(tester);
 
-      // Arm the link through the toolbar — the same run path ⌥⌘B takes.
-      await tester.tap(find.byKey(
-        const ValueKey('command.view.toggleSyncBrowsing'),
-      ));
+      // Arm the link through the shell's runner — the same run path ⌥⌘B
+      // and the menu take (D32 has no status bar; the path bars carry
+      // the link state).
+      await runShellCommand(tester, 'view.toggleSyncBrowsing', settle: false);
       await settle(tester);
 
-      expect(
-        find.byKey(const ValueKey('statusbar.syncChip')),
-        findsOneWidget,
-      );
       expect(
         find.byKey(const ValueKey('pane.left.tab1.syncChip')),
         findsOneWidget,
@@ -456,7 +453,7 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(
-        find.byKey(const ValueKey('statusbar.syncChip')),
+        find.byKey(const ValueKey('pane.left.tab1.syncChip')),
         findsOneWidget,
       );
 
@@ -465,26 +462,18 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Close'));
       await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('statusbar.syncChip')),
-        findsNothing,
-      );
+      expect(find.byType(SyncBrowseChip), findsNothing);
     });
 
     testWidgets('hiding the second pane suspends the link with the '
         'amber chip; re-showing resumes it', (tester) async {
       final engine = await pumpShell(tester);
-      await tester.tap(find.byKey(
-        const ValueKey('command.view.toggleSyncBrowsing'),
-      ));
+      await runShellCommand(tester, 'view.toggleSyncBrowsing', settle: false);
       await settle(tester);
 
-      // view.toggleSecondPane through the toolbar: pane B unmounts and
-      // the link suspends — the amber chip lands on the status bar.
-      await tester.tap(find.byKey(
-        const ValueKey('command.view.toggleSecondPane'),
-      ));
-      await tester.pumpAndSettle();
+      // view.toggleSecondPane: pane B unmounts and the link suspends —
+      // pane A's anchored path bar turns the amber chip.
+      await runShellCommand(tester, 'view.toggleSecondPane');
 
       expect(
         find.byKey(const ValueKey('secondary-pane')),
@@ -509,10 +498,7 @@ void main() {
 
       // Re-showing restores the strip whole and resumes the link — the
       // anchors never moved.
-      await tester.tap(find.byKey(
-        const ValueKey('command.view.toggleSecondPane'),
-      ));
-      await tester.pumpAndSettle();
+      await runShellCommand(tester, 'view.toggleSecondPane');
 
       expect(
         find.byKey(const ValueKey('secondary-pane')),

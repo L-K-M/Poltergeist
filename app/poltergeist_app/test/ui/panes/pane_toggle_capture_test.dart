@@ -14,6 +14,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
 import '../../support/fake_bookmark_store.dart';
+import '../../support/shell_commands.dart';
 
 /// Real-font captures of 02 §3's one/two-pane toggle in the production
 /// shell: the remembered two-pane layout, the one-pane layout after
@@ -171,10 +172,7 @@ void main() {
 
     // The toggle hides pane B whole: the layout collapses to pane A at
     // full width while the strip and per-tab state live on.
-    await tester.tap(
-      find.byKey(const ValueKey('command.view.toggleSecondPane')),
-    );
-    await tester.pumpAndSettle();
+    await runShellCommand(tester, 'view.toggleSecondPane');
     expect(
       find.byKey(AdaptiveShell.secondaryPaneKey),
       findsNothing,
@@ -184,10 +182,7 @@ void main() {
 
     // Re-showing restores the remembered pane exactly — same strip,
     // same listing, no re-list.
-    await tester.tap(
-      find.byKey(const ValueKey('command.view.toggleSecondPane')),
-    );
-    await tester.pumpAndSettle();
+    await runShellCommand(tester, 'view.toggleSecondPane');
     expect(
       find.byKey(AdaptiveShell.secondaryPaneKey),
       findsOneWidget,

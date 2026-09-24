@@ -276,6 +276,37 @@ void main() {
     }
   });
 
+  test('the D32 inspector fields round-trip and stay optional', () {
+    final base = _fixture();
+    final withInspector = SessionState(
+      activePaneId: base.activePaneId,
+      secondPaneHidden: base.secondPaneHidden,
+      inspectorHidden: true,
+      inspectorTab: 'transfers',
+      panes: base.panes,
+    );
+    final decoded = SessionState.fromJson(withInspector.toJson());
+    expect(decoded.inspectorHidden, isTrue);
+    expect(decoded.inspectorTab, 'transfers');
+
+    // A document written before the inspector existed decodes them as
+    // null — the shell derives them from the legacy activity flag.
+    final legacy = base.toJson()
+      ..remove('inspectorHidden')
+      ..remove('inspectorTab');
+    final old = SessionState.fromJson(legacy);
+    expect(old.inspectorHidden, isNull);
+    expect(old.inspectorTab, isNull);
+
+    // Present fields are strictly typed like the rest of the root.
+    for (final mutation in <Map<String, Object?>>[
+      {...legacy, 'inspectorHidden': 'yes'},
+      {...legacy, 'inspectorTab': 3},
+    ]) {
+      expect(() => SessionState.fromJson(mutation), throwsFormatException);
+    }
+  });
+
   test('ignores unknown fields — forward-compatible inside the version', () {
     final json = _fixture().toJson();
     json['futureField'] = {'nested': true};

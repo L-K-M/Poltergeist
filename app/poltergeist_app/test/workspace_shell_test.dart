@@ -16,7 +16,13 @@ void main() {
     expect(find.byKey(AdaptiveShell.primaryPaneKey), findsOneWidget);
     expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsOneWidget);
     expect(find.byKey(AdaptiveShell.splitterKey), findsOneWidget);
-    expect(find.text('Poltergeist'), findsOneWidget);
+    // D32's chrome (10 §3): the header toolbar with the active
+    // location's title (the product title no longer sits in the
+    // chrome), the inspector column, and no status bar or menu strip.
+    expect(find.byKey(const ValueKey('header.title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('inspector.region')), findsOneWidget);
+    expect(find.byType(MenuBar), findsNothing);
+    expect(find.text('Poltergeist'), findsNothing);
     // No engine session in this composition: both panes render the honest
     // no-engine state instead of placeholder prompts (M3's real panes).
     expect(find.textContaining('Browsing is unavailable'), findsNWidgets(2));

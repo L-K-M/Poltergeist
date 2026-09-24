@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
+import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/ui/workspace_shell.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../support/fake_app_transfer_queue.dart';
+import '../../support/shell_menus.dart';
 
-/// The shell-level wiring (02 §6, D16, D21): the panel's show/hide
-/// command, the queue pause command's menu path, the status-bar
-/// summary, and the empty→live auto-show edge — all through the real
-/// WorkspaceShell composition rather than the panel widget alone.
+/// The shell-level wiring (02 §6, D16, D21, D32): the Transfers tab's
+/// show/hide command, the queue pause command's menu path, the header's
+/// activity ring, and the empty→live auto-show edge — all through the
+/// real WorkspaceShell composition rather than the panel widget alone.
 void main() {
   late FakeAppTransferQueue queue;
 
@@ -36,18 +38,17 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  AppLocalizations l10nOf(WidgetTester tester) =>
-      AppLocalizations.of(tester.element(find.byType(MenuBar)));
-
-  testWidgets('view.toggleActivityPanel reveals and hides the panel '
-      '(toolbar and View menu)', (tester) async {
+  testWidgets('view.toggleActivityPanel shows the Transfers tab and '
+      'hides the inspector (header and View menu)', (tester) async {
     await pumpShell(tester);
+    // D32: the inspector is up by default, on Info — no transfer rows.
+    expect(find.byKey(const ValueKey('inspector')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('activity.panel')),
       findsNothing,
     );
 
-    // The toolbar button (D21's first path).
+    // The header's activity button (D21's first path).
     await tester.tap(
       find.byKey(const ValueKey('command.view.toggleActivityPanel')),
     );
@@ -58,10 +59,9 @@ void main() {
     );
 
     // The View menu row exists and carries the same command (D21's
-    // menu path — command-palette-only would violate it).
-    final l10n = l10nOf(tester);
-    await tester.tap(find.text(l10n.menuView));
-    await tester.pumpAndSettle();
+    // menu path — command-palette-only would violate it); on the
+    // Transfers tab it hides the inspector.
+    await openShellMenu(tester, AppMenuId.view);
     expect(
       find.byKey(const ValueKey('menu.item.view.toggleActivityPanel')),
       findsOneWidget,
@@ -74,18 +74,17 @@ void main() {
       find.byKey(const ValueKey('activity.panel')),
       findsNothing,
     );
+    expect(find.byKey(const ValueKey('inspector')), findsNothing);
   });
 
-  testWidgets('queue.togglePause has a Commands-menu path and drives '
+  testWidgets('queue.togglePause has a Server-menu path and drives '
       'the queue gate', (tester) async {
     await pumpShell(tester);
     queue.addTask(state: TransferTaskState.running, totalBytes: 4000);
     await tester.pump();
     await tester.pump();
 
-    final l10n = l10nOf(tester);
-    await tester.tap(find.text(l10n.menuServer));
-    await tester.pumpAndSettle();
+    await openShellMenu(tester, AppMenuId.server);
     final item = find.byKey(
       const ValueKey('menu.item.queue.togglePause'),
     );
@@ -111,9 +110,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final l10n = l10nOf(tester);
-    await tester.tap(find.text(l10n.menuServer));
-    await tester.pumpAndSettle();
+    await openShellMenu(tester, AppMenuId.server);
     final item = tester.widget<MenuItemButton>(
       find.byKey(const ValueKey('menu.item.queue.togglePause')),
     );
@@ -122,19 +119,24 @@ void main() {
     expect(item.onPressed, isNull);
   });
 
-  testWidgets('a hidden panel auto-shows on the empty→live edge and '
-      'the status chip counts live work', (tester) async {
+  testWidgets('new work switches the inspector to Transfers and rings '
+      'the activity button while it runs', (tester) async {
     await pumpShell(tester);
     expect(
       find.byKey(const ValueKey('activity.panel')),
       findsNothing,
     );
     expect(
-      find.byKey(const ValueKey('statusbar.transferChip')),
+      find.byKey(const ValueKey('header.activityRing')),
       findsNothing,
     );
 
-    queue.addTask(state: TransferTaskState.running, totalBytes: 4000);
+    // D16's empty→live edge re-opens the queue's only window: the
+    // Info tab yields to Transfers (10 §2's honest-state rule).
+    final task = queue.addTask(
+      state: TransferTaskState.running,
+      totalBytes: 4000,
+    );
     await tester.pump();
     await tester.pump();
 
@@ -143,7 +145,37 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('statusbar.transferChip')),
+      find.byKey(const ValueKey('header.activityRing')),
+      findsOneWidget,
+    );
+
+    // The ring is the live-work signal only: it leaves with the work.
+    task.state = TransferTaskState.completed;
+    queue.emit(TransferQueueTaskEvent(task.id, task.state));
+    await tester.pump();
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('header.activityRing')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('new work re-opens a user-hidden inspector on Transfers', (
+    tester,
+  ) async {
+    await pumpShell(tester);
+    await tester.tap(
+      find.byKey(const ValueKey('command.view.toggleInspector')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('inspector')), findsNothing);
+
+    queue.addTask(state: TransferTaskState.running, totalBytes: 4000);
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('inspector')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('activity.panel')),
       findsOneWidget,
     );
   });

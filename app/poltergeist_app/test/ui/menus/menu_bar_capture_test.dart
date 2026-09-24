@@ -7,20 +7,24 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
+import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/services/ssh_config_import_setup.dart';
 import 'package:poltergeist_app/services/uuid.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
+import 'package:poltergeist_app/ui/panes/pane_commands.dart';
 import 'package:poltergeist_app/ui/workspace_shell.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
 import '../../support/fake_bookmark_store.dart';
 import '../../support/fake_ssh_config_source.dart';
+import '../../support/shell_menus.dart';
 
-/// Real-font captures of the registry-rendered menu bar (02 §9 / 07
-/// §3.4): the closed strip, the File menu (tab block, Open, import), the
-/// Edit menu showing the registered shortcut hints, and the View menu
-/// (Refresh + the interim Connections entry). The widget-test
+/// Real-font captures of the registry-rendered menus (02 §9 / 07 §3.4)
+/// behind D32's header ☰ on Windows/Linux (10 §8): the closed header,
+/// the File menu (tab block, Open), the Edit menu showing the registered
+/// shortcut hints, and the View menu (Refresh, the inspector and Alerts
+/// rows). The widget-test
 /// default font renders hollow boxes, so the capture loads a real face
 /// when the host provides one — set POLTERGEIST_CAPTURE_FONT_DIR or rely
 /// on the DejaVu fallback. The PNGs land in tasks/run3-task40/ at the
@@ -74,8 +78,8 @@ RemoteFileEntry _entry(String name) => RemoteFileEntry(
 );
 
 void main() {
-  testWidgets('captures the closed menu bar and the open File, Edit, '
-      'and View menus', (tester) async {
+  testWidgets('captures the closed header and the File, Edit, and View '
+      'menus behind the main menu button', (tester) async {
     await tester.runAsync(_loadRealFonts);
 
     final engine = session_test.FakeAppEngine();
@@ -174,41 +178,31 @@ void main() {
       file.writeAsBytesSync(bytes);
     }
 
-    final l10n = AppLocalizations.of(
-      tester.element(find.byType(MenuBar)),
-    );
-
-    // The closed strip: File, Edit, View, Go, Window — the menus with
-    // registered commands today.
-    expect(find.byType(MenuBar), findsOneWidget);
+    // The closed header: no menu-bar strip, the ☰ at its trailing end.
+    expect(find.byType(MenuBar), findsNothing);
+    expect(find.byKey(const ValueKey('menu.main')), findsOneWidget);
     await capture('menubar');
 
-    await tester.tap(find.text(l10n.menuFile));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    // The popup actually opened — a closed-bar capture is not
+    // Each popup actually opened — a closed-header capture is not
     // evidence the menu renders.
+    await openShellMenu(tester, AppMenuId.file);
+    expect(
+      find.byKey(const ValueKey('menu.item.$kViewRefreshCommandId')),
+      findsNothing,
+    );
     expect(find.byType(MenuItemButton), findsWidgets);
     await capture('menu-file');
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pump();
-    await tester.tap(find.text(l10n.menuEdit));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    // The popup actually opened — a closed-bar capture is not
-    // evidence the menu renders.
+    await openShellMenu(tester, AppMenuId.edit);
     expect(find.byType(MenuItemButton), findsWidgets);
     await capture('menu-edit');
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pump();
-    await tester.tap(find.text(l10n.menuView));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    // The popup actually opened — a closed-bar capture is not
-    // evidence the menu renders.
-    expect(find.byType(MenuItemButton), findsWidgets);
+    await openShellMenu(tester, AppMenuId.view);
+    expect(
+      find.byKey(const ValueKey('menu.item.$kViewRefreshCommandId')),
+      findsOneWidget,
+    );
     await capture('menu-view');
+    await closeShellMenus(tester);
   });
 }

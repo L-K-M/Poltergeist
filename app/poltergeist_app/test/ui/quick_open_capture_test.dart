@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart' show AppLocalizations;
 import 'package:poltergeist_app/services/engine_session.dart';
+import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/services/pane_location.dart';
 import 'package:poltergeist_app/services/recent_locations.dart';
 import 'package:poltergeist_app/services/settings_store.dart';
@@ -19,6 +20,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import '../services/engine_session_test.dart' as session_test;
 import '../support/fake_bookmark_store.dart';
 import '../support/fake_ssh_config_source.dart';
+import '../support/shell_menus.dart';
 
 /// Real-font captures of the M9 surfaces (02 §8.4 / D22): the Quick
 /// Open palette over the live registry — all three sections, shortcut
@@ -258,14 +260,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('quickOpen.field')), findsNothing);
 
-    // The import preview via the File menu command (D22) — the
-    // launcher offer is covered in quick_connect_test; the capture
-    // only needs the dialog itself.
+    // The import preview via the Server menu command (D22; D32 moved
+    // it from File) — the launcher offer is covered in
+    // quick_connect_test; the capture only needs the dialog itself.
     final l10n = AppLocalizations.of(
-      tester.element(find.byType(MenuBar)),
+      tester.element(find.byType(WorkspaceShell)),
     );
-    await tester.tap(find.text(l10n.menuFile));
-    await tester.pumpAndSettle();
+    await openShellMenu(tester, AppMenuId.server);
     await tester.tap(
       find.ancestor(
         of: find.text(l10n.sshImportCommandLabel),
