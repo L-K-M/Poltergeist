@@ -65,6 +65,27 @@ ServerIndicatorAppearance serverIndicatorOf(
   return connection ?? (glyph: ServerIndicatorGlyph.none, label: '');
 }
 
+/// The D32 rail's resolution (10 §5). The rail tells "connected" (a
+/// disc) apart from "reachable" (a ring), so any connection truth
+/// beyond idle outranks the probe here: a live or in-flight transport
+/// must never read as merely reachable, which [serverIndicatorOf]'s
+/// tri-state list rule would show for a connected or connecting server
+/// whose probe answered. With no connection (or an idle one) the probe
+/// speaks, exactly as there.
+ServerIndicatorAppearance railIndicatorOf(
+  AppLocalizations l10n, {
+  ServerStatus? status,
+  ProbeStatus? probe,
+}) {
+  final connection = status == null
+      ? null
+      : _connectionAppearance(l10n, status);
+  if (connection != null && connection.glyph != ServerIndicatorGlyph.idle) {
+    return connection;
+  }
+  return serverIndicatorOf(l10n, status: status, probe: probe);
+}
+
 /// The glyphs that contradict a probe result and therefore replace it:
 /// adverse truth (a block, a failure the state explains) always, and
 /// authenticated transports over any non-online result — the reverse of

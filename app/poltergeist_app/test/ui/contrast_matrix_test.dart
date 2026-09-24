@@ -139,6 +139,7 @@ void main() {
         ];
         final dots = <(String, Color)>[
           ('connected', chrome.statusConnected),
+          ('connecting', chrome.statusConnecting),
           ('failed', scheme.error),
         ];
         for (final (dot, color) in dots) {

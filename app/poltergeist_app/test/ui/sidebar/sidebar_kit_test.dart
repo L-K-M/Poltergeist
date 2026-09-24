@@ -257,19 +257,58 @@ void main() {
         const SidebarRow(
           mark: Icon(Icons.dns_outlined, size: 16),
           title: 'demo',
-          statusColor: Colors.green,
+          status: SidebarStatusDot(Colors.green),
         ),
       );
       final chrome = PoltergeistChrome.of(
         tester.element(find.byType(SidebarRow)),
       );
-      final dot = tester
+      final circles = tester
           .widgetList<Container>(find.byType(Container))
           .map((c) => c.decoration)
           .whereType<BoxDecoration>()
-          .firstWhere((d) => d.shape == BoxShape.circle);
-      expect(dot.color, Colors.green);
-      expect((dot.border! as Border).top.color, chrome.sidebarBackground);
+          .where((d) => d.shape == BoxShape.circle)
+          .toList();
+      // A solid dot is one disc; nothing punches through it.
+      expect(circles, hasLength(1));
+      expect(circles.single.color, Colors.green);
+      expect(
+        (circles.single.border! as Border).top.color,
+        chrome.sidebarBackground,
+      );
+    });
+
+    testWidgets('a ring dot shows the row colour through its middle', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const SidebarRow(
+          mark: Icon(Icons.dns_outlined, size: 16),
+          title: 'demo',
+          selected: true,
+          status: SidebarStatusDot(Colors.green, style: SidebarDotStyle.ring),
+        ),
+      );
+      final chrome = PoltergeistChrome.of(
+        tester.element(find.byType(SidebarRow)),
+      );
+      final pill = Color.alphaBlend(
+        chrome.inactiveSelectionFill,
+        chrome.sidebarBackground,
+      );
+      final circles = tester
+          .widgetList<Container>(find.byType(Container))
+          .map((c) => c.decoration)
+          .whereType<BoxDecoration>()
+          .where((d) => d.shape == BoxShape.circle)
+          .toList();
+      expect(circles, hasLength(2));
+      final (ring, hole) = (circles.first, circles.last);
+      expect(ring.color, Colors.green);
+      // Cut out of the pill, and hollow in the pill's colour.
+      expect((ring.border! as Border).top.color, pill);
+      expect(hole.color, pill);
     });
 
     testWidgets('an activation reports how it happened', (tester) async {

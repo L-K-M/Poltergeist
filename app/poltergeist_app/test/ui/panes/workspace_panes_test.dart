@@ -399,7 +399,7 @@ void main() {
           .widget<SidebarRow>(
             find.descendant(of: row, matching: find.byType(SidebarRow)),
           )
-          .statusColor,
+          .status,
       isNotNull,
     );
     expect(engine.statesControllers['srv-x']!.hasListener, isTrue);

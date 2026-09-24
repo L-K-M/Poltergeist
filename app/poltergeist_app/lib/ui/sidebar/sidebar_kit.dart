@@ -39,6 +39,10 @@ const double _markExtent = 18;
 const double _dotExtent = 7;
 const double _dotRing = 1.5;
 
+/// A ring-style dot's stroke: wide enough to keep the status colour
+/// legible at 7 px, narrow enough to read as hollow.
+const double _dotStroke = 1.75;
+
 const double _sectionHeaderExtent = 22;
 const double _sectionLeadIn = 4;
 const double _bottomBarExtent = 30;
@@ -600,6 +604,29 @@ enum SidebarActivation { pointer, keyboard }
 /// Where a drag hovering the row would land, drawn by the row.
 enum SidebarDropIndicator { none, before, after, into }
 
+/// How a row's status dot is drawn: a filled disc, or a ring with the
+/// row's own colour showing through (a weaker claim than the disc — a
+/// server that answers but holds no connection, 10 §5).
+enum SidebarDotStyle { solid, ring }
+
+/// The one status dot a row composes into its mark's corner (10 §5).
+@immutable
+final class SidebarStatusDot {
+  const SidebarStatusDot(this.color, {this.style = SidebarDotStyle.solid});
+
+  final Color color;
+  final SidebarDotStyle style;
+
+  @override
+  bool operator ==(Object other) =>
+      other is SidebarStatusDot &&
+      other.color == color &&
+      other.style == style;
+
+  @override
+  int get hashCode => Object.hash(color, style);
+}
+
 /// A row's hover-only trailing verb (eject, disconnect).
 @immutable
 final class SidebarRowAction {
@@ -617,7 +644,7 @@ final class SidebarRowAction {
 }
 
 /// One sidebar row (10 §5): [SidebarRowExtent] tall, an 18 px [mark] with
-/// ONE composed 7 px status dot, a 13 px middle-ellipsis [title], and
+/// ONE composed 7 px [status] dot, a 13 px middle-ellipsis [title], and
 /// trailing 11 px tabular [trailingText] or, on hover, [hoverAction].
 ///
 /// Hover fills; [selected] draws the rounded pill (the location the active
@@ -630,7 +657,7 @@ class SidebarRow extends StatefulWidget {
     super.key,
     required this.mark,
     required this.title,
-    this.statusColor,
+    this.status,
     this.italic = false,
     this.trailingText,
     this.hoverAction,
@@ -648,7 +675,7 @@ class SidebarRow extends StatefulWidget {
   final String title;
 
   /// The one status dot composed into the mark's corner; null draws none.
-  final Color? statusColor;
+  final SidebarStatusDot? status;
 
   /// Unsaved rows (a live Quick Connect session) set their title in
   /// italics.
@@ -804,7 +831,7 @@ class _SidebarRowState extends State<SidebarRow> with _KeyboardFocusRing {
       ),
       child: Row(
         children: [
-          _SidebarMark(mark: widget.mark, dot: widget.statusColor, ring: ring),
+          _SidebarMark(mark: widget.mark, dot: widget.status, ring: ring),
           const SizedBox(width: 6),
           Expanded(child: MiddleEllipsisText(widget.title, style: titleStyle)),
           if (trailing != null) ...[const SizedBox(width: 6), trailing],
@@ -891,7 +918,9 @@ class _SidebarRowState extends State<SidebarRow> with _KeyboardFocusRing {
 }
 
 /// The 18 px mark with its one corner dot, ringed in the colour behind
-/// the row so the dot reads as cut out of the mark (10 §5).
+/// the row so the dot reads as cut out of the mark (10 §5). A
+/// [SidebarDotStyle.ring] dot punches the same colour through its
+/// middle.
 class _SidebarMark extends StatelessWidget {
   const _SidebarMark({
     required this.mark,
@@ -900,11 +929,12 @@ class _SidebarMark extends StatelessWidget {
   });
 
   final Widget mark;
-  final Color? dot;
+  final SidebarStatusDot? dot;
   final Color ring;
 
   @override
   Widget build(BuildContext context) {
+    final dot = this.dot;
     return SizedBox(
       width: _markExtent,
       height: _markExtent,
@@ -920,10 +950,22 @@ class _SidebarMark extends StatelessWidget {
                 width: _dotExtent + 2 * _dotRing,
                 height: _dotExtent + 2 * _dotRing,
                 decoration: BoxDecoration(
-                  color: dot,
+                  color: dot.color,
                   shape: BoxShape.circle,
                   border: Border.all(color: ring, width: _dotRing),
                 ),
+                child: dot.style == SidebarDotStyle.ring
+                    ? Center(
+                        child: Container(
+                          width: _dotExtent - 2 * _dotStroke,
+                          height: _dotExtent - 2 * _dotStroke,
+                          decoration: BoxDecoration(
+                            color: ring,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      )
+                    : null,
               ),
             ),
         ],

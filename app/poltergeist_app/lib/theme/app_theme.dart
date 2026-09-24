@@ -59,6 +59,7 @@ class _Neutrals {
     required this.selection,
     required this.onSelection,
     required this.connected,
+    required this.connecting,
   });
 
   final Color surface;
@@ -89,6 +90,9 @@ class _Neutrals {
   /// status dot sits on — the rail, its hover fill, the selection pill,
   /// the listing, header, and inspector (pinned by the contrast matrix).
   final Color connected;
+
+  /// The connecting/reconnecting status amber, held to the same floors.
+  final Color connecting;
 }
 
 const _dark = _Neutrals(
@@ -118,6 +122,7 @@ const _dark = _Neutrals(
   selection: Color(0xFF2F7F6D),
   onSelection: Color(0xFFFFFFFF),
   connected: Color(0xFF4CAF50),
+  connecting: Color(0xFFD99A1E),
 );
 
 const _light = _Neutrals(
@@ -145,6 +150,7 @@ const _light = _Neutrals(
   selection: Color(0xFF1F7A67),
   onSelection: Color(0xFFFFFFFF),
   connected: Color(0xFF2E7D32),
+  connecting: Color(0xFFA86400),
 );
 
 /// The D32 chrome tokens every shell surface reads instead of picking
@@ -167,6 +173,7 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
     required this.activePaneIndicator,
     required this.secondaryText,
     required this.statusConnected,
+    required this.statusConnecting,
     required this.headerHeight,
     required this.rowExtent,
     required this.sidebarRowExtent,
@@ -213,6 +220,10 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
   /// hover rows, which a single green shared by both themes could not.
   final Color statusConnected;
 
+  /// The rail's "connecting" dot (10 §5): an amber per theme, held to
+  /// the same 3:1 floors as [statusConnected].
+  final Color statusConnecting;
+
   /// Header toolbar height (logical px).
   final double headerHeight;
 
@@ -245,6 +256,7 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
     Color? activePaneIndicator,
     Color? secondaryText,
     Color? statusConnected,
+    Color? statusConnecting,
     double? headerHeight,
     double? rowExtent,
     double? sidebarRowExtent,
@@ -264,6 +276,7 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
       activePaneIndicator: activePaneIndicator ?? this.activePaneIndicator,
       secondaryText: secondaryText ?? this.secondaryText,
       statusConnected: statusConnected ?? this.statusConnected,
+      statusConnecting: statusConnecting ?? this.statusConnecting,
       headerHeight: headerHeight ?? this.headerHeight,
       rowExtent: rowExtent ?? this.rowExtent,
       sidebarRowExtent: sidebarRowExtent ?? this.sidebarRowExtent,
@@ -292,6 +305,8 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
       secondaryText: Color.lerp(secondaryText, other.secondaryText, t)!,
       statusConnected:
           Color.lerp(statusConnected, other.statusConnected, t)!,
+      statusConnecting:
+          Color.lerp(statusConnecting, other.statusConnecting, t)!,
       headerHeight: t < 0.5 ? headerHeight : other.headerHeight,
       rowExtent: t < 0.5 ? rowExtent : other.rowExtent,
       sidebarRowExtent: t < 0.5 ? sidebarRowExtent : other.sidebarRowExtent,
@@ -327,6 +342,7 @@ PoltergeistChrome _chromeFor(Brightness brightness, TargetPlatform platform) {
     activePaneIndicator: n.primary,
     secondaryText: n.onSurfaceVariant,
     statusConnected: n.connected,
+    statusConnecting: n.connecting,
     // macOS: the unified toolbar band is 52 pt (D32 §3).
     headerHeight: platform == TargetPlatform.macOS ? 52 : (desktop ? 44 : 56),
     rowExtent: desktop ? 22 : 48,

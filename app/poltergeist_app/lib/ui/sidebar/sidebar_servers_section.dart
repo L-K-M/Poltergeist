@@ -323,7 +323,12 @@ class _SavedServerRow extends StatelessWidget {
     final id = bookmark.id;
     final status = _liveStatus(data, id);
     final probe = view.probes?.statuses[id];
-    final appearance = serverIndicatorOf(l10n, status: status, probe: probe);
+    final (:appearance, :dot) = _serverIndicator(
+      context,
+      l10n,
+      status: status,
+      probe: probe,
+    );
     final blocked = appearance.glyph == ServerIndicatorGlyph.blocked;
     final live = _isLive(status);
     final listed = _connectionOf(data, id);
@@ -360,6 +365,7 @@ class _SavedServerRow extends StatelessWidget {
       ...details,
     ].join(', ');
     final tooltip = [
+      if (appearance.label.isNotEmpty) appearance.label,
       ?_endpointLabelWithPort(bookmark),
       ?bookmark.remotePath,
       ...details,
@@ -367,7 +373,7 @@ class _SavedServerRow extends StatelessWidget {
 
     Widget row(SidebarDropIndicator indicator) => SidebarRow(
       mark: mark,
-      statusColor: _indicatorDotColor(context, appearance, probe),
+      status: dot,
       title: bookmark.label,
       depth: depth,
       dropIndicator: indicator,
@@ -479,7 +485,12 @@ class _CatalogServerRow extends StatelessWidget {
     final view = data.view;
     final status = _liveStatus(data, server.id);
     final probe = view.probes?.statuses[server.id];
-    final appearance = serverIndicatorOf(l10n, status: status, probe: probe);
+    final (:appearance, :dot) = _serverIndicator(
+      context,
+      l10n,
+      status: status,
+      probe: probe,
+    );
     final live = _isLive(status);
     final connection =
         _connectionOf(data, server.id) ??
@@ -502,12 +513,15 @@ class _CatalogServerRow extends StatelessWidget {
           server.mark,
           label: server.label,
         ),
-        statusColor: _indicatorDotColor(context, appearance, probe),
+        status: dot,
         title: server.label,
         depth: depth,
         trailingText: _tabsText(data, server.id),
         hoverAction: _disconnectAction(data, connection, live),
-        tooltip: '${server.username}@${server.host}:${server.port}',
+        tooltip: [
+          if (appearance.label.isNotEmpty) appearance.label,
+          '${server.username}@${server.host}:${server.port}',
+        ].join('\n'),
         semanticLabel: appearance.label.isEmpty
             ? server.label
             : '${server.label}, ${appearance.label}',
@@ -562,7 +576,11 @@ class _AdhocRow extends StatelessWidget {
     final view = data.view;
     final bookmark = session.bookmark;
     final status = _liveStatus(data, bookmark.id);
-    final appearance = serverIndicatorOf(l10n, status: status);
+    final (:appearance, :dot) = _serverIndicator(
+      context,
+      l10n,
+      status: status,
+    );
     final live = _isLive(status);
     final identity = bookmark.server?.identity;
     final connection = ConnectionServer(
@@ -579,12 +597,16 @@ class _AdhocRow extends StatelessWidget {
         size: 16,
         color: PoltergeistChrome.of(context).secondaryText,
       ),
-      statusColor: _indicatorDotColor(context, appearance, null),
+      status: dot,
       title: bookmark.label,
       italic: true,
       trailingText: _tabsText(data, bookmark.id),
       hoverAction: _disconnectAction(data, connection, live),
-      tooltip: [?_endpointLabelWithPort(bookmark), ?session.path].join('\n'),
+      tooltip: [
+        if (appearance.label.isNotEmpty) appearance.label,
+        ?_endpointLabelWithPort(bookmark),
+        ?session.path,
+      ].join('\n'),
       semanticLabel: [
         bookmark.label,
         l10n.sidebarUnsavedSession,

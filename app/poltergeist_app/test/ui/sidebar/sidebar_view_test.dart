@@ -907,7 +907,7 @@ void main() {
       store.bookmarks = [_remote('b1')];
       await pumpSidebar(tester, withConnections: true);
       final row = find.byKey(const ValueKey('sidebar.favorite.b1'));
-      expect(rowOf(tester, row).statusColor, isNull);
+      expect(rowOf(tester, row).status, isNull);
 
       lanes.watches['b1']!.add(
         const ServerStatus(ServerConnectionState.connected),
@@ -915,8 +915,24 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(row, findsOneWidget);
-      expect(rowOf(tester, row).statusColor, isNotNull);
+      final chrome = PoltergeistChrome.of(tester.element(row));
+      expect(
+        rowOf(tester, row).status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+      // The state is in words too: the tooltip names it.
+      expect(rowOf(tester, row).tooltip, startsWith('Connected\n'));
       expect(find.byKey(const ValueKey('sidebar.connection.b1')), findsNothing);
+
+      // A reconnect attempt turns the dot amber (10 §5's connecting).
+      lanes.watches['b1']!.add(
+        const ServerStatus(ServerConnectionState.reconnecting),
+      );
+      await tester.pump();
+      expect(
+        rowOf(tester, row).status,
+        SidebarStatusDot(chrome.statusConnecting),
+      );
     });
 
     testWidgets('a live row disconnects from its menu and its hover glyph', (

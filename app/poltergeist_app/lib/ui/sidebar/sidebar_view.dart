@@ -19,7 +19,6 @@ import '../../services/workspace_controller.dart';
 import '../../theme/app_theme.dart';
 import '../panes/pane_drop_area.dart' show paneDropModifiers;
 import '../panes/pane_format.dart' show formatPaneSize;
-import '../probe_status_dot.dart';
 import '../server_appearance.dart';
 import '../server_filter.dart' show serverSearchHaystack;
 import '../server_state_indicator.dart';
@@ -695,27 +694,54 @@ List<SidebarMenuEntry> _openVerbs(
   ],
 ];
 
-/// The corner dot's colour for one composed indicator — every server row
-/// paints the same truth the same way (02 §4: exactly one indicator).
-Color? _indicatorDotColor(
-  BuildContext context,
-  ServerIndicatorAppearance appearance,
+/// A server row's one dot and the words for it (10 §5): connected is a
+/// solid green disc, connecting or reconnecting amber, a failure or a
+/// host-key block red, a server that answers the probe but holds no
+/// connection a hollow green ring, and an unknown or idle server paints
+/// nothing. An unreachable probe stays red. [appearance] carries the
+/// state's words for the row's semantics and tooltip, dot or not.
+@visibleForTesting
+({ServerIndicatorAppearance appearance, SidebarStatusDot? dot})
+sidebarServerIndicator(
+  AppLocalizations l10n,
+  PoltergeistChrome chrome,
+  ColorScheme scheme, {
+  ServerStatus? status,
   ProbeStatus? probe,
-) {
-  final scheme = Theme.of(context).colorScheme;
-  final connected = ProbeStatusDot.onlineColorOf(context);
-  return switch (appearance.glyph) {
+}) {
+  final appearance = railIndicatorOf(l10n, status: status, probe: probe);
+  final dot = switch (appearance.glyph) {
+    ServerIndicatorGlyph.connected => SidebarStatusDot(chrome.statusConnected),
+    ServerIndicatorGlyph.pending => SidebarStatusDot(chrome.statusConnecting),
+    ServerIndicatorGlyph.failed ||
+    ServerIndicatorGlyph.blocked => SidebarStatusDot(scheme.error),
     ServerIndicatorGlyph.probe => switch (probe) {
-      ProbeStatus.online => connected,
-      ProbeStatus.offline => scheme.error,
-      _ => scheme.outline,
+      ProbeStatus.online => SidebarStatusDot(
+        chrome.statusConnected,
+        style: SidebarDotStyle.ring,
+      ),
+      ProbeStatus.offline => SidebarStatusDot(scheme.error),
+      ProbeStatus.unknown || null => null,
     },
-    ServerIndicatorGlyph.connected => connected,
-    ServerIndicatorGlyph.pending => scheme.primary,
-    ServerIndicatorGlyph.failed || ServerIndicatorGlyph.blocked => scheme.error,
     ServerIndicatorGlyph.none || ServerIndicatorGlyph.idle => null,
   };
+  return (appearance: appearance, dot: dot);
 }
+
+/// [sidebarServerIndicator] with the row's theme.
+({ServerIndicatorAppearance appearance, SidebarStatusDot? dot})
+_serverIndicator(
+  BuildContext context,
+  AppLocalizations l10n, {
+  ServerStatus? status,
+  ProbeStatus? probe,
+}) => sidebarServerIndicator(
+  l10n,
+  PoltergeistChrome.of(context),
+  Theme.of(context).colorScheme,
+  status: status,
+  probe: probe,
+);
 
 /// A section's secondary line: loading, empty, or no-match copy, set in
 /// the rail's caption style and inset like a row title.
