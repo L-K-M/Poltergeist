@@ -3614,4 +3614,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get commandDisabledRevealLocalOnly => 'Select a local item';
+
+  @override
+  String get helpKeyboardShortcutsLabel => 'Keyboard Shortcuts';
+
+  @override
+  String get helpReleaseNotesLabel => 'Release Notes';
+
+  @override
+  String get helpReportIssueLabel => 'Report an Issue';
+
+  @override
+  String get helpShortcutsOtherGroup => 'Other';
 }

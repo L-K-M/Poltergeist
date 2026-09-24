@@ -5633,6 +5633,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Select a local item'**
   String get commandDisabledRevealLocalOnly;
+
+  /// D32 §8 Help menu: the sheet listing every command's shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard Shortcuts'**
+  String get helpKeyboardShortcutsLabel;
+
+  /// D32 §8 Help menu: opens the releases page in the browser.
+  ///
+  /// In en, this message translates to:
+  /// **'Release Notes'**
+  String get helpReleaseNotesLabel;
+
+  /// D32 §8 Help menu: opens the issue tracker in the browser.
+  ///
+  /// In en, this message translates to:
+  /// **'Report an Issue'**
+  String get helpReportIssueLabel;
+
+  /// Keyboard Shortcuts sheet: group for commands that live in no menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Other'**
+  String get helpShortcutsOtherGroup;
 }
 
 class _AppLocalizationsDelegate

@@ -1320,6 +1320,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           workspace: workspace,
           dropDelegate: () => dropDelegate,
           openConnect: () => unawaited(_openConnectDialog()),
+          allCommands: () => _commands,
+          openUrl: (url) async {
+            await launchUrl(url);
+          },
         ),
       // `open-with-external` registers whenever a workspace exists
       // (D21): the Open With ▸ submenu renders disabled rows while no

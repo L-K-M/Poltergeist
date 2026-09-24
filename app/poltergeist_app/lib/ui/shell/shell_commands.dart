@@ -10,6 +10,7 @@ import '../../services/pane_drop.dart';
 import '../../services/pane_tabs_controller.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
+import 'keyboard_shortcuts_dialog.dart';
 
 const kViewToggleInspectorCommandId = 'view.toggleInspector';
 const kViewShowAlertsCommandId = 'view.showAlerts';
@@ -18,6 +19,14 @@ const kSelectionTransferToOtherPaneCommandId =
     'selection.transferToOtherPane';
 const kSelectionMoveToOtherPaneCommandId = 'selection.moveToOtherPane';
 const kFileRevealCommandId = 'file.reveal';
+const kHelpKeyboardShortcutsCommandId = 'help.keyboardShortcuts';
+const kHelpReleaseNotesCommandId = 'help.releaseNotes';
+const kHelpReportIssueCommandId = 'help.reportIssue';
+
+/// The project pages the Help menu links to (D19: links only — the app
+/// never downloads or phones home).
+final _releasesPage = Uri.parse('https://github.com/L-K-M/Poltergeist/releases');
+final _issuesPage = Uri.parse('https://github.com/L-K-M/Poltergeist/issues');
 
 List<ShortcutActivator> Function(TargetPlatform) _perPlatform({
   required List<ShortcutActivator> macOS,
@@ -116,9 +125,55 @@ List<RegisteredCommand> buildShellCommands({
   required WorkspaceController workspace,
   required PaneDropDelegate? Function() dropDelegate,
   required VoidCallback openConnect,
+  required List<RegisteredCommand> Function() allCommands,
+  required Future<void> Function(Uri url) openUrl,
   FileManagerRevealer revealer = const FileManagerRevealer(),
 }) {
   return [
+    RegisteredCommand(
+      id: kHelpKeyboardShortcutsCommandId,
+      scope: CommandScope.app,
+      label: (l10n) => l10n.helpKeyboardShortcutsLabel,
+      icon: Icons.keyboard_outlined,
+      // ⌘/ is the macOS Help-menu convention for a shortcuts sheet.
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.slash, meta: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.slash, control: true),
+        ],
+      ),
+      run: (context) => showKeyboardShortcutsDialog(context, allCommands()),
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.help,
+        order: 10,
+      ),
+    ),
+    RegisteredCommand(
+      id: kHelpReleaseNotesCommandId,
+      scope: CommandScope.app,
+      label: (l10n) => l10n.helpReleaseNotesLabel,
+      icon: Icons.new_releases_outlined,
+      run: (_) => openUrl(_releasesPage),
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.help,
+        order: 20,
+        group: 1,
+      ),
+    ),
+    RegisteredCommand(
+      id: kHelpReportIssueCommandId,
+      scope: CommandScope.app,
+      label: (l10n) => l10n.helpReportIssueLabel,
+      icon: Icons.bug_report_outlined,
+      run: (_) => openUrl(_issuesPage),
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.help,
+        order: 30,
+        group: 1,
+      ),
+    ),
     RegisteredCommand(
       id: kViewToggleInspectorCommandId,
       scope: CommandScope.app,

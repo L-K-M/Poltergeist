@@ -4689,5 +4689,21 @@
   "commandDisabledRevealLocalOnly": "Select a local item",
   "@commandDisabledRevealLocalOnly": {
     "description": "Disabled reason for Show in Finder/File Manager: only local items can be revealed."
+  },
+  "helpKeyboardShortcutsLabel": "Keyboard Shortcuts",
+  "@helpKeyboardShortcutsLabel": {
+    "description": "D32 §8 Help menu: the sheet listing every command's shortcut."
+  },
+  "helpReleaseNotesLabel": "Release Notes",
+  "@helpReleaseNotesLabel": {
+    "description": "D32 §8 Help menu: opens the releases page in the browser."
+  },
+  "helpReportIssueLabel": "Report an Issue",
+  "@helpReportIssueLabel": {
+    "description": "D32 §8 Help menu: opens the issue tracker in the browser."
+  },
+  "helpShortcutsOtherGroup": "Other",
+  "@helpShortcutsOtherGroup": {
+    "description": "Keyboard Shortcuts sheet: group for commands that live in no menu."
   }
 }
