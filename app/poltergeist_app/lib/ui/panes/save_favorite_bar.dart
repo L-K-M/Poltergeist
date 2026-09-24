@@ -13,6 +13,10 @@ import '../save_to_servers.dart';
 /// The banner's button height on desktop, inside its 30 px line.
 const double _desktopControlExtent = 26;
 
+/// Below this line width "Save to Servers…" folds to an icon button, so a
+/// pane at its minimum width keeps the endpoint readable.
+const double _labelledSaveMinWidth = 300;
+
 /// The post-connect "Not saved" banner (02 §2.7, D32 §6's banner slot):
 /// one slim line for a live Quick Connect session —
 /// `Not saved · demo@host:2222   [Save to Servers…]  ×` — naming the live
@@ -190,51 +194,72 @@ class _SaveFavoriteBarState extends State<SaveFavoriteBar> {
           color: colors.surfaceContainerLow,
           border: Border(bottom: BorderSide(color: chrome.separator)),
         ),
-        child: Row(
-          children: [
-            ExcludeSemantics(
-              child: Icon(Icons.bolt, size: 14, color: chrome.secondaryText),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                _failed
-                    ? l10n.saveFavoriteFailed
-                    : l10n.paneUnsavedSession(
-                        sessionEndpointLabel(widget.bookmark),
-                      ),
-                key: ValueKey(
-                  _failed ? 'saveFavorite.error' : 'saveFavorite.label',
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: _failed ? colors.error : chrome.secondaryText,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Row(
+            children: [
+              ExcludeSemantics(
+                child: Icon(Icons.bolt, size: 14, color: chrome.secondaryText),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _failed
+                      ? l10n.saveFavoriteFailed
+                      : l10n.paneUnsavedSession(
+                          sessionEndpointLabel(widget.bookmark),
+                        ),
+                  key: ValueKey(
+                    _failed ? 'saveFavorite.error' : 'saveFavorite.label',
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: _failed ? colors.error : chrome.secondaryText,
+                  ),
                 ),
               ),
-            ),
-            TextButton(
-              key: const ValueKey('saveFavorite.save'),
-              style: compact,
-              onPressed: _saving ? null : _save,
-              child: Text(l10n.sidebarSaveToServers),
-            ),
-            IconButton(
-              key: const ValueKey('saveFavorite.dismiss'),
-              tooltip: l10n.paneUnsavedDismiss,
-              onPressed: widget.onDismiss,
-              visualDensity: VisualDensity.compact,
-              iconSize: 14,
-              constraints: desktop
-                  ? const BoxConstraints.tightFor(
-                      width: _desktopControlExtent,
-                      height: _desktopControlExtent,
-                    )
-                  : null,
-              padding: desktop ? EdgeInsets.zero : null,
-              icon: const Icon(Icons.close),
-            ),
-          ],
+              // A pane at its minimum width keeps the verb as an icon so
+              // the endpoint still has room; wider panes spell it out.
+              if (constraints.maxWidth >= _labelledSaveMinWidth)
+                TextButton(
+                  key: const ValueKey('saveFavorite.save'),
+                  style: compact,
+                  onPressed: _saving ? null : _save,
+                  child: Text(l10n.sidebarSaveToServers),
+                )
+              else
+                IconButton(
+                  key: const ValueKey('saveFavorite.save'),
+                  tooltip: l10n.sidebarSaveToServers,
+                  onPressed: _saving ? null : _save,
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 15,
+                  constraints: desktop
+                      ? const BoxConstraints.tightFor(
+                          width: _desktopControlExtent,
+                          height: _desktopControlExtent,
+                        )
+                      : null,
+                  padding: desktop ? EdgeInsets.zero : null,
+                  icon: const Icon(Icons.bookmark_add_outlined),
+                ),
+              IconButton(
+                key: const ValueKey('saveFavorite.dismiss'),
+                tooltip: l10n.paneUnsavedDismiss,
+                onPressed: widget.onDismiss,
+                visualDensity: VisualDensity.compact,
+                iconSize: 14,
+                constraints: desktop
+                    ? const BoxConstraints.tightFor(
+                        width: _desktopControlExtent,
+                        height: _desktopControlExtent,
+                      )
+                    : null,
+                padding: desktop ? EdgeInsets.zero : null,
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
         ),
       ),
     );
