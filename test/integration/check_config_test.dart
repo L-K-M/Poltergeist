@@ -31,7 +31,10 @@ const _m0ShardPath = 'packages/poltergeist_bench/bench-shard.json';
 const _m0EvidencePath = 'packages/poltergeist_bench/evidence';
 const _m0CommittedEvidencePath = 'docs/evidence/m0';
 const _m0ReportPath = 'docs/M0-DARTSSH2-REPORT.md';
-const _checkoutAction = 'actions/checkout@v4';
+// Selected by action name, never by tag (as in release_workflow_test.dart):
+// these tests assert `fetch-depth`, so a routine major bump must not turn
+// them into an opaque `singleWhere` "No element" failure.
+const _checkoutAction = 'actions/checkout';
 const _m0CommandLogVariable = 'POLTERGEIST_M0_COMMAND_LOG';
 const _m0ProfileScriptVariable = 'POLTERGEIST_M0_PROFILE_SCRIPT';
 const _m0BenchCommandVariable = 'POLTERGEIST_M0_BENCH_COMMAND';
@@ -355,7 +358,7 @@ void main() {
     final dartJob = jobs['dart_tools'] as YamlMap;
     final steps = (dartJob['steps'] as YamlList).cast<YamlMap>();
     final checkout = steps.singleWhere(
-      (step) => step['uses'] == _checkoutAction,
+      (step) => '${step['uses']}'.startsWith('$_checkoutAction@'),
     );
     final validation = _stepNamed(steps, 'Validate committed M0 evidence');
     final command = '${validation['run']}'.replaceAll(RegExp(r'\s+'), ' ');
@@ -377,7 +380,7 @@ void main() {
       final job = entry.value as YamlMap;
       final otherSteps = (job['steps'] as YamlList).cast<YamlMap>();
       for (final step in otherSteps.where(
-        (step) => step['uses'] == _checkoutAction,
+        (step) => '${step['uses']}'.startsWith('$_checkoutAction@'),
       )) {
         final options = step['with'];
         if (options is! YamlMap) continue;
