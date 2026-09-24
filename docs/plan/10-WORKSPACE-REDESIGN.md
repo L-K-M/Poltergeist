@@ -354,6 +354,17 @@ source.**
   - the share-to-Poltergeist upload intent
   - a transfer foreground service with notification progress
   - a DocumentsProvider exposing servers to other apps
+- **As built (2026-09-24):**
+  - The posture applies below 600 dp on touch platforms only; desktop
+    windows cannot get that narrow and keep their pane-B auto-hide.
+  - The selection bar ships without Share, which needs a platform share
+    plugin (deferred with the list above).
+  - Back also closes an open field (the filter, Quick Select) after the
+    sheet and before folder history.
+  - Rename and Go to Folder open as dialogs over the pane's own
+    sessions, and Quick Select as a strip.
+  - New work raises the progress pill, not the sheet: a half-height
+    sheet must not cover the listing mid-flow.
 
 ## 10. Sibling contract with Séance
 

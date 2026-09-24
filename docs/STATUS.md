@@ -7835,6 +7835,75 @@ scripted channel's new watch seam; the full app suite and
 `flutter analyze` pass locally. Native backend behavior stays with the
 engine seam's records (items 14 and 18).
 
+## D32 — Android and the compact posture (2026-09-24)
+
+Below 600 dp on a touch platform the workspace takes 10 §9's compact
+posture (`lib/ui/compact/`). Wider touch windows (tablets, a landscape
+phone) keep the desktop layout with its staged drawer sidebar and
+inspector overlay; desktop windows never reach the posture (their
+content minimum is 720 × 480) and keep `AdaptiveShell`'s pane-B
+auto-hide unchanged.
+
+- **Home** is the shared `SidebarView` in its new home presentation:
+  DEVICES / FAVORITES / SERVERS at touch size under an always-shown
+  search bar, the rail's "+" menu as a FAB (New Server, Quick Connect,
+  Add Current Folder, New Group, Import), the sync status as the list
+  footer, and Settings plus an app-scoped ⋮ in the app bar. Android's
+  volume source lists nothing by design, so DEVICES shows one "This
+  device" row onto the local pane's home.
+- **The browser** shows the active pane: back, the folder name,
+  `user@host` for a remote (the item count for a local folder), a
+  filter field, the A · B pane switcher, and ⋮ — the registry's full
+  menu tree as a sheet (D21, 10 §8's Android row). Breadcrumb chips
+  scroll under the bar; rows are 56 dp, two lines (name; size · date);
+  a tap opens, the trailing ⋮ opens the registry row sheet, and pull to
+  refresh re-lists. Rename and Go to Folder / Edit Path render their
+  controller sessions as dialogs; Quick Select as a strip.
+- **Two panes on a phone:** the workspace hears pane B as shown, so
+  Copy/Move to Other Pane keep their destination ("Copy to B").
+- **Selection:** long-press starts it (a bulk registry selection —
+  Select All, Invert, Quick Select — enters it too); the contextual bar
+  reads "3 selected · 42 MB" (the pane's files-only size rule); the
+  bottom bar carries Copy to B, Move to B, Delete, and More (the other
+  selection verbs, in the row menu's order). A disabled item answers a
+  tap with the command's reason. **Share is omitted** — it needs a
+  platform share plugin (deferred, open item 33).
+- **Inspector:** a draggable, non-modal bottom sheet with the same
+  Info / Transfers / Alerts tabs over the same controllers; its
+  visibility and tab are the workspace's inspector state, so Get Info,
+  Show Alerts, and the pill open it. A floating progress pill shows
+  while transfers run and opens Transfers; in this posture new work
+  raises the pill instead of the sheet.
+- **Sync** stays the full-screen dialog below 600 px, reachable from ⋮
+  (Server ▸ Synchronize…) and from a savedSync favorite on Home.
+- **Back** walks, in order: clear the selection → close the sheet →
+  close an open field (filter, Quick Select) → folder history → Home →
+  leave the app, through one `PopScope` (Séance's Android model — a
+  state flag, so every modal stays on the app navigator and closes
+  first). `android:enableOnBackInvokedCallback="true"` opts into
+  predictive back.
+- **Touch at every width:** section chevrons rest visible on touch and
+  the hover-only header "+" steps aside there (its verbs live in the +
+  menu); row hover actions (eject, disconnect) already had menu
+  equivalents; desktop-layout rows keep the chrome's 48 dp touch extent.
+- `PaneController.clearSelection()` drops the selection and the cursor:
+  outside selection mode no row may stay a verb's hidden subject (the
+  selection verbs fall back to the cursor row).
+
+Verification: `flutter analyze` clean; the compact behavior suite
+(`test/ui/compact/compact_posture_test.dart`) drives the real shell over
+the fake engine at 390 × 844 — Home, the browser, rows, breadcrumbs,
+pull to refresh, the row and ⋮ sheets, the filter, rename (including a
+regression for a double pop on back), Go to Folder, Quick Select, the
+pane switcher and Copy to B, selection and More, the sheet and the
+pill, every back step through `SystemNavigator.pop`, the posture's
+command routing, Sync's reachability, and the 700 dp tablet layout.
+Captures (`test/ui/compact/compact_capture_test.dart`, gated on
+`POLTERGEIST_CAPTURE=1`) render every scene in dark and light. Not
+verified here: a device or emulator run (no Android SDK in the
+container), real predictive-back animation, IME behavior, and
+TalkBack.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -8673,6 +8742,16 @@ engine seam's records (items 14 and 18).
     `docs/qa/screen-reader-notes.md`), native chrome and dialogs, scroll
     feel, macOS Quick Look on real hardware, and real-IME entry. First
     fill is due with the v1.0 release PR.
+33. **2026-09-24: D32 §9 — Android slices deferred from the compact
+    posture.** Each is its own slice: all-files storage access (the
+    local pane is the app's own storage until then, and DEVICES shows
+    only "This device"); the share-to-Poltergeist upload intent; the
+    selection bar's Share (needs a platform share plugin, which this
+    slice did not add); a transfer foreground service with notification
+    progress (transfers stop when Android freezes the backgrounded
+    process); and a DocumentsProvider exposing servers to other apps.
+    Also unverified until a device run: predictive-back animation, IME
+    insets, and TalkBack over the compact surfaces.
 
 ## Independent audit
 

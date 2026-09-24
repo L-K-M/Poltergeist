@@ -36,6 +36,7 @@ part 'sidebar_devices_section.dart';
 part 'sidebar_dialogs.dart';
 part 'sidebar_drop_zone.dart';
 part 'sidebar_favorites_section.dart';
+part 'sidebar_home.dart';
 part 'sidebar_servers_section.dart';
 
 /// How a row's activation resolves against the panes (02 §4): [plain]
@@ -43,6 +44,14 @@ part 'sidebar_servers_section.dart';
 /// plain click would have used, and [oppositePane] flips to the other
 /// side — the explicit modifier always wins over `preferredPane`.
 enum SidebarOpenAction { plain, newTab, oppositePane }
+
+/// Where the sidebar renders (D32 §9): [rail] is the desktop column (and
+/// its drawer mount) with the 30 px bottom bar; [home] is the compact
+/// posture's full-screen Home — the same sections and rows at touch
+/// size, an always-shown search bar, the "+" menu as a floating action
+/// button, and the sync status as the list's footer (the host's app bar
+/// carries Settings).
+enum SidebarPresentation { rail, home }
 
 /// The bookmark-backup facts the bottom bar's sync chip reads (10 §5).
 /// A value the shell composes from the service at read time, so the chip
@@ -97,6 +106,7 @@ class SidebarView extends StatefulWidget {
     this.onOpenSettings,
     this.dropDelegate,
     this.clock = DateTime.now,
+    this.presentation = SidebarPresentation.rail,
     super.key,
   });
 
@@ -185,6 +195,9 @@ class SidebarView extends StatefulWidget {
   /// The sync chip's "2 min ago" reference; injectable for tests.
   final DateTime Function() clock;
 
+  /// The desktop rail or the compact Home (D32 §9).
+  final SidebarPresentation presentation;
+
   @override
   State<SidebarView> createState() => _SidebarViewState();
 }
@@ -192,6 +205,11 @@ class SidebarView extends StatefulWidget {
 class _SidebarViewState extends State<SidebarView> {
   List<LocalVolume> _volumes = const [];
   List<String> _standardFolders = const [];
+
+  /// Whether a volume listing has landed — DEVICES' "This device"
+  /// fallback waits for it, so a desktop rail never flashes the fallback
+  /// row before its real volumes arrive.
+  bool _volumesLoaded = false;
   StreamSubscription<void>? _volumeChanges;
   int _volumeGeneration = 0;
   SidebarPaneFacts _facts = SidebarPaneFacts.empty;
@@ -256,6 +274,7 @@ class _SidebarViewState extends State<SidebarView> {
         setState(() {
           _volumes = List.unmodifiable(volumes);
           _standardFolders = List.unmodifiable(standard);
+          _volumesLoaded = true;
         });
       } on Object catch (error, stackTrace) {
         ApplicationErrorReporter().report(error, stackTrace);
@@ -346,6 +365,9 @@ class _SidebarViewState extends State<SidebarView> {
     }
 
     final controller = widget.controller;
+    if (widget.presentation == SidebarPresentation.home) {
+      return _buildHome(data, children);
+    }
     final showFilter =
         data.serverCount >= _filterServerThreshold ||
         controller.filterQuery.isNotEmpty ||
@@ -396,8 +418,13 @@ class _SidebarViewState extends State<SidebarView> {
   }
 
   /// The bottom bar's "+" (10 §5): creation verbs, each hidden when its
-  /// seam is absent and disabled while it has nothing to act on.
-  List<SidebarMenuEntry> _addMenuEntries(_SidebarData data) {
+  /// seam is absent and disabled while it has nothing to act on. [icons]
+  /// dresses the touch sheet's rows (Home's FAB); the desktop menu stays
+  /// text-only.
+  List<SidebarMenuEntry> _addMenuEntries(
+    _SidebarData data, {
+    bool icons = false,
+  }) {
     final l10n = data.l10n;
     final view = widget;
     return [
@@ -405,17 +432,20 @@ class _SidebarViewState extends State<SidebarView> {
         SidebarMenuAction(
           key: const ValueKey('sidebar.add.newServer'),
           label: l10n.sidebarAddNewServer,
+          icon: icons ? Icons.dns_outlined : null,
           onSelected: view.onAddCatalogServer,
         ),
       if (view.onQuickConnect != null)
         SidebarMenuAction(
           key: const ValueKey('sidebar.add.quickConnect'),
           label: l10n.sidebarAddQuickConnect,
+          icon: icons ? Icons.power_outlined : null,
           onSelected: view.onQuickConnect,
         ),
       SidebarMenuAction(
         key: const ValueKey('sidebar.add.currentFolder'),
         label: l10n.sidebarAddCurrentFolder,
+        icon: icons ? Icons.star_outline : null,
         onSelected: data.canAddCurrentFolder
             ? () => unawaited(_addCurrentFolder(data))
             : null,
@@ -423,6 +453,7 @@ class _SidebarViewState extends State<SidebarView> {
       SidebarMenuAction(
         key: const ValueKey('sidebar.add.newGroup'),
         label: l10n.sidebarNewGroup,
+        icon: icons ? Icons.playlist_add : null,
         onSelected: () => unawaited(_newPendingGroup(context, widget)),
       ),
       if (view.onImportSshConfig != null) ...[
@@ -430,6 +461,7 @@ class _SidebarViewState extends State<SidebarView> {
         SidebarMenuAction(
           key: const ValueKey('sidebar.add.importSshConfig'),
           label: l10n.sidebarImportSshConfig,
+          icon: icons ? Icons.download_outlined : null,
           onSelected: view.onImportSshConfig,
         ),
       ],

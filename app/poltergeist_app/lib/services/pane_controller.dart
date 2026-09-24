@@ -1473,6 +1473,21 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Drops the selection AND the cursor — D32 §9's touch posture, where
+  /// nothing outside an explicit selection may stay a verb's subject: the
+  /// selection verbs fall back to the cursor row when nothing is
+  /// selected, so a cursor left on the last row a tap opened would make
+  /// Delete act on a row the user never picked. Inert when both are
+  /// already clear (no notify).
+  void clearSelection() {
+    if (_disposed) return;
+    if (_selection.selectedKeys.isEmpty && _selection.cursorKey == null) {
+      return;
+    }
+    _selection = SelectionState<_RowKey>.begin(rows: _rowKeys);
+    notifyListeners();
+  }
+
   /// `edit.invertSelection` (02 §2.5): replaces the selection with its
   /// complement among the visible rows; cursor and anchor keep their
   /// positions.

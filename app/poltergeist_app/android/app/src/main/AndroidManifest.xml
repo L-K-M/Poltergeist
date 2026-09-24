@@ -1,10 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- Predictive back (Android 13+, D32 §9): the system hands a back to
+         Flutter only while the compact posture has a step of its own to
+         take (a selection, the inspector sheet, folder history, the
+         browser over Home) and otherwise runs its own back-to-home
+         animation. Older releases ignore the attribute. -->
     <application
         android:label="Poltergeist"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

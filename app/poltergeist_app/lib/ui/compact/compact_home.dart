@@ -1,0 +1,83 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../../l10n/app_localizations.dart';
+import '../../services/registered_command.dart';
+import '../../theme/app_theme.dart';
+import '../settings/app_settings_command.dart' show kAppSettingsCommandId;
+import 'compact_command_sheet.dart';
+import 'compact_posture.dart';
+
+/// D32 §9's Home: the sidebar, full screen, under an app bar with the
+/// product name, Settings, and ⋮. [sidebar] is the shared sidebar in its
+/// home presentation (search bar, the three sections, the "+" FAB); this
+/// widget adds only the app-level chrome around it.
+///
+/// Home's ⋮ renders the registry's APP-scoped commands: a pane or
+/// selection verb has nothing to act on from here (the panes are one
+/// screen away), and offering it would act on a pane the user cannot
+/// see.
+class CompactHome extends StatelessWidget {
+  const CompactHome({
+    super.key,
+    required this.sidebar,
+    required this.commands,
+    required this.onRunCommand,
+  });
+
+  final Widget sidebar;
+  final List<RegisteredCommand> commands;
+  final Future<void> Function(RegisteredCommand command) onRunCommand;
+
+  RegisteredCommand? _command(String id) {
+    for (final command in commands) {
+      if (command.id == id) return command;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final chrome = PoltergeistChrome.of(context);
+    final settings = _command(kAppSettingsCommandId);
+    final appCommands = [
+      for (final command in commands)
+        if (command.scope == CommandScope.app) command,
+    ];
+    return Scaffold(
+      key: const ValueKey(CompactKey.home),
+      backgroundColor: chrome.sidebarBackground,
+      appBar: AppBar(
+        backgroundColor: chrome.sidebarBackground,
+        title: Text(l10n.appTitle),
+        actions: [
+          if (settings != null)
+            IconButton(
+              key: const ValueKey(CompactKey.homeSettings),
+              tooltip: settings.label(l10n),
+              onPressed: settings.enabled()
+                  ? () => unawaited(onRunCommand(settings))
+                  : null,
+              icon: const Icon(Icons.settings_outlined),
+            ),
+          IconButton(
+            key: const ValueKey(CompactKey.homeMore),
+            tooltip: l10n.compactMoreOptions,
+            onPressed: () => unawaited(
+              showCompactCommandSheet(
+                context,
+                title: l10n.appTitle,
+                commands: appCommands,
+                onRun: onRunCommand,
+              ),
+            ),
+            icon: const Icon(Icons.more_vert),
+          ),
+        ],
+      ),
+      body: sidebar,
+    );
+  }
+}

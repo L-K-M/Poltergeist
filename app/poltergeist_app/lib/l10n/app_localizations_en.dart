@@ -4399,4 +4399,122 @@ class AppLocalizationsEn extends AppLocalizations {
   String sidebarFreeSpaceSemantics(String size) {
     return '$size available';
   }
+
+  @override
+  String get compactHomeSearchHint => 'Search servers and folders';
+
+  @override
+  String get compactMoreOptions => 'More options';
+
+  @override
+  String get compactPaneLetterA => 'A';
+
+  @override
+  String get compactPaneLetterB => 'B';
+
+  @override
+  String compactPaneSwitchTooltip(String pane) {
+    return 'Switch to $pane';
+  }
+
+  @override
+  String compactPaneSwitcherSemantics(String shown) {
+    return '$shown is showing';
+  }
+
+  @override
+  String get compactFilterOpen => 'Filter this folder';
+
+  @override
+  String get compactFilterClose => 'Close filter';
+
+  @override
+  String compactRowDetails(String size, String date) {
+    return '$size · $date';
+  }
+
+  @override
+  String get compactRowFolder => 'Folder';
+
+  @override
+  String get compactRowLink => 'Link';
+
+  @override
+  String compactRowActions(String name) {
+    return 'Actions for $name';
+  }
+
+  @override
+  String compactSelectionCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count selected',
+      one: '1 selected',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get compactSelectionClear => 'Clear selection';
+
+  @override
+  String compactActionCopyTo(String pane) {
+    return 'Copy to $pane';
+  }
+
+  @override
+  String compactActionMoveTo(String pane) {
+    return 'Move to $pane';
+  }
+
+  @override
+  String get compactActionDelete => 'Delete';
+
+  @override
+  String get compactActionMore => 'More';
+
+  @override
+  String compactTransfersPill(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transfers',
+      one: '1 transfer',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String compactTransfersPillProgress(String transfers, int percent) {
+    return '$transfers · $percent%';
+  }
+
+  @override
+  String get compactTransfersPillTooltip => 'Show transfers';
+
+  @override
+  String get compactSheetClose => 'Close inspector';
+
+  @override
+  String get compactCancel => 'Cancel';
+
+  @override
+  String get compactBreadcrumbsLabel => 'Folder path';
+
+  @override
+  String get compactLauncherHint =>
+      'Connect to a server here, or go back to Home to pick a location.';
+
+  @override
+  String get compactGoToFolderTitle => 'Go to folder';
+
+  @override
+  String get compactGo => 'Go';
+
+  @override
+  String get compactDone => 'Done';
+
+  @override
+  String get sidebarThisDevice => 'This device';
 }

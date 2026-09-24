@@ -167,6 +167,33 @@ void main() {
     });
   });
 
+  group('clearSelection (D32 §9)', () {
+    test('drops the selection and the cursor, so no verb keeps a hidden '
+        'subject', () async {
+      controller = openWithListing([_entry('a'), _entry('b'), _entry('c')]);
+      await openHome(controller);
+      controller.setCursorIndex(0);
+      controller.setCursorIndex(2, update: SelectionUpdate.toggle);
+      var notifies = 0;
+      controller.addListener(() => notifies++);
+
+      controller.clearSelection();
+
+      expect(controller.selectedCount, 0);
+      expect(controller.cursorIndex, isNull);
+      expect(controller.infoTarget, isNull);
+      expect(notifies, 1);
+
+      // Already clear: nothing to announce.
+      controller.clearSelection();
+      expect(notifies, 1);
+
+      // The next activation starts afresh.
+      controller.setCursorIndex(1);
+      expect(selectedIndices(controller), {1});
+    });
+  });
+
   group('cursor movement', () {
     test('plain movement single-selects the target row', () async {
       controller = openWithListing([_entry('a'), _entry('b'), _entry('c')]);

@@ -1487,6 +1487,19 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'sidebar.device.eject.${volume.path}'",
     "'sidebar.menu.addToFavorites'",
     "'sidebar.menu.eject'",
+    // D32 §9's "This device" row: its widget key and the '~' home anchor
+    // the engine expands (the local pane's own home) — machine data.
+    "'sidebar.device.thisDevice'",
+    "'~'",
+  },
+  // D32 §9's Home presentation of the sidebar: widget keys and the empty
+  // query the clear button writes — plumbing, never authored copy.
+  'lib/ui/sidebar/sidebar_home.dart': {
+    "'sidebar.home.search'",
+    "'sidebar.home.list'",
+    "'sidebar.home.add'",
+    "'sidebar.home.search.clear'",
+    "''",
   },
   'lib/ui/sidebar/sidebar_dialogs.dart': {
     "''",
@@ -1737,6 +1750,17 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'toolbar.overflow.${command.id}'",
     "'toolbar.overflow'",
   },
+  // D32 §9's compact posture: the browser subtitle's `user@host` address
+  // grammar (10 §4, machine data like the header's), the Transfers
+  // panel's shared widget key, the rename seed's extension dot, and the
+  // empty fallbacks of optional labels — plumbing, never authored copy.
+  'lib/ui/compact/compact_browser.dart': {
+    r"'${identity.username}@${identity.host}'",
+  },
+  'lib/ui/compact/compact_inspector_sheet.dart': {"'activity.panel'"},
+  'lib/ui/compact/compact_listing.dart': {"''"},
+  'lib/ui/compact/compact_pane_messages.dart': {"''"},
+  'lib/ui/compact/compact_rename_dialog.dart': {"'.'"},
   // The inspector's widget keys (its surface, the Transfers panel it
   // mounts, the tab switcher's per-tab keys) — plumbing, not copy.
   'lib/ui/inspector/inspector_view.dart': {

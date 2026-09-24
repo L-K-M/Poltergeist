@@ -5,7 +5,8 @@ part of 'sidebar_view.dart';
 /// (a transient local-folder bookmark — nothing is stored). Free space is
 /// the trailing text; removable volumes offer Eject on hover.
 List<Widget> _devicesSection(_SidebarData data) {
-  if (data.view.volumes == null || data.volumes.isEmpty) return const [];
+  if (data.view.volumes == null) return const [];
+  if (data.volumes.isEmpty) return _thisDeviceSection(data);
   final l10n = data.l10n;
   final sectionKey = SidebarCollapseKeys.section(SidebarSection.devices);
   final platform = Theme.of(data.context).platform;
@@ -47,6 +48,60 @@ List<Widget> _devicesSection(_SidebarData data) {
       onToggle: () => data.controller.toggleCollapsed(sectionKey),
     ),
     if (!collapsed) ...rows,
+  ];
+}
+
+/// DEVICES on a touch platform whose volume source lists nothing by
+/// design (Android, iOS: the local pane there is the app's own storage,
+/// not a volume the user mounts): one "This device" row onto the local
+/// home, so the phone's own files stay one tap from Home. It waits for
+/// the listing to land, and never shows on a desktop, whose rail always
+/// lists at least the home and root volumes.
+List<Widget> _thisDeviceSection(_SidebarData data) {
+  final platform = Theme.of(data.context).platform;
+  final open = data.view.onOpenFavorite;
+  if (!data.state._volumesLoaded ||
+      isDesktopPlatform(platform) ||
+      open == null) {
+    return const [];
+  }
+  final l10n = data.l10n;
+  final label = l10n.sidebarThisDevice;
+  final bookmark = _deviceBookmark(
+    LocalVolume(path: '~', name: label, kind: LocalVolumeKind.home),
+  );
+  void openHome(SidebarOpenAction action) => open(bookmark, action);
+  if (!data.countRow(label, open: () => openHome(SidebarOpenAction.plain))) {
+    return const [];
+  }
+  final sectionKey = SidebarCollapseKeys.section(SidebarSection.devices);
+  final collapsed = data.collapsed(sectionKey);
+  final chrome = PoltergeistChrome.of(data.context);
+  return [
+    SidebarSectionHeader(
+      headerKey: ValueKey('sidebar.section.$sectionKey'),
+      title: l10n.sidebarDevicesSection,
+      count: 1,
+      collapsed: collapsed,
+      onToggle: () => data.controller.toggleCollapsed(sectionKey),
+    ),
+    if (!collapsed)
+      SidebarRow(
+        key: const ValueKey('sidebar.device.thisDevice'),
+        mark: Icon(
+          Icons.smartphone_outlined,
+          size: 16,
+          color: chrome.secondaryText,
+        ),
+        title: label,
+        // No volume or favorite claims a local location here, so any
+        // local folder the active pane shows is this device's.
+        selected:
+            data.selectionKey == null &&
+            data.facts.activeLocation is LocalPaneLocation,
+        onActivate: (how) => openHome(_openActionFor(how)),
+        menuEntries: () => _openVerbs(data.l10n, openHome),
+      ),
   ];
 }
 

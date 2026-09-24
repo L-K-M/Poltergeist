@@ -23,6 +23,7 @@ import '../services/double_click_action.dart';
 import '../services/editor_registry_controller.dart';
 import '../services/engine_session.dart';
 import '../services/external_file_opener.dart';
+import '../services/local_volumes.dart' show LocalVolumeSource;
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
 import '../services/pane_file_ops.dart';
@@ -55,6 +56,9 @@ import 'adaptive_shell.dart';
 import 'inspector/alerts_view.dart';
 import 'inspector/inspector_view.dart';
 import 'built_in_text_editor.dart';
+import 'compact/compact_browser.dart' show CompactPaneSeams;
+import 'compact/compact_posture.dart';
+import 'compact/compact_workspace.dart';
 import 'import/ssh_config_import_command.dart';
 import 'layout/pane_allocation.dart';
 import 'local_edits_review.dart';
@@ -141,6 +145,7 @@ class WorkspaceShell extends StatefulWidget {
     this.syncEnvironment,
     this.syncTasks,
     this.updateCheck,
+    this.localVolumes,
   });
 
   final double initialPaneRatio;
@@ -355,6 +360,11 @@ class WorkspaceShell extends StatefulWidget {
   /// Null leaves both unwired — tests and seam-less boots stay silent.
   final UpdateCheckController? updateCheck;
 
+  /// The sidebar's DEVICES source; null reads the host's volumes. Tests
+  /// script it so a phone-posture run never lists the test machine's
+  /// mounts.
+  final LocalVolumeSource? localVolumes;
+
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
@@ -395,6 +405,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// The shell's Scaffold: `view.toggleSidebar` opens its drawer below
   /// the stage-0 boundary (02 §1's stage-1 collapse).
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// D32 §9's compact posture: its surface owns Home vs the browser and
+  /// the back order. The shell reaches it from the verbs that land a
+  /// location from Home and from the commands whose desktop surface
+  /// (the drawer, the header filter) the compact posture replaces.
+  final _compactKey = GlobalKey<CompactWorkspaceState>();
+
+  /// Whether the current build took the compact posture.
+  bool _compactPosture = false;
 
   /// 06 §5's preview driver: owned here so the pane's Space/Esc
   /// dispatch, the docked panel, and the Quick Look overlay share one
@@ -487,7 +506,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // D16's anti-hiding rule made concrete: the first live task
       // re-opens the chrome — the panel's rows are the queue's only
       // window, so new work must never sit behind a hidden panel.
-      onTasksArrived: () => _workspace?.setActivityPanelHidden(false),
+      // The compact posture keeps the sheet closed on new work: its
+      // floating progress pill is the always-visible signal there, and a
+      // half-height sheet must not cover the listing mid-flow (D32 §9).
+      onTasksArrived: () {
+        if (!_compactPosture) _workspace?.setActivityPanelHidden(false);
+      },
     );
     _connections = _buildConnections();
     _bindFileOps(widget.transferQueue);
@@ -1419,6 +1443,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final platform = Theme.of(context).platform;
     final mac = platform == TargetPlatform.macOS;
     final chrome = PoltergeistChrome.of(context);
+    // D32 §3.2's last stage: below 600 dp a touch window takes the
+    // compact posture (10 §9). It draws edge to edge — its app bars and
+    // sheets take the system insets themselves — and its sidebar is
+    // Home, not a drawer.
+    final compact = compactPostureApplies(
+      width: MediaQuery.sizeOf(context).width,
+      platform: platform,
+    );
+    _compactPosture = compact;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -1426,13 +1459,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // The narrow-window sidebar mount (D32 §3.2): an overlay drawer
       // `view.toggleSidebar` opens once the allocation cannot fit the
       // sidebar inline. Wide windows mount the same tree inline instead.
-      drawer: sidebar == null
+      drawer: sidebar == null || compact
           ? null
           : Drawer(
               backgroundColor: chrome.sidebarBackground,
               child: SafeArea(child: _buildSidebarView(sshImportCommand)),
             ),
       body: SafeArea(
+        left: !compact,
+        top: !compact,
+        right: !compact,
+        bottom: !compact,
         child: ServerLabelScope(
           resolve: _serverLabel,
           child: CommandChordScope(
@@ -1550,6 +1587,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           ? KeyEventResult.handled
           : KeyEventResult.ignored,
     );
+    if (_compactPosture) {
+      return _buildCompactLayout(
+        workspace: workspace,
+        inspector: inspector,
+        commands: commands,
+        sshImportCommand: sshImportCommand,
+        onReviewLocalEdits: onReviewLocalEdits,
+      );
+    }
 
     Widget paneTabs(PaneTabsController tabs, FocusNode focus, PaneTabsController other) =>
         PaneTabsView(
@@ -1712,6 +1758,49 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
   }
 
+  /// D32 §9's compact posture over the same workspace, registry, and
+  /// inspector configuration the wide layout renders — one truth, two
+  /// renderings.
+  Widget _buildCompactLayout({
+    required WorkspaceController workspace,
+    required InspectorView inspector,
+    required List<RegisteredCommand> commands,
+    required RegisteredCommand? sshImportCommand,
+    required void Function(String serverId) onReviewLocalEdits,
+  }) {
+    return CompactWorkspace(
+      key: _compactKey,
+      workspace: workspace,
+      commands: commands,
+      onRunCommand: _runCommand,
+      inspector: inspector,
+      home: _sidebar == null
+          ? null
+          : _buildSidebarView(
+              sshImportCommand,
+              presentation: SidebarPresentation.home,
+            ),
+      seams: CompactPaneSeams(
+        onCancelRecovery: (pane) =>
+            unawaited(_cancelPaneRecovery(workspace, pane)),
+        bookmarks: widget.bookmarks,
+        checkoutSession: widget.checkoutSession,
+        onReviewLocalEdits: onReviewLocalEdits,
+        onSyncSaveAsFavorite: _saveSyncAsFavorite,
+        onSyncEditRules: _editSyncRules,
+        onImportSshConfig: sshImportCommand == null
+            ? null
+            : () => unawaited(_runCommand(sshImportCommand)),
+      ),
+    );
+  }
+
+  /// An open that lands a location from the compact Home pushes the
+  /// browser over it (D32 §9); inert on wide windows.
+  void _showCompactBrowser() {
+    if (_compactPosture) _compactKey.currentState?.showBrowser();
+  }
+
   /// Sidebar drag/key resize (10 §3.1): clamped to its bounds and to the
   /// room the panes need; dragging well past the minimum hides it as a
   /// user hide.
@@ -1837,7 +1926,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }
 
   /// ⌘F (D32 §4): the header's filter field takes focus.
-  void _focusHeaderFilter() => _headerFilterFocus.requestFocus();
+  void _focusHeaderFilter() {
+    if (_compactPosture) {
+      // The compact browser's app-bar field is the filter there.
+      _compactKey.currentState?.openFilter();
+      return;
+    }
+    _headerFilterFocus.requestFocus();
+  }
 
   /// The id → name resolver behind [ServerLabelScope]: favorites and
   /// connection rows first, then the shared-account catalog.
@@ -1872,6 +1968,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         unawaited(
           tab.controller.connectRemote(bookmark, initialPath: initialPath),
         );
+        _showCompactBrowser();
       },
     );
   }
@@ -1885,6 +1982,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final workspace = _workspace;
     final pane = workspace?.activeTabController;
     if (pane == null) return;
+    _showCompactBrowser();
     switch (task.destination) {
       case LocalFsLocation():
         unawaited(pane.openLocalAt(task.destinationDir));
@@ -1926,6 +2024,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   void _focusPane(PaneTabsController pane) {
     final workspace = _workspace;
     if (workspace == null) return;
+    if (_compactPosture) {
+      // No listing takes focus there: the chords flip the shown pane.
+      workspace.setActivePane(pane);
+      return;
+    }
     final target =
         identical(pane, workspace.right) && !workspace.secondPaneShown
         ? workspace.left
@@ -2685,7 +2788,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// overlay drawer (stage 1/2): one tree, two mounts — a favorite open
   /// inside the drawer resolves the panes the same way an inline click
   /// does.
-  Widget _buildSidebarView(RegisteredCommand? sshImportCommand) {
+  Widget _buildSidebarView(
+    RegisteredCommand? sshImportCommand, {
+    SidebarPresentation presentation = SidebarPresentation.rail,
+  }) {
     final session = widget.engineSession;
     final backup = widget.bookmarkBackup;
     final queue = widget.transferQueue;
@@ -2701,6 +2807,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
     return SidebarView(
       controller: _sidebar!,
+      presentation: presentation,
       // D22's adoption offer in the empty-servers state routes through
       // the registered command: the same enablement and one-shot
       // session rule apply as the menu row.
@@ -2712,7 +2819,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // D32 §5: the active pane marks the selection pill and feeds "Add
       // Current Folder"; its tabs carry the Quick Connect sessions.
       workspace: _workspace,
-      volumes: SystemLocalVolumes.host,
+      volumes: widget.localVolumes ?? SystemLocalVolumes.host,
       // Stateless and cheap, like the panes' own delegate in build.
       dropDelegate: queue == null
           ? null
@@ -2924,6 +3031,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     switch (bookmark.kind) {
       case BookmarkKind.workspace:
         unawaited(_openWorkspaceFavorite(bookmark));
+        _showCompactBrowser();
         return;
       case BookmarkKind.savedSync:
         unawaited(
@@ -2948,6 +3056,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     }
     final strip = _favoriteTargetPane(workspace, bookmark, action);
     workspace.setActivePane(strip);
+    _showCompactBrowser();
     // Plain clicks replace the resolved pane's active tab — a launcher
     // pane grows one for the open; the new-tab action always grows one.
     final tab = action == SidebarOpenAction.newTab || strip.activeTab == null
@@ -3064,6 +3173,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           : active,
     );
     workspace.setActivePane(strip);
+    _showCompactBrowser();
     final tab = action == QuickOpenAction.newTab || strip.activeTab == null
         ? strip.newTab(target: NewTabTarget.launcher)
         : strip.activeTab!;
@@ -3438,6 +3548,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       ),
     );
     workspace.setActivePane(target);
+    _showCompactBrowser();
   }
 
   /// The workspace favorite's open (02 §3): the detail doc's exact
@@ -3555,6 +3666,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// from it would never find the drawer, so the lookup goes through
   /// the key.
   void _toggleSidebarDrawer() {
+    if (_compactPosture) {
+      // The compact posture's sidebar is Home (D32 §9).
+      _compactKey.currentState?.showHome();
+      return;
+    }
     final scaffold = _scaffoldKey.currentState;
     if (scaffold == null || !scaffold.hasDrawer) return;
     if (scaffold.isDrawerOpen) {

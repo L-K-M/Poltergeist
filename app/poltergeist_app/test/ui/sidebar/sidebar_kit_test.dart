@@ -20,16 +20,17 @@ final _strings = SidebarKitStrings(
   settings: 'kit-settings',
 );
 
-Future<void> _pump(WidgetTester tester, Widget child) async {
+Future<void> _pump(
+  WidgetTester tester,
+  Widget child, {
+  TargetPlatform platform = TargetPlatform.macOS,
+}) async {
   tester.view.physicalSize = const Size(600, 600);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildPoltergeistTheme(
-        Brightness.light,
-        platform: TargetPlatform.macOS,
-      ),
+      theme: buildPoltergeistTheme(Brightness.light, platform: platform),
       home: Scaffold(
         body: SidebarKitScope(
           strings: _strings,
@@ -123,6 +124,34 @@ void main() {
       await tester.tap(add);
       expect(adds, 1);
       expect(toggles, before, reason: 'the + must not fold the section');
+    });
+
+    testWidgets('on touch the chevron rests visible and the hover-only + '
+        'steps aside', (tester) async {
+      // D32 §9: touch has no hover, so the collapse glyph cannot wait for
+      // one; the "+" verbs live in the + menu (or Home's FAB) there.
+      Visibility chevron() => tester.widget<Visibility>(
+        find.ancestor(
+          of: find.byIcon(Icons.expand_more),
+          matching: find.byType(Visibility),
+        ),
+      );
+      Widget header() => SidebarSectionHeader(
+        title: 'Favorites',
+        count: 1,
+        collapsed: false,
+        onToggle: () {},
+        onAdd: () {},
+        addKey: const ValueKey('add'),
+      );
+
+      await _pump(tester, header(), platform: TargetPlatform.android);
+      expect(chevron().visible, isTrue);
+      expect(find.byKey(const ValueKey('add')), findsNothing);
+
+      await _pump(tester, header());
+      expect(chevron().visible, isFalse);
+      expect(find.byKey(const ValueKey('add')), findsOneWidget);
     });
 
     testWidgets('Enter, Space and the arrows drive the disclosure', (
