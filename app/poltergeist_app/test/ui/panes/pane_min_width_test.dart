@@ -147,6 +147,41 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the rename editor keeps the name column at min width', (
+    tester,
+  ) async {
+    final (controller, _, _) = await pump(
+      tester,
+      rows: [
+        entry('untitled folder (2)', dir: true),
+        entry('x.txt', size: 1),
+      ],
+    );
+    controller.setCursorIndex(0);
+    controller.startRename();
+    await tester.pumpAndSettle();
+    // The editor spans the name the row shows (the Size column is
+    // folded away at this width), not a column the row does not have.
+    final box = tester.getRect(
+      find.byKey(const ValueKey('pane.left.tab1.rename.box')),
+    );
+    final frame = tester.getRect(find.byKey(const ValueKey('pane.frame')));
+    // 12 px gap + the 116 px date column + the 10 px end inset.
+    final nameColumnEnd = frame.right - (12 + 116 + 10);
+    expect(box.width, greaterThan(60));
+    expect(box.right, lessThanOrEqualTo(nameColumnEnd + 0.5));
+    // A name longer than the column shows its start, not its tail.
+    final editable = find.descendant(
+      of: find.byKey(const ValueKey('pane.left.tab1.rename.field')),
+      matching: find.byType(EditableText),
+    );
+    expect(
+      tester.state<EditableTextState>(editable).renderEditable.offset.pixels,
+      0,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('an empty folder fits', (tester) async {
     await pump(tester, rows: const []);
     expect(tester.takeException(), isNull);

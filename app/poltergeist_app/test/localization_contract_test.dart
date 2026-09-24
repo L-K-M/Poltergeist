@@ -1264,6 +1264,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${controller.paneTabId}.progress'",
     r"'${widget.controller.paneTabId}.quickSelect.field'",
     r"'${widget.controller.paneTabId}.rename.field'",
+    // The rename editor's box key and the single space it measures an
+    // empty name by — plumbing, never copy.
+    r"'${widget.controller.paneTabId}.rename.box'",
+    "' '",
     r"'${widget.controller.paneTabId}.path.field'",
     // D32 §6's location-header keys: the name, the summary line, and
     // the ancestor menu with its rows — plumbing, never copy.
