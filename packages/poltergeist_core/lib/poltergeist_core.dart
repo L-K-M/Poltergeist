@@ -217,10 +217,7 @@ export 'src/fs/local_file_system.dart'
         LocalCrossDeviceRenameException,
         LocalPathTypeChangedException;
 export 'src/fs/local_copy_pump.dart'
-    show
-        LocalCopyPump,
-        platformLocalCopyPump,
-        streamedLocalCopyPump;
+    show LocalCopyPump, platformLocalCopyPump, streamedLocalCopyPump;
 export 'src/fs/local_fs_safety.dart'
     show
         ensureSafeLocalDirectory,
@@ -261,8 +258,7 @@ export 'src/preview/preview_kinds.dart'
         sanitizePreviewExtension;
 export 'src/preview/preview_text.dart'
     show PreviewTextContent, fileLooksLikeUtf8Text, loadPreviewText;
-export 'src/preview/preview_cache.dart'
-    show PreviewCache, PreviewCacheSlot;
+export 'src/preview/preview_cache.dart' show PreviewCache, PreviewCacheSlot;
 export 'src/preview/preview_produce.dart'
     show
         PreviewByteGate,
@@ -408,16 +404,14 @@ export 'src/engine/engine_client.dart'
         ProbeBridge,
         PromptBridge;
 export 'src/engine/engine_connection_manager.dart'
-    show
-        EngineConnectionManager,
-        EngineRemoteFileSystem,
-        ServerConfigSource;
+    show EngineConnectionManager, EngineRemoteFileSystem, ServerConfigSource;
 export 'src/engine/engine_trash_backend.dart' show EngineTrashBackend;
 export 'src/connection/leased_file_system.dart' show LeasedRemoteFileSystem;
 export 'src/fs/content_digest.dart'
     show ContentDigestSource, remoteContentDigest;
 export 'src/engine/engine_host.dart' show EngineHost, engineMain;
-export 'src/engine/local_file_opener.dart' show LocalFileOpener;
+export 'src/engine/local_file_opener.dart'
+    show LocalFileOpener, OpenerProcessRunner;
 export 'src/engine/protocol.dart'
     show
         CloseBrowseChannelRequest,
