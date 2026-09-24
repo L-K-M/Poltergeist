@@ -21,6 +21,11 @@ import '../../services/uuid.dart';
 /// suppression seams apply untouched: while it holds primary focus the
 /// pane's single keys and the command chords stay inert, and Enter
 /// submits.
+/// Where the form sits: centered in the launcher's empty pane, or
+/// shrink-wrapped inside the ⌘K Connect dialog (a centered form would
+/// stretch the dialog to the whole window).
+enum QuickConnectLayout { centered, inline }
+
 class QuickConnectView extends StatefulWidget {
   const QuickConnectView({
     super.key,
@@ -28,7 +33,15 @@ class QuickConnectView extends StatefulWidget {
     required this.focusNode,
     this.onImportSshConfig,
     this.environment,
+    this.layout = QuickConnectLayout.centered,
+    this.onEdited,
   });
+
+  final QuickConnectLayout layout;
+
+  /// Fires when the user edits the address — the Connect dialog drops
+  /// its server-row highlight so Return connects what was typed.
+  final VoidCallback? onEdited;
 
   /// The process environment the `$USER@` prefill reads (D32 §6); null
   /// reads the real one. Tests pass a fixed map.
@@ -94,6 +107,7 @@ class _QuickConnectViewState extends State<QuickConnectView> {
 
   void _onChanged(String value) {
     _pristine = false;
+    widget.onEdited?.call();
     var parse = parseQuickConnectAddress(value);
     final sanitized = parse.sanitizedInput;
     if (sanitized != null && sanitized != value) {
@@ -122,82 +136,84 @@ class _QuickConnectViewState extends State<QuickConnectView> {
     final l10n = AppLocalizations.of(context);
     final parse = _parse;
     final target = parse.target;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                l10n.quickConnectTitle,
-                style: Theme.of(context).textTheme.titleMedium,
+    final form = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 480),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              l10n.quickConnectTitle,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('quickConnect.field'),
+              controller: _field,
+              focusNode: widget.focusNode,
+              // An address is not prose: no autocorrect, no
+              // suggestions, and the URL keyboard where one exists.
+              autocorrect: false,
+              enableSuggestions: false,
+              keyboardType: TextInputType.url,
+              decoration: InputDecoration(
+                labelText: l10n.quickConnectAddressLabel,
+                hintText: l10n.quickConnectAddressHint,
+                helperText: _pristine && _prefill.isNotEmpty
+                    ? l10n.quickConnectAddressHostHint
+                    : null,
+                // The rejection hints carry an example; let them wrap
+                // instead of truncating it away.
+                errorMaxLines: 3,
+                errorText: _pristine ? null : _errorText(l10n, parse),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                key: const ValueKey('quickConnect.field'),
-                controller: _field,
-                focusNode: widget.focusNode,
-                // An address is not prose: no autocorrect, no
-                // suggestions, and the URL keyboard where one exists.
-                autocorrect: false,
-                enableSuggestions: false,
-                keyboardType: TextInputType.url,
-                decoration: InputDecoration(
-                  labelText: l10n.quickConnectAddressLabel,
-                  hintText: l10n.quickConnectAddressHint,
-                  helperText: _pristine && _prefill.isNotEmpty
-                      ? l10n.quickConnectAddressHostHint
-                      : null,
-                  // The rejection hints carry an example; let them wrap
-                  // instead of truncating it away.
-                  errorMaxLines: 3,
-                  errorText: _pristine ? null : _errorText(l10n, parse),
-                ),
-                textInputAction: TextInputAction.done,
-                onChanged: _onChanged,
-                onSubmitted: (_) => _submit(),
-              ),
-              for (final hint in _hintTexts(l10n, parse))
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(top: 6),
-                  child: Text(
-                    hint,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+              textInputAction: TextInputAction.done,
+              onChanged: _onChanged,
+              onSubmitted: (_) => _submit(),
+            ),
+            for (final hint in _hintTexts(l10n, parse))
+              Padding(
+                padding: const EdgeInsetsDirectional.only(top: 6),
+                child: Text(
+                  hint,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
-              const SizedBox(height: 12),
-              // D22's adoption offer sits on its own line — the import
-              // button's natural width must never crowd the Connect
-              // button out of the row (a narrow pane overflows a
-              // shared Row).
-              if (widget.onImportSshConfig != null)
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: TextButton.icon(
-                    key: const ValueKey('quickConnect.importSshConfig'),
-                    onPressed: widget.onImportSshConfig,
-                    icon: const Icon(Icons.download_outlined, size: 16),
-                    label: Text(l10n.sshImportCommandLabel),
-                  ),
-                ),
+              ),
+            const SizedBox(height: 12),
+            // D22's adoption offer sits on its own line — the import
+            // button's natural width must never crowd the Connect
+            // button out of the row (a narrow pane overflows a
+            // shared Row).
+            if (widget.onImportSshConfig != null)
               Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: FilledButton(
-                  key: const ValueKey('quickConnect.connect'),
-                  onPressed: target == null ? null : _submit,
-                  child: Text(l10n.quickConnectConnect),
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  key: const ValueKey('quickConnect.importSshConfig'),
+                  onPressed: widget.onImportSshConfig,
+                  icon: const Icon(Icons.download_outlined, size: 16),
+                  label: Text(l10n.sshImportCommandLabel),
                 ),
               ),
-            ],
-          ),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: FilledButton(
+                key: const ValueKey('quickConnect.connect'),
+                onPressed: target == null ? null : _submit,
+                child: Text(l10n.quickConnectConnect),
+              ),
+            ),
+          ],
         ),
       ),
     );
+    return switch (widget.layout) {
+      QuickConnectLayout.centered => Center(child: form),
+      QuickConnectLayout.inline => form,
+    };
   }
 }
 

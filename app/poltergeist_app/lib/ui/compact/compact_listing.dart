@@ -342,7 +342,7 @@ class _CompactListingState extends State<CompactListing> {
         ),
       if (banner != null)
         KeyedSubtree(key: const ValueKey(CompactKey.banner), child: banner),
-      if (adhoc != null)
+      if (adhoc != null && !controller.unsavedBannerDismissed)
         Offstage(
           offstage: banner != null,
           child: SaveFavoriteBar(
@@ -354,6 +354,7 @@ class _CompactListingState extends State<CompactListing> {
             },
             store: widget.bookmarks,
             onNoStore: controller.noteSaveFavoriteUnavailable,
+            onDismiss: controller.dismissUnsavedBanner,
           ),
         ),
     ];

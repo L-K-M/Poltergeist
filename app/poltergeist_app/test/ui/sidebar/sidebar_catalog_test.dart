@@ -324,7 +324,7 @@ void main() {
     SidebarRow sidebarRow() => tester.widget<SidebarRow>(
       find.descendant(of: row('s1'), matching: find.byType(SidebarRow)),
     );
-    expect(sidebarRow().statusColor, isNull);
+    expect(sidebarRow().status, isNull);
 
     final now = DateTime.utc(2026, 10, 1);
     await left.connectRemote(
@@ -340,7 +340,7 @@ void main() {
       resolvedConfig: catalog.byId('s1'),
     );
     await tester.pumpAndSettle();
-    expect(sidebarRow().statusColor, isNotNull);
+    expect(sidebarRow().status, isNotNull);
     expect(sidebarRow().selected, isTrue);
   });
 

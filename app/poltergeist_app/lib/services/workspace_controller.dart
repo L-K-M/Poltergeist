@@ -85,7 +85,9 @@ class WorkspaceController extends ChangeNotifier {
 
   void setInspectorHidden(bool hidden) {
     if (hidden == _inspectorHidden) return;
+    final infoWasShown = !previewPanelHidden;
     _inspectorHidden = hidden;
+    _endInfoWorkIfLeft(infoWasShown);
     notifyListeners();
   }
 
@@ -95,8 +97,10 @@ class WorkspaceController extends ChangeNotifier {
   /// the alert badge, and D16's new-work edge all land here.
   void showInspector(InspectorTab tab) {
     if (!_inspectorHidden && _inspectorTab == tab) return;
+    final infoWasShown = !previewPanelHidden;
     _inspectorHidden = false;
     _inspectorTab = tab;
+    _endInfoWorkIfLeft(infoWasShown);
     notifyListeners();
   }
 
@@ -104,8 +108,29 @@ class WorkspaceController extends ChangeNotifier {
   /// switcher; a hidden inspector re-opens on it).
   void selectInspectorTab(InspectorTab tab) {
     if (_inspectorTab == tab) return;
+    final infoWasShown = !previewPanelHidden;
     _inspectorTab = tab;
+    _endInfoWorkIfLeft(infoWasShown);
     notifyListeners();
+  }
+
+  /// The Info tab is the only consumer of a tab's folder-size walk and
+  /// enclosed-apply operation (02 §2.6, D28), so the moment it leaves
+  /// the screen — the inspector hidden, another tab selected — every
+  /// pane tab's in-flight Info work ends: a walk left running would
+  /// hold the tab close guard for nothing, and an apply's confirmation
+  /// would be orphaned. The retired per-pane Get Info overlay did this
+  /// on its close; the inspector column owns the edge now. Callers
+  /// notify afterwards; the cancels notify their own panes.
+  void _endInfoWorkIfLeft(bool infoWasShown) {
+    if (!infoWasShown || !previewPanelHidden) return;
+    for (final strip in [left, right]) {
+      for (final tab in strip.tabs) {
+        final pane = tab.controller;
+        if (pane.folderSizeInFlight) pane.cancelFolderSize();
+        if (pane.applyToEnclosedInFlight) pane.cancelEnclosedApply();
+      }
+    }
   }
 
   /// The tab-scoped toggle behind `view.toggleActivityPanel` and

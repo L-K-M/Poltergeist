@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/registered_command.dart';
 import 'app_menus.dart';
+import 'menu_shortcut_hint.dart';
 
 /// Renders the application's menus from the command registry (07 §3.4).
 ///
@@ -303,23 +304,10 @@ class _MenuGroupDivider extends StatelessWidget {
   }
 }
 
-/// The first registered activator, for the displayed shortcut hint.
-///
-/// [MenuItemButton.shortcut] is display-only: actual dispatch stays in
-/// the app's chord layer, so the hint and the binding can never drift.
-MenuSerializableShortcut? _displayShortcut(
-  RegisteredCommand command,
-  TargetPlatform platform,
-) {
-  final activators = command.activators?.call(platform);
-  if (activators == null || activators.isEmpty) return null;
-  final first = activators.first;
-  return first is MenuSerializableShortcut ? first : null;
-}
-
 /// One registered-command row in a Flutter menu (the Windows/Linux
 /// [MenuBar] and the D32 ☰ button share it): `menu.item.<id>` keys,
-/// display-only shortcut hints, and activation through [onRun].
+/// display-only shortcut hints ([MenuShortcutHint]), and activation
+/// through [onRun].
 Widget _anchorMenuRow(
   AppMenuRow row,
   AppLocalizations l10n,
@@ -331,7 +319,7 @@ Widget _anchorMenuRow(
       command.checked == null
           ? MenuItemButton(
               key: ValueKey('menu.item.${command.id}'),
-              shortcut: _displayShortcut(command, platform),
+              trailingIcon: MenuShortcutHint.forCommand(command, platform),
               onPressed: command.enabled()
                   ? () => unawaited(onRun(command))
                   : null,
@@ -343,7 +331,7 @@ Widget _anchorMenuRow(
           : KeyedSubtree(
               key: ValueKey('menu.item.${command.id}'),
               child: CheckboxMenuButton(
-                shortcut: _displayShortcut(command, platform),
+                trailingIcon: MenuShortcutHint.forCommand(command, platform),
                 value: command.checked!(),
                 onChanged: command.enabled()
                     ? (_) => unawaited(onRun(command))

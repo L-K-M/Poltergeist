@@ -283,7 +283,7 @@ void main() {
       ).extension<PoltergeistChrome>()!;
 
       for (final (name, color) in <(String, Color)>[
-        ('connected', ProbeStatusDot.onlineColor),
+        ('connected', chrome.statusConnected),
         ('failed', scheme.error),
         ('blocked', scheme.error),
         ('idle', scheme.outline),

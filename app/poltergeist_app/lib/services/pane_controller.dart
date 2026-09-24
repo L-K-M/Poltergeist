@@ -792,6 +792,27 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The Quick Connect session whose "Not saved" banner the user
+  /// dismissed in this tab (D32 §6's banner slot): the banner stays away
+  /// for that session here, and a different session binding shows it
+  /// again.
+  String? _unsavedBannerDismissedFor;
+
+  /// Whether this tab's user dismissed the "Not saved" banner for the
+  /// session it is bound to.
+  bool get unsavedBannerDismissed {
+    final id = remoteBookmark?.id;
+    return id != null && id == _unsavedBannerDismissedFor;
+  }
+
+  /// The banner's ×: hides it for the bound session in this tab.
+  void dismissUnsavedBanner() {
+    final id = remoteBookmark?.id;
+    if (_disposed || id == null || id == _unsavedBannerDismissedFor) return;
+    _unsavedBannerDismissedFor = id;
+    notifyListeners();
+  }
+
   /// Posts the honest not-yet notice for a "Save as favorite…" press
   /// with no bookmark store wired (the favorites store is M5's) — the
   /// #132 pattern: the controller posts the typed notice, the view maps

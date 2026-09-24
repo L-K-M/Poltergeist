@@ -74,7 +74,7 @@ List<Widget> _serversSection(_SidebarData data) {
   for (final session in sessions) {
     final bookmark = session.bookmark;
     if (!data.countRow(
-      '${bookmark.label} ${_endpointLabel(bookmark)}',
+      '${bookmark.label} ${sessionEndpointLabel(bookmark)}',
       open: view.onOpenFavorite == null
           ? null
           : () => view.onOpenFavorite!(bookmark, SidebarOpenAction.plain),
@@ -248,6 +248,19 @@ ServerStatus? _liveStatus(_SidebarData data, String serverId) {
   return bound == null ? null : ServerStatus(bound.state);
 }
 
+/// The live Quick Connect session a saved row stands in for (10 §5):
+/// "Save to Servers…" leaves the session browsing under its adhoc id and
+/// retires its italic row, so the saved row of the same endpoint paints
+/// that session's status and its Disconnect drops it.
+SidebarAdhocSession? _sessionSavedAs(_SidebarData data, Bookmark bookmark) {
+  final key = _endpointKeyOf(bookmark);
+  if (key == null) return null;
+  for (final session in data.facts.adhoc) {
+    if (_endpointKeyOf(session.bookmark) == key) return session;
+  }
+  return null;
+}
+
 ConnectionServer? _connectionOf(_SidebarData data, String serverId) {
   for (final server in data.view.connections?.servers ?? const []) {
     if (server.serverId == serverId) return server;
@@ -320,19 +333,28 @@ class _SavedServerRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = data.l10n;
     final view = data.view;
-    final scheme = Theme.of(context).colorScheme;
     final id = bookmark.id;
-    final status = _liveStatus(data, id);
+    final own = _liveStatus(data, id);
+    // The row's own connection outranks a saved session's; otherwise the
+    // session it was saved from speaks for it.
+    final session = _isLive(own) ? null : _sessionSavedAs(data, bookmark);
+    final liveId = session?.bookmark.id ?? id;
+    final status = session == null ? own : _liveStatus(data, liveId);
     final probe = view.probes?.statuses[id];
-    final appearance = serverIndicatorOf(l10n, status: status, probe: probe);
+    final (:appearance, :dot) = _serverIndicator(
+      context,
+      l10n,
+      status: status,
+      probe: probe,
+    );
     final blocked = appearance.glyph == ServerIndicatorGlyph.blocked;
     final live = _isLive(status);
     final listed = _connectionOf(data, id);
     final identity = bookmark.server?.identity;
     final server =
-        listed ??
+        (session == null ? listed : null) ??
         ConnectionServer(
-          serverId: id,
+          serverId: liveId,
           label: bookmark.label,
           host: identity?.host ?? '',
           port: identity?.port ?? 22,
@@ -361,6 +383,7 @@ class _SavedServerRow extends StatelessWidget {
       ...details,
     ].join(', ');
     final tooltip = [
+      if (appearance.label.isNotEmpty) appearance.label,
       ?_endpointLabelWithPort(bookmark),
       ?bookmark.remotePath,
       ...details,
@@ -368,11 +391,11 @@ class _SavedServerRow extends StatelessWidget {
 
     Widget row(SidebarDropIndicator indicator) => SidebarRow(
       mark: mark,
-      statusColor: _indicatorDotColor(scheme, appearance, probe),
+      status: dot,
       title: bookmark.label,
       depth: depth,
       dropIndicator: indicator,
-      trailingText: _tabsText(data, id),
+      trailingText: _tabsText(data, liveId),
       hoverAction: _disconnectAction(data, server, live),
       tooltip: tooltip.isEmpty ? null : tooltip,
       semanticLabel: semanticLabel,
@@ -478,10 +501,14 @@ class _CatalogServerRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = data.l10n;
     final view = data.view;
-    final scheme = Theme.of(context).colorScheme;
     final status = _liveStatus(data, server.id);
     final probe = view.probes?.statuses[server.id];
-    final appearance = serverIndicatorOf(l10n, status: status, probe: probe);
+    final (:appearance, :dot) = _serverIndicator(
+      context,
+      l10n,
+      status: status,
+      probe: probe,
+    );
     final live = _isLive(status);
     final connection =
         _connectionOf(data, server.id) ??
@@ -504,12 +531,15 @@ class _CatalogServerRow extends StatelessWidget {
           server.mark,
           label: server.label,
         ),
-        statusColor: _indicatorDotColor(scheme, appearance, probe),
+        status: dot,
         title: server.label,
         depth: depth,
         trailingText: _tabsText(data, server.id),
         hoverAction: _disconnectAction(data, connection, live),
-        tooltip: '${server.username}@${server.host}:${server.port}',
+        tooltip: [
+          if (appearance.label.isNotEmpty) appearance.label,
+          '${server.username}@${server.host}:${server.port}',
+        ].join('\n'),
         semanticLabel: appearance.label.isEmpty
             ? server.label
             : '${server.label}, ${appearance.label}',
@@ -562,10 +592,9 @@ class _AdhocRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = data.l10n;
     final view = data.view;
-    final scheme = Theme.of(context).colorScheme;
     final bookmark = session.bookmark;
     final status = _liveStatus(data, bookmark.id);
-    final appearance = serverIndicatorOf(l10n, status: status);
+    final (:appearance, :dot) = _serverIndicator(context, l10n, status: status);
     final live = _isLive(status);
     final identity = bookmark.server?.identity;
     final connection = ConnectionServer(
@@ -582,12 +611,16 @@ class _AdhocRow extends StatelessWidget {
         size: 16,
         color: PoltergeistChrome.of(context).secondaryText,
       ),
-      statusColor: _indicatorDotColor(scheme, appearance, null),
+      status: dot,
       title: bookmark.label,
       italic: true,
       trailingText: _tabsText(data, bookmark.id),
       hoverAction: _disconnectAction(data, connection, live),
-      tooltip: [?_endpointLabelWithPort(bookmark), ?session.path].join('\n'),
+      tooltip: [
+        if (appearance.label.isNotEmpty) appearance.label,
+        ?_endpointLabelWithPort(bookmark),
+        ?session.path,
+      ].join('\n'),
       semanticLabel: [
         bookmark.label,
         l10n.sidebarUnsavedSession,

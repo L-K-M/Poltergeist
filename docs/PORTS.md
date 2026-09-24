@@ -578,6 +578,36 @@ counterpart is ported here.
   `SidebarKitStrings`; every behavior through callbacks. No store,
   service, or model type is referenced.
 - Port-back candidates: the whole file, when Séance adopts the D32 rail.
+- Port-back from Séance: 2026-09-24, from Séance
+  `153fd657dda8d98908e08d53108c81742f390046` (branch
+  `claude/poltergeist-ui-redesign-albp0m`; rationale in Séance's
+  docs/POLTERGEIST.md, "The sidebar kit"). Séance adopted the kit from
+  `58605fa` and improved it, and Poltergeist takes its copy back so the
+  two files differ only in the chrome import, `_chrome()`, and Séance's
+  provenance header. Taken over:
+  - Bug: Shift+F10 or the Menu key opened a row menu, but the row's key
+    handler still took the arrows and Enter. The row now ignores keys
+    unless it has primary focus, the menu gets `childFocusNode`, a
+    keyboard-opened menu focuses its first enabled verb, and Esc closes
+    and an arrow steps into a right-clicked menu.
+  - Bug: the touch verb sheet was capped at 9/16 of the screen. It is
+    now `isScrollControlled` with `useSafeArea`.
+  - Bug: the focus ring was a decoration border that shifted content
+    2 px. It is a `foregroundDecoration` now.
+  - The touch posture: chevrons and "+" stay drawn, and headers, the
+    filter, icon buttons, the bottom bar, the mark and the dot take
+    touch sizes (`sidebarMarkExtent()`).
+  - `SidebarKitScope.background` for rows on a non-rail surface.
+  - Row `subtitle`, `trailingIcon` and `showMenuButton`, with the new
+    required `SidebarKitStrings.rowMenu` (Poltergeist's
+    `sidebarRowMenu`, "More actions").
+  - The kit test's additions, with the theme and chrome re-pointed.
+- Divergence kept, to port back to Séance: the status dot is one value,
+  `SidebarRow.status: SidebarStatusDot?` (colour plus
+  `SidebarDotStyle`), where Séance passes `statusColor` and
+  `statusStyle` separately. A style without a colour cannot be
+  expressed this way. The ring's rendering, `_hollowStroke`, and the
+  enum are Séance's.
 
 ## app/poltergeist_app/lib/services/badge_image.dart
 
@@ -1002,6 +1032,11 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   consumed from the pin, not ported (D2).
 - Port-back candidates: none — the divergences are Poltergeist-local
   (shell mount point, D20 localization, test seam).
+- Retired: 2026-09-24. D32 moved update availability into the
+  inspector's Alerts tab, and nothing mounted the banner after that.
+  The widget, its test and its three ARB keys (`updateBannerText`,
+  `updateViewRelease`, `updateDismissTooltip`) are removed. The checker
+  and `UpdateInfo` stay, feeding the alert.
 
 ## M10 milestone-close sweep (2026-09-22)
 

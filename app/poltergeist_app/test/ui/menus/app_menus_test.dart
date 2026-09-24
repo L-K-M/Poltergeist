@@ -12,6 +12,7 @@ import 'package:poltergeist_app/services/ssh_config_import_setup.dart';
 import 'package:poltergeist_app/services/uuid.dart';
 import 'package:poltergeist_app/ui/menus/app_menu_host.dart';
 import 'package:poltergeist_app/ui/menus/app_menus.dart';
+import 'package:poltergeist_app/ui/menus/menu_shortcut_hint.dart';
 import 'package:poltergeist_app/ui/panes/pane_commands.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -403,7 +404,9 @@ void main() {
       );
       // Single source: the hint IS the registered activator, never a
       // duplicated chord spelling.
-      expect(item.shortcut, same(chord));
+      expect(item.trailingIcon, isA<MenuShortcutHint>());
+      expect((item.trailingIcon! as MenuShortcutHint).activator, same(chord));
+      expect(find.text('Ctrl+R'), findsOneWidget);
     });
 
     testWidgets('renders shared submenu rows as nested submenus', (

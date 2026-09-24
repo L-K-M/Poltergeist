@@ -685,8 +685,10 @@ void main() {
             matching: find.byType(Container),
           ),
         );
+        // The ring paints over the row (the kit's foreground decoration),
+        // so it never shifts what it frames.
         for (final box in boxes) {
-          final decoration = box.decoration;
+          final decoration = box.foregroundDecoration;
           if (decoration is BoxDecoration && decoration.border != null) {
             return decoration.border! as Border;
           }
@@ -907,7 +909,7 @@ void main() {
       store.bookmarks = [_remote('b1')];
       await pumpSidebar(tester, withConnections: true);
       final row = find.byKey(const ValueKey('sidebar.favorite.b1'));
-      expect(rowOf(tester, row).statusColor, isNull);
+      expect(rowOf(tester, row).status, isNull);
 
       lanes.watches['b1']!.add(
         const ServerStatus(ServerConnectionState.connected),
@@ -915,8 +917,24 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(row, findsOneWidget);
-      expect(rowOf(tester, row).statusColor, isNotNull);
+      final chrome = PoltergeistChrome.of(tester.element(row));
+      expect(
+        rowOf(tester, row).status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+      // The state is in words too: the tooltip names it.
+      expect(rowOf(tester, row).tooltip, startsWith('Connected\n'));
       expect(find.byKey(const ValueKey('sidebar.connection.b1')), findsNothing);
+
+      // A reconnect attempt turns the dot amber (10 §5's connecting).
+      lanes.watches['b1']!.add(
+        const ServerStatus(ServerConnectionState.reconnecting),
+      );
+      await tester.pump();
+      expect(
+        rowOf(tester, row).status,
+        SidebarStatusDot(chrome.statusConnecting),
+      );
     });
 
     testWidgets('a live row disconnects from its menu and its hover glyph', (
@@ -1536,6 +1554,18 @@ void main() {
       final savedRow = find.byKey(ValueKey('sidebar.favorite.${saved.id}'));
       expect(savedRow, findsOneWidget);
       expect(rowOf(tester, savedRow).selected, isTrue);
+      // …and the session's own connection: a solid connected dot (not the
+      // probe's reachable ring), and Disconnect drops the live session.
+      final chrome = PoltergeistChrome.of(tester.element(savedRow));
+      expect(
+        rowOf(tester, savedRow).status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+      await tester.tap(savedRow, buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('sidebar.menu.disconnect')));
+      await tester.pump();
+      expect(disconnected.map((server) => server.serverId), ['adhoc:1']);
     });
   });
 

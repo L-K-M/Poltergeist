@@ -1,3 +1,5 @@
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -58,6 +60,8 @@ class _Neutrals {
     required this.onErrorContainer,
     required this.selection,
     required this.onSelection,
+    required this.connected,
+    required this.connecting,
   });
 
   final Color surface;
@@ -83,6 +87,14 @@ class _Neutrals {
   final Color onErrorContainer;
   final Color selection;
   final Color onSelection;
+
+  /// The connected/reachable status green: ≥ 3:1 on every surface a
+  /// status dot sits on — the rail, its hover fill, the selection pill,
+  /// the listing, header, and inspector (pinned by the contrast matrix).
+  final Color connected;
+
+  /// The connecting/reconnecting status amber, held to the same floors.
+  final Color connecting;
 }
 
 const _dark = _Neutrals(
@@ -111,6 +123,8 @@ const _dark = _Neutrals(
   onErrorContainer: Color(0xFFFFDAD5),
   selection: Color(0xFF2F7F6D),
   onSelection: Color(0xFFFFFFFF),
+  connected: Color(0xFF4CAF50),
+  connecting: Color(0xFFD99A1E),
 );
 
 const _light = _Neutrals(
@@ -137,6 +151,8 @@ const _light = _Neutrals(
   onErrorContainer: Color(0xFF410E0B),
   selection: Color(0xFF1F7A67),
   onSelection: Color(0xFFFFFFFF),
+  connected: Color(0xFF2E7D32),
+  connecting: Color(0xFFA86400),
 );
 
 /// The D32 chrome tokens every shell surface reads instead of picking
@@ -158,6 +174,8 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
     required this.inactiveSelectionFill,
     required this.activePaneIndicator,
     required this.secondaryText,
+    required this.statusConnected,
+    required this.statusConnecting,
     required this.headerHeight,
     required this.rowExtent,
     required this.sidebarRowExtent,
@@ -198,6 +216,16 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
   /// Captions: item counts, trailing sidebar metadata, subtitles.
   final Color secondaryText;
 
+  /// The one "connected" status colour (server dots in the rail, tab
+  /// chips, probe dots): a per-theme green that keeps the 3:1 non-text
+  /// floor on the sidebar's selection pill as well as its resting and
+  /// hover rows, which a single green shared by both themes could not.
+  final Color statusConnected;
+
+  /// The rail's "connecting" dot (10 §5): an amber per theme, held to
+  /// the same 3:1 floors as [statusConnected].
+  final Color statusConnecting;
+
   /// Header toolbar height (logical px).
   final double headerHeight;
 
@@ -229,6 +257,8 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
     Color? inactiveSelectionFill,
     Color? activePaneIndicator,
     Color? secondaryText,
+    Color? statusConnected,
+    Color? statusConnecting,
     double? headerHeight,
     double? rowExtent,
     double? sidebarRowExtent,
@@ -247,6 +277,8 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
           inactiveSelectionFill ?? this.inactiveSelectionFill,
       activePaneIndicator: activePaneIndicator ?? this.activePaneIndicator,
       secondaryText: secondaryText ?? this.secondaryText,
+      statusConnected: statusConnected ?? this.statusConnected,
+      statusConnecting: statusConnecting ?? this.statusConnecting,
       headerHeight: headerHeight ?? this.headerHeight,
       rowExtent: rowExtent ?? this.rowExtent,
       sidebarRowExtent: sidebarRowExtent ?? this.sidebarRowExtent,
@@ -273,9 +305,16 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
       activePaneIndicator:
           Color.lerp(activePaneIndicator, other.activePaneIndicator, t)!,
       secondaryText: Color.lerp(secondaryText, other.secondaryText, t)!,
-      headerHeight: t < 0.5 ? headerHeight : other.headerHeight,
-      rowExtent: t < 0.5 ? rowExtent : other.rowExtent,
-      sidebarRowExtent: t < 0.5 ? sidebarRowExtent : other.sidebarRowExtent,
+      statusConnected:
+          Color.lerp(statusConnected, other.statusConnected, t)!,
+      statusConnecting:
+          Color.lerp(statusConnecting, other.statusConnecting, t)!,
+      // Linear like the colours: a stepped extent would snap mid-way
+      // through MaterialApp's theme animation while everything fades.
+      headerHeight: lerpDouble(headerHeight, other.headerHeight, t)!,
+      rowExtent: lerpDouble(rowExtent, other.rowExtent, t)!,
+      sidebarRowExtent:
+          lerpDouble(sidebarRowExtent, other.sidebarRowExtent, t)!,
     );
   }
 }
@@ -307,12 +346,17 @@ PoltergeistChrome _chromeFor(Brightness brightness, TargetPlatform platform) {
     inactiveSelectionFill: n.containerHighest,
     activePaneIndicator: n.primary,
     secondaryText: n.onSurfaceVariant,
+    statusConnected: n.connected,
+    statusConnecting: n.connecting,
     // macOS: the unified toolbar band is 52 pt (D32 §3).
     headerHeight: platform == TargetPlatform.macOS ? 52 : (desktop ? 44 : 56),
     rowExtent: desktop ? 22 : 48,
     sidebarRowExtent: desktop ? 26 : 48,
   );
 }
+
+/// A desktop menu row's height (context menus and the ☰ tree).
+const double _desktopMenuRowExtent = 26;
 
 /// Desktop type ramp (13 px body, 11 px captions — the macOS system
 /// sizes); touch platforms keep Material's defaults.
@@ -393,10 +437,43 @@ ThemeData buildPoltergeistTheme(
         shape: WidgetStatePropertyAll(
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
+        // Desktop panels hug their compact rows (Finder's 4 px inset).
+        padding: desktop
+            ? const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 4))
+            : null,
       ),
     ),
+    // D32's desktop menu rows (context menus, the ☰ tree, every
+    // MenuAnchor): 26 px, 13 px text, a tight inset. Touch keeps
+    // Material's 48 dp rows. The density is pinned to standard so the
+    // theme-wide compact density does not shave the row below 26 px.
+    menuButtonTheme: desktop
+        ? MenuButtonThemeData(
+            style: ButtonStyle(
+              minimumSize: const WidgetStatePropertyAll(
+                Size(64, _desktopMenuRowExtent),
+              ),
+              padding: const WidgetStatePropertyAll(
+                EdgeInsets.symmetric(horizontal: 10),
+              ),
+              visualDensity: VisualDensity.standard,
+              iconSize: const WidgetStatePropertyAll(16),
+              textStyle: WidgetStatePropertyAll(
+                _desktopText(base.textTheme).bodyMedium,
+              ),
+            ),
+          )
+        : null,
+    // Desktop dialog titles sit on the 13 px ramp at 17 px semibold
+    // (Material's 24 px headlineSmall reads oversized beside it); touch
+    // keeps Material's title.
     dialogTheme: DialogThemeData(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      titleTextStyle: desktop
+          ? _desktopText(
+              base.textTheme,
+            ).titleLarge?.copyWith(color: scheme.onSurface)
+          : null,
     ),
     extensions: [chrome],
   );

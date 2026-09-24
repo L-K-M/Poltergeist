@@ -1502,12 +1502,6 @@ abstract class AppLocalizations {
   /// **'Only sftp:// addresses are supported here.'**
   String get quickConnectUnsupportedSchemeError;
 
-  /// Title of the post-connect bar offering to keep the live adhoc session as a favorite (02 §2.7).
-  ///
-  /// In en, this message translates to:
-  /// **'Save as favorite…'**
-  String get saveFavoriteTitle;
-
   /// Label of the favorite-name field in the save bar (02 §2.7).
   ///
   /// In en, this message translates to:
@@ -2466,24 +2460,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Checks GitHub on launch and only links to the release page — it never downloads anything.'**
   String get updateCheckEnabledSubtitle;
-
-  /// Dismissible banner shown when GitHub's latest release tag is newer than the running version (D19).
-  ///
-  /// In en, this message translates to:
-  /// **'Poltergeist {version} is available.'**
-  String updateBannerText(String version);
-
-  /// Update banner button opening the GitHub releases page in the OS browser (a link, never a download).
-  ///
-  /// In en, this message translates to:
-  /// **'View release'**
-  String get updateViewRelease;
-
-  /// Tooltip for the update banner's close affordance (session dismiss; the next launch re-checks).
-  ///
-  /// In en, this message translates to:
-  /// **'Dismiss'**
-  String get updateDismissTooltip;
 
   /// 04 §4.3's verbatim section title.
   ///
@@ -6891,6 +6867,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This device'**
   String get sidebarThisDevice;
+
+  /// Screen-reader name of the in-app Quick Look overlay Space opens on Linux and Windows (D32, 06 §5.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Look'**
+  String get quickLookOverlayLabel;
+
+  /// Tooltip of the Quick Look overlay's close button; Space and Esc close it too.
+  ///
+  /// In en, this message translates to:
+  /// **'Close Quick Look'**
+  String get quickLookClose;
+
+  /// The Quick Look overlay's place in a multi-item selection, e.g. '2 of 5'.
+  ///
+  /// In en, this message translates to:
+  /// **'{index} of {count}'**
+  String quickLookPosition(int index, int count);
+
+  /// Shown under the name in the Quick Look overlay for folders and file kinds it cannot render.
+  ///
+  /// In en, this message translates to:
+  /// **'No preview for this kind of item.'**
+  String get quickLookNoPreview;
+
+  /// The pane's slim banner after a Quick Connect: the live session is not a saved server yet. The endpoint is user@host with any non-default port.
+  ///
+  /// In en, this message translates to:
+  /// **'Not saved · {endpoint}'**
+  String paneUnsavedSession(String endpoint);
+
+  /// Tooltip of the Not saved banner's close button; hides the banner for this tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get paneUnsavedDismiss;
+
+  /// Section label over the saved servers the Connect dialog (⌘K) offers as one-click rows above Quick Connect (D32 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Servers'**
+  String get connectDialogServers;
+
+  /// Tooltip of a sidebar row's visible ⋮ button, which opens the row's verbs (the shared sidebar kit's showMenuButton; Séance uses the same words).
+  ///
+  /// In en, this message translates to:
+  /// **'More actions'**
+  String get sidebarRowMenu;
 }
 
 class _AppLocalizationsDelegate

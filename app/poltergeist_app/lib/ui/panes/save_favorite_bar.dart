@@ -1,25 +1,38 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../services/uuid.dart';
+import '../../services/quick_connect_address.dart'
+    show quickConnectAdhocIdPrefix;
+import '../../services/sidebar_controller.dart' show saveRemoteLocationTo;
+import '../../theme/app_theme.dart';
+import '../save_to_servers.dart';
 
-/// The post-connect "Save as favorite…" bar (02 §2.7): rendered for a
-/// live adhoc session, prefilled from the live connection — never from
-/// the raw address string (which may have carried a stripped password).
+/// The banner's button height on desktop, inside its 30 px line.
+const double _desktopControlExtent = 26;
+
+/// Below this line width "Save to Servers…" folds to an icon button, so a
+/// pane at its minimum width keeps the endpoint readable.
+const double _labelledSaveMinWidth = 300;
+
+/// The post-connect "Not saved" banner (02 §2.7, D32 §6's banner slot):
+/// one slim line for a live Quick Connect session —
+/// `Not saved · demo@host:2222   [Save to Servers…]  ×` — naming the live
+/// endpoint, never the raw address string (which may have carried a
+/// stripped password).
 ///
-/// The save writes through [store], the core [BookmarkStore] seam (the
-/// file store in production, in-memory in tests): the promoted favorite
-/// lands at the ungrouped tail through [BookmarkStore.sortKeyForInsert]
-/// — the fractional-key contract the sidebar's ordering relies on — and
-/// saves through [BookmarkStore.save] so the `updatedAt` stamp and the
-/// change emission the sidebar reloads on both land (04 §2.1). A null
-/// [store] means no persistence path is wired: the save reports through
-/// [onNoStore], which the pane answers with the honest not-yet notice
-/// (the #132 pattern) — never a fake write. A successful save hides the
-/// bar (state is keyed to the adhoc id, so parent rebuilds cannot
-/// resurrect it); a throwing store keeps it mounted with an inline
-/// error so the save stays retryable.
+/// Save to Servers… runs the sidebar's own flow ([promptSaveToServers]:
+/// the name prompt prefilled with the endpoint) and saves through
+/// [saveRemoteLocationTo], so a session saved here or from the rail
+/// lands as the same record. The banner watches [store] and leaves the
+/// moment any stored server carries the session's endpoint, wherever the
+/// save came from. A null [store] means no persistence path is wired:
+/// the button reports through [onNoStore] (the pane's honest not-yet
+/// notice, the #132 pattern) — never a fake write. A throwing store
+/// keeps the banner up with the failure in its line, so the save stays
+/// retryable. [onDismiss] hides it for this tab.
 class SaveFavoriteBar extends StatefulWidget {
   const SaveFavoriteBar({
     super.key,
@@ -27,35 +40,85 @@ class SaveFavoriteBar extends StatefulWidget {
     this.currentPath,
     required this.store,
     required this.onNoStore,
+    required this.onDismiss,
   });
 
   /// The live adhoc bookmark: endpoint identity and landing path source.
   final Bookmark bookmark;
 
-  /// The tab's current remote path; the stored favorite captures this
-  /// context instead of a form.
+  /// The tab's current remote path; the saved server opens here.
   final String? currentPath;
 
   final BookmarkStore? store;
 
   final VoidCallback onNoStore;
 
+  final VoidCallback onDismiss;
+
   @override
   State<SaveFavoriteBar> createState() => _SaveFavoriteBarState();
 }
 
 class _SaveFavoriteBarState extends State<SaveFavoriteBar> {
-  late final TextEditingController _name = TextEditingController(
-    text: _prefill(widget.bookmark),
-  );
+  StreamSubscription<BookmarkStoreChange>? _changes;
+
+  /// Whether a stored server already carries this session's endpoint.
+  bool _saved = false;
   bool _failed = false;
   bool _saving = false;
-  bool _saved = false;
+
+  /// Drops a superseded store read (a change landing mid-load).
+  int _check = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _watch();
+  }
+
+  @override
+  void didUpdateWidget(SaveFavoriteBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.store, widget.store) ||
+        sessionEndpointKey(oldWidget.bookmark) !=
+            sessionEndpointKey(widget.bookmark)) {
+      _watch();
+    }
+  }
 
   @override
   void dispose() {
-    _name.dispose();
+    unawaited(_changes?.cancel());
     super.dispose();
+  }
+
+  void _watch() {
+    unawaited(_changes?.cancel());
+    _changes = widget.store?.changes.listen((_) => unawaited(_refresh()));
+    unawaited(_refresh());
+  }
+
+  Future<void> _refresh() async {
+    final store = widget.store;
+    final endpoint = sessionEndpointKey(widget.bookmark);
+    if (store == null || endpoint == null) return;
+    final check = ++_check;
+    final List<Bookmark> rows;
+    try {
+      rows = await store.load();
+    } on Object {
+      // An unreadable store cannot prove the session saved: the banner
+      // stays, and its button reports any real save failure.
+      return;
+    }
+    if (!mounted || check != _check) return;
+    final saved = rows.any(
+      (row) =>
+          row.kind == BookmarkKind.remotePath &&
+          !row.id.startsWith(quickConnectAdhocIdPrefix) &&
+          sessionEndpointKey(row) == endpoint,
+    );
+    if (saved != _saved) setState(() => _saved = saved);
   }
 
   Future<void> _save() async {
@@ -65,26 +128,25 @@ class _SaveFavoriteBarState extends State<SaveFavoriteBar> {
       return;
     }
     if (_saving) return;
+    final name = await promptSaveToServers(
+      context,
+      widget.bookmark,
+      fieldKey: const ValueKey('saveFavorite.name'),
+      saveKey: const ValueKey('saveFavorite.confirm'),
+    );
+    if (name == null || !mounted) return;
     setState(() {
       _saving = true;
       _failed = false;
     });
     try {
-      // The ungrouped tail key comes from the store — the one call site
-      // that still minted a uuid sortKey (the #161 disclosed follow-up).
-      final sortKey = await store.sortKeyForInsert();
-      await store.save(
-        _promotedFavorite(
-          live: widget.bookmark,
-          currentPath: widget.currentPath,
-          label: _name.text.trim().isEmpty
-              ? _prefill(widget.bookmark)
-              : _name.text.trim(),
-          sortKey: sortKey,
-          now: DateTime.now(),
-        ),
+      await saveRemoteLocationTo(
+        store,
+        live: widget.bookmark,
+        path: widget.currentPath,
+        label: name,
       );
-    } catch (_) {
+    } on Object {
       if (!mounted) return;
       setState(() {
         _saving = false;
@@ -93,6 +155,7 @@ class _SaveFavoriteBarState extends State<SaveFavoriteBar> {
       return;
     }
     if (!mounted) return;
+    // The store's change event confirms it too; this spares the reload.
     setState(() {
       _saving = false;
       _saved = true;
@@ -103,110 +166,102 @@ class _SaveFavoriteBarState extends State<SaveFavoriteBar> {
   Widget build(BuildContext context) {
     if (_saved) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context);
-    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final chrome = PoltergeistChrome.of(context);
+    // Desktop keeps the line at 30 px; touch keeps Material's targets.
+    final desktop = isDesktopPlatform(theme.platform);
+    final compact = ButtonStyle(
+      visualDensity: VisualDensity.compact,
+      padding: const WidgetStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 8),
+      ),
+      minimumSize: desktop
+          ? const WidgetStatePropertyAll(Size(0, _desktopControlExtent))
+          : null,
+      textStyle: WidgetStatePropertyAll(theme.textTheme.labelMedium),
+      tapTargetSize: desktop ? MaterialTapTargetSize.shrinkWrap : null,
+    );
     return Semantics(
       container: true,
-      child: DecoratedBox(
+      child: Container(
         key: const ValueKey('saveFavorite.bar'),
+        constraints: BoxConstraints(
+          minHeight: MediaQuery.textScalerOf(context).scale(30),
+        ),
+        padding: const EdgeInsetsDirectional.only(start: 10, end: 2),
         decoration: BoxDecoration(
           color: colors.surfaceContainerLow,
-          border: Border(bottom: BorderSide(color: colors.outlineVariant)),
+          border: Border(bottom: BorderSide(color: chrome.separator)),
         ),
-        child: Padding(
-          padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 8, 6),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Row(
             children: [
-              // A narrow pane must not overflow: the title and the
-              // name/save cluster wrap onto separate runs instead of
-              // forcing one Row wider than the pane.
-              Wrap(
-                alignment: WrapAlignment.spaceBetween,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                runSpacing: 8,
-                children: [
-                  Text(
-                    l10n.saveFavoriteTitle,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 240),
-                        child: TextField(
-                          key: const ValueKey('saveFavorite.name'),
-                          controller: _name,
-                          decoration: InputDecoration(
-                            labelText: l10n.saveFavoriteNameLabel,
-                            isDense: true,
-                          ),
-                          textInputAction: TextInputAction.done,
-                          onSubmitted: (_) => _save(),
-                        ),
-                      ),
-                      FilledButton(
-                        key: const ValueKey('saveFavorite.save'),
-                        onPressed: _saving ? null : _save,
-                        child: Text(l10n.saveFavoriteSave),
-                      ),
-                    ],
-                  ),
-                ],
+              ExcludeSemantics(
+                child: Icon(Icons.bolt, size: 14, color: chrome.secondaryText),
               ),
-              if (_failed)
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(top: 4),
-                  child: Text(
-                    l10n.saveFavoriteFailed,
-                    key: const ValueKey('saveFavorite.error'),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.error,
-                    ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _failed
+                      ? l10n.saveFavoriteFailed
+                      : l10n.paneUnsavedSession(
+                          sessionEndpointLabel(widget.bookmark),
+                        ),
+                  key: ValueKey(
+                    _failed ? 'saveFavorite.error' : 'saveFavorite.label',
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: _failed ? colors.error : chrome.secondaryText,
                   ),
                 ),
+              ),
+              // A pane at its minimum width keeps the verb as an icon so
+              // the endpoint still has room; wider panes spell it out.
+              if (constraints.maxWidth >= _labelledSaveMinWidth)
+                TextButton(
+                  key: const ValueKey('saveFavorite.save'),
+                  style: compact,
+                  onPressed: _saving ? null : _save,
+                  child: Text(l10n.sidebarSaveToServers),
+                )
+              else
+                IconButton(
+                  key: const ValueKey('saveFavorite.save'),
+                  tooltip: l10n.sidebarSaveToServers,
+                  onPressed: _saving ? null : _save,
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 15,
+                  constraints: desktop
+                      ? const BoxConstraints.tightFor(
+                          width: _desktopControlExtent,
+                          height: _desktopControlExtent,
+                        )
+                      : null,
+                  padding: desktop ? EdgeInsets.zero : null,
+                  icon: const Icon(Icons.bookmark_add_outlined),
+                ),
+              IconButton(
+                key: const ValueKey('saveFavorite.dismiss'),
+                tooltip: l10n.paneUnsavedDismiss,
+                onPressed: widget.onDismiss,
+                visualDensity: VisualDensity.compact,
+                iconSize: 14,
+                constraints: desktop
+                    ? const BoxConstraints.tightFor(
+                        width: _desktopControlExtent,
+                        height: _desktopControlExtent,
+                      )
+                    : null,
+                padding: desktop ? EdgeInsets.zero : null,
+                icon: const Icon(Icons.close),
+              ),
             ],
           ),
         ),
       ),
     );
   }
-}
-
-/// The prefill derives from the live authenticated session: the
-/// endpoint with a non-default port, never the raw input string.
-String _prefill(Bookmark live) {
-  final identity = live.server?.identity;
-  if (identity == null) return live.label;
-  final username = identity.username;
-  final host = identity.port == 22
-      ? identity.host
-      : '${identity.host}:${identity.port}';
-  return username.isEmpty ? host : '$username@$host';
-}
-
-/// Promotes the live adhoc session to a stored favorite: a fresh id
-/// (the adhoc id never enters the store), the live endpoint identity,
-/// the captured context path, and the store-minted [sortKey]. Carries
-/// no secret — bookmarks hold `secretRef`s into the vault, and the
-/// adhoc identity never had a password to copy.
-Bookmark _promotedFavorite({
-  required Bookmark live,
-  required String? currentPath,
-  required String label,
-  required String sortKey,
-  required DateTime now,
-}) {
-  return Bookmark(
-    id: uuidV4(),
-    kind: BookmarkKind.remotePath,
-    label: label,
-    server: live.server,
-    remotePath: currentPath ?? live.remotePath,
-    sortKey: sortKey,
-    createdAt: now,
-    updatedAt: now,
-  );
 }

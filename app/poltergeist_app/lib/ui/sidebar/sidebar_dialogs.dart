@@ -1,9 +1,7 @@
 part of 'sidebar_view.dart';
 
-/// A one-field name prompt (rename, new group, save to servers). The field
-/// owns its controller through the pop animation — an external controller
-/// disposed at `await` return would be torn down under the still-animating
-/// route. Returns the trimmed name, or null when cancelled.
+/// The rail's one-field name prompt (rename, new group, save to
+/// servers) — the shared [showNamePrompt].
 Future<String?> _promptName(
   BuildContext context, {
   required String title,
@@ -11,47 +9,14 @@ Future<String?> _promptName(
   required Key fieldKey,
   required Key saveKey,
   String initial = '',
-}) {
-  final l10n = AppLocalizations.of(context);
-  var text = initial;
-  return showDialog<String>(
-    context: context,
-    builder: (dialogContext) {
-      var canSave = text.trim().isNotEmpty;
-      return StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text(title),
-          content: TextFormField(
-            key: fieldKey,
-            initialValue: initial,
-            autofocus: true,
-            decoration: InputDecoration(labelText: fieldLabel),
-            onChanged: (value) {
-              text = value;
-              setState(() => canSave = text.trim().isNotEmpty);
-            },
-            onFieldSubmitted: (_) {
-              if (canSave) Navigator.of(dialogContext).pop(text.trim());
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(l10n.tabCloseConfirmCancel),
-            ),
-            FilledButton(
-              key: saveKey,
-              onPressed: canSave
-                  ? () => Navigator.of(dialogContext).pop(text.trim())
-                  : null,
-              child: Text(l10n.saveFavoriteSave),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
+}) => showNamePrompt(
+  context,
+  title: title,
+  fieldLabel: fieldLabel,
+  fieldKey: fieldKey,
+  saveKey: saveKey,
+  initial: initial,
+);
 
 /// The rename verb: a store save through the controller, so the
 /// `updatedAt` stamp lands. A failed save reports and says so — the
@@ -172,13 +137,11 @@ Future<void> _saveSessionToServers(
   SidebarAdhocSession session,
 ) async {
   final l10n = AppLocalizations.of(context);
-  final name = await _promptName(
+  final name = await promptSaveToServers(
     context,
-    title: l10n.sidebarSaveToServersTitle,
-    fieldLabel: l10n.saveFavoriteNameLabel,
+    session.bookmark,
     fieldKey: const ValueKey('sidebar.saveServerField'),
     saveKey: const ValueKey('sidebar.saveServerSave'),
-    initial: _endpointLabel(session.bookmark),
   );
   if (name == null || !context.mounted) return;
   try {
@@ -191,17 +154,6 @@ Future<void> _saveSessionToServers(
     ApplicationErrorReporter().report(error, stackTrace);
     if (context.mounted) _showSidebarError(context, l10n);
   }
-}
-
-/// `user@host` (with a non-default port) from a live identity, or the
-/// bookmark's label when it carries none.
-String _endpointLabel(Bookmark bookmark) {
-  final identity = bookmark.server?.identity;
-  if (identity == null) return bookmark.label;
-  final host = identity.port == 22
-      ? identity.host
-      : '${identity.host}:${identity.port}';
-  return identity.username.isEmpty ? host : '${identity.username}@$host';
 }
 
 void _showSidebarError(BuildContext context, AppLocalizations l10n) =>

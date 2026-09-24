@@ -851,9 +851,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Only sftp:// addresses are supported here.';
 
   @override
-  String get saveFavoriteTitle => 'Save as favorite…';
-
-  @override
   String get saveFavoriteNameLabel => 'Name';
 
   @override
@@ -1554,17 +1551,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get updateCheckEnabledSubtitle =>
       'Checks GitHub on launch and only links to the release page — it never downloads anything.';
-
-  @override
-  String updateBannerText(String version) {
-    return 'Poltergeist $version is available.';
-  }
-
-  @override
-  String get updateViewRelease => 'View release';
-
-  @override
-  String get updateDismissTooltip => 'Dismiss';
 
   @override
   String get backupTitle => 'Bookmark backup';
@@ -4517,4 +4503,32 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sidebarThisDevice => 'This device';
+
+  @override
+  String get quickLookOverlayLabel => 'Quick Look';
+
+  @override
+  String get quickLookClose => 'Close Quick Look';
+
+  @override
+  String quickLookPosition(int index, int count) {
+    return '$index of $count';
+  }
+
+  @override
+  String get quickLookNoPreview => 'No preview for this kind of item.';
+
+  @override
+  String paneUnsavedSession(String endpoint) {
+    return 'Not saved · $endpoint';
+  }
+
+  @override
+  String get paneUnsavedDismiss => 'Dismiss';
+
+  @override
+  String get connectDialogServers => 'Servers';
+
+  @override
+  String get sidebarRowMenu => 'More actions';
 }

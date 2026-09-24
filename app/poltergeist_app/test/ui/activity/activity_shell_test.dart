@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/registered_command.dart';
+import 'package:poltergeist_app/ui/shell/header_activity_button.dart';
 import 'package:poltergeist_app/ui/workspace_shell.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -47,20 +48,14 @@ void main() {
       find.byKey(const ValueKey('activity.panel')),
       findsNothing,
     );
-
-    // The header's activity button (D21's first path).
-    await tester.tap(
-      find.byKey(const ValueKey('command.view.toggleActivityPanel')),
-    );
-    await tester.pumpAndSettle();
+    // 10 §4: the header's activity button exists only while work runs.
     expect(
-      find.byKey(const ValueKey('activity.panel')),
-      findsOneWidget,
+      find.byKey(const ValueKey('command.view.toggleActivityPanel')),
+      findsNothing,
     );
 
     // The View menu row exists and carries the same command (D21's
-    // menu path — command-palette-only would violate it); on the
-    // Transfers tab it hides the inspector.
+    // menu path — command-palette-only would violate it).
     await openShellMenu(tester, AppMenuId.view);
     expect(
       find.byKey(const ValueKey('menu.item.view.toggleActivityPanel')),
@@ -68,6 +63,20 @@ void main() {
     );
     await tester.tap(
       find.byKey(const ValueKey('menu.item.view.toggleActivityPanel')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('activity.panel')),
+      findsOneWidget,
+    );
+
+    // While work runs the header button carries the same toggle: on the
+    // Transfers tab it hides the inspector.
+    queue.addTask(state: TransferTaskState.running, totalBytes: 4000);
+    await tester.pump();
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('command.view.toggleActivityPanel')),
     );
     await tester.pumpAndSettle();
     expect(
@@ -149,14 +158,59 @@ void main() {
       findsOneWidget,
     );
 
-    // The ring is the live-work signal only: it leaves with the work.
+    // The ring is the live-work signal only: it leaves with the work,
+    // after a short linger (10 §4: hidden while idle).
     task.state = TransferTaskState.completed;
     queue.emit(TransferQueueTaskEvent(task.id, task.state));
     await tester.pump();
     await tester.pump();
     expect(
+      find.byKey(const ValueKey('command.view.toggleActivityPanel')),
+      findsOneWidget,
+    );
+    await tester.pump(headerActivityHideDelay);
+    await tester.pumpAndSettle();
+    expect(
       find.byKey(const ValueKey('header.activityRing')),
       findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('command.view.toggleActivityPanel')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('a transfer that stops and restarts inside the linger '
+      'keeps the activity button still', (tester) async {
+    await pumpShell(tester);
+    final newFolder = find.byKey(const ValueKey('command.file.newFolder'));
+    final idleX = tester.getTopLeft(newFolder).dx;
+
+    final first = queue.addTask(
+      state: TransferTaskState.running,
+      totalBytes: 4000,
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+    final busyX = tester.getTopLeft(newFolder).dx;
+    // The button claims its room once, while work starts.
+    expect(busyX, lessThan(idleX));
+
+    first.state = TransferTaskState.completed;
+    queue.emit(TransferQueueTaskEvent(first.id, first.state));
+    await tester.pump();
+    await tester.pump(headerActivityHideDelay ~/ 2);
+    expect(tester.getTopLeft(newFolder).dx, busyX);
+
+    // The next task lands inside the linger: nothing moves.
+    queue.addTask(state: TransferTaskState.running, totalBytes: 4000);
+    await tester.pump();
+    await tester.pump(headerActivityHideDelay * 2);
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(newFolder).dx, busyX);
+    expect(
+      find.byKey(const ValueKey('header.activityRing')),
+      findsOneWidget,
     );
   });
 

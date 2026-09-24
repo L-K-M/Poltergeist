@@ -67,6 +67,12 @@ void main() {
             chrome.inactiveSelectionFill,
           ),
           ('caption on capsule', chrome.secondaryText, chrome.capsuleFill),
+          // D32 §8's menu rows: the shortcut hint on the menu panel.
+          (
+            'menu shortcut hint',
+            chrome.secondaryText,
+            scheme.surfaceContainer,
+          ),
         ];
         for (final (name, fg, bg) in pairs) {
           expect(
@@ -123,6 +129,33 @@ void main() {
             greaterThanOrEqualTo(minimumNonTextContrast),
             reason: '$name (${brightness.name})',
           );
+        }
+      });
+
+      test('sidebar status dots stay ≥ 3:1 on every row state', () {
+        // D32 §5: the 7 px dot composed into a row's mark sits on the
+        // rail at rest, on the 6 % hover fill, and on the selection
+        // pill of the row the active pane shows — the pill is where a
+        // single green once fell below the floor.
+        final rail = chrome.sidebarBackground;
+        final rowStates = <(String, Color)>[
+          ('rail', rail),
+          ('hover', Color.alphaBlend(chrome.hoverFill, rail)),
+          ('pill', Color.alphaBlend(chrome.inactiveSelectionFill, rail)),
+        ];
+        final dots = <(String, Color)>[
+          ('connected', chrome.statusConnected),
+          ('connecting', chrome.statusConnecting),
+          ('failed', scheme.error),
+        ];
+        for (final (dot, color) in dots) {
+          for (final (state, surface) in rowStates) {
+            expect(
+              contrast(color, surface),
+              greaterThanOrEqualTo(minimumNonTextContrast),
+              reason: '$dot dot on $state (${brightness.name})',
+            );
+          }
         }
       });
     });

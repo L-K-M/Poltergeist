@@ -320,9 +320,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The save dialog's name-field widget key — plumbing, not copy.
   'lib/ui/workspace/save_workspace_dialog.dart': {"'workspaceSave.name'"},
-  // The D19 banner's widget keys and the General dialog's keys/toggle
-  // key — plumbing for tests, never rendered.
-  'lib/ui/update_banner.dart': {"'update.viewRelease'", "'update.dismiss'"},
+  // The General dialog's keys/toggle key — plumbing for tests, never
+  // rendered.
   'lib/ui/settings/general_settings.dart': {
     "'general.settings.dialog'",
     "'general.settings.close'",
@@ -956,8 +955,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'resolves to no pulled server'",
     "''",
     // The D32 chrome's widget keys and focus-node labels (splitters,
-    // inspector mounts, header title/filter/activity ring, the connect
-    // dialog) and the reveal-in-pane's missing-bookmark diagnostic —
+    // inspector mounts, header title/filter, the connect dialog) and the reveal-in-pane's missing-bookmark diagnostic —
     // plumbing and a reported fault, never rendered copy.
     "'sidebar.splitter'",
     "'inspector.splitter'",
@@ -965,7 +963,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'inspector.region'",
     "'header.title'",
     "'header.filter'",
-    "'header.activityRing'",
     r"'revealInPane: no bookmark for $serverId'",
     // The header subtitle's address grammar (10 §4): `user@host:path`
     // and `label:path` — machine data like the sidebar's addresses.
@@ -973,6 +970,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${bookmark.label}:${loc.path}'",
     // The confirm dialog's bullet list marker — typographic, not copy.
     r"'• ${tabCloseTriggerLabel(l10n, trigger)}'",
+    // The Connect dialog rows' endpoint grammar (`user@host:port`) —
+    // machine data, like the header subtitle's.
+    r"'$host:$port'",
+    r"'$user@$address'",
     // The built-in editor's route keys (06 §4.2) and the reported
     // wiring fault — machine data and a dev-facing diagnostic, never
     // rendered copy (the toast is the ARB string).
@@ -1263,6 +1264,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${controller.paneTabId}.progress'",
     r"'${widget.controller.paneTabId}.quickSelect.field'",
     r"'${widget.controller.paneTabId}.rename.field'",
+    // The rename editor's box key and the single space it measures an
+    // empty name by — plumbing, never copy.
+    r"'${widget.controller.paneTabId}.rename.box'",
+    "' '",
     r"'${widget.controller.paneTabId}.path.field'",
     // D32 §6's location-header keys: the name, the summary line, and
     // the ancestor menu with its rows — plumbing, never copy.
@@ -1420,16 +1425,25 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'USERNAME'",
     r"'$user@'",
   },
-  // The save bar's widget keys and the live-session label compositions
-  // (endpoint machine data beside ARB-authored copy) — plumbing, never
-  // authored copy.
+  // The Not saved banner's widget keys — plumbing, never authored copy.
   'lib/ui/panes/save_favorite_bar.dart': {
     "'saveFavorite.bar'",
     "'saveFavorite.name'",
+    "'saveFavorite.confirm'",
     "'saveFavorite.save'",
+    "'saveFavorite.label'",
     "'saveFavorite.error'",
+    "'saveFavorite.dismiss'",
+  },
+  // The shared name prompt's empty default and the endpoint grammar a
+  // live session is labelled and matched by (`user@host:port`) —
+  // machine data beside ARB-authored copy, never authored copy.
+  'lib/ui/save_to_servers.dart': {
+    "''",
     r"'${identity.host}:${identity.port}'",
-    r"'$username@$host'",
+    r"'${identity.username}@$host'",
+    r"'${identity.username}@${identity.host.toLowerCase()}:'",
+    r"'${identity.port}'",
   },
   'lib/ui/import/ssh_config_import_command.dart': {
     "'favorite.importSshConfig'",
@@ -1510,8 +1524,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.deleteConfirm'",
     "'sidebar.saveServerField'",
     "'sidebar.saveServerSave'",
-    r"'${identity.host}:${identity.port}'",
-    r"'${identity.username}@$host'",
   },
   'lib/ui/sidebar/sidebar_favorites_section.dart': {
     "'sidebar.retry'",
@@ -1533,7 +1545,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   'lib/ui/sidebar/sidebar_servers_section.dart': {
     "''",
-    r"'${bookmark.label} ${_endpointLabel(bookmark)}'",
+    r"'${bookmark.label} ${sessionEndpointLabel(bookmark)}'",
     r"'sidebar.adhoc.${bookmark.id}'",
     r"'sidebar.group.$collapseKey'",
     r"'sidebar.section.$collapseKey'",
@@ -1564,6 +1576,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The portable kit's empty query (the filter's clear button).
   'lib/ui/sidebar/sidebar_kit.dart': {
     "''",
+    // The first-verb focus node's debug label — diagnostics, never shown.
+    "'SidebarRow first verb'",
   },
   // The sidebar filter's term split and the path-separator trimming of
   // the selection match — machinery, never rendered.
@@ -1742,7 +1756,26 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$_error'",
     "''",
   },
-  'lib/ui/shell/connect_dialog.dart': {"'connect.dialog'"},
+  // The Connect dialog's keys and a server row's announced label (its
+  // name and endpoint, both data) — plumbing, never authored copy.
+  'lib/ui/shell/connect_dialog.dart': {
+    "'connect.dialog'",
+    r"'connect.server.${choice.id}'",
+    r"'${choice.label}, ${choice.detail}'",
+  },
+  // The Quick Look overlay's widget keys and the line break it splits
+  // the first line on for syntax detection — plumbing, never copy.
+  'lib/ui/quick_look_overlay.dart': {
+    r"'\n'",
+    "'quickLook.overlay'",
+    "'quickLook.title'",
+    "'quickLook.close'",
+    "'quickLook.text'",
+    "'quickLook.image'",
+    "'quickLook.noPreview'",
+  },
+  // The activity button's ring key — test plumbing, never copy.
+  'lib/ui/shell/header_activity_button.dart': {"'header.activityRing'"},
   // The header's button and overflow-menu keys, keyed to the registry's
   // command ids — widget plumbing, not authored copy.
   'lib/ui/shell/header_toolbar.dart': {

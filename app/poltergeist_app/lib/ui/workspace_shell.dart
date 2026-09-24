@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +24,7 @@ import '../services/double_click_action.dart';
 import '../services/editor_registry_controller.dart';
 import '../services/engine_session.dart';
 import '../services/external_file_opener.dart';
+import '../services/in_app_quick_look.dart';
 import '../services/local_volumes.dart' show LocalVolumeSource;
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
@@ -68,14 +70,17 @@ import 'panes/pane_commands.dart';
 import 'panes/pane_tabs_view.dart';
 import 'pdf_preview.dart';
 import 'preview_panel.dart';
+import 'quick_look_overlay.dart';
 import 'quick_open/quick_open_palette.dart';
 import 'settings/app_settings_command.dart';
 import 'settings/backup_settings_command.dart';
 import 'settings/general_settings.dart';
 import 'settings/preview_settings.dart';
+import 'server_appearance.dart';
 import 'server_editor.dart';
 import 'server_label_scope.dart';
 import 'shell/connect_dialog.dart';
+import 'shell/header_activity_button.dart';
 import 'shell/header_toolbar.dart';
 import 'shell/shell_commands.dart';
 import 'shell/shell_splitter.dart';
@@ -431,7 +436,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// rebuilds share the one native binding (06 §5.1).
   QuickLookChannel? _defaultQuickLook;
   QuickLookChannel get _resolvedQuickLook =>
-      widget.quickLook ?? (_defaultQuickLook ??= MethodChannelQuickLook());
+      widget.quickLook ?? (_defaultQuickLook ??= _platformQuickLook());
+
+  /// D32: Space is Quick Look on every desktop — the native panel on
+  /// macOS, the in-window overlay on Linux and Windows. Touch platforms
+  /// have no surface; Space answers on the Info tab there.
+  static QuickLookChannel _platformQuickLook() =>
+      switch (defaultTargetPlatform) {
+        TargetPlatform.macOS => MethodChannelQuickLook(),
+        TargetPlatform.linux || TargetPlatform.windows => InAppQuickLook(),
+        _ => const NoopQuickLookChannel(),
+      };
 
   /// The pane pair and active pane (03 §6's WorkspaceController, foundation
   /// slice) plus the per-pane listing focus nodes (02 §8.2). Rebuilt when
@@ -698,6 +713,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _headerFilterFocus.dispose();
     _connections?.dispose();
     _disposeWorkspace();
+    if (_defaultQuickLook case final InAppQuickLook overlay) overlay.dispose();
     _leftFocus?.dispose();
     _leftFocus = null;
     _rightFocus?.dispose();
@@ -1638,6 +1654,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               ? const SizedBox.shrink()
               : paneTabs(workspace.right, rightFocus, workspace.left),
         ),
+        if (preview != null)
+          if (_resolvedQuickLook case final InAppQuickLook quickLook)
+            QuickLookOverlay(
+              controller: quickLook,
+              nameFor: preview.quickLookNameFor,
+              pdfRenderer: pdfPreviewBuilder,
+            ),
         if (preview != null) PreviewQuickLookOverlay(session: preview),
         if (inspectorOverlay)
           PositionedDirectional(
@@ -1666,7 +1689,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         badges: {kViewToggleInspectorCommandId: _alerts.attentionCount},
         statusExtras: {
           kViewToggleActivityPanelCommandId: (context, button) =>
-              _ActivityRing(controller: _activity, child: button),
+              HeaderActivityButton(controller: _activity, child: button),
         },
         filterField: _HeaderFilterField(
           workspace: workspace,
@@ -1961,6 +1984,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     if (workspace == null) return;
     await showConnectDialog(
       context,
+      servers: _connectChoices(),
       onConnect: (bookmark, initialPath) {
         final tab = workspace.activePane.newTab(
           target: NewTabTarget.launcher,
@@ -1971,6 +1995,59 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         _showCompactBrowser();
       },
     );
+  }
+
+  /// The Connect dialog's one-click servers (D32 §4): the SERVERS rows —
+  /// saved server locations and the shared-account catalog — used most
+  /// recently first, each opening a new tab exactly as the sidebar's
+  /// new-tab open does.
+  List<ConnectServerChoice> _connectChoices() {
+    String endpoint(String user, String host, int port) {
+      final address = port == 22 ? host : '$host:$port';
+      return user.isEmpty ? address : '$user@$address';
+    }
+
+    final choices = <ConnectServerChoice>[
+      for (final bookmark in _sidebar?.bookmarks ?? const <Bookmark>[])
+        if (bookmark.kind == BookmarkKind.remotePath)
+          ConnectServerChoice(
+            id: bookmark.id,
+            label: bookmark.label,
+            detail: switch (bookmark.server?.identity) {
+              final identity? => endpoint(
+                identity.username,
+                identity.host,
+                identity.port,
+              ),
+              null => bookmark.remotePath ?? '',
+            },
+            mark: ServerBadge.glyph(
+              tint: ServerTint(named: bookmark.color),
+              icon: bookmark.icon,
+              size: 18,
+            ),
+            open: () => _openFavorite(bookmark, SidebarOpenAction.newTab),
+          ),
+      for (final server
+          in widget.bookmarkBackup?.catalog?.servers ??
+              const <ServerConfig>[])
+        ConnectServerChoice(
+          id: server.id,
+          label: server.label,
+          detail: endpoint(server.username, server.host, server.port),
+          mark: ServerBadge(
+            tint: ServerTint.of(server),
+            mark: server.mark,
+            size: 18,
+          ),
+          open: () => _openCatalogServer(server, SidebarOpenAction.newTab),
+        ),
+    ];
+    return orderConnectChoices(choices, [
+      for (final recent
+          in widget.recentLocations?.entries ?? const <RecentLocation>[])
+        ?recent.serverId,
+    ]);
   }
 
   /// Reveal-in-pane (02 §6): opens the task's destination directory on
@@ -3912,57 +3989,6 @@ class _HeaderFilterFieldState extends State<_HeaderFilterField> {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// The activity button's progress ring (D16 via D32 §4): while any task
-/// is live the toolbar shows the queue's aggregate progress around the
-/// Transfers button — the always-visible honesty signal that replaced
-/// the status bar's transfer chip.
-class _ActivityRing extends StatelessWidget {
-  const _ActivityRing({required this.controller, required this.child});
-
-  final ActivityPanelController controller;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, child) {
-        var done = 0;
-        var total = 0;
-        var live = false;
-        for (final task in controller.tasks) {
-          if (task.isTerminal) continue;
-          live = true;
-          done += task.transferredBytes;
-          total += task.totalBytes ?? 0;
-        }
-        if (!live) return child!;
-        final colors = Theme.of(context).colorScheme;
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            child!,
-            IgnorePointer(
-              child: SizedBox(
-                key: const ValueKey('header.activityRing'),
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  value: total > 0 ? (done / total).clamp(0.0, 1.0) : null,
-                  color: colors.primary,
-                  backgroundColor: colors.primary.withValues(alpha: 0.15),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-      child: child,
     );
   }
 }

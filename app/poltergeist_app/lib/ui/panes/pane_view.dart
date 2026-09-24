@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/gestures.dart'
@@ -213,6 +214,16 @@ class _PaneViewState extends State<PaneView> {
   ]);
   Timer? _graceTimer;
   bool _pastGrace = false;
+
+  /// Whether the OTHER pane's location header shows a link chip right
+  /// now: that pane is on screen and its visible tab is anchored.
+  bool _otherPaneShowsSyncChip() {
+    final workspace = widget.workspace;
+    final isLeft = widget.pane.isLeftPane;
+    if (isLeft && !workspace.secondPaneShown) return false;
+    final other = isLeft ? workspace.right : workspace.left;
+    return other.activeTab?.controller.syncAnchorActive ?? false;
+  }
   bool _disposed = false;
   bool _quickSelectWasActive = false;
   final _quickSelectFieldKey = GlobalKey();
@@ -252,11 +263,18 @@ class _PaneViewState extends State<PaneView> {
   int? _rowClaimedPointer;
 
   /// The row a primary press armed for a double-click: the next press
-  /// on the same row, within [kDoubleTapSlop] and before
-  /// [kDoubleTapTimeout] disarms it, opens instead of reselecting. The
-  /// window is timed by us, so a single click selects immediately —
-  /// nothing waits out a double-tap recognizer (D32 §6).
-  ({int row, Offset position})? _armedClick;
+  /// on the same row, within [kDoubleTapSlop] and [kDoubleTapTimeout] of
+  /// it, opens instead of reselecting. The window is timed by us, so a
+  /// single click selects immediately — nothing waits out a double-tap
+  /// recognizer (D32 §6).
+  ///
+  /// The window is measured between the two presses' own timestamps:
+  /// activating a pane rebuilds the header and the inspector, and on a
+  /// slow frame a wall-clock timer could lapse before the already-queued
+  /// second press dispatched, turning a real double-click into a
+  /// reselect. [_armedClickTimer] only times synthetic pointers that
+  /// carry no timestamp.
+  ({int row, Offset position, Duration timeStamp})? _armedClick;
   Timer? _armedClickTimer;
 
   /// The drop zone's hovered-folder report — the row highlight is view
@@ -807,7 +825,8 @@ class _PaneViewState extends State<PaneView> {
     if (plain &&
         armed != null &&
         armed.row == index &&
-        (event.position - armed.position).distance <= kDoubleTapSlop) {
+        (event.position - armed.position).distance <= kDoubleTapSlop &&
+        _withinDoubleClick(armed.timeStamp, event.timeStamp)) {
       _disarmClick();
       _openRow(index);
       return;
@@ -828,8 +847,23 @@ class _PaneViewState extends State<PaneView> {
     }
     widget.focusNode.requestFocus();
     _armedClickTimer?.cancel();
-    _armedClick = plain ? (row: index, position: event.position) : null;
-    _armedClickTimer = plain ? Timer(kDoubleTapTimeout, _disarmClick) : null;
+    _armedClick = plain
+        ? (row: index, position: event.position, timeStamp: event.timeStamp)
+        : null;
+    // Stamped presses carry their own clock; only a stampless synthetic
+    // pointer falls back to wall-clock expiry.
+    _armedClickTimer = plain && event.timeStamp == Duration.zero
+        ? Timer(kDoubleTapTimeout, _disarmClick)
+        : null;
+  }
+
+  /// Whether a second press at [second] completes a double-click begun
+  /// at [first]: by the events' own timestamps when both carry one, else
+  /// by the fallback timer, which disarms a stampless press on expiry.
+  static bool _withinDoubleClick(Duration first, Duration second) {
+    if (first == Duration.zero || second == Duration.zero) return true;
+    final gap = second - first;
+    return !gap.isNegative && gap <= kDoubleTapTimeout;
   }
 
   void _onRowPointerMove(PointerMoveEvent event) {
@@ -1027,6 +1061,10 @@ class _PaneViewState extends State<PaneView> {
                     controller: widget.controller,
                     pane: widget.pane,
                     syncLink: widget.workspace.syncBrowsing,
+                    announceSyncChip: syncChipAnnounces(
+                      paneActive: active,
+                      otherPaneShowsChip: _otherPaneShowsSyncChip(),
+                    ),
                     active: active,
                     graceVisible: _pastGrace,
                     scrollController: _scrollController,
@@ -1115,6 +1153,7 @@ class _PaneSurface extends StatelessWidget {
     required this.controller,
     required this.pane,
     required this.syncLink,
+    required this.announceSyncChip,
     required this.active,
     required this.graceVisible,
     required this.scrollController,
@@ -1141,13 +1180,16 @@ class _PaneSurface extends StatelessWidget {
 
   final PaneController controller;
 
-  /// The strip owning the tab — its side decides which pane's sync
-  /// chip announces (one announcer per link state change).
+  /// The strip owning the tab.
   final PaneTabsController pane;
 
   /// The workspace's Sync Browsing link (02 §7) — the location
   /// header's link chip reads its state.
   final SyncBrowsingController syncLink;
+
+  /// Whether this pane's link chip is the one screen-reader announcer
+  /// (see [syncChipAnnounces]).
+  final bool announceSyncChip;
   final bool active;
   final bool graceVisible;
   final ScrollController scrollController;
@@ -1228,7 +1270,12 @@ class _PaneSurface extends StatelessWidget {
             constraints.maxWidth,
             MediaQuery.textScalerOf(context),
           ),
-          child: _surfaceColumn(context, l10n, loadingVisible),
+          // Below the scope, so the surface's own reads (the rename
+          // editor's name-column bounds) see the width the rows use.
+          child: Builder(
+            builder: (context) =>
+                _surfaceColumn(context, l10n, loadingVisible),
+          ),
         ),
       ),
     );
@@ -1244,7 +1291,7 @@ class _PaneSurface extends StatelessWidget {
       children: [
         _LocationHeader(
           controller: controller,
-          announceSyncChip: pane.isLeftPane,
+          announceSyncChip: announceSyncChip,
           syncLink: syncLink,
           loadingVisible: loadingVisible,
           onCancel: onCancelNavigation,
@@ -1336,10 +1383,11 @@ class _PaneSurface extends StatelessWidget {
     }
     return [
       ?banner,
-      // 02 §2.7's "Save as favorite…" bar: a live adhoc session past a
-      // successful connect, prefilled from that session. Keyed to the
-      // adhoc id so a save hides the bar for good.
-      if (_saveBarBookmark(controller) case final adhoc?)
+      // 02 §2.7's "Not saved" banner: a live adhoc session past a
+      // successful connect, until a stored server carries its endpoint
+      // or the user dismisses it in this tab.
+      if (_saveBarBookmark(controller) case final adhoc?
+          when !controller.unsavedBannerDismissed)
         Offstage(
           offstage: banner != null,
           child: SaveFavoriteBar(
@@ -1351,6 +1399,7 @@ class _PaneSurface extends StatelessWidget {
             },
             store: bookmarks,
             onNoStore: controller.noteSaveFavoriteUnavailable,
+            onDismiss: controller.dismissUnsavedBanner,
           ),
         ),
     ];
@@ -1545,7 +1594,8 @@ class _PaneSurface extends StatelessWidget {
     // the leading padding and the kind glyph, up to the size/date
     // columns — the metrics the rows themselves lay out with.
     final metrics = PaneColumnMetrics.of(context);
-    final renameStart = metrics.nameStart - 6;
+    // The field's border and inset put its text exactly on the label's x.
+    final renameStart = metrics.nameStart - _renameTextOffset;
     final renameEnd = metrics.trailingExtent;
     if (controller.entries.isEmpty) {
       // Never claim emptiness while a load is in flight (02 §2.8's
@@ -1590,19 +1640,23 @@ class _PaneSurface extends StatelessWidget {
       // diagnostic and its dismissal stay reachable instead of hiding
       // behind "Empty folder" while the close guard still holds.
       if (controller.renameTarget != null) {
-        return Stack(
-          children: [
-            Positioned.fill(child: emptyState),
-            PositionedDirectional(
-              start: renameStart,
-              end: renameEnd,
-              top: 0,
-              child: _RenameEditor(
-                key: renameEditorKey,
-                controller: controller,
+        final extent = scaledPaneRowExtent(context);
+        return LayoutBuilder(
+          builder: (context, constraints) => Stack(
+            children: [
+              Positioned.fill(child: emptyState),
+              PositionedDirectional(
+                start: renameStart,
+                top: 0,
+                child: _RenameEditor(
+                  key: renameEditorKey,
+                  controller: controller,
+                  rowExtent: extent,
+                  maxWidth: constraints.maxWidth - renameStart - renameEnd,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       }
       return emptyState;
@@ -1610,7 +1664,8 @@ class _PaneSurface extends StatelessWidget {
 
     final extent = scaledPaneRowExtent(context);
 
-    return Stack(
+    return LayoutBuilder(
+      builder: (context, constraints) => Stack(
       children: [
         ListView.builder(
           // The drop zone's hit-testing anchor (D14): row extents are
@@ -1640,7 +1695,6 @@ class _PaneSurface extends StatelessWidget {
                   : 0.0;
               return PositionedDirectional(
                 start: renameStart,
-                end: renameEnd,
                 // No clamp: a row scrolled above the viewport carries
                 // its editor off with it — the Stack clips the
                 // overflow, and clipped pixels never hit-test. A
@@ -1650,11 +1704,14 @@ class _PaneSurface extends StatelessWidget {
                 child: _RenameEditor(
                   key: renameEditorKey,
                   controller: controller,
+                  rowExtent: extent,
+                  maxWidth: constraints.maxWidth - renameStart - renameEnd,
                 ),
               );
             },
           ),
       ],
+      ),
     );
   }
 
@@ -1676,6 +1733,7 @@ class _PaneSurface extends StatelessWidget {
       // cursor row is its own marker.
       cursorRing: highlighted && !(selected && controller.selectedCount == 1),
       selected: selected,
+      renaming: controller.renameIndex == index,
       dropTargeted: dropTargetRow == index,
       active: active,
       clock: clock,
@@ -1738,14 +1796,41 @@ class _PaneSurface extends StatelessWidget {
 /// cancel through [PaneController.cancelRename] — the field tier of
 /// §8.2's order. The controller owns the session and its invalidation;
 /// a failed commit re-mounts this field carrying the typed error.
+///
+/// It sits exactly where the label does (Finder's in-place edit): the
+/// text starts at the label's x, the field hugs the name plus a little
+/// slack and grows as the user types up to the name column's width, it
+/// is centered in the row at the row's own text size, and the row hides
+/// its label meanwhile. A refusal renders under the row.
 class _RenameEditor extends StatefulWidget {
-  const _RenameEditor({super.key, required this.controller});
+  const _RenameEditor({
+    super.key,
+    required this.controller,
+    required this.rowExtent,
+    required this.maxWidth,
+  });
 
   final PaneController controller;
+
+  /// The edited row's height — the field centers in it.
+  final double rowExtent;
+
+  /// The name column's width: the field never grows past it.
+  final double maxWidth;
 
   @override
   State<_RenameEditor> createState() => _RenameEditorState();
 }
+
+/// The field's border plus its text inset: the editor starts this far
+/// before the label so the edited text lands on the label's x.
+const double _renameBorder = 1;
+const double _renameInset = 5;
+const double _renameTextOffset = _renameBorder + _renameInset;
+
+/// Room past the name so the caret and the next keystroke never scroll
+/// the start of the name out of view.
+const double _renameSlack = 14;
 
 class _RenameEditorState extends State<_RenameEditor> {
   final _text = TextEditingController();
@@ -1766,15 +1851,21 @@ class _RenameEditorState extends State<_RenameEditor> {
     final name = widget.controller.renameSeed;
     // Pre-select the stem only: the last '.' of a dotted name keeps its
     // extension out of the selection, and dotfiles (a leading dot is
-    // part of the stem, not an extension) select whole.
+    // part of the stem, not an extension) select whole. The selection
+    // runs backwards so its moving end (the caret the field keeps in
+    // view) sits at the start: a name longer than the column shows its
+    // beginning, not a tail scrolled in from the right.
     final dot = name.lastIndexOf('.');
     _text.value = TextEditingValue(
       text: name,
-      selection: dot > 0
-          ? TextSelection(baseOffset: 0, extentOffset: dot)
-          : TextSelection(baseOffset: 0, extentOffset: name.length),
+      selection: TextSelection(
+        baseOffset: dot > 0 ? dot : name.length,
+        extentOffset: 0,
+      ),
     );
     _fieldFocus.addListener(_onFocusChange);
+    // The field hugs the name, so every edit re-measures it.
+    _text.addListener(_onTextChange);
     // autofocus alone cannot take focus from a listing that already
     // holds it — the field must claim primary focus explicitly on open.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1785,9 +1876,17 @@ class _RenameEditorState extends State<_RenameEditor> {
   @override
   void dispose() {
     _fieldFocus.removeListener(_onFocusChange);
+    _text.removeListener(_onTextChange);
     _fieldFocus.dispose();
     _text.dispose();
     super.dispose();
+  }
+
+  String _measured = '';
+
+  void _onTextChange() {
+    if (_text.text == _measured) return;
+    setState(() {});
   }
 
   /// Focus loss cancels the edit (02 §2.6's click-outside rule). Only a
@@ -1820,8 +1919,31 @@ class _RenameEditorState extends State<_RenameEditor> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final error = widget.controller.renameError;
+    // The row's own 13 px name style, on the field's surface colour.
+    final style = (theme.textTheme.bodyMedium ?? const TextStyle()).copyWith(
+      color: colors.onSurface,
+    );
+    _measured = _text.text;
+    final painter = TextPainter(
+      text: TextSpan(text: _measured.isEmpty ? ' ' : _measured, style: style),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final textWidth = painter.width;
+    final lineHeight = painter.height;
+    painter.dispose();
+    final maxWidth = widget.maxWidth < 0 ? 0.0 : widget.maxWidth;
+    final boxWidth = (textWidth + 2 * _renameTextOffset + _renameSlack)
+        .clamp(0.0, maxWidth);
+    // As tall as the row allows (22 px on desktop) and centered in it;
+    // a touch row's 48 dp leaves the box at text height plus a margin.
+    final boxHeight = math.min(widget.rowExtent, lineHeight + 6);
+    final errorText = error == null ? null : _errorText(l10n, error);
+
     return Focus(
       // Esc cancels from inside the field — the field tier of §8.2's
       // order, so an in-flight navigation underneath keeps loading.
@@ -1837,54 +1959,108 @@ class _RenameEditorState extends State<_RenameEditor> {
         widget.controller.cancelRename();
         return KeyEventResult.handled;
       },
-      // A floated label cannot fit the row's height; the field's
-      // accessible name rides Semantics instead.
-      child: Semantics(
-        label: l10n.paneRenameFieldLabel,
-        textField: true,
-        child: TextField(
-          key: ValueKey('${widget.controller.paneTabId}.rename.field'),
-          controller: _text,
-          focusNode: _fieldFocus,
-          autofocus: true,
-          // The row's own 13 px name style, so the edit reads in place.
-          style: Theme.of(context).textTheme.bodyMedium,
-          decoration: InputDecoration(
-            isDense: true,
-            // An opaque fill occludes the row's own name text under the
-            // editor; the border marks the edited extent.
-            filled: true,
-            fillColor: colors.surface,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 6,
-              vertical: 3,
+      child: Padding(
+        padding: EdgeInsets.only(
+          top: math.max(0, (widget.rowExtent - boxHeight) / 2),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              key: ValueKey('${widget.controller.paneTabId}.rename.box'),
+              width: boxWidth,
+              height: boxHeight,
+              alignment: AlignmentDirectional.centerStart,
+              decoration: BoxDecoration(
+                // Opaque, so the accent row never shows through; the
+                // border marks the edited extent.
+                color: colors.surface,
+                border: Border.all(
+                  color: error == null ? colors.primary : colors.error,
+                  width: _renameBorder,
+                ),
+                borderRadius: BorderRadius.circular(3),
+              ),
+              // Legible on the surface fill whatever the row paints
+              // underneath (the accent selection included).
+              child: TextSelectionTheme(
+                data: TextSelectionThemeData(
+                  cursorColor: colors.primary,
+                  selectionColor: colors.primary.withValues(alpha: 0.3),
+                  selectionHandleColor: colors.primary,
+                ),
+                // A floated label cannot fit the row's height; the
+                // field's accessible name rides Semantics instead.
+                child: Semantics(
+                  label: l10n.paneRenameFieldLabel,
+                  textField: true,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: _renameInset,
+                    ),
+                    // No decorator: its baseline layout would push the
+                    // text off-center in a box this short; the box
+                    // above is the field's whole chrome.
+                    child: TextField(
+                      key: ValueKey(
+                        '${widget.controller.paneTabId}.rename.field',
+                      ),
+                      controller: _text,
+                      focusNode: _fieldFocus,
+                      autofocus: true,
+                      maxLines: 1,
+                      style: style,
+                      decoration: null,
+                      onSubmitted: (_) => _submit(),
+                    ),
+                  ),
+                ),
+              ),
             ),
-            border: const OutlineInputBorder(),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: colors.outlineVariant),
-            ),
-            errorText: error == null
-                ? null
-                : switch (error) {
-                    PaneFaultException(:final fault) => switch (fault) {
-                      PaneFault.renameNameEmpty =>
-                        l10n.paneFaultRenameNameEmpty,
-                      PaneFault.renameNameSeparator =>
-                        l10n.paneFaultRenameNameSeparator,
-                      PaneFault.renameNameInvalid =>
-                        l10n.paneFaultRenameNameInvalid,
-                      PaneFault.renameTargetGone =>
-                        l10n.paneFaultRenameTargetGone,
-                      _ => error.message,
-                    },
-                    _ => error.message,
-                  },
-          ),
-          onSubmitted: (_) => _submit(),
+            if (errorText != null)
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: math.max(maxWidth, 0)),
+                child: Container(
+                  margin: const EdgeInsets.only(top: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colors.errorContainer,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  // A live region: the refusal arrives while the field
+                  // keeps focus, so it is announced where it appears.
+                  child: Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      errorText,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
   }
+
+  String _errorText(AppLocalizations l10n, RemoteFileException error) =>
+      switch (error) {
+        PaneFaultException(:final fault) => switch (fault) {
+          PaneFault.renameNameEmpty => l10n.paneFaultRenameNameEmpty,
+          PaneFault.renameNameSeparator => l10n.paneFaultRenameNameSeparator,
+          PaneFault.renameNameInvalid => l10n.paneFaultRenameNameInvalid,
+          PaneFault.renameTargetGone => l10n.paneFaultRenameTargetGone,
+          _ => error.message,
+        },
+        _ => error.message,
+      };
 }
 
 /// 02 §2.5's transient typing badge: shows the accumulated prefix while
@@ -1970,7 +2146,7 @@ class _LocationHeader extends StatelessWidget {
 
   /// Whether this header's link chip is the screen-reader announcer —
   /// both anchored panes show a chip, and only one may announce a state
-  /// change (the left pane's, by convention).
+  /// change (see [syncChipAnnounces]).
   final bool announceSyncChip;
 
   /// The workspace's Sync Browsing link (02 §7): while enabled, both
@@ -2426,6 +2602,7 @@ class _PaneRow extends StatefulWidget {
     required this.highlighted,
     required this.cursorRing,
     required this.selected,
+    this.renaming = false,
     required this.dropTargeted,
     required this.active,
     required this.clock,
@@ -2448,6 +2625,11 @@ class _PaneRow extends StatefulWidget {
   /// cursor must stay identifiable inside a multi-selection by shape,
   /// not tint alone (02 §2.5).
   final bool cursorRing;
+
+  /// The inline editor is open over this row: the editor shows the name
+  /// in place, so the label itself steps aside rather than peeking out
+  /// past the field.
+  final bool renaming;
 
   /// Whether this row is in the selection (02 §2.5).
   final bool selected;
@@ -2576,14 +2758,16 @@ class _PaneRowState extends State<_PaneRow> {
               ),
               const SizedBox(width: PaneColumnMetrics.glyphGap),
               Expanded(
-                child: Text(
-                  widget.entry.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: foreground,
-                  ),
-                ),
+                child: widget.renaming
+                    ? const SizedBox.shrink()
+                    : Text(
+                        widget.entry.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: foreground,
+                        ),
+                      ),
               ),
               // 02 §13's flagged-name marker: the name already shows
               // U+FFFD; the badge + tooltip say why.
