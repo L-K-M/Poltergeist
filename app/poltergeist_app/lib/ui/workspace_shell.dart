@@ -1325,6 +1325,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           focusFilter: _focusHeaderFilter,
           preview: preview,
         ),
+      // 10 §5's ⌥⌘F: the sidebar's filter field, registered with it.
+      if (workspace != null && sidebar != null)
+        buildSidebarFilterCommand(
+          sidebar: sidebar,
+          workspace: workspace,
+          sidebarIsDrawer: () => !_sidebarInline,
+          toggleSidebarDrawer: _toggleSidebarDrawer,
+        ),
       if (workspace != null)
         ...buildShellCommands(
           workspace: workspace,
@@ -2663,16 +2671,42 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// does.
   Widget _buildSidebarView(RegisteredCommand? sshImportCommand) {
     final session = widget.engineSession;
+    final backup = widget.bookmarkBackup;
+    final queue = widget.transferQueue;
+    // The rail's Connect, Settings, and Sync-setup affordances run the
+    // registered commands (D21) — the same enablement and one-shot
+    // session rule as their menu rows; an unregistered one hides.
+    VoidCallback? runCommand(String id) {
+      for (final command in _commands) {
+        if (command.id == id) return () => unawaited(_runCommand(command));
+      }
+      return null;
+    }
+
     return SidebarView(
       controller: _sidebar!,
-      // D22's adoption offer in the empty-favorites state routes
-      // through the registered command: the same enablement and
-      // one-shot session rule apply as the menu row.
+      // D22's adoption offer in the empty-servers state routes through
+      // the registered command: the same enablement and one-shot
+      // session rule apply as the menu row.
       onImportSshConfig: sshImportCommand == null
           ? null
           : () => unawaited(_runCommand(sshImportCommand)),
       connections: _connections,
       probes: _probes,
+      // D32 §5: the active pane marks the selection pill and feeds "Add
+      // Current Folder"; its tabs carry the Quick Connect sessions.
+      workspace: _workspace,
+      volumes: SystemLocalVolumes.host,
+      // Stateless and cheap, like the panes' own delegate in build.
+      dropDelegate: queue == null
+          ? null
+          : PaneDropDelegate(
+              queue: queue,
+              conflictPolicy: widget.conflictPolicy,
+            ),
+      onQuickConnect: runCommand(kConnectQuickConnectCommandId),
+      onOpenSettings: runCommand(kAppSettingsCommandId),
+      onOpenSyncSettings: runCommand(kOpenSettingsBackupCommandId),
       onOpenFavorite: _workspace == null ? null : _openFavorite,
       onUpdateWorkspace: _workspace == null || widget.workspaces == null
           ? null
@@ -2682,30 +2716,31 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       onLocalEdits: widget.checkoutSession == null
           ? null
           : (bookmark) => unawaited(_showLocalEditsReview(bookmark.id)),
-      // The blocked-review affordance exists only where a composition
-      // can start a connect: the session's engine raises the pool's
-      // changed-key review at the attempt (D18).
-      onOpenConnection: session == null || _workspace == null
-          ? null
-          : (server) => unawaited(_openConnectionInOtherPane(server)),
       onDisconnect: session == null
           ? null
           : (server) => unawaited(_disconnectServer(server)),
+      // The blocked-review affordance exists only where a composition
+      // can start a connect: the session's engine raises the pool's
+      // changed-key review at the attempt (D18).
       onReviewBlocked: session == null
           ? null
           : (server) =>
                 unawaited(session.reviewBlockedHostKey(server.serverId)),
       // 04 §4.2's catalog surface: the service owns the pulled
       // serverConfig materialization and the round status; its
-      // notifications repaint the section (the catalog mutates in place,
-      // so the view needs the service's pulses, not the snapshot).
-      catalog: widget.bookmarkBackup?.catalog,
-      catalogListenable: widget.bookmarkBackup,
-      catalogSyncing: widget.bookmarkBackup?.syncing ?? false,
-      catalogSyncError: widget.bookmarkBackup?.lastSyncError,
-      onSyncNow: widget.bookmarkBackup == null
+      // notifications repaint the rail (the catalog mutates in place,
+      // so the view reads the status at build, never a stale copy).
+      catalog: backup?.catalog,
+      catalogListenable: backup,
+      syncStatus: backup == null
           ? null
-          : () => unawaited(_syncNow()),
+          : () => SidebarSyncStatus(
+              enrolled: backup.account != null,
+              syncing: backup.syncing,
+              lastSyncAt: backup.lastSyncAt,
+              error: backup.lastSyncError,
+            ),
+      onSyncNow: backup == null ? null : () => unawaited(_syncNow()),
       onOpenCatalogServer: _workspace == null ? null : _openCatalogServer,
       // 04 §4.2's management verbs: all four ride the editor seam, so
       // they gate together on it — a null delegate leaves the catalog
@@ -3485,44 +3520,6 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       if (workspace.secondPaneShown) return workspace.right;
     }
     return workspace.left;
-  }
-
-  /// The Connections row's "Open in other pane" (02 §4): resolves the
-  /// row's bookmark and binds the pane opposite the active one — the
-  /// same unhide/stage-2 fallback rules as a favorite's modifier click.
-  Future<void> _openConnectionInOtherPane(ConnectionServer server) async {
-    final store = widget.bookmarks;
-    if (store == null) return;
-    try {
-      final bookmark = await store.byId(server.serverId);
-      if (!mounted) return;
-      // Re-resolve after the await: a session swap may have disposed the
-      // captured workspace while the store read was in flight (09 §3.1's
-      // recheck idiom — `mounted` alone does not cover it).
-      final workspace = _workspace;
-      if (workspace == null) return;
-      if (bookmark == null) {
-        // The row outlived its backing bookmark (deleted between render
-        // and tap) — a silent dead tap would read as a broken button.
-        ApplicationErrorReporter().report(
-          StateError('sidebar.connOpen: no bookmark for ${server.serverId}'),
-          StackTrace.current,
-        );
-        return;
-      }
-      final strip = _shownPane(
-        workspace,
-        identical(workspace.activePane, workspace.left)
-            ? workspace.right
-            : workspace.left,
-      );
-      workspace.setActivePane(strip);
-      final tab =
-          strip.activeTab ?? strip.newTab(target: NewTabTarget.launcher);
-      await tab.controller.connectRemote(bookmark);
-    } on Object catch (error, stackTrace) {
-      ApplicationErrorReporter().report(error, stackTrace);
-    }
   }
 
   /// The Connections row's Disconnect (02 §4): drops the pool's

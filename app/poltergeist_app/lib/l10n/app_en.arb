@@ -5534,5 +5534,205 @@
   "viewSortByLabel": "Sort By",
   "@viewSortByLabel": {
     "description": "View menu submenu: sort the listing by Name, Size, or Date Modified."
+  },
+  "sidebarDevicesSection": "Devices",
+  "@sidebarDevicesSection": {
+    "description": "Sidebar section header over the local volumes (D32 §5). Rendered in caps."
+  },
+  "sidebarFavoritesSection": "Favorites",
+  "@sidebarFavoritesSection": {
+    "description": "Sidebar section header over the local-folder, workspace, and saved-sync bookmarks (D32 §5). Rendered in caps."
+  },
+  "sidebarServersSection": "Servers",
+  "@sidebarServersSection": {
+    "description": "Sidebar section header over saved servers, shared-account servers, and live Quick Connect sessions (D32 §5). Rendered in caps."
+  },
+  "sidebarShowSection": "Show",
+  "@sidebarShowSection": {
+    "description": "Tooltip of a collapsed sidebar section's chevron."
+  },
+  "sidebarHideSection": "Hide",
+  "@sidebarHideSection": {
+    "description": "Tooltip of an expanded sidebar section's chevron."
+  },
+  "sidebarFilterHint": "Filter",
+  "@sidebarFilterHint": {
+    "description": "Placeholder of the sidebar's filter field; it filters every section."
+  },
+  "sidebarNoMatches": "No matches",
+  "@sidebarNoMatches": {
+    "description": "Shown in the sidebar when the filter matches no row in any section."
+  },
+  "sidebarAddMenu": "Add",
+  "@sidebarAddMenu": {
+    "description": "Tooltip of the sidebar bottom bar's + menu."
+  },
+  "sidebarSettings": "Settings",
+  "@sidebarSettings": {
+    "description": "Tooltip of the sidebar bottom bar's gear (opens Settings)."
+  },
+  "sidebarAddNewServer": "New Server…",
+  "@sidebarAddNewServer": {
+    "description": "Sidebar + menu: opens the server editor for a new shared-account server."
+  },
+  "sidebarAddQuickConnect": "Quick Connect…",
+  "@sidebarAddQuickConnect": {
+    "description": "Sidebar + menu: opens Connect (⌘K)."
+  },
+  "sidebarAddCurrentFolder": "Add Current Folder to Favorites",
+  "@sidebarAddCurrentFolder": {
+    "description": "Sidebar + menu: saves the active pane's folder. Local folders land in Favorites, remote ones in Servers."
+  },
+  "sidebarFavoritesAdd": "Add Current Folder",
+  "@sidebarFavoritesAdd": {
+    "description": "Tooltip of the Favorites section header's + button."
+  },
+  "sidebarServersAddNew": "New Server",
+  "@sidebarServersAddNew": {
+    "description": "Tooltip of the Servers section header's + button when the server editor is available."
+  },
+  "sidebarServersAddConnect": "Quick Connect",
+  "@sidebarServersAddConnect": {
+    "description": "Tooltip of the Servers section header's + button when only Quick Connect is available."
+  },
+  "sidebarSyncOff": "Sync off",
+  "@sidebarSyncOff": {
+    "description": "Sidebar sync chip while this device is not enrolled in Sync; clicking opens the Sync settings."
+  },
+  "sidebarSyncOffTooltip": "Set up Sync",
+  "@sidebarSyncOffTooltip": {
+    "description": "Tooltip of the sidebar sync chip while Sync is off."
+  },
+  "sidebarSyncFailedChip": "Sync failed",
+  "@sidebarSyncFailedChip": {
+    "description": "Sidebar sync chip after a failed round; clicking retries."
+  },
+  "sidebarSyncNever": "Not synced yet",
+  "@sidebarSyncNever": {
+    "description": "Sidebar sync chip while enrolled but before the first completed round."
+  },
+  "sidebarSyncedJustNow": "Synced · just now",
+  "@sidebarSyncedJustNow": {
+    "description": "Sidebar sync chip within a minute of the last completed round."
+  },
+  "sidebarSyncedMinutes": "Synced · {minutes} min",
+  "@sidebarSyncedMinutes": {
+    "description": "Sidebar sync chip: minutes since the last completed round.",
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarSyncedHours": "Synced · {hours} h",
+  "@sidebarSyncedHours": {
+    "description": "Sidebar sync chip: hours since the last completed round.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarSyncedDays": "Synced · {days} d",
+  "@sidebarSyncedDays": {
+    "description": "Sidebar sync chip: days since the last completed round.",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarTabCount": "×{count}",
+  "@sidebarTabCount": {
+    "description": "Trailing text of a server row shown in more than one tab: the number of tabs.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarFavoritesAddStandard": "Add Desktop, Documents, and Downloads",
+  "@sidebarFavoritesAddStandard": {
+    "description": "Empty-Favorites offer: one click adds whichever of the three folders exist. Favorites sync, so they are never added silently."
+  },
+  "sidebarFavoritesEmpty": "Drag folders here to keep them close.",
+  "@sidebarFavoritesEmpty": {
+    "description": "Empty-Favorites hint when none of the standard folders exist to offer."
+  },
+  "sidebarServersEmpty": "No servers yet. Connect to one, then save it here.",
+  "@sidebarServersEmpty": {
+    "description": "Empty-Servers hint."
+  },
+  "sidebarGroupEmpty": "Drag favorites here",
+  "@sidebarGroupEmpty": {
+    "description": "Placeholder row inside a group created with New Group… that has no members yet."
+  },
+  "sidebarAddToFavorites": "Add to Favorites",
+  "@sidebarAddToFavorites": {
+    "description": "Device row menu verb: saves the volume's folder as a favorite."
+  },
+  "sidebarEject": "Eject",
+  "@sidebarEject": {
+    "description": "Device row verb (menu and hover glyph) for removable volumes."
+  },
+  "sidebarSaveToServers": "Save to Servers…",
+  "@sidebarSaveToServers": {
+    "description": "Menu verb on an unsaved Quick Connect session in the sidebar: saves it as a server."
+  },
+  "sidebarSaveToServersTitle": "Save to Servers",
+  "@sidebarSaveToServersTitle": {
+    "description": "Title of the name dialog that saves a Quick Connect session."
+  },
+  "sidebarUnsavedSession": "not saved",
+  "@sidebarUnsavedSession": {
+    "description": "Announced after a live Quick Connect session's name in the sidebar (the row is shown in italics)."
+  },
+  "sidebarRenameServerTitle": "Rename Server",
+  "@sidebarRenameServerTitle": {
+    "description": "Title of the rename dialog for a saved server row."
+  },
+  "sidebarDeleteServerTitle": "Remove Server",
+  "@sidebarDeleteServerTitle": {
+    "description": "Title of the confirmation before removing a saved server row."
+  },
+  "viewFilterSidebarLabel": "Filter Sidebar",
+  "@viewFilterSidebarLabel": {
+    "description": "Command label: shows and focuses the sidebar's filter field (view.filterSidebar, ⌥⌘F / Ctrl+Alt+F)."
+  },
+  "sidebarEjectFailed": "Couldn't eject “{name}”. Close anything using it and try again.",
+  "@sidebarEjectFailed": {
+    "description": "Shown when the OS refuses to eject a volume.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarAlreadyFavorite": "“{label}” is already in Favorites.",
+  "@sidebarAlreadyFavorite": {
+    "description": "Shown when Add Current Folder names a folder a favorite already holds.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarDeleteServerBody": "Remove “{label}” from Servers? This cannot be undone.",
+  "@sidebarDeleteServerBody": {
+    "description": "Body of the confirmation before removing a saved server row.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarFreeSpaceSemantics": "{size} available",
+  "@sidebarFreeSpaceSemantics": {
+    "description": "Announced after a device's name: its free space.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
   }
 }

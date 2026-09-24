@@ -6471,6 +6471,246 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sort By'**
   String get viewSortByLabel;
+
+  /// Sidebar section header over the local volumes (D32 §5). Rendered in caps.
+  ///
+  /// In en, this message translates to:
+  /// **'Devices'**
+  String get sidebarDevicesSection;
+
+  /// Sidebar section header over the local-folder, workspace, and saved-sync bookmarks (D32 §5). Rendered in caps.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get sidebarFavoritesSection;
+
+  /// Sidebar section header over saved servers, shared-account servers, and live Quick Connect sessions (D32 §5). Rendered in caps.
+  ///
+  /// In en, this message translates to:
+  /// **'Servers'**
+  String get sidebarServersSection;
+
+  /// Tooltip of a collapsed sidebar section's chevron.
+  ///
+  /// In en, this message translates to:
+  /// **'Show'**
+  String get sidebarShowSection;
+
+  /// Tooltip of an expanded sidebar section's chevron.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide'**
+  String get sidebarHideSection;
+
+  /// Placeholder of the sidebar's filter field; it filters every section.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter'**
+  String get sidebarFilterHint;
+
+  /// Shown in the sidebar when the filter matches no row in any section.
+  ///
+  /// In en, this message translates to:
+  /// **'No matches'**
+  String get sidebarNoMatches;
+
+  /// Tooltip of the sidebar bottom bar's + menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get sidebarAddMenu;
+
+  /// Tooltip of the sidebar bottom bar's gear (opens Settings).
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get sidebarSettings;
+
+  /// Sidebar + menu: opens the server editor for a new shared-account server.
+  ///
+  /// In en, this message translates to:
+  /// **'New Server…'**
+  String get sidebarAddNewServer;
+
+  /// Sidebar + menu: opens Connect (⌘K).
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Connect…'**
+  String get sidebarAddQuickConnect;
+
+  /// Sidebar + menu: saves the active pane's folder. Local folders land in Favorites, remote ones in Servers.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Current Folder to Favorites'**
+  String get sidebarAddCurrentFolder;
+
+  /// Tooltip of the Favorites section header's + button.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Current Folder'**
+  String get sidebarFavoritesAdd;
+
+  /// Tooltip of the Servers section header's + button when the server editor is available.
+  ///
+  /// In en, this message translates to:
+  /// **'New Server'**
+  String get sidebarServersAddNew;
+
+  /// Tooltip of the Servers section header's + button when only Quick Connect is available.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Connect'**
+  String get sidebarServersAddConnect;
+
+  /// Sidebar sync chip while this device is not enrolled in Sync; clicking opens the Sync settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync off'**
+  String get sidebarSyncOff;
+
+  /// Tooltip of the sidebar sync chip while Sync is off.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up Sync'**
+  String get sidebarSyncOffTooltip;
+
+  /// Sidebar sync chip after a failed round; clicking retries.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync failed'**
+  String get sidebarSyncFailedChip;
+
+  /// Sidebar sync chip while enrolled but before the first completed round.
+  ///
+  /// In en, this message translates to:
+  /// **'Not synced yet'**
+  String get sidebarSyncNever;
+
+  /// Sidebar sync chip within a minute of the last completed round.
+  ///
+  /// In en, this message translates to:
+  /// **'Synced · just now'**
+  String get sidebarSyncedJustNow;
+
+  /// Sidebar sync chip: minutes since the last completed round.
+  ///
+  /// In en, this message translates to:
+  /// **'Synced · {minutes} min'**
+  String sidebarSyncedMinutes(int minutes);
+
+  /// Sidebar sync chip: hours since the last completed round.
+  ///
+  /// In en, this message translates to:
+  /// **'Synced · {hours} h'**
+  String sidebarSyncedHours(int hours);
+
+  /// Sidebar sync chip: days since the last completed round.
+  ///
+  /// In en, this message translates to:
+  /// **'Synced · {days} d'**
+  String sidebarSyncedDays(int days);
+
+  /// Trailing text of a server row shown in more than one tab: the number of tabs.
+  ///
+  /// In en, this message translates to:
+  /// **'×{count}'**
+  String sidebarTabCount(int count);
+
+  /// Empty-Favorites offer: one click adds whichever of the three folders exist. Favorites sync, so they are never added silently.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Desktop, Documents, and Downloads'**
+  String get sidebarFavoritesAddStandard;
+
+  /// Empty-Favorites hint when none of the standard folders exist to offer.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag folders here to keep them close.'**
+  String get sidebarFavoritesEmpty;
+
+  /// Empty-Servers hint.
+  ///
+  /// In en, this message translates to:
+  /// **'No servers yet. Connect to one, then save it here.'**
+  String get sidebarServersEmpty;
+
+  /// Placeholder row inside a group created with New Group… that has no members yet.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag favorites here'**
+  String get sidebarGroupEmpty;
+
+  /// Device row menu verb: saves the volume's folder as a favorite.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to Favorites'**
+  String get sidebarAddToFavorites;
+
+  /// Device row verb (menu and hover glyph) for removable volumes.
+  ///
+  /// In en, this message translates to:
+  /// **'Eject'**
+  String get sidebarEject;
+
+  /// Menu verb on an unsaved Quick Connect session in the sidebar: saves it as a server.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to Servers…'**
+  String get sidebarSaveToServers;
+
+  /// Title of the name dialog that saves a Quick Connect session.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to Servers'**
+  String get sidebarSaveToServersTitle;
+
+  /// Announced after a live Quick Connect session's name in the sidebar (the row is shown in italics).
+  ///
+  /// In en, this message translates to:
+  /// **'not saved'**
+  String get sidebarUnsavedSession;
+
+  /// Title of the rename dialog for a saved server row.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename Server'**
+  String get sidebarRenameServerTitle;
+
+  /// Title of the confirmation before removing a saved server row.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove Server'**
+  String get sidebarDeleteServerTitle;
+
+  /// Command label: shows and focuses the sidebar's filter field (view.filterSidebar, ⌥⌘F / Ctrl+Alt+F).
+  ///
+  /// In en, this message translates to:
+  /// **'Filter Sidebar'**
+  String get viewFilterSidebarLabel;
+
+  /// Shown when the OS refuses to eject a volume.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t eject “{name}”. Close anything using it and try again.'**
+  String sidebarEjectFailed(String name);
+
+  /// Shown when Add Current Folder names a folder a favorite already holds.
+  ///
+  /// In en, this message translates to:
+  /// **'“{label}” is already in Favorites.'**
+  String sidebarAlreadyFavorite(String label);
+
+  /// Body of the confirmation before removing a saved server row.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove “{label}” from Servers? This cannot be undone.'**
+  String sidebarDeleteServerBody(String label);
+
+  /// Announced after a device's name: its free space.
+  ///
+  /// In en, this message translates to:
+  /// **'{size} available'**
+  String sidebarFreeSpaceSemantics(String size);
 }
 
 class _AppLocalizationsDelegate
