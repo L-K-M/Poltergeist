@@ -36,6 +36,10 @@ final class _Device {
   late final _FlakyVaultStore? vaultStore;
   late final String deviceId;
 
+  /// What the server store's late-bound `syncDeviceId` answers; null
+  /// models a store that cannot stamp its own tombstone tuple.
+  String? storeDeviceId;
+
   static Future<_Device> create(
     Directory parent,
     String name, {
@@ -44,6 +48,7 @@ final class _Device {
   }) async {
     final device = _Device._()
       ..deviceId = 'device-$name'
+      ..storeDeviceId = 'device-$name'
       ..clock = _Clock(_epochMs);
     device.dir = await Directory('${parent.path}/$name').create();
     device.records = PersistentLocalRecordStore(
@@ -64,7 +69,7 @@ final class _Device {
         ? FileServerConfigStore(
             path: '${device.dir.path}/servers.json',
             now: device.clock.call,
-            syncDeviceId: () => device.deviceId,
+            syncDeviceId: () => device.storeDeviceId,
           )
         : null;
     device.vaultStore = shared ? _FlakyVaultStore() : null;
@@ -807,6 +812,24 @@ void main() {
   });
 
   group('serverConfig write path (04 §4.2, amended)', () {
+    test('a delete the store could not tombstone still outranks its live '
+        'tuple', () async {
+      final a = await _Device.create(tempDir, 'a', shared: true);
+      // The envelope is newer than the payload's own stamp: the row keeps
+      // the payload's, the store's tuple the envelope's.
+      server.seed(
+          await _sealServer(_server('web'), updatedAt: _epochMs + 60000));
+      await a.coordinator.runRound(server);
+      final row = (await a.servers!.byId('web'))!;
+      expect(row.updatedAt, lessThan(_epochMs + 60000));
+
+      a.storeDeviceId = null;
+      await _deleteServer(a, row);
+      final tombstone = (await a.records.getRecord('web'))!;
+      expect(tombstone.deleted, isTrue);
+      expect(tombstone.updatedAt, greaterThan(_epochMs + 60000));
+    });
+
     test('onServerSaved seals a prefixless record marked dirty and '
         'refreshes the catalog', () async {
       final device = await _Device.create(tempDir, 'a', shared: true);
