@@ -276,6 +276,11 @@ void main() {
         scheme.surfaceTint,
         3,
       );
+      // D32's chrome surfaces the indicator sits on (sidebar rows, the
+      // header's location title, the inspector).
+      final chrome = buildPoltergeistTheme(
+        brightness,
+      ).extension<PoltergeistChrome>()!;
 
       for (final (name, color) in <(String, Color)>[
         ('connected', ProbeStatusDot.onlineColor),
@@ -287,6 +292,9 @@ void main() {
         for (final background in <(String, Color)>[
           ('surface', scheme.surface),
           ('scrolled-under', scrolled),
+          ('sidebar', chrome.sidebarBackground),
+          ('header', chrome.headerBackground),
+          ('inspector', chrome.inspectorBackground),
         ]) {
           expect(
             contrast(color, background.$2),

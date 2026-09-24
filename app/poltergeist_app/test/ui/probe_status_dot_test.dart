@@ -82,9 +82,18 @@ void main() {
         3,
       );
 
+      // D32's chrome is where the server rows and dots live now: the
+      // sidebar rows, the header's location title, the inspector.
+      final chrome = buildPoltergeistTheme(
+        brightness,
+      ).extension<PoltergeistChrome>()!;
+
       for (final background in <(String, Color)>[
         ('resting', scheme.surface),
         ('scrolled-under', scrolled),
+        ('sidebar', chrome.sidebarBackground),
+        ('header', chrome.headerBackground),
+        ('inspector', chrome.inspectorBackground),
       ]) {
         expect(
           contrast(ProbeStatusDot.onlineColor, background.$2),
