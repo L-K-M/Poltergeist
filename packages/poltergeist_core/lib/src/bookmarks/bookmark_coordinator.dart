@@ -257,8 +257,11 @@ final class BookmarkCoordinator {
     final tuple = await store.syncTupleOf(server.id);
     final deletedAt = tuple != null && tuple.deleted
         ? tuple.updatedAt
-        : deletionStamp(
-            now: _now(), prior: [prior?.updatedAt, server.updatedAt]);
+        : deletionStamp(now: _now(), prior: [
+            prior?.updatedAt,
+            server.updatedAt,
+            tuple?.updatedAt,
+          ]);
     await _records.putLocal(await _crypto.seal(DecryptedRecord(
       id: server.id,
       kind: RecordKind.serverConfig,
@@ -387,7 +390,9 @@ final class BookmarkCoordinator {
   /// them, so apply them now (the freshness floor keeps this
   /// idempotent); then publish every credential a synced server opts in
   /// that the account does not already carry at its current stamp. A
-  /// no-op while the switch is off or outside shared mode.
+  /// no-op while the switch is off or outside shared mode. The lifted
+  /// §4.5 hold runs it again, since what it deferred under the hold is
+  /// behind the cursor too.
   Future<void> catchUpSecrets() async {
     final vault = _secrets;
     final store = _servers;
@@ -884,6 +889,9 @@ final class BookmarkCoordinator {
       await reSealPendingWrites();
       await enrollment.setPassphraseUnverified(false);
       await enrollment.setNotice(syncNoticePassphraseCheckFailed, false);
+      // A catch-up that ran under the hold deferred whatever failed,
+      // and those records sit behind the apply cursor: re-run it.
+      await catchUpSecrets();
       return;
     }
     if (sawFailure) {

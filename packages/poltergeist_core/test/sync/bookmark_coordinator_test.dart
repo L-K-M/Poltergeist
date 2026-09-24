@@ -33,6 +33,7 @@ final class _Device {
   late final SeanceServerCatalog? catalog;
   late final FileServerConfigStore? servers;
   late final SecretVault? secrets;
+  late final _FlakyVaultStore? vaultStore;
   late final String deviceId;
 
   static Future<_Device> create(
@@ -66,15 +67,18 @@ final class _Device {
             syncDeviceId: () => device.deviceId,
           )
         : null;
-    device.secrets =
-        shared ? SecretVault(InMemoryVaultStore(), _key) : null;
+    device.vaultStore = shared ? _FlakyVaultStore() : null;
+    device.secrets = shared ? SecretVault(device.vaultStore!, _key) : null;
     device.rebind(syncSecrets: syncSecrets);
     return device;
   }
 
   /// A fresh coordinator over the same stores — what the app does when
   /// the device-level "Sync saved passwords & keys" switch flips.
-  void rebind({required bool syncSecrets}) {
+  void rebind({
+    required bool syncSecrets,
+    SyncEnrollmentState? enrollment,
+  }) {
     coordinator = BookmarkCoordinator(
       records: records,
       bookmarks: bookmarks,
@@ -87,9 +91,57 @@ final class _Device {
       servers: servers,
       secrets: secrets,
       syncSecrets: syncSecrets,
+      enrollment: enrollment,
       now: clock.call,
     );
   }
+}
+
+/// A vault store that can fail every read and write, like a locked
+/// keychain.
+final class _FlakyVaultStore extends InMemoryVaultStore {
+  bool failing = false;
+
+  @override
+  Future<Uint8List?> getSecretBlob(String id) {
+    if (failing) throw StateError('vault locked');
+    return super.getSecretBlob(id);
+  }
+
+  @override
+  Future<void> putSecretBlob(String id, Uint8List blob) {
+    if (failing) throw StateError('vault locked');
+    return super.putSecretBlob(id, blob);
+  }
+}
+
+/// Just the §4.5 hold flag and notices; nothing is persisted.
+final class _HoldState implements SyncEnrollmentState {
+  bool unverified = true;
+  final noticeSet = <String>{};
+
+  @override
+  Future<String> deviceId() async => 'unused';
+
+  @override
+  Future<bool> passphraseUnverified() async => unverified;
+
+  @override
+  Future<void> setPassphraseUnverified(bool value) async =>
+      unverified = value;
+
+  @override
+  Future<Set<String>> notices() async => Set.of(noticeSet);
+
+  @override
+  Future<void> setNotice(String notice, bool active) async =>
+      active ? noticeSet.add(notice) : noticeSet.remove(notice);
+
+  @override
+  Future<SyncAccount?> account() async => null;
+
+  @override
+  Future<void> setAccount(SyncAccount? account) async {}
 }
 
 Bookmark _bookmark(String id, {String? label}) => Bookmark(
@@ -1282,6 +1334,33 @@ void main() {
       // Idempotent: a second pass has nothing left to publish.
       await a.coordinator.catchUpSecrets();
       expect(await a.records.dirtyRecords(), isEmpty);
+    });
+
+    test('a catch-up the passphrase hold deferred re-runs once the hold '
+        'clears', () async {
+      final a = await _Device.create(tempDir, 'a', shared: true);
+      await _saveServer(
+          a, _server('web2', secretRef: 's2', syncSecret: true));
+      server.seed(
+          await _sealSecret(_secret('s2'), updatedAt: _epochMs + 1));
+      // Switch off: the pull is skipped and the cursor passes it.
+      await a.coordinator.runRound(server);
+
+      // The switch turns on under an unproven passphrase while the
+      // vault fails: the catch-up defers the credential.
+      final hold = _HoldState();
+      a.rebind(syncSecrets: true, enrollment: hold);
+      a.vaultStore!.failing = true;
+      await a.coordinator.catchUpSecrets();
+      a.vaultStore!.failing = false;
+      expect(await a.secrets!.getSecret('s2'), isNull);
+
+      // A foreign record proves the passphrase; the lifted hold re-runs
+      // the catch-up, since no apply pass reaches that record again.
+      server.seed(await _sealBookmark(_bookmark('proof')));
+      await a.coordinator.runRound(server);
+      expect(hold.unverified, isFalse);
+      expect((await a.secrets!.getSecret('s2'))!.value, 'value-s2');
     });
   });
 }
