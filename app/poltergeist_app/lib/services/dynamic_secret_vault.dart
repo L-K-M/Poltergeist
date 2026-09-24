@@ -31,7 +31,11 @@ final class DynamicSecretVault extends SecretVault {
     try {
       vault = await _current();
     } on Object catch (error, stackTrace) {
-      _onError?.call(error, stackTrace);
+      try {
+        _onError?.call(error, stackTrace);
+      } on Object {
+        // Reporting must never mask the keystore fault it reports.
+      }
       rethrow;
     }
     if (vault == null) throw const VaultLockedException();

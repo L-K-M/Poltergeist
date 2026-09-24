@@ -316,8 +316,8 @@ enum PaneNotice {
 
   /// The shown local directory's watch kept failing, so the listing no
   /// longer refreshes on its own (03 §7.5: watcher failure is never
-  /// silent). A navigation, a refresh, or re-activating the tab arms it
-  /// again.
+  /// silent). A navigation to another directory, a refresh, or
+  /// re-activating the tab arms it again.
   watchStopped,
 }
 
@@ -1204,14 +1204,18 @@ class PaneController extends ChangeNotifier {
         }
       }
     }
+    final cancelled = _issuedGeneration;
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
     _snapshot = null;
     notifyListeners();
     // No re-list here: that would re-enter the loading state the user
-    // just cancelled. A change made during the cancelled navigation
-    // shows on the next signal, refresh, or activation.
-    _watchDirty = false;
+    // just cancelled. A change made during a cancelled navigation shows
+    // on the next signal, refresh, or activation. A cancelled watch
+    // re-list is different: the restored rows predate a change the
+    // watch already reported, so the pane stays dirty for the next
+    // flush point.
+    _watchDirty = cancelled == _watchRefreshGeneration;
     _rewatchRestored(relistIfStale: false);
   }
 
@@ -3565,6 +3569,9 @@ class PaneController extends ChangeNotifier {
   /// nothing can signal again, so this counts as a loss.
   void _onWatchStreamDone(AppBrowseChannel channel) {
     if (_disposed || !identical(channel, _watchChannel)) return;
+    // Only a standing watch is lost here: an earlier `lost` (a stream
+    // error forwards one) or a refused arm already accounted for it.
+    final armed = _watchedPath != null;
     _watchEpoch++;
     _watchArming = false;
     _watchedPath = null;
@@ -3576,6 +3583,7 @@ class PaneController extends ChangeNotifier {
       }
       return;
     }
+    if (!armed) return;
     _countWatchLoss();
     _watchDirty = true;
     _flushWatchRefresh();
@@ -3585,6 +3593,8 @@ class PaneController extends ChangeNotifier {
   /// stops re-arming and says so. A delivered change, a new directory,
   /// an explicit refresh, or re-activation restores the budget.
   bool _countWatchLoss() {
+    // A spent budget stays spent, and its notice posts once.
+    if (_watchLosses >= _maxWatchLosses) return false;
     _watchLosses++;
     if (_watchLosses < _maxWatchLosses) return true;
     _postNotice(PaneNotice.watchStopped);

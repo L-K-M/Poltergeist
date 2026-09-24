@@ -28,9 +28,11 @@ void main() {
     // The re-key swaps the keystore entry: the old blob no longer opens,
     // and a new write seals under the new key.
     key = _keyB;
+    expect(await vault.readableSecret('s1'), isNull);
     await vault.putSecret(_secret('s2'));
     expect((await SecretVault(store, _keyB).getSecret('s2'))!.value,
         'value-s2');
+    expect(await SecretVault(store, _keyA).readableSecret('s2'), isNull);
   });
 
   test('no key reads as the locked vault and reports nothing', () async {
@@ -59,5 +61,16 @@ void main() {
 
     await expectLater(vault.putSecret(_secret('s1')), throwsA(same(failure)));
     expect(reports, [same(failure)]);
+  });
+
+  test('a throwing reporter never masks the keystore fault', () async {
+    final failure = StateError('keychain unavailable');
+    final vault = DynamicSecretVault(
+      InMemoryVaultStore(),
+      () async => throw failure,
+      onError: (_, _) => throw StateError('reporter down'),
+    );
+
+    await expectLater(vault.getSecret('s1'), throwsA(same(failure)));
   });
 }

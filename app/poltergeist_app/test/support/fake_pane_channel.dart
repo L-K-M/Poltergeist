@@ -116,6 +116,10 @@ class FakePaneChannel implements AppBrowseChannel {
     }
   }
 
+  /// Ends [directoryChanges] the way a closed channel or a dead engine
+  /// does.
+  Future<void> closeWatchStream() => _watchEvents.close();
+
   @override
   Stream<DirectoryWatchEvent> get directoryChanges => _watchEvents.stream;
 
