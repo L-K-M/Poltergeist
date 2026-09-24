@@ -313,6 +313,12 @@ enum PaneNotice {
 
   /// The inspector's copy-path press landed on the clipboard (02 §2.6).
   pathCopied,
+
+  /// The shown local directory's watch kept failing, so the listing no
+  /// longer refreshes on its own (03 §7.5: watcher failure is never
+  /// silent). A navigation, a refresh, or re-activating the tab arms it
+  /// again.
+  watchStopped,
 }
 
 /// A Sync Browsing mirror probe's verdict bound to the pane operation
@@ -371,8 +377,9 @@ class PaneController extends ChangeNotifier {
 
   /// Quick Open's recents feed (02 §8.4): invoked when an accepted
   /// listing commits a location — navigations, connects, back/forward.
-  /// Restored tabs and rollback restores do NOT call it (a restored
-  /// listing is presentation, not a visit). The strip stamps the same
+  /// Restored tabs, rollback restores, and the directory watch's
+  /// refreshes do NOT call it (a restored or re-listed directory is
+  /// presentation, not a visit). The strip stamps the same
   /// callback on every tab; the shell binds the store.
   void Function(PaneLocation location, {Bookmark? remoteBookmark})?
   onLocationCommitted;
@@ -428,6 +435,38 @@ class PaneController extends ChangeNotifier {
   _RecoveryPhase _recovery = _RecoveryPhase.none;
   Bookmark? _pendingRemote;
   bool _disposed = false;
+
+  // The local directory watch (03 §7.5): the pane's visible tab watches
+  // the directory it shows, non-recursively, over its local channel.
+  // The subscription lives on [_watchChannel]; [_watchedPath] is the
+  // armed (or arming) target, null while unwatched. Signals are matched
+  // by channel identity and [_watchEpoch], never by path: the engine
+  // names the canonical path, the pane keeps the requested spelling.
+  bool _tabActive = true;
+  AppBrowseChannel? _watchChannel;
+  StreamSubscription<DirectoryWatchEvent>? _watchSubscription;
+  String? _watchedPath;
+  int _watchEpoch = 0;
+  bool _watchArming = false;
+  bool _watchLostWhileArming = false;
+
+  /// A change (or loss) arrived that no issued listing covers yet; the
+  /// refresh waits while a listing is in flight or a Quick Select or
+  /// type-ahead session would be torn down by it.
+  bool _watchDirty = false;
+
+  /// The parked rollback channel's watch signalled while a replacement
+  /// was in flight, so a rollback restore must re-list.
+  bool _parkedWatchSignalled = false;
+
+  /// Consecutive watch losses; at [_maxWatchLosses] the tab stops
+  /// re-arming and posts [PaneNotice.watchStopped].
+  int _watchLosses = 0;
+  static const _maxWatchLosses = 3;
+
+  /// The generation a watch-driven refresh issued: its accept records
+  /// no recents visit.
+  int? _watchRefreshGeneration;
 
   // Row identity and selection (02 §2.5): keys mirror [_entries] and the
   // immutable SelectionState owns cursor, anchor, and selected keys as
@@ -637,6 +676,12 @@ class PaneController extends ChangeNotifier {
   /// 02 §2.8's derived state: an issued navigation is outstanding and no
   /// error answered it. A failed or cancelled generation is NOT loading.
   bool get loading => _issuedGeneration > _answeredGeneration && _error == null;
+
+  /// [loading] for a navigation the user is waiting on: a directory
+  /// watch's own re-list (03 §7.5) is not one, so it never holds a tab
+  /// close behind the navigation guard.
+  bool get navigationInFlight =>
+      loading && _issuedGeneration != _watchRefreshGeneration;
 
   /// Verbs act on `location` and are live only on a fresh, error-free
   /// listing of a live binding (02 §2.8): unbound and mid-open phases
@@ -1027,6 +1072,8 @@ class PaneController extends ChangeNotifier {
       if (_error is OpenEntryError) {
         _error = null;
         notifyListeners();
+        // A watch refresh held back by the error runs now.
+        _flushWatchRefresh();
       }
     } on RemoteFileException catch (error) {
       if (_disposed || !identical(_channel, channel)) return;
@@ -1060,7 +1107,30 @@ class PaneController extends ChangeNotifier {
   void refresh() {
     final current = _location;
     if (current == null || _channel == null) return;
+    // An explicit re-list is a fresh chance for a watch that ran out
+    // of losses.
+    _watchLosses = 0;
     navigate(current.path);
+  }
+
+  /// Whether this tab is its pane's visible tab. Only the visible tab
+  /// watches its directory (03 §7.5); the strip owner flips this.
+  bool get tabActive => _tabActive;
+
+  /// The strip's activation edge (03 §7.5): a background tab releases
+  /// its watch, and a tab coming back re-lists (nothing watched it
+  /// meanwhile), which re-arms the watch.
+  void setTabActive(bool active) {
+    if (_disposed || active == _tabActive) return;
+    _tabActive = active;
+    if (!active) {
+      _dropWatch();
+      return;
+    }
+    _watchLosses = 0;
+    if (_channel == null || _location is! LocalPaneLocation) return;
+    _watchDirty = true;
+    _flushWatchRefresh();
   }
 
   /// The Esc tier that cancels navigation (02 §2.8): drops every in-flight
@@ -1125,6 +1195,11 @@ class PaneController extends ChangeNotifier {
     _answeredGeneration = _issuedGeneration;
     _snapshot = null;
     notifyListeners();
+    // No re-list here: that would re-enter the loading state the user
+    // just cancelled. A change made during the cancelled navigation
+    // shows on the next signal, refresh, or activation.
+    _watchDirty = false;
+    _rewatchRestored(relistIfStale: false);
   }
 
   /// Whether Back can walk the trail — false on the oldest entry and
@@ -2465,6 +2540,7 @@ class PaneController extends ChangeNotifier {
     if (_typeAheadBuffer.isEmpty) return;
     _typeAheadBuffer = '';
     notifyListeners();
+    _flushWatchRefresh();
   }
 
   /// 1 s of inactivity resets the buffer (02 §2.5); every keystroke
@@ -2522,6 +2598,7 @@ class PaneController extends ChangeNotifier {
     _quickSelect = null;
     _selection = _selection.withSelectedKeys(session.confirm().selectedKeys);
     notifyListeners();
+    _flushWatchRefresh();
   }
 
   /// Esc: restores the selection captured when the field opened and
@@ -2530,6 +2607,7 @@ class PaneController extends ChangeNotifier {
     if (_disposed || _quickSelect == null) return;
     _endQuickSelectSession();
     notifyListeners();
+    _flushWatchRefresh();
   }
 
   void _updateQuickSelect(
@@ -2676,6 +2754,8 @@ class PaneController extends ChangeNotifier {
     _typeAheadBuffer = '';
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
+    // The channel closes below, which releases the engine-side watch.
+    _dropWatch(unwatch: false);
     _retireRollback();
     unawaited(_releaseBinding());
     super.dispose();
@@ -2908,8 +2988,10 @@ class PaneController extends ChangeNotifier {
           recovery: _recovery,
         );
         // The record owns the channel now; [_releaseBinding] must not
-        // close it.
+        // close it. Its watch stays armed while parked: a restore
+        // re-lists only if it signalled.
         _channel = null;
+        _parkedWatchSignalled = false;
       }
       _location = null;
       // A rebind stands nowhere until its first listing commits — the
@@ -2946,6 +3028,7 @@ class PaneController extends ChangeNotifier {
     _connectionStatus = null;
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
+    _watchDirty = false;
   }
 
   /// Invalidates every in-flight listing answer without touching the
@@ -3028,6 +3111,8 @@ class PaneController extends ChangeNotifier {
     // reset: the restored baseline is what a later Esc-cancel restores,
     // and the new listing prunes it (02 §2.5).
     _endQuickSelectSession();
+    // This listing covers every change signalled so far.
+    _watchDirty = false;
     // A rename's refresh-select hint is consumed by the listing THIS
     // issue's answer accepts; any newer issue invalidates it.
     _pendingRenameSelectPath = null;
@@ -3049,6 +3134,8 @@ class PaneController extends ChangeNotifier {
       // running walk alike.
       _endEnclosedApply();
       _locationRevision++;
+      // A new directory gets a fresh watch-loss budget.
+      _watchLosses = 0;
       // The revision bump retires a pending commit's ownership token —
       // release its in-flight guard so a stalled request cannot keep
       // this location's rename verb closed.
@@ -3106,6 +3193,16 @@ class PaneController extends ChangeNotifier {
     int generation,
   ) async {
     try {
+      if (_wantsWatch(channel) && !_watchHolds(channel, path)) {
+        // Armed BEFORE the listing reads the directory, so no change
+        // can fall between the two (03 §7.5).
+        await _armWatch(path, channel);
+        if (_disposed ||
+            generation != _issuedGeneration ||
+            !identical(channel, _channel)) {
+          return;
+        }
+      }
       final listed = await channel.listDirectory(path);
       if (_disposed ||
           generation != _issuedGeneration ||
@@ -3138,7 +3235,7 @@ class PaneController extends ChangeNotifier {
       // navigation's target.
       _committedLocation = _location;
       final committed = _location;
-      if (committed != null) {
+      if (committed != null && generation != _watchRefreshGeneration) {
         onLocationCommitted?.call(
           committed,
           remoteBookmark: committed is RemotePaneLocation
@@ -3148,6 +3245,9 @@ class PaneController extends ChangeNotifier {
       }
       _error = null;
       notifyListeners();
+      // A change signalled while this listing was in flight may
+      // postdate it.
+      _flushWatchRefresh();
     } on RemoteFileException catch (error) {
       if (_disposed ||
           generation != _issuedGeneration ||
@@ -3158,6 +3258,7 @@ class PaneController extends ChangeNotifier {
       // so the pane stays on it (with the error) rather than rolling
       // back — Esc next routes to Retry, not restore.
       _retireRollback();
+      _dropFailedListingWatch(channel);
       _answeredGeneration = generation;
       if (connectionLost) _recovery = _RecoveryPhase.failed;
       _error = error;
@@ -3169,6 +3270,7 @@ class PaneController extends ChangeNotifier {
         return;
       }
       _retireRollback();
+      _dropFailedListingWatch(channel);
       _report(error, stackTrace);
       _answeredGeneration = generation;
       if (connectionLost) _recovery = _RecoveryPhase.failed;
@@ -3244,6 +3346,10 @@ class PaneController extends ChangeNotifier {
     _channel = null;
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
+    // The close releases the engine-side directory watch with it.
+    if (channel != null && identical(channel, _watchChannel)) {
+      _dropWatch(unwatch: false);
+    }
     if (channel != null) {
       try {
         await channel.close();
@@ -3260,7 +3366,11 @@ class PaneController extends ChangeNotifier {
   void _retireRollback() {
     final rollback = _rollback;
     _rollback = null;
-    if (rollback != null) unawaited(_closeChannel(rollback.channel));
+    if (rollback == null) return;
+    if (identical(rollback.channel, _watchChannel)) {
+      _dropWatch(unwatch: false);
+    }
+    unawaited(_closeChannel(rollback.channel));
   }
 
   /// Esc/cancel while a replacement candidate is still in flight: the
@@ -3333,6 +3443,226 @@ class PaneController extends ChangeNotifier {
       _statusWatch = _watchServerFor(lanes, remote, attempt);
     }
     notifyListeners();
+    final signalled = _parkedWatchSignalled;
+    _parkedWatchSignalled = false;
+    _rewatchRestored(relistIfStale: true, signalled: signalled);
+  }
+
+  // ── local directory watch (03 §7.5) ───────────────────────────────────
+
+  /// Whether a listing on [channel] should hold a watch: the visible
+  /// tab's local binding, with loss budget left.
+  bool _wantsWatch(AppBrowseChannel channel) =>
+      !_disposed &&
+      _tabActive &&
+      _watchLosses < _maxWatchLosses &&
+      identical(channel, _channel) &&
+      _location is LocalPaneLocation;
+
+  /// Whether the watch already stands on [path] over [channel], so a
+  /// same-directory refresh keeps it instead of re-arming.
+  bool _watchHolds(AppBrowseChannel channel, String path) =>
+      identical(channel, _watchChannel) &&
+      _watchedPath == path &&
+      !_watchArming;
+
+  /// Arms (or atomically retargets) the tab's watch on [path]. Never
+  /// throws: a refused watch leaves the pane unwatched, and the listing
+  /// that follows reports the path's own fault. The subscription
+  /// attaches before the first request, since the stream buffers
+  /// nothing and an immediate `lost` precedes the reply.
+  Future<void> _armWatch(String path, AppBrowseChannel channel) async {
+    if (!identical(_watchChannel, channel)) {
+      _dropWatch();
+      _watchChannel = channel;
+      _watchSubscription = channel.directoryChanges.listen(
+        (event) => _onWatchSignal(channel, event.signal),
+        onError: (Object error, StackTrace stackTrace) {
+          if (_disposed || !identical(channel, _watchChannel)) return;
+          _report(error, stackTrace);
+          _onWatchSignal(channel, DirectoryWatchSignal.lost);
+        },
+        onDone: () => _onWatchStreamDone(channel),
+      );
+    }
+    final epoch = ++_watchEpoch;
+    _watchedPath = path;
+    while (true) {
+      _watchArming = true;
+      _watchLostWhileArming = false;
+      try {
+        await channel.watchDirectory(path);
+      } on Object catch (error, stackTrace) {
+        if (epoch != _watchEpoch) return;
+        _watchArming = false;
+        _watchedPath = null;
+        // A refused request can leave the previous target installed.
+        unawaited(_unwatch(channel));
+        if (error is! RemoteFileException) _report(error, stackTrace);
+        return;
+      }
+      if (epoch != _watchEpoch) return;
+      _watchArming = false;
+      if (!_watchLostWhileArming) return;
+      // A `lost` before the reply: the new watch died at subscribe, or
+      // the replaced target spoke last (only a first reply can trail
+      // one of those). Re-arming tells them apart, within the budget.
+      if (!_countWatchLoss()) {
+        _watchedPath = null;
+        // The replaced target's `lost` may have hidden a live watch.
+        unawaited(_unwatch(channel));
+        return;
+      }
+    }
+  }
+
+  void _onWatchSignal(AppBrowseChannel channel, DirectoryWatchSignal signal) {
+    if (_disposed ||
+        !identical(channel, _watchChannel) ||
+        _watchedPath == null) {
+      return;
+    }
+    final lost = signal == DirectoryWatchSignal.lost;
+    if (_watchArming) {
+      // The arm decides once its reply lands, and the listing after the
+      // arm covers any change.
+      if (lost) _watchLostWhileArming = true;
+      return;
+    }
+    // The engine released a lost watch; the next arm starts afresh.
+    if (lost) _watchedPath = null;
+    if (!identical(channel, _channel)) {
+      if (identical(channel, _rollback?.channel)) {
+        _parkedWatchSignalled = true;
+      }
+      return;
+    }
+    if (lost) {
+      // Rescan either way; the budget decides whether it re-arms.
+      _countWatchLoss();
+    } else {
+      // A delivered change proves the watch works.
+      _watchLosses = 0;
+    }
+    _watchDirty = true;
+    _flushWatchRefresh();
+  }
+
+  /// The channel or its engine went away under the subscription:
+  /// nothing can signal again, so this counts as a loss.
+  void _onWatchStreamDone(AppBrowseChannel channel) {
+    if (_disposed || !identical(channel, _watchChannel)) return;
+    _watchEpoch++;
+    _watchArming = false;
+    _watchedPath = null;
+    _watchChannel = null;
+    _watchSubscription = null;
+    if (!identical(channel, _channel)) {
+      if (identical(channel, _rollback?.channel)) {
+        _parkedWatchSignalled = true;
+      }
+      return;
+    }
+    _countWatchLoss();
+    _watchDirty = true;
+    _flushWatchRefresh();
+  }
+
+  /// Counts one watch loss; false once the budget is spent, when the tab
+  /// stops re-arming and says so. A delivered change, a new directory,
+  /// an explicit refresh, or re-activation restores the budget.
+  bool _countWatchLoss() {
+    _watchLosses++;
+    if (_watchLosses < _maxWatchLosses) return true;
+    _postNotice(PaneNotice.watchStopped);
+    return false;
+  }
+
+  /// Runs a pending watch refresh once nothing it would disturb is in
+  /// the way: an in-flight listing (whose accept flushes again), an
+  /// open Quick Select or type-ahead session (their end flushes), a
+  /// pending replacement, or an error on screen, which the re-list
+  /// would clear before the user read it.
+  void _flushWatchRefresh() {
+    if (!_watchDirty ||
+        _disposed ||
+        !_tabActive ||
+        _error != null ||
+        _rollback != null ||
+        _quickSelect != null ||
+        _typeAheadBuffer.isNotEmpty ||
+        _loadingActive()) {
+      return;
+    }
+    final location = _location;
+    if (_channel == null || location is! LocalPaneLocation) return;
+    final issued = _issuedGeneration;
+    navigate(location.path);
+    if (_issuedGeneration != issued) {
+      _watchRefreshGeneration = _issuedGeneration;
+    }
+  }
+
+  /// A restore (Esc's snapshot, a cancelled replacement's rollback)
+  /// brought a listing back without re-listing it. The watch stays if
+  /// it still stands on the restored directory; otherwise
+  /// [relistIfStale] re-lists (which re-arms) or, for Esc, only
+  /// re-arms.
+  void _rewatchRestored({
+    required bool relistIfStale,
+    bool signalled = false,
+  }) {
+    final channel = _channel;
+    final location = _location;
+    if (channel == null ||
+        location is! LocalPaneLocation ||
+        _error != null ||
+        !_wantsWatch(channel)) {
+      _dropWatch();
+      return;
+    }
+    if (_watchHolds(channel, location.path) && !signalled) return;
+    if (relistIfStale) {
+      _watchDirty = true;
+      _flushWatchRefresh();
+      return;
+    }
+    unawaited(_armWatch(location.path, channel));
+  }
+
+  /// A failed listing drops its watch: a rescan answering `notFound` is
+  /// an implicit loss the backend may never report (03 §7.5), and any
+  /// other failure leaves nothing on screen to keep fresh. Retry
+  /// re-arms.
+  void _dropFailedListingWatch(AppBrowseChannel channel) {
+    _watchDirty = false;
+    if (identical(channel, _watchChannel)) _dropWatch();
+  }
+
+  /// Releases the tab's watch. The epoch bump retires an in-flight arm
+  /// and every later signal at once; the engine side is released too
+  /// unless [unwatch] is false because the channel is closing anyway.
+  void _dropWatch({bool unwatch = true}) {
+    final channel = _watchChannel;
+    final armed = _watchedPath != null;
+    _watchEpoch++;
+    _watchArming = false;
+    _watchDirty = false;
+    _watchedPath = null;
+    _watchChannel = null;
+    unawaited(_watchSubscription?.cancel());
+    _watchSubscription = null;
+    if (unwatch && armed && channel != null) unawaited(_unwatch(channel));
+  }
+
+  Future<void> _unwatch(AppBrowseChannel channel) async {
+    try {
+      await channel.unwatchDirectory();
+    } on RemoteFileException {
+      // A closed channel or a dead engine released the watch with it.
+    } on Object catch (error, stackTrace) {
+      _report(error, stackTrace);
+    }
   }
 
   Future<void> _closeChannel(AppBrowseChannel channel) async {

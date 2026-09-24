@@ -1195,6 +1195,10 @@
   "@paneNoticePathCopied": {
     "description": "Transient notice strip (02 §10): the Get Info inspector's copy-path affordance landed on the clipboard (02 §2.6)."
   },
+  "paneNoticeWatchStopped": "This folder stopped updating automatically. Refresh to see new changes.",
+  "@paneNoticeWatchStopped": {
+    "description": "Transient notice strip (02 §10): the shown local folder's change watch failed repeatedly, so the listing no longer refreshes on its own until the next navigation, refresh, or tab switch (03 §7.5: watcher failure is never silent)."
+  },
   "infoPanelLabel": "Info",
   "@infoPanelLabel": {
     "description": "Accessible name of the Get Info inspector panel (02 §2.6)."

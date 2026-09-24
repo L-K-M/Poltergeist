@@ -3026,6 +3026,7 @@ class _NoticeStrip extends StatelessWidget {
                     PaneNotice.saveFavoriteLater =>
                       l10n.paneNoticeSaveFavoriteLater,
                     PaneNotice.pathCopied => l10n.paneNoticePathCopied,
+                    PaneNotice.watchStopped => l10n.paneNoticeWatchStopped,
                     null => '',
                   },
                   style: Theme.of(context).textTheme.bodySmall,

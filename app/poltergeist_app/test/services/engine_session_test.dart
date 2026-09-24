@@ -260,6 +260,25 @@ class FakeAppBrowseChannel implements AppBrowseChannel {
     return listings[path] ?? const [];
   }
 
+  /// Recorded watch requests; the stream stays open like a live
+  /// channel's and never signals.
+  final watchCalls = <String>[];
+  int unwatchCalls = 0;
+  final _watchEvents = StreamController<DirectoryWatchEvent>.broadcast();
+
+  @override
+  Stream<DirectoryWatchEvent> get directoryChanges => _watchEvents.stream;
+
+  @override
+  Future<void> watchDirectory(String path) async {
+    watchCalls.add(path);
+  }
+
+  @override
+  Future<void> unwatchDirectory() async {
+    unwatchCalls++;
+  }
+
   /// Recorded rename calls and a scripted failure — null succeeds.
   final renameCalls = <(String, String)>[];
   Object? renameFailure;

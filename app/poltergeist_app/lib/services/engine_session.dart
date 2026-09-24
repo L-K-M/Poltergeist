@@ -75,7 +75,22 @@ abstract interface class AppEngine implements PromptBridge, ProbeBridge, PaneEng
 abstract interface class AppBrowseChannel {
   String get homePath;
 
+  /// Invalidation signals for the one directory this channel watches
+  /// (03 §7.5): broadcast, unbuffered, live across retargets. Local
+  /// channels only.
+  Stream<DirectoryWatchEvent> get directoryChanges;
+
   Future<List<RemoteFileEntry>> listDirectory(String path);
+
+  /// Starts or atomically retargets this channel's single
+  /// non-recursive watch on [path] (03 §7.5). Subscribe to
+  /// [directoryChanges] first: an immediate `lost` precedes the reply.
+  /// A remote channel answers the typed `unsupported` refusal.
+  Future<void> watchDirectory(String path);
+
+  /// Releases this channel's watch without a signal; idempotent on
+  /// local channels. Closing the channel releases it too.
+  Future<void> unwatchDirectory();
 
   /// Renames one entry inside its directory (02 §2.6's inline rename):
   /// [oldPath] and [newPath] share a parent, and a destination that
@@ -215,8 +230,8 @@ final class _EngineClientAppEngine implements AppEngine {
   Future<void> shutdown() => _client.shutdown();
 }
 
-/// [EngineClient]'s channel behind the app composition's seam (the same
-/// three members; interfaces stay nominal across the port).
+/// [EngineClient]'s channel behind the app composition's seam
+/// (interfaces stay nominal across the port).
 final class _EngineClientChannel implements AppBrowseChannel {
   _EngineClientChannel(this._channel);
 
@@ -226,8 +241,18 @@ final class _EngineClientChannel implements AppBrowseChannel {
   String get homePath => _channel.homePath;
 
   @override
+  Stream<DirectoryWatchEvent> get directoryChanges =>
+      _channel.directoryChanges;
+
+  @override
   Future<List<RemoteFileEntry>> listDirectory(String path) =>
       _channel.listDirectory(path);
+
+  @override
+  Future<void> watchDirectory(String path) => _channel.watchDirectory(path);
+
+  @override
+  Future<void> unwatchDirectory() => _channel.unwatchDirectory();
 
   @override
   Future<void> rename(String oldPath, String newPath) =>
