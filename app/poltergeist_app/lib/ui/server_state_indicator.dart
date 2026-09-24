@@ -231,7 +231,9 @@ class ServerStateGlyph extends StatelessWidget {
             ),
           ),
           // The same green the probe dot uses: one "connected" color per app.
-          ServerIndicatorGlyph.connected => _dot(ProbeStatusDot.onlineColor),
+          ServerIndicatorGlyph.connected => _dot(
+            ProbeStatusDot.onlineColorOf(context),
+          ),
           ServerIndicatorGlyph.idle => _dot(scheme.outline),
           ServerIndicatorGlyph.failed => _dot(scheme.error),
           ServerIndicatorGlyph.blocked => Icon(

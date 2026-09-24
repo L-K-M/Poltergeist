@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../l10n/app_localizations.dart';
+import '../theme/app_theme.dart';
 
 /// Tri-state probe dot for the interim server list (02 §4): `unknown`
 /// grey, `online` green, `offline` error red. Colors are theme-aware and
@@ -11,11 +12,11 @@ import '../l10n/app_localizations.dart';
 class ProbeStatusDot extends StatelessWidget {
   const ProbeStatusDot(this.status, {super.key});
 
-  /// A mid green that clears 3:1 on both D32 palettes — the slate dark
-  /// and Finder-light surfaces, their scrolled-under tints, and the
-  /// sidebar the server rows sit on (Material green 800 fell to 2.85:1
-  /// on the slate surface).
-  static const onlineColor = Color(0xFF3A963E);
+  /// The theme's connected green ([PoltergeistChrome.statusConnected]):
+  /// one per palette, so it clears 3:1 on the slate dark and
+  /// Finder-light surfaces alike, the sidebar's selection pill included.
+  static Color onlineColorOf(BuildContext context) =>
+      PoltergeistChrome.of(context).statusConnected;
 
   /// The dot's painted diameter and the padded box holding it — the one
   /// geometry every server indicator shares ([ServerStateGlyph] references
@@ -36,7 +37,7 @@ class ProbeStatusDot extends StatelessWidget {
       ProbeStatus.unknown => l10n.probeStatusUnknown,
     };
     final color = switch (status) {
-      ProbeStatus.online => onlineColor,
+      ProbeStatus.online => onlineColorOf(context),
       ProbeStatus.offline => scheme.error,
       ProbeStatus.unknown => scheme.outline,
     };

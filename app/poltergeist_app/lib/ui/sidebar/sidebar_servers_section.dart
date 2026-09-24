@@ -320,7 +320,6 @@ class _SavedServerRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = data.l10n;
     final view = data.view;
-    final scheme = Theme.of(context).colorScheme;
     final id = bookmark.id;
     final status = _liveStatus(data, id);
     final probe = view.probes?.statuses[id];
@@ -368,7 +367,7 @@ class _SavedServerRow extends StatelessWidget {
 
     Widget row(SidebarDropIndicator indicator) => SidebarRow(
       mark: mark,
-      statusColor: _indicatorDotColor(scheme, appearance, probe),
+      statusColor: _indicatorDotColor(context, appearance, probe),
       title: bookmark.label,
       depth: depth,
       dropIndicator: indicator,
@@ -478,7 +477,6 @@ class _CatalogServerRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = data.l10n;
     final view = data.view;
-    final scheme = Theme.of(context).colorScheme;
     final status = _liveStatus(data, server.id);
     final probe = view.probes?.statuses[server.id];
     final appearance = serverIndicatorOf(l10n, status: status, probe: probe);
@@ -504,7 +502,7 @@ class _CatalogServerRow extends StatelessWidget {
           server.mark,
           label: server.label,
         ),
-        statusColor: _indicatorDotColor(scheme, appearance, probe),
+        statusColor: _indicatorDotColor(context, appearance, probe),
         title: server.label,
         depth: depth,
         trailingText: _tabsText(data, server.id),
@@ -562,7 +560,6 @@ class _AdhocRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = data.l10n;
     final view = data.view;
-    final scheme = Theme.of(context).colorScheme;
     final bookmark = session.bookmark;
     final status = _liveStatus(data, bookmark.id);
     final appearance = serverIndicatorOf(l10n, status: status);
@@ -582,7 +579,7 @@ class _AdhocRow extends StatelessWidget {
         size: 16,
         color: PoltergeistChrome.of(context).secondaryText,
       ),
-      statusColor: _indicatorDotColor(scheme, appearance, null),
+      statusColor: _indicatorDotColor(context, appearance, null),
       title: bookmark.label,
       italic: true,
       trailingText: _tabsText(data, bookmark.id),

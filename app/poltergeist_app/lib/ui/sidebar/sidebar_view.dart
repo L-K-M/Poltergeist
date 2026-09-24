@@ -698,20 +698,24 @@ List<SidebarMenuEntry> _openVerbs(
 /// The corner dot's colour for one composed indicator — every server row
 /// paints the same truth the same way (02 §4: exactly one indicator).
 Color? _indicatorDotColor(
-  ColorScheme scheme,
+  BuildContext context,
   ServerIndicatorAppearance appearance,
   ProbeStatus? probe,
-) => switch (appearance.glyph) {
-  ServerIndicatorGlyph.probe => switch (probe) {
-    ProbeStatus.online => ProbeStatusDot.onlineColor,
-    ProbeStatus.offline => scheme.error,
-    _ => scheme.outline,
-  },
-  ServerIndicatorGlyph.connected => ProbeStatusDot.onlineColor,
-  ServerIndicatorGlyph.pending => scheme.primary,
-  ServerIndicatorGlyph.failed || ServerIndicatorGlyph.blocked => scheme.error,
-  ServerIndicatorGlyph.none || ServerIndicatorGlyph.idle => null,
-};
+) {
+  final scheme = Theme.of(context).colorScheme;
+  final connected = ProbeStatusDot.onlineColorOf(context);
+  return switch (appearance.glyph) {
+    ServerIndicatorGlyph.probe => switch (probe) {
+      ProbeStatus.online => connected,
+      ProbeStatus.offline => scheme.error,
+      _ => scheme.outline,
+    },
+    ServerIndicatorGlyph.connected => connected,
+    ServerIndicatorGlyph.pending => scheme.primary,
+    ServerIndicatorGlyph.failed || ServerIndicatorGlyph.blocked => scheme.error,
+    ServerIndicatorGlyph.none || ServerIndicatorGlyph.idle => null,
+  };
+}
 
 /// A section's secondary line: loading, empty, or no-match copy, set in
 /// the rail's caption style and inset like a row title.

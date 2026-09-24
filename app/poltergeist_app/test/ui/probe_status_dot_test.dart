@@ -35,26 +35,28 @@ Container _dot(WidgetTester tester) => tester.widget<Container>(
 void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
 
-  for (final entry in <(ProbeStatus, String, Color Function(ColorScheme))>[
+  for (final entry in <(ProbeStatus, String, Color Function(ThemeData))>[
     (
       ProbeStatus.online,
       l10n.probeStatusOnline,
-      (_) => ProbeStatusDot.onlineColor,
+      (t) => t.extension<PoltergeistChrome>()!.statusConnected,
     ),
-    (ProbeStatus.offline, l10n.probeStatusOffline, (s) => s.error),
-    (ProbeStatus.unknown, l10n.probeStatusUnknown, (s) => s.outline),
+    (ProbeStatus.offline, l10n.probeStatusOffline, (t) => t.colorScheme.error),
+    (
+      ProbeStatus.unknown,
+      l10n.probeStatusUnknown,
+      (t) => t.colorScheme.outline,
+    ),
   ]) {
     testWidgets('renders ${entry.$1.name} with tooltip and semantics', (
       tester,
     ) async {
       await _pump(tester, ProbeStatusDot(entry.$1));
 
-      final scheme = Theme.of(
-        tester.element(find.byType(ProbeStatusDot)),
-      ).colorScheme;
+      final theme = Theme.of(tester.element(find.byType(ProbeStatusDot)));
       final dot = _dot(tester);
       final decoration = dot.decoration! as BoxDecoration;
-      expect(decoration.color, entry.$3(scheme));
+      expect(decoration.color, entry.$3(theme));
       expect(find.byTooltip(entry.$2), findsOneWidget);
 
       final semantics = tester.ensureSemantics();
@@ -96,7 +98,7 @@ void main() {
         ('inspector', chrome.inspectorBackground),
       ]) {
         expect(
-          contrast(ProbeStatusDot.onlineColor, background.$2),
+          contrast(chrome.statusConnected, background.$2),
           greaterThanOrEqualTo(minimumNonTextContrast),
           reason: 'online on ${background.$1} (${brightness.name})',
         );
@@ -192,7 +194,9 @@ void main() {
           }
         }))!;
         final expected = switch (status) {
-          ProbeStatus.online => ProbeStatusDot.onlineColor,
+          ProbeStatus.online => ProbeStatusDot.onlineColorOf(
+            tester.element(find.byType(ProbeStatusDot)),
+          ),
           ProbeStatus.offline => Theme.of(
             tester.element(find.byType(ProbeStatusDot)),
           ).colorScheme.error,
