@@ -1158,8 +1158,10 @@ final class SyncPlanController extends ChangeNotifier {
     lastRunAt: _pair.lastRunAt,
   );
 
-  /// SyncRuleSet carries no copyWith — the few edits the view makes go
-  /// through this one place so a missed field cannot silently revert.
+  /// The few edits the view makes go through this one place: the
+  /// package's [SyncRuleSet.copyWith] keeps every other field, and the
+  /// bidirectional × deletions invariant collapses here — dropping the
+  /// deletion policy when the direction no longer admits it.
   SyncRuleSet _rulesWith({
     SyncDirection? direction,
     DeletionPolicy? deletions,
@@ -1168,30 +1170,13 @@ final class SyncPlanController extends ChangeNotifier {
   }) {
     final rules = _pair.rules;
     final nextDirection = direction ?? rules.direction;
-    final nextDeletions = deletions ?? rules.deletions;
-    // The bidirectional × deletions invariant fails the constructor —
-    // drop the deletion policy when the direction no longer admits it.
-    final effectiveDeletions =
-        nextDirection == SyncDirection.bidirectional
-        ? DeletionPolicy.none
-        : nextDeletions;
-    return SyncRuleSet(
+    return rules.copyWith(
       direction: nextDirection,
-      deletions: effectiveDeletions,
-      backups: rules.backups,
-      comparison: comparison ?? rules.comparison,
-      mtimeToleranceSecs: rules.mtimeToleranceSecs,
-      acceptedTimeShifts: rules.acceptedTimeShifts,
-      conflictDefault: rules.conflictDefault,
-      excludeGlobs: excludeGlobs ?? rules.excludeGlobs,
-      includeHidden: rules.includeHidden,
-      symlinks: rules.symlinks,
-      trashPathLeft: rules.trashPathLeft,
-      trashPathRight: rules.trashPathRight,
-      maxDelete: rules.maxDelete,
-      deleteFractionWarn: rules.deleteFractionWarn,
-      preserveMtime: rules.preserveMtime,
-      transferConcurrency: rules.transferConcurrency,
+      deletions: nextDirection == SyncDirection.bidirectional
+          ? DeletionPolicy.none
+          : deletions ?? rules.deletions,
+      comparison: comparison,
+      excludeGlobs: excludeGlobs,
     );
   }
 

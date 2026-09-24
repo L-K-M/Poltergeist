@@ -206,6 +206,61 @@ class SyncRuleSet {
   /// Default 4, clamped to 1..8.
   final int transferConcurrency;
 
+  /// A copy with the named fields replaced. Every UI edit of a stored
+  /// set goes through here, so a field the editing surface does not
+  /// show (acceptedTimeShifts, symlinks, trash paths…) can never
+  /// silently revert to its default. The nullable trash paths take a
+  /// getter so a caller can clear one (`trashPathLeft: () => null`).
+  ///
+  /// The direction × deletions invariant is checked at runtime (the
+  /// constructor's assert is stripped in release builds): a caller
+  /// switching to bidirectional must drop the deletion policy itself —
+  /// a copy never guesses which of the two fields the user meant.
+  SyncRuleSet copyWith({
+    SyncDirection? direction,
+    DeletionPolicy? deletions,
+    BackupPolicy? backups,
+    ComparisonMode? comparison,
+    int? mtimeToleranceSecs,
+    List<int>? acceptedTimeShifts,
+    ConflictDefault? conflictDefault,
+    List<String>? excludeGlobs,
+    bool? includeHidden,
+    SymlinkPolicy? symlinks,
+    String? Function()? trashPathLeft,
+    String? Function()? trashPathRight,
+    int? maxDelete,
+    double? deleteFractionWarn,
+    bool? preserveMtime,
+    int? transferConcurrency,
+  }) {
+    final nextDirection = direction ?? this.direction;
+    final nextDeletions = deletions ?? this.deletions;
+    validateDirectionDeletions(nextDirection, nextDeletions);
+    return SyncRuleSet(
+      direction: nextDirection,
+      deletions: nextDeletions,
+      backups: backups ?? this.backups,
+      comparison: comparison ?? this.comparison,
+      mtimeToleranceSecs: mtimeToleranceSecs ?? this.mtimeToleranceSecs,
+      acceptedTimeShifts: acceptedTimeShifts ?? this.acceptedTimeShifts,
+      conflictDefault: conflictDefault ?? this.conflictDefault,
+      excludeGlobs: excludeGlobs ?? this.excludeGlobs,
+      includeHidden: includeHidden ?? this.includeHidden,
+      symlinks: symlinks ?? this.symlinks,
+      trashPathLeft: trashPathLeft == null
+          ? this.trashPathLeft
+          : trashPathLeft(),
+      trashPathRight: trashPathRight == null
+          ? this.trashPathRight
+          : trashPathRight(),
+      maxDelete: maxDelete ?? this.maxDelete,
+      deleteFractionWarn: deleteFractionWarn ?? this.deleteFractionWarn,
+      preserveMtime: preserveMtime ?? this.preserveMtime,
+      transferConcurrency: transferConcurrency ?? this.transferConcurrency,
+    );
+  }
+
   /// The mode check as a runtime validation — the constructor's assert
   /// is stripped in release builds, so a stored set the journal
   /// reconstructs must not carry an invalid direction × deletions

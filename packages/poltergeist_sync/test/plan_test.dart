@@ -70,6 +70,81 @@ void main() {
     });
   });
 
+  group('SyncRuleSet.copyWith', () {
+    const full = SyncRuleSet(
+      direction: SyncDirection.rightToLeft,
+      deletions: DeletionPolicy.permanent,
+      backups: BackupPolicy.none,
+      comparison: ComparisonMode.contentHash,
+      mtimeToleranceSecs: 5,
+      acceptedTimeShifts: [3600, 7200],
+      conflictDefault: ConflictDefault.keepRight,
+      excludeGlobs: ['*.log'],
+      includeHidden: false,
+      symlinks: SymlinkPolicy.copyAsLink,
+      trashPathLeft: '/l/trash',
+      trashPathRight: '/r/trash',
+      maxDelete: 9,
+      deleteFractionWarn: 0.25,
+      preserveMtime: false,
+      transferConcurrency: 7,
+    );
+
+    test('with no arguments is a structurally equal copy', () {
+      // Every field survives — the regression the pair editor had was
+      // a rebuild that dropped acceptedTimeShifts and symlinks.
+      expect(full.copyWith(), equals(full));
+      expect(full.copyWith().symlinks, SymlinkPolicy.copyAsLink);
+      expect(full.copyWith().acceptedTimeShifts, [3600, 7200]);
+    });
+
+    test('replaces only the named fields', () {
+      final copy = full.copyWith(
+        comparison: ComparisonMode.sizeOnly,
+        includeHidden: true,
+      );
+      expect(copy.comparison, ComparisonMode.sizeOnly);
+      expect(copy.includeHidden, isTrue);
+      expect(copy.excludeGlobs, ['*.log']);
+      expect(copy.maxDelete, 9);
+      expect(copy.trashPathRight, '/r/trash');
+    });
+
+    test('trash-path getters can clear a path', () {
+      final copy = full.copyWith(trashPathLeft: () => null);
+      expect(copy.trashPathLeft, isNull);
+      expect(copy.trashPathRight, '/r/trash');
+      expect(
+        full.copyWith(trashPathRight: () => '/elsewhere').trashPathRight,
+        '/elsewhere',
+      );
+    });
+
+    test('refuses a bidirectional set that still deletes', () {
+      // A copy never guesses which field the caller meant — switching
+      // to Additive has to drop the deletion policy explicitly.
+      expect(
+        () => full.copyWith(direction: SyncDirection.bidirectional),
+        throwsArgumentError,
+      );
+      final additive = full.copyWith(
+        direction: SyncDirection.bidirectional,
+        deletions: DeletionPolicy.none,
+      );
+      expect(additive.direction, SyncDirection.bidirectional);
+      expect(additive.deletions, DeletionPolicy.none);
+    });
+
+    test('keeps the constructor clamps', () {
+      final copy = const SyncRuleSet().copyWith(
+        mtimeToleranceSecs: -3,
+        transferConcurrency: 99,
+      );
+      expect(copy.mtimeToleranceSecs, 0);
+      expect(copy.transferConcurrency, 8);
+    });
+  });
+
   group('the three v1 modes encode as direction x deletion policy', () {
     test('Update: one-way, no deletions', () {
       const update = SyncRuleSet();

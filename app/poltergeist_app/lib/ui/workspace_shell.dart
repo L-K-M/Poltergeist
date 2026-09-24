@@ -3180,6 +3180,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       context: context,
       builder: (_) => SyncPairEditorDialog(
         initial: session.pair,
+        // The live session's answers seed the case fields — an
+        // unrelated save must not reset them to "auto".
+        initialCaseOverrides: SyncCaseOverrides(
+          left: session.pairState.caseSensitiveOverrideLeft,
+          right: session.pairState.caseSensitiveOverrideRight,
+        ),
         servers: servers,
         saveLabel: l10n.syncEditorSaveAndRescan,
       ),
