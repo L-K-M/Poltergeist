@@ -1204,18 +1204,28 @@ class PaneController extends ChangeNotifier {
         }
       }
     }
-    final cancelled = _issuedGeneration;
+    final answered = _answeredGeneration;
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
     _snapshot = null;
     notifyListeners();
     // No re-list here: that would re-enter the loading state the user
-    // just cancelled. A change made during a cancelled navigation shows
-    // on the next signal, refresh, or activation. A cancelled watch
-    // re-list is different: the restored rows predate a change the
-    // watch already reported, so the pane stays dirty for the next
-    // flush point.
-    _watchDirty = cancelled == _watchRefreshGeneration;
+    // just cancelled. A change made to the restored directory during a
+    // navigation elsewhere shows on the next signal, refresh, or
+    // activation. The pane stays dirty for the next flush point when
+    // the restored rows predate a change the watch already reported: a
+    // watch re-list issued after them never answered (cancelled itself,
+    // or superseded by the cancelled navigation), or the restored
+    // directory's own standing watch signalled during a cancelled
+    // refresh of it.
+    final relistLost = (_watchRefreshGeneration ?? 0) > answered;
+    final channel = _channel;
+    final location = _location;
+    final ownDirt = _watchDirty &&
+        channel != null &&
+        location is LocalPaneLocation &&
+        _watchHolds(channel, location.path);
+    _watchDirty = relistLost || ownDirt;
     _rewatchRestored(relistIfStale: false);
   }
 
