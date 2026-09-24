@@ -563,7 +563,14 @@ void main() {
     tester.view.physicalSize = const Size(1100, 720);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    queue.addTask(state: TransferTaskState.running, totalBytes: 4000);
+    final task = queue.addTask(
+      state: TransferTaskState.running,
+      totalBytes: 4000,
+    );
+    // The conflict strip and the restored banner share the column too.
+    final item = queue.addItem(task, name: 'a-long-conflicting-name.txt');
+    queue.addConflict(task, item);
+    queue.addTask(state: TransferTaskState.paused, wasRestored: true);
     await tester.pumpWidget(
       MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -595,6 +602,9 @@ void main() {
       'activity.clearCompleted',
       'activity.tab.activity',
       'activity.tab.history',
+      'activity.restoredBanner.resume',
+      'activity.restoredBanner.discard',
+      'activity.conflictResolve.${item.id}',
     ]) {
       expect(find.byKey(ValueKey(key)).hitTestable(), findsOneWidget);
     }

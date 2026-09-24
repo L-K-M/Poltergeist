@@ -328,27 +328,40 @@ class _RestoredBanner extends StatelessWidget {
       color: colors.tertiaryContainer.withValues(alpha: 0.5),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Row(
+        // The message over its verbs: the Transfers tab is only the
+        // inspector's width (D32), too narrow for one row of both.
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.history, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                l10n.activityRestoredBanner(count),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
+            Row(
+              children: [
+                const Icon(Icons.history, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    l10n.activityRestoredBanner(count),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ),
+              ],
             ),
-            TextButton(
-              key: const ValueKey('activity.restoredBanner.resume'),
-              onPressed: controller.resumeRestoredQueue,
-              child: Text(l10n.activityRestoredResume),
-            ),
-            TextButton(
-              key: const ValueKey('activity.restoredBanner.discard'),
-              onPressed: controller.discardRestoredQueue,
-              child: Text(l10n.activityRestoredDiscard),
+            OverflowBar(
+              alignment: MainAxisAlignment.end,
+              overflowAlignment: OverflowBarAlignment.end,
+              children: [
+                TextButton(
+                  key: const ValueKey('activity.restoredBanner.resume'),
+                  onPressed: controller.resumeRestoredQueue,
+                  child: Text(l10n.activityRestoredResume),
+                ),
+                TextButton(
+                  key: const ValueKey('activity.restoredBanner.discard'),
+                  onPressed: controller.discardRestoredQueue,
+                  child: Text(l10n.activityRestoredDiscard),
+                ),
+              ],
             ),
           ],
         ),
