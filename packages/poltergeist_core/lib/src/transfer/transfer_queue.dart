@@ -4875,10 +4875,9 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
       ? leases[location.serverId]!.fs
       : _localFileSystem;
 
-  /// Server ids are deduped: FsLocation has no value equality, so a
-  /// same-server transfer (two ServerFsLocation instances naming one
-  /// server) would otherwise double-lease — the map overwrite would then
-  /// strand the first lease forever.
+  /// Server ids are deduped: a same-server transfer names one server on
+  /// both ends, and leasing it twice would let the map overwrite strand
+  /// the first lease forever.
   List<String> _serverIds(Set<FsLocation> locations) => [
     ...{
       for (final location in locations)

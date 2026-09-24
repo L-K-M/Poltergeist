@@ -8,6 +8,7 @@ import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
+import '../../support/fake_app_transfer_queue.dart';
 import '../../support/fake_bookmark_store.dart';
 import '../../support/shell_commands.dart';
 
@@ -36,7 +37,10 @@ void main() {
       ..listings['/home/demo'] = [_entry('/home/demo', 'remote.txt')];
   });
 
-  Future<void> pumpApp(WidgetTester tester) async {
+  Future<void> pumpApp(
+    WidgetTester tester, {
+    FakeAppTransferQueue? queue,
+  }) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -59,6 +63,7 @@ void main() {
         bookmarks: bookmarks,
         engineSession: session,
         navigatorKey: navigatorKey,
+        transferQueue: queue,
       ),
     );
     await tester.pumpAndSettle();
@@ -101,5 +106,32 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('connect.dialog')), findsNothing);
     expect(engine.openCalls, isEmpty);
+  });
+
+  testWidgets('a finished upload refreshes the remote pane showing its '
+      'destination', (tester) async {
+    final queue = FakeAppTransferQueue();
+    await pumpApp(tester, queue: queue);
+    await runShellCommand(tester, 'connect.quickConnect');
+    await tester.enterText(
+      find.byKey(const ValueKey('quickConnect.field')),
+      'demo@example.com',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    final remote = engine.channel!;
+    final listedBefore = remote.listCalls.length;
+
+    // The queue's task carries its OWN endpoint instance (built by the
+    // enqueue path, or decoded from the journal) — never the pane's.
+    queue.addTask(
+      destination: ServerFsLocation(engine.openCalls.single.serverId),
+      destinationDir: '/home/demo',
+      state: TransferTaskState.completed,
+    );
+    await tester.pumpAndSettle();
+
+    expect(remote.listCalls.length, greaterThan(listedBefore));
+    expect(remote.listCalls.last, '/home/demo');
   });
 }
