@@ -925,6 +925,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'sidebar.open: localFolder ${bookmark.id} has no path'",
     r"'sidebar.open: savedSync ${bookmark.id} has no spec'",
     r"'sidebar.connOpen: no bookmark for ${server.serverId}'",
+    // The catalog open path's unresolved-serverConfigId diagnostic and
+    // the transient bookmark's empty sort key — reported fault and
+    // machine data, never rendered copy.
+    r"'sidebar.open: serverConfigId ${ref.serverConfigId} '",
+    "'resolves to no pulled server'",
+    "''",
     // The status bar's sync chip widget key — plumbing, not copy.
     "'statusbar.syncChip'",
     // The activity panel's widget keys (splitter, panel, status chips)
@@ -1386,6 +1392,20 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "', '",
     // The new-group field's empty seed — a starting value, not copy.
     "''",
+    // The catalog section's keys: collapse-key namespaces, row/menu
+    // ValueKeys, the FocusNode debug label, and the semantics label
+    // composed of localized parts — identifiers, not copy.
+    "'sidebar.catalog'",
+    "'sidebar.catalog.'",
+    r"'$_catalogGroupKeyPrefix${section.key}'",
+    r"'$_catalogGroupKeyPrefix$key'",
+    r"'sidebar.catalog.row.${server.id}'",
+    "'sidebar.catalog.syncNow'",
+    "'sidebar.catalogRow'",
+    r"'${server.label}, ${appearance.label}'",
+    "'sidebar.catalog.menu.open'",
+    "'sidebar.catalog.menu.openNewTab'",
+    "'sidebar.catalog.menu.openOtherPane'",
   },
   // The controller's ArgumentError/StateError diagnostics — programmer
   // errors, never rendered UI copy.

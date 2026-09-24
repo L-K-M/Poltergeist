@@ -462,6 +462,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _connections = _buildConnections();
     _sidebar = _buildSidebar();
     _probes = _buildProbes();
+    _attachBookmarkBackup(widget.bookmarkBackup);
+    _probes?.syncCatalog(
+      widget.bookmarkBackup?.catalog?.servers ?? const [],
+    );
     _attachLifecycle();
     _buildWorkspace();
     widget.workspaces?.addListener(_onWorkspacesChanged);
@@ -477,6 +481,25 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _checkoutListener?.removeListener(_scanDirtyCheckouts);
     _checkoutListener = session;
     session?.addListener(_scanDirtyCheckouts);
+  }
+
+  BookmarkBackupService? _backupListener;
+
+  /// The backup service's pulse: every round lands a fresh catalog in
+  /// place, so the probe owner's target set re-syncs on each notify —
+  /// a Séance-side add starts probing on the round that pulls it, a
+  /// tombstone stops being dialed.
+  void _attachBookmarkBackup(BookmarkBackupService? service) {
+    if (identical(_backupListener, service)) return;
+    _backupListener?.removeListener(_onBookmarkBackupChanged);
+    _backupListener = service;
+    service?.addListener(_onBookmarkBackupChanged);
+  }
+
+  void _onBookmarkBackupChanged() {
+    _probes?.syncCatalog(
+      widget.bookmarkBackup?.catalog?.servers ?? const [],
+    );
   }
 
   /// The command list is built in [build] — a workspace save or open
@@ -531,6 +554,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // the sidebar reload too; syncFavorites is a reconcile, not an
       // append, so the second seeding is a no-op).
       _probes?.syncFavorites(_sidebar?.bookmarks ?? const []);
+      _probes?.syncCatalog(
+        widget.bookmarkBackup?.catalog?.servers ?? const [],
+      );
     }
     if (!identical(oldWidget.engineSession, widget.engineSession)) {
       // Carry the sidebar's live hidden intent across the workspace
@@ -590,6 +616,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       widget.quitGuard?.bindQueue(_quitGuardQueue);
     }
     _attachCheckoutSession(widget.checkoutSession);
+    _attachBookmarkBackup(widget.bookmarkBackup);
   }
 
   @override
@@ -597,6 +624,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     widget.workspaces?.removeListener(_onWorkspacesChanged);
     widget.quitGuard?.unbindQueue(_quitGuardQueue);
     _attachCheckoutSession(null);
+    _attachBookmarkBackup(null);
     _lifecycleForwarder?.detach();
     _probes?.dispose();
     _sidebar?.dispose();
@@ -2422,8 +2450,56 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           ? null
           : (server) =>
                 unawaited(session.reviewBlockedHostKey(server.serverId)),
+      // 04 §4.2's catalog surface: the service owns the pulled
+      // serverConfig materialization and the round status; its
+      // notifications repaint the section (the catalog mutates in place,
+      // so the view needs the service's pulses, not the snapshot).
+      catalog: widget.bookmarkBackup?.catalog,
+      catalogListenable: widget.bookmarkBackup,
+      catalogSyncing: widget.bookmarkBackup?.syncing ?? false,
+      catalogSyncError: widget.bookmarkBackup?.lastSyncError,
+      onSyncNow: widget.bookmarkBackup == null
+          ? null
+          : () => unawaited(_syncNow()),
+      onOpenCatalogServer: _workspace == null ? null : _openCatalogServer,
     );
   }
+
+  /// The "Sync now" round: the service serializes concurrent calls
+  /// itself (`syncing` early-returns); a failed round reports through
+  /// the reporter and leaves its description on the button's tooltip.
+  Future<void> _syncNow() async {
+    try {
+      await widget.bookmarkBackup?.backUpNow();
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+    }
+  }
+
+  /// A catalog row's activation: the pulled [ServerConfig] becomes a
+  /// `serverConfigId`-referencing remotePath bookmark — the same shape a
+  /// synced favorite carries — and rides [_openFavorite]'s pane
+  /// resolution, which resolves the id back through the catalog at
+  /// connect time. The server's own id keys the binding, so a catalog
+  /// open and a referencing favorite share one pool entry.
+  void _openCatalogServer(ServerConfig server, SidebarOpenAction action) {
+    _openFavorite(_catalogOpenBookmark(server), action);
+  }
+
+  /// The transient bookmark a catalog open binds through: never
+  /// persisted — the catalog is the truth; this only carries the
+  /// reference and the display fields the pane chrome reads.
+  Bookmark _catalogOpenBookmark(ServerConfig server) => Bookmark(
+    id: server.id,
+    kind: BookmarkKind.remotePath,
+    label: server.label,
+    color: server.color,
+    icon: server.icon,
+    server: BookmarkServerRef(serverConfigId: server.id),
+    sortKey: '',
+    createdAt: DateTime.fromMillisecondsSinceEpoch(server.createdAt),
+    updatedAt: DateTime.fromMillisecondsSinceEpoch(server.updatedAt),
+  );
 
   /// A favorite activation resolved against the panes (02 §4):
   /// localFolder and remotePath bind the resolved pane's tab per the
@@ -2480,9 +2556,29 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               ),
         );
       case BookmarkKind.remotePath:
+        // A shared-account `serverConfigId` ref resolves through the
+        // pulled catalog (04 §4.2): the pulled config carries fields an
+        // embedded identity cannot express — jumpHostId above all. An id
+        // the catalog cannot answer fails honestly before the dial; an
+        // embedded identity beside it is the older-record fallback.
+        ServerConfig? resolved;
+        final ref = bookmark.server;
+        if (ref?.serverConfigId != null) {
+          resolved = _serverConfigById(ref!.serverConfigId!);
+          if (resolved == null && ref.identity == null) {
+            ApplicationErrorReporter().report(
+              StateError(
+                'sidebar.open: serverConfigId ${ref.serverConfigId} '
+                'resolves to no pulled server',
+              ),
+              StackTrace.current,
+            );
+            return;
+          }
+        }
         unawaited(
           controller
-              .connectRemote(bookmark)
+              .connectRemote(bookmark, resolvedConfig: resolved)
               .catchError(
                 (Object error, StackTrace stackTrace) =>
                     ApplicationErrorReporter().report(error, stackTrace),
@@ -2623,13 +2719,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// resolves through the pulled Séance catalog; absent catalog or id
   /// leaves the ref unresolved so the command disables rather than
   /// emitting a wrong host.
-  ServerConfig? _serverConfigById(String id) {
-    for (final config in widget.bookmarkBackup?.catalog?.servers ??
-        const <ServerConfig>[]) {
-      if (config.id == id) return config;
-    }
-    return null;
-  }
+  ServerConfig? _serverConfigById(String id) =>
+      widget.bookmarkBackup?.catalog?.byId(id);
 
   /// `sync.copyRsyncCommand` (05 §2.1): the active plan's export to
   /// the clipboard — the action-bar button and this menu row share the

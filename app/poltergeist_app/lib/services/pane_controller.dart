@@ -817,12 +817,21 @@ class PaneController extends ChangeNotifier {
   /// still returns the user where they were, not the bookmark root.
   String? _pendingRemotePath;
 
-  Future<void> connectRemote(Bookmark bookmark, {String? initialPath}) =>
-      _connectRemote(bookmark, initialPath: initialPath);
+  Future<void> connectRemote(
+    Bookmark bookmark, {
+    String? initialPath,
+    ServerConfig? resolvedConfig,
+  }) =>
+      _connectRemote(
+        bookmark,
+        initialPath: initialPath,
+        resolvedConfig: resolvedConfig,
+      );
 
   Future<void> _connectRemote(
     Bookmark bookmark, {
     String? initialPath,
+    ServerConfig? resolvedConfig,
     _BindingPresentation presentation = _BindingPresentation.replace,
   }) async {
     if (_disposed || _lanes == null) return;
@@ -848,10 +857,14 @@ class PaneController extends ChangeNotifier {
         // a prompt the coordinator answers) must find this pane
         // listening.
         _statusWatch = _watchServerFor(lanes, bookmark, attempt);
+        // A `serverConfigId` reference resolves through the caller's
+        // catalog lookup — the pulled config carries the fields an
+        // embedded identity cannot express (jumpHostId). Embedded
+        // identities still derive theirs.
         final channel = await lanes.openBrowseChannel(
           serverId: bookmark.id,
           paneTabId: paneTabId,
-          config: serverConfigForBookmark(bookmark),
+          config: resolvedConfig ?? serverConfigForBookmark(bookmark),
         );
         if (_disposed || attempt != _bindAttempt) {
           await _closeChannel(channel);

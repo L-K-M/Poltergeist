@@ -3033,6 +3033,46 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sidebarImportSshConfig => 'Import from ssh config…';
 
   @override
+  String get sidebarCatalogSection => 'Séance servers';
+
+  @override
+  String get sidebarCatalogUngrouped => 'Ungrouped';
+
+  @override
+  String get sidebarCatalogEmpty =>
+      'No servers on this account yet. Add one in Séance and sync to see it here.';
+
+  @override
+  String get sidebarCatalogNoMatches => 'No servers match the filter.';
+
+  @override
+  String get sidebarCatalogFilter => 'Filter servers';
+
+  @override
+  String sidebarCatalogFilterCount(int matches, int total) {
+    return '$matches of $total';
+  }
+
+  @override
+  String sidebarCatalogFilterCountOpenFirst(int matches, int total) {
+    return '$matches of $total · ↵ opens the first';
+  }
+
+  @override
+  String get sidebarCatalogFilterClear => 'Clear filter';
+
+  @override
+  String get sidebarCatalogSyncNow => 'Sync now';
+
+  @override
+  String get sidebarCatalogSyncing => 'Syncing…';
+
+  @override
+  String sidebarCatalogSyncFailed(String error) {
+    return 'Last sync failed: $error';
+  }
+
+  @override
   String panePathSegmentGoTo(String segment) {
     return 'Go to $segment';
   }

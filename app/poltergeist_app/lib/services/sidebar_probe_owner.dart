@@ -53,6 +53,7 @@ final class SidebarProbeOwner extends ChangeNotifier {
   AppLifecycleState? _lifecycle;
   ProbePreference _preference = ProbePreference.enabled;
   final Map<String, ServerConfig> _configs = {};
+  final Map<String, ServerConfig> _catalogConfigs = {};
   final Set<String> _seenMarked = {};
   final Set<String> _connectedMarked = {};
   Future<void> _tail = Future.value();
@@ -86,15 +87,29 @@ final class SidebarProbeOwner extends ChangeNotifier {
     _enqueue(_reconfigure);
   }
 
+  /// Reconciles the probed set with the shared-mode catalog (04 §4.2):
+  /// pulled `serverConfig` records carry their own endpoints, so they
+  /// probe under the config's own id — the same key the catalog rows
+  /// read their status by. A catalog row's facts persist under that id;
+  /// a record the account drops simply stops being probed.
+  void syncCatalog(Iterable<ServerConfig> servers) {
+    if (_disposed) return;
+    _catalogConfigs
+      ..clear()
+      ..addAll({for (final server in servers) server.id: server});
+    _enqueue(_reconfigure);
+  }
+
   /// The favorite's row mounted: persist exposure and re-apply policy —
   /// the first probe waits for this mark (02 §4). Idempotent per id per
   /// owner lifetime; a re-seeded store re-reads persisted facts anyway.
   void noteVisible(String serverId) {
-    if (_disposed || !_configs.containsKey(serverId)) return;
+    if (_disposed) return;
+    final config = _configs[serverId] ?? _catalogConfigs[serverId];
+    if (config == null) return;
     if (!_seenMarked.add(serverId)) return;
     _enqueue(() async {
-      final config = _configs[serverId];
-      if (config == null || _disposed) return;
+      if (_disposed) return;
       try {
         await _settings.markSeen(
           serverId: config.id,
@@ -142,6 +157,7 @@ final class SidebarProbeOwner extends ChangeNotifier {
   void noteRemoved(String serverId) {
     if (_disposed) return;
     _configs.remove(serverId);
+    _catalogConfigs.remove(serverId);
     _seenMarked.remove(serverId);
     // The dedupe keys too: a re-added favorite with the same id/endpoint
     // must re-persist markConnected — the record was just deleted.
@@ -180,10 +196,14 @@ final class SidebarProbeOwner extends ChangeNotifier {
       _preference = ProbePreference.disabled;
     }
     final favorites = <ProbeFavorite>[];
-    // A syncFavorites/noteRemoved landing mid-loop mutates _configs —
-    // iterate a snapshot so an awaited read cannot throw
+    // A syncFavorites/noteRemoved landing mid-loop mutates the config
+    // maps — iterate a snapshot so an awaited read cannot throw
     // ConcurrentModificationError.
-    for (final config in _configs.values.toList(growable: false)) {
+    final targets = [
+      ..._configs.values,
+      ..._catalogConfigs.values,
+    ];
+    for (final config in targets) {
       ProbeServerFacts facts;
       try {
         facts = await _settings.loadServerFacts(

@@ -3883,6 +3883,76 @@
   "@sidebarImportSshConfig": {
     "description": "Button inside the sidebar's empty-favorites state: opens the ssh_config import preview (D22's adoption offer). Kept parallel to the command label sshImportCommandLabel."
   },
+  "sidebarCatalogSection": "Séance servers",
+  "@sidebarCatalogSection": {
+    "description": "Header of the shared-mode sidebar section listing the Séance account's pulled serverConfig records (04 §4.2's catalog surface)."
+  },
+  "sidebarCatalogUngrouped": "Ungrouped",
+  "@sidebarCatalogUngrouped": {
+    "description": "Group header over catalog servers that carry no group — Séance's own ungrouped section title."
+  },
+  "sidebarCatalogEmpty": "No servers on this account yet. Add one in Séance and sync to see it here.",
+  "@sidebarCatalogEmpty": {
+    "description": "Body copy inside the expanded Séance-servers section when the pulled catalog is empty."
+  },
+  "sidebarCatalogNoMatches": "No servers match the filter.",
+  "@sidebarCatalogNoMatches": {
+    "description": "Body copy inside the Séance-servers section when the filter drops every row."
+  },
+  "sidebarCatalogFilter": "Filter servers",
+  "@sidebarCatalogFilter": {
+    "description": "Hint text of the filter field above the Séance-servers list — the same affordance Séance's server list offers."
+  },
+  "sidebarCatalogFilterCount": "{matches} of {total}",
+  "@sidebarCatalogFilterCount": {
+    "description": "Helper text under the catalog filter while a query is active and no row can be opened: the match count against the catalog total.",
+    "placeholders": {
+      "matches": {
+        "type": "int",
+        "example": "0"
+      },
+      "total": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "sidebarCatalogFilterCountOpenFirst": "{matches} of {total} · ↵ opens the first",
+  "@sidebarCatalogFilterCountOpenFirst": {
+    "description": "Helper text under the catalog filter while a query matches at least one row — names the Enter-opens-first-match affordance.",
+    "placeholders": {
+      "matches": {
+        "type": "int",
+        "example": "3"
+      },
+      "total": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "sidebarCatalogFilterClear": "Clear filter",
+  "@sidebarCatalogFilterClear": {
+    "description": "Tooltip of the catalog filter's clear button."
+  },
+  "sidebarCatalogSyncNow": "Sync now",
+  "@sidebarCatalogSyncNow": {
+    "description": "Tooltip/label of the manual sync button in the Séance-servers section header: runs one sync round immediately instead of waiting for the periodic cycle."
+  },
+  "sidebarCatalogSyncing": "Syncing…",
+  "@sidebarCatalogSyncing": {
+    "description": "Tooltip of the Séance-servers sync button while a round is in flight."
+  },
+  "sidebarCatalogSyncFailed": "Last sync failed: {error}",
+  "@sidebarCatalogSyncFailed": {
+    "description": "Tooltip of the Séance-servers sync button when the last round failed. {error} is the recorded failure description.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "SocketException: Connection refused"
+      }
+    }
+  },
   "panePathSegmentGoTo": "Go to {segment}",
   "@panePathSegmentGoTo": {
     "description": "Accessible label of one clickable ancestor segment in the pane's path bar (02 §13: button semantics, \"Go to var\").",

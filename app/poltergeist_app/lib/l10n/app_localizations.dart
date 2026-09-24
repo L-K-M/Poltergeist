@@ -4662,6 +4662,72 @@ abstract class AppLocalizations {
   /// **'Import from ssh config…'**
   String get sidebarImportSshConfig;
 
+  /// Header of the shared-mode sidebar section listing the Séance account's pulled serverConfig records (04 §4.2's catalog surface).
+  ///
+  /// In en, this message translates to:
+  /// **'Séance servers'**
+  String get sidebarCatalogSection;
+
+  /// Group header over catalog servers that carry no group — Séance's own ungrouped section title.
+  ///
+  /// In en, this message translates to:
+  /// **'Ungrouped'**
+  String get sidebarCatalogUngrouped;
+
+  /// Body copy inside the expanded Séance-servers section when the pulled catalog is empty.
+  ///
+  /// In en, this message translates to:
+  /// **'No servers on this account yet. Add one in Séance and sync to see it here.'**
+  String get sidebarCatalogEmpty;
+
+  /// Body copy inside the Séance-servers section when the filter drops every row.
+  ///
+  /// In en, this message translates to:
+  /// **'No servers match the filter.'**
+  String get sidebarCatalogNoMatches;
+
+  /// Hint text of the filter field above the Séance-servers list — the same affordance Séance's server list offers.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter servers'**
+  String get sidebarCatalogFilter;
+
+  /// Helper text under the catalog filter while a query is active and no row can be opened: the match count against the catalog total.
+  ///
+  /// In en, this message translates to:
+  /// **'{matches} of {total}'**
+  String sidebarCatalogFilterCount(int matches, int total);
+
+  /// Helper text under the catalog filter while a query matches at least one row — names the Enter-opens-first-match affordance.
+  ///
+  /// In en, this message translates to:
+  /// **'{matches} of {total} · ↵ opens the first'**
+  String sidebarCatalogFilterCountOpenFirst(int matches, int total);
+
+  /// Tooltip of the catalog filter's clear button.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear filter'**
+  String get sidebarCatalogFilterClear;
+
+  /// Tooltip/label of the manual sync button in the Séance-servers section header: runs one sync round immediately instead of waiting for the periodic cycle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync now'**
+  String get sidebarCatalogSyncNow;
+
+  /// Tooltip of the Séance-servers sync button while a round is in flight.
+  ///
+  /// In en, this message translates to:
+  /// **'Syncing…'**
+  String get sidebarCatalogSyncing;
+
+  /// Tooltip of the Séance-servers sync button when the last round failed. {error} is the recorded failure description.
+  ///
+  /// In en, this message translates to:
+  /// **'Last sync failed: {error}'**
+  String sidebarCatalogSyncFailed(String error);
+
   /// Accessible label of one clickable ancestor segment in the pane's path bar (02 §13: button semantics, "Go to var").
   ///
   /// In en, this message translates to:
