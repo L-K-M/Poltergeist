@@ -47,6 +47,19 @@ const _recoveryFailure = RecoveryFailedEvent(
   ),
 );
 
+/// A pin for the refused endpoint. With a pin in place the first connect
+/// skips the host-key preflight (trust before secrets, 02 §10) and asks for
+/// credentials first, which is the path these prompt-bridge tests exercise.
+/// An unpinned unreachable endpoint now fails before any credential prompt
+/// (see the test below).
+const _refusedPin = HostKey(
+  host: '127.0.0.1',
+  port: _refusedPort,
+  type: 'ssh-ed25519',
+  fingerprintSha256: 'SHA256:pinned',
+  pinnedAt: 0,
+);
+
 ServerConfig _config({int port = _refusedPort}) => ServerConfig(
   id: 'srv-1',
   label: 'Refused',
@@ -131,7 +144,9 @@ void main() {
   test(
     'open fails through a real connect attempt after a prompt reply',
     () async {
-      final client = await EngineClient.spawn(const EngineConfig());
+      final client = await EngineClient.spawn(
+        const EngineConfig(hostKeyPins: [_refusedPin]),
+      );
       addTearDown(client.shutdown);
 
       final prompts = <EnginePromptEvent>[];
@@ -175,8 +190,32 @@ void main() {
     },
   );
 
+  test(
+    'an unpinned unreachable endpoint fails before any credential prompt',
+    () async {
+      final client = await EngineClient.spawn(const EngineConfig());
+      addTearDown(client.shutdown);
+      final prompts = <EnginePromptEvent>[];
+      final subscription = client.prompts.listen(prompts.add);
+      await expectLater(
+        client.openBrowseChannel(
+          serverId: 'srv-1',
+          paneTabId: 'tab-1',
+          config: _config(),
+        ),
+        throwsA(isA<RemoteFileException>()),
+      );
+      await subscription.cancel();
+      // The host-key preflight could not reach the server, so nothing
+      // asked for a password it could never use.
+      expect(prompts, isEmpty);
+    },
+  );
+
   test('disconnect dismisses an open prompt across real isolates', () async {
-    final client = await EngineClient.spawn(const EngineConfig());
+    final client = await EngineClient.spawn(
+      const EngineConfig(hostKeyPins: [_refusedPin]),
+    );
     addTearDown(client.shutdown);
 
     final dismissals = <PromptDismissedEvent>[];

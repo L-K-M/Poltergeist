@@ -109,8 +109,9 @@ class EngineHost {
   int _nextChannelId = 1;
   bool _shuttingDown = false;
 
-  /// [openTransport], [prober], and [hostKeyStore] are test seams — the
-  /// production defaults need real sockets; tests inject socket-free fakes.
+  /// [openTransport], [hostKeyPreflight], [prober], and [hostKeyStore] are
+  /// test seams — the production defaults need real sockets; tests inject
+  /// socket-free fakes (a null preflight with a fake opener skips it).
   /// [localWatch] is the same for 03 §7.5's directory watchers: the default
   /// selects the native platform backend; tests inject deterministic backends.
   /// [fileOpener] is the same for §2.6's local-file Open: the default runs
@@ -122,6 +123,7 @@ class EngineHost {
     required EngineConfig config,
     required SendPort events,
     SshTransportOpener openTransport = openDartSshTransport,
+    SshHostKeyPreflight? hostKeyPreflight,
     Prober prober = const TcpBannerProber(),
     HostKeyStore? hostKeyStore,
     LocalWatchBackend? localWatch,
@@ -150,6 +152,14 @@ class EngineHost {
       tofu: TofuVerifier(hostKeyStore ?? _seededPinStore(config, events)),
       policy: config.policy,
       openTransport: openTransport,
+      // Trust before secrets (02 §10). The production preflight dials a
+      // real socket, so it rides only with the production opener — a test
+      // injecting a socket-free opener injects its preflight too.
+      hostKeyPreflight:
+          hostKeyPreflight ??
+          (identical(openTransport, openDartSshTransport)
+              ? preflightDartSshHostKey
+              : null),
       prober: prober,
       // The app owns incident persistence: the bridge keeps the engine's
       // in-memory records in step with the app by forwarding every

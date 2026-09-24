@@ -206,9 +206,11 @@ export 'src/connection/ssh_transport.dart'
         AuthChallengeRequiredError,
         ConnectPrompting,
         SftpChannel,
+        SshHostKeyPreflight,
         SshTransport,
         SshTransportOpener,
-        openDartSshTransport;
+        openDartSshTransport,
+        preflightDartSshHostKey;
 export 'src/fs/local_file_system.dart'
     show
         LocalFileSystem,
