@@ -1962,17 +1962,103 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/sync/sync_plan_view.dart': {
     "''",
     "'sync.plan.table'",
-    r"'${group.items.length}'",
-    "'/'",
-    r"'sync.row.${item.relativePath}'",
     "'DELETE'",
     r"'${l10n.syncSideLeft} ⇄ ${l10n.syncSideRight}'",
     "'sync.header.clause'",
+    // D32 §7's hold banner: widget key and the comma join of its ARB
+    // reason fragments.
+    "'sync.plan.holdBanner'",
+    "', '",
     "' · '",
     r"'${item.relativePath}\t${item.effective.name}\t'",
     r"'${item.status.name}${item.error != null ? '\t${item.error}' : ''}'",
     r"'\t${item.error}'",
     "'—'",
+  },
+  // The Sync sheet's machine literals (D32 §7): widget keys, the
+  // compare sentence's split marker (U+FFFC, never in a translation),
+  // the empty-path/empty-label placeholders, the rules tooltip's line
+  // join and the tolerance row's comma join over ARB fragments, the
+  // user@host[:port] address form of an embedded identity, and the
+  // path shortener's separators and ellipsis — plumbing and machine
+  // data, never authored copy.
+  'lib/ui/sync/sync_setup_sheet.dart': {
+    "''",
+    "'sync.sheet'",
+    "'sync.sheet.name'",
+    "'sync.sheet.favoriteName'",
+    "'sync.sheet.left'",
+    "'sync.sheet.right'",
+    "'sync.sheet.deleteOrphans'",
+    "'sync.sheet.deleteTrash'",
+    "'sync.sheet.deletePermanent'",
+    "'sync.sheet.includeHidden'",
+    "'sync.sheet.skipRules'",
+    "'\\n'",
+    "'sync.sheet.ruleCount'",
+    "'sync.sheet.editRules'",
+    "'sync.sheet.tolerance'",
+    "'sync.sheet.timeOffset'",
+    "'sync.sheet.unavailable'",
+    "', '",
+    "'sync.sheet.more'",
+    "'sync.sheet.more.bothWays'",
+    "'sync.sheet.more.saveFavorite'",
+    "'sync.sheet.more.advanced'",
+    "'sync.sheet.more.rsync'",
+    "'sync.sheet.cancel'",
+    "'sync.sheet.save'",
+    "'sync.sheet.simulate'",
+    "'sync.sheet.synchronize'",
+    r"'${identity.username}@${identity.host}'",
+    r"'${identity.username}@${identity.host}:${identity.port}'",
+    "'sync.sheet.direction'",
+    "'sync.sheet.direction.left'",
+    "'sync.sheet.direction.right'",
+    "'\\u{FFFC}'",
+    "'sync.sheet.compare'",
+    "' '",
+    "'sync.sheet.plan.warning'",
+    "'sync.sheet.plan'",
+    r"'\\'",
+    "'/'",
+    r"'…$separator$tail'",
+  },
+  // The plan sentence's ICU select keys, its clause join, and the
+  // clause's debug toString — machine data, never authored copy.
+  'lib/ui/sync/sync_policy_sentence.dart': {
+    r"'${tone.name}: $text'",
+    "'remote'",
+    "'local'",
+    "' '",
+  },
+  // The sheet dialogs' widget keys, the rules field's line split/join,
+  // and the tolerance field's numeric seed — plumbing, never copy.
+  'lib/ui/sync/sync_sheet_dialogs.dart': {
+    "'sync.favoriteName.field'",
+    "'sync.favoriteName.save'",
+    "'\\n'",
+    "'sync.rules.field'",
+    "'sync.rules.defaults'",
+    "'sync.rules.done'",
+    r"'${widget.initial.toleranceSecs}'",
+    "'sync.timeOffset.tolerance'",
+    "'sync.timeOffset.hourShift'",
+    "'sync.timeOffset.done'",
+  },
+  // The review table's widget keys (sections, rows, their checkboxes,
+  // the column header), the section count, and the empty/dash cells
+  // of an absent side or a folder's size — plumbing, never copy.
+  'lib/ui/sync/sync_plan_table.dart': {
+    "'sync.plan.table'",
+    r"'sync.section.${group.section.name}'",
+    r"'sync.section.${group.section.name}.check'",
+    r"'sync.row.${item.relativePath}'",
+    "'sync.plan.columns'",
+    r"'${items.length}'",
+    "''",
+    "'—'",
+    r"'sync.row.${item.relativePath}.check'",
   },
   // The sync plan format layer's machine data: the rail-3 numeric
   // percentage injected into the ARB {pct} slot, and the config-less

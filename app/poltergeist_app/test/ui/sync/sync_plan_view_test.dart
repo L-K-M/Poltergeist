@@ -313,9 +313,13 @@ void main() {
         findsOneWidget,
       );
 
-      // Rows: the group header, the grouped child, the ungrouped file.
-      // Only-actions filtering (on by default) hides the skip row.
-      expect(find.text('docs'), findsWidgets);
+      // Rows group by action class (D32 §7): the folder and both new
+      // files sit under Copy with their full paths. Only-actions
+      // filtering (on by default) hides the skip row and so the
+      // Skipped section.
+      expect(find.byKey(const ValueKey('sync.section.copy')), findsOneWidget);
+      expect(find.byKey(const ValueKey('sync.section.skipped')), findsNothing);
+      expect(find.text('docs'), findsOneWidget);
       expect(find.text('docs/inner.txt'), findsOneWidget);
       expect(find.text('a.txt'), findsOneWidget);
       expect(find.text('same.txt'), findsNothing);

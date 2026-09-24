@@ -4922,5 +4922,529 @@
   "badgeCountOverflow": "99+",
   "@badgeCountOverflow": {
     "description": "A count badge's text once the count passes 99."
+  },
+  "syncPolicyOneWay": "Your {destinationKind, select, remote{remote} other{local}} folder “{destination}” will be updated from your {sourceKind, select, remote{remote} other{local}} folder “{source}”.",
+  "@syncPolicyOneWay": {
+    "description": "Sync sheet plan sentence (D32 §7): a one-way pair's opening clause.",
+    "placeholders": {
+      "destinationKind": {
+        "type": "String",
+        "description": "\"remote\" for a server side, anything else renders the local form."
+      },
+      "destination": {
+        "type": "String"
+      },
+      "sourceKind": {
+        "type": "String",
+        "description": "\"remote\" for a server side, anything else renders the local form."
+      },
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyReplaceSizeDate": "Files that differ in size or modification date will be replaced with the version from “{source}”, even when the copy in “{destination}” is newer.",
+  "@syncPolicyReplaceSizeDate": {
+    "description": "Plan sentence: one-way replacement under the size-and-date comparison. The engine replaces on ANY difference, so the copy never says only older files are replaced.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      },
+      "destination": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyReplaceSize": "Files that differ in size will be replaced with the version from “{source}”. Files of the same size are left alone, even when their dates differ.",
+  "@syncPolicyReplaceSize": {
+    "description": "Plan sentence: one-way replacement under the size-only comparison.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyReplaceChecksum": "Files whose size or contents differ will be replaced with the version from “{source}”. Contents are compared by checksum, which reads every file of matching size on both sides.",
+  "@syncPolicyReplaceChecksum": {
+    "description": "Plan sentence: one-way replacement under the checksum comparison.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicySizeOnlyFallback": "Modification dates proved unreliable for this pair, so only sizes are compared.",
+  "@syncPolicySizeOnlyFallback": {
+    "description": "Plan sentence: the engine's automatic size-only fallback after a side refused to keep modification dates."
+  },
+  "syncPolicyBackupsInRoot": "Previous versions of replaced files are kept in {trash} inside “{destination}”.",
+  "@syncPolicyBackupsInRoot": {
+    "description": "Plan sentence: overwrite backups go to the in-root sync trash folder of the destination.",
+    "placeholders": {
+      "trash": {
+        "type": "String"
+      },
+      "destination": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyBackupsAt": "Previous versions of replaced files are kept in {trashPath}.",
+  "@syncPolicyBackupsAt": {
+    "description": "Plan sentence: overwrite backups go to a configured out-of-root trash path.",
+    "placeholders": {
+      "trashPath": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyBackupsNone": "Replaced files are overwritten without a backup.",
+  "@syncPolicyBackupsNone": {
+    "description": "Plan sentence: overwrite backups are turned off (a destructive clause)."
+  },
+  "syncPolicyDeleteTrash": "Files in “{destination}” that aren’t in “{source}” will be deleted (moved to {trash}).",
+  "@syncPolicyDeleteTrash": {
+    "description": "Plan sentence: Mirror deletions into the sync trash (a destructive clause).",
+    "placeholders": {
+      "destination": {
+        "type": "String"
+      },
+      "source": {
+        "type": "String"
+      },
+      "trash": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyDeletePermanent": "Files in “{destination}” that aren’t in “{source}” will be deleted permanently.",
+  "@syncPolicyDeletePermanent": {
+    "description": "Plan sentence: Mirror deletions without a trash (a destructive clause).",
+    "placeholders": {
+      "destination": {
+        "type": "String"
+      },
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyNoDeletes": "No files will be deleted.",
+  "@syncPolicyNoDeletes": {
+    "description": "Plan sentence: the no-deletion assurance."
+  },
+  "syncPolicyBothWays": "Your {leftKind, select, remote{remote} other{local}} folder “{left}” and your {rightKind, select, remote{remote} other{local}} folder “{right}” will each receive the files only the other one has.",
+  "@syncPolicyBothWays": {
+    "description": "Plan sentence: an Additive (both ways) pair's opening clause.",
+    "placeholders": {
+      "leftKind": {
+        "type": "String",
+        "description": "\"remote\" for a server side, anything else renders the local form."
+      },
+      "left": {
+        "type": "String"
+      },
+      "rightKind": {
+        "type": "String",
+        "description": "\"remote\" for a server side, anything else renders the local form."
+      },
+      "right": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyDifferSizeDate": "Files count as different when their size or modification date differs.",
+  "@syncPolicyDifferSizeDate": {
+    "description": "Plan sentence (both ways): what makes two copies differ under size-and-date."
+  },
+  "syncPolicyDifferSize": "Files count as different only when their size differs.",
+  "@syncPolicyDifferSize": {
+    "description": "Plan sentence (both ways): what makes two copies differ under size-only."
+  },
+  "syncPolicyDifferChecksum": "Files count as different when their size or checksum differs.",
+  "@syncPolicyDifferChecksum": {
+    "description": "Plan sentence (both ways): what makes two copies differ under checksum."
+  },
+  "syncPolicyConflictAsk": "Files that differ are held as conflicts for you to decide; nothing is replaced automatically.",
+  "@syncPolicyConflictAsk": {
+    "description": "Plan sentence (both ways): differing files become conflicts."
+  },
+  "syncPolicyConflictNewer": "When a file differs, the newer copy replaces the older one.",
+  "@syncPolicyConflictNewer": {
+    "description": "Plan sentence (both ways): the newer-wins conflict default."
+  },
+  "syncPolicyConflictKeep": "When a file differs, the version from “{winner}” replaces the other copy.",
+  "@syncPolicyConflictKeep": {
+    "description": "Plan sentence (both ways): a keep-this-side conflict default.",
+    "placeholders": {
+      "winner": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyConflictSkip": "Files that differ are left alone.",
+  "@syncPolicyConflictSkip": {
+    "description": "Plan sentence (both ways): the skip conflict default."
+  },
+  "syncPolicyBackupsEachSide": "Previous versions of replaced files are kept in each side’s sync trash.",
+  "@syncPolicyBackupsEachSide": {
+    "description": "Plan sentence (both ways): overwrite backups land in the trash of whichever side is written."
+  },
+  "syncPolicyHiddenSkipped": "Hidden files are left out.",
+  "@syncPolicyHiddenSkipped": {
+    "description": "Plan sentence: include-hidden is off."
+  },
+  "syncPolicyRulesSkipped": "{count, plural, =1{Items matching 1 rule are left out.} other{Items matching {count} rules are left out.}}",
+  "@syncPolicyRulesSkipped": {
+    "description": "Plan sentence: the pair skips items matching its exclude rules.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetTitle": "Sync Files",
+  "@syncSheetTitle": {
+    "description": "Title of the sync options sheet (D32 §7)."
+  },
+  "syncSheetNewSavedTitle": "New Saved Sync",
+  "@syncSheetNewSavedTitle": {
+    "description": "Title of the sync sheet when it creates a saved sync favorite."
+  },
+  "syncSheetThisComputer": "This computer",
+  "@syncSheetThisComputer": {
+    "description": "Endpoint tile caption for a local folder."
+  },
+  "syncSheetServerFallback": "Server",
+  "@syncSheetServerFallback": {
+    "description": "Endpoint tile caption for a server whose name is unknown."
+  },
+  "syncSheetChooseFolders": "Choose Folders…",
+  "@syncSheetChooseFolders": {
+    "description": "Endpoint tile label when a side has no folder yet; opens the full pair editor."
+  },
+  "syncSheetDirectionTooltip": "From {source} to {destination}. Click to reverse.",
+  "@syncSheetDirectionTooltip": {
+    "description": "Tooltip and accessibility label of the direction toggle between the endpoint tiles.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      },
+      "destination": {
+        "type": "String"
+      }
+    }
+  },
+  "syncSheetBothWaysTooltip": "Both ways. Click to sync one way.",
+  "@syncSheetBothWaysTooltip": {
+    "description": "Tooltip of the direction toggle while the pair syncs both ways."
+  },
+  "syncSheetCompareSentence": "Use the {choice} to determine if a file has changed",
+  "@syncSheetCompareSentence": {
+    "description": "The comparison row. {choice} marks where the comparison dropdown sits; the text around it renders on either side.",
+    "placeholders": {
+      "choice": {
+        "type": "String"
+      }
+    }
+  },
+  "syncSheetCompareSizeDate": "Size and Modification Date",
+  "@syncSheetCompareSizeDate": {
+    "description": "Comparison dropdown choice."
+  },
+  "syncSheetCompareSize": "File Size",
+  "@syncSheetCompareSize": {
+    "description": "Comparison dropdown choice."
+  },
+  "syncSheetCompareChecksum": "Checksum",
+  "@syncSheetCompareChecksum": {
+    "description": "Comparison dropdown choice."
+  },
+  "syncSheetDeleteOrphans": "Delete orphaned destination files",
+  "@syncSheetDeleteOrphans": {
+    "description": "Checkbox: delete destination files the source does not have (Mirror)."
+  },
+  "syncSheetDeleteOrphansBothWays": "Not available when syncing both ways",
+  "@syncSheetDeleteOrphansBothWays": {
+    "description": "Caption under the disabled delete checkbox in Additive mode."
+  },
+  "syncSheetDeleteToTrash": "Move to trash (recommended)",
+  "@syncSheetDeleteToTrash": {
+    "description": "Radio under the delete checkbox."
+  },
+  "syncSheetDeletePermanently": "Delete permanently",
+  "@syncSheetDeletePermanently": {
+    "description": "Radio under the delete checkbox."
+  },
+  "syncSheetIncludeHidden": "Include hidden files",
+  "@syncSheetIncludeHidden": {
+    "description": "Checkbox in the sync sheet."
+  },
+  "syncSheetSkipRules": "Skip items matching rules",
+  "@syncSheetSkipRules": {
+    "description": "Checkbox in the sync sheet."
+  },
+  "syncSheetRuleCount": "{count, plural, =0{No rules} =1{1 rule} other{{count} rules}}",
+  "@syncSheetRuleCount": {
+    "description": "Button showing how many exclude rules the pair has.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetEditRules": "Edit Rules…",
+  "@syncSheetEditRules": {
+    "description": "Opens the exclude-rules editor."
+  },
+  "syncSheetTolerance": "{seconds, plural, =1{Modification date tolerance: 1 second} other{Modification date tolerance: {seconds} seconds}}",
+  "@syncSheetTolerance": {
+    "description": "The time-tolerance row of the sync sheet.",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetToleranceHourShift": "ignoring exact 1-hour differences",
+  "@syncSheetToleranceHourShift": {
+    "description": "Appended to the tolerance row when 1-hour shifts are accepted."
+  },
+  "syncSheetToleranceOtherShifts": "{count, plural, =1{plus 1 custom time shift} other{plus {count} custom time shifts}}",
+  "@syncSheetToleranceOtherShifts": {
+    "description": "Appended to the tolerance row for accepted shifts other than one hour (set in older builds or the advanced editor).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetToleranceUnused": "Modification dates aren’t compared",
+  "@syncSheetToleranceUnused": {
+    "description": "The tolerance row while the comparison ignores dates."
+  },
+  "syncSheetTimeOffset": "Time Offset…",
+  "@syncSheetTimeOffset": {
+    "description": "Opens the time-tolerance dialog."
+  },
+  "syncSheetPlanLead": "Here’s the plan:",
+  "@syncSheetPlanLead": {
+    "description": "Lead-in above the plain-language plan sentence."
+  },
+  "syncSheetMore": "More options",
+  "@syncSheetMore": {
+    "description": "Tooltip of the sheet’s ⋯ menu button."
+  },
+  "syncSheetBothWays": "Sync Both Ways (Additive)",
+  "@syncSheetBothWays": {
+    "description": "⋯ menu item that makes the pair copy missing files in both directions."
+  },
+  "syncSheetAdvanced": "Advanced…",
+  "@syncSheetAdvanced": {
+    "description": "⋯ menu item opening the full pair editor."
+  },
+  "syncSheetSimulate": "Simulate",
+  "@syncSheetSimulate": {
+    "description": "Sheet button: scan and open the review without changing anything."
+  },
+  "syncSheetSynchronize": "Synchronize",
+  "@syncSheetSynchronize": {
+    "description": "Sheet button (default): scan, then run when nothing is replaced, deleted, or in conflict."
+  },
+  "syncSheetSimulateTooltip": "Scan both sides and review the plan. Nothing changes until you run it.",
+  "@syncSheetSimulateTooltip": {
+    "description": "Tooltip of the Simulate button."
+  },
+  "syncSheetSynchronizeTooltip": "Scan, then copy straight away when nothing would be replaced, deleted, or in conflict. Otherwise you review the plan first.",
+  "@syncSheetSynchronizeTooltip": {
+    "description": "Tooltip of the Synchronize button."
+  },
+  "syncFavoriteNameTitle": "Save as Favorite",
+  "@syncFavoriteNameTitle": {
+    "description": "Title of the name dialog that saves a sync pair to the sidebar."
+  },
+  "syncRulesTitle": "Skip Rules",
+  "@syncRulesTitle": {
+    "description": "Title of the exclude-rules editor."
+  },
+  "syncRulesHint": "One pattern per line, gitignore style: *.log, build/, /private.txt, !keep.log",
+  "@syncRulesHint": {
+    "description": "Help text of the exclude-rules field."
+  },
+  "syncRulesDefaultsTitle": "Always skipped",
+  "@syncRulesDefaultsTitle": {
+    "description": "Heading of the read-only list of built-in exclude patterns."
+  },
+  "syncRulesDone": "Done",
+  "@syncRulesDone": {
+    "description": "Confirms the rules or time-offset dialog."
+  },
+  "syncTimeOffsetTitle": "Time Offset",
+  "@syncTimeOffsetTitle": {
+    "description": "Title of the time-tolerance dialog."
+  },
+  "syncTimeOffsetToleranceLabel": "Tolerance in seconds",
+  "@syncTimeOffsetToleranceLabel": {
+    "description": "Field label: dates this close count as equal."
+  },
+  "syncTimeOffsetToleranceHelp": "Modification dates this close together count as the same.",
+  "@syncTimeOffsetToleranceHelp": {
+    "description": "Help text under the tolerance field."
+  },
+  "syncTimeOffsetHourShift": "Ignore exact 1-hour differences",
+  "@syncTimeOffsetHourShift": {
+    "description": "Checkbox in the time-offset dialog."
+  },
+  "syncTimeOffsetHourShiftHelp": "For drives that store local time, such as FAT, across a daylight saving change.",
+  "@syncTimeOffsetHourShiftHelp": {
+    "description": "Help text under the 1-hour checkbox."
+  },
+  "syncHoldBanner": "This plan {reasons} — review before running.",
+  "@syncHoldBanner": {
+    "description": "Banner on the review tab when Synchronize stopped before running. {reasons} is a comma-joined list of the fragments below.",
+    "placeholders": {
+      "reasons": {
+        "type": "String"
+      }
+    }
+  },
+  "syncHoldDeletes": "{count, plural, =1{deletes 1 file} other{deletes {count} files}}",
+  "@syncHoldDeletes": {
+    "description": "Hold-banner fragment.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncHoldEmptyFolders": "{count, plural, =1{removes 1 empty folder} other{removes {count} empty folders}}",
+  "@syncHoldEmptyFolders": {
+    "description": "Hold-banner fragment.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncHoldReplaces": "{count, plural, =1{replaces 1 file} other{replaces {count} files}}",
+  "@syncHoldReplaces": {
+    "description": "Hold-banner fragment.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncHoldConflicts": "{count, plural, =1{has 1 conflict} other{has {count} conflicts}}",
+  "@syncHoldConflicts": {
+    "description": "Hold-banner fragment.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSectionCopy": "Copy",
+  "@syncSectionCopy": {
+    "description": "Plan review section: new files and folders."
+  },
+  "syncSectionUpdate": "Update",
+  "@syncSectionUpdate": {
+    "description": "Plan review section: files that replace an existing copy."
+  },
+  "syncSectionDelete": "Delete",
+  "@syncSectionDelete": {
+    "description": "Plan review section: removals."
+  },
+  "syncSectionConflicts": "Conflicts",
+  "@syncSectionConflicts": {
+    "description": "Plan review section: rows that need a decision."
+  },
+  "syncSectionSkipped": "Skipped",
+  "@syncSectionSkipped": {
+    "description": "Plan review section: rows that will not change."
+  },
+  "syncSectionSemantics": "{section}, {count, plural, =1{1 item} other{{count} items}}",
+  "@syncSectionSemantics": {
+    "description": "Accessibility label of a plan review section header.",
+    "placeholders": {
+      "section": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncColumnPath": "Path",
+  "@syncColumnPath": {
+    "description": "Plan review column header."
+  },
+  "syncColumnReason": "Reason",
+  "@syncColumnReason": {
+    "description": "Plan review column header."
+  },
+  "syncRowSemantics": "{path}: {action}, {reason}",
+  "@syncRowSemantics": {
+    "description": "Accessibility label of a plan review row.",
+    "placeholders": {
+      "path": {
+        "type": "String"
+      },
+      "action": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "syncRowActionCopy": "copy to “{side}”",
+  "@syncRowActionCopy": {
+    "description": "Row accessibility action.",
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "syncRowActionUpdate": "replace in “{side}”",
+  "@syncRowActionUpdate": {
+    "description": "Row accessibility action.",
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "syncRowActionMakeDir": "create folder in “{side}”",
+  "@syncRowActionMakeDir": {
+    "description": "Row accessibility action.",
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "syncRowActionDelete": "delete from “{side}”",
+  "@syncRowActionDelete": {
+    "description": "Row accessibility action.",
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "syncRowActionConflict": "conflict",
+  "@syncRowActionConflict": {
+    "description": "Row accessibility action."
+  },
+  "syncRowActionSkip": "skip",
+  "@syncRowActionSkip": {
+    "description": "Row accessibility action."
+  },
+  "syncRowToggleHint": "Space includes or skips this row",
+  "@syncRowToggleHint": {
+    "description": "Tooltip of a plan review row checkbox."
   }
 }

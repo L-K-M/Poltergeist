@@ -18,6 +18,7 @@ import 'package:poltergeist_sync/poltergeist_sync.dart';
 import 'rsync_endpoints.dart';
 import 'sync_environment.dart';
 import 'sync_queue_facade.dart';
+import 'sync_state_store.dart';
 
 /// Lifecycle phases the plan view renders.
 enum SyncPlanPhase {
@@ -137,6 +138,129 @@ final class SyncCaseOverrides {
   final bool? right;
 }
 
+/// What a plan tab does once its first scan settles (D32 §7).
+enum SyncPlanIntent {
+  /// Simulate, a sidebar reopen, every pre-D32 entry: land on the
+  /// review and wait for Run.
+  review,
+
+  /// Synchronize: run straight away when the plan deletes nothing,
+  /// replaces nothing, and has no conflicts (D32's one exception to 05
+  /// §8 rail 1); any other plan holds on the review with a banner
+  /// naming why. Only the first scan honors it — a later rescan is a
+  /// review like any other.
+  synchronize,
+}
+
+/// Why Synchronize stopped on the review instead of running — the
+/// banner's figures. Built from the EFFECTIVE stats, so unchecking the
+/// deletions in the review shrinks (and finally clears) the banner.
+final class SyncReviewHold {
+  const SyncReviewHold({
+    required this.deletes,
+    required this.emptyFolders,
+    required this.replaces,
+    required this.conflicts,
+  });
+
+  /// File deletions on either side (05 §8's per-file unit).
+  final int deletes;
+
+  /// Empty-directory cleanup rows — zero-weight on the rails, but still
+  /// a removal the auto-run must not perform unseen.
+  final int emptyFolders;
+
+  /// Overwrites: update rows plus §6 rule-4 kind-change replacements.
+  final int replaces;
+  final int conflicts;
+}
+
+/// Whether [stats] may run without review: null when the plan only
+/// creates (new files and folders), otherwise the reasons it may not.
+/// Pure so the rule is testable without a controller.
+SyncReviewHold? syncAutoRunHold(SyncEffectiveStats stats) {
+  var deletes = 0;
+  var emptyFolders = 0;
+  var replaces = 0;
+  for (final side in SyncSide.values) {
+    deletes += stats.deletesOn(side);
+    emptyFolders += stats.emptyDirsOn(side);
+    replaces += stats.updatesTo(side) + (stats.replacedRowsBySide[side] ?? 0);
+  }
+  final conflicts = stats.conflicts;
+  if (deletes == 0 && emptyFolders == 0 && replaces == 0 && conflicts == 0) {
+    return null;
+  }
+  return SyncReviewHold(
+    deletes: deletes,
+    emptyFolders: emptyFolders,
+    replaces: replaces,
+    conflicts: conflicts,
+  );
+}
+
+/// A best-effort read of [pair]'s stored state BEFORE any scan — the
+/// Sync sheet's plan sentence wants §4's untrusted-clock flags, but the
+/// canonical pairId folds each side's case-sensitivity, which only a
+/// scan settles. The four case-fold spellings are tried in turn and the
+/// first record that has ever been touched wins; null when the pair has
+/// no history (or its id folds Unicode form, which only the scan's
+/// cached probe knows — the sentence then simply omits the fallback).
+Future<SyncPairState?> loadStoredSyncPairState(
+  SyncStateStore states,
+  SyncPair pair,
+) async {
+  const folds = [(false, false), (true, true), (true, false), (false, true)];
+  for (final (left, right) in folds) {
+    final state = await states.load(
+      syncPairId(pair, leftCaseInsensitive: left, rightCaseInsensitive: right),
+    );
+    if (state.touchedAt != null || state.lastRunAt != null) return state;
+  }
+  return null;
+}
+
+/// A rendered rsync export (05 §2.1) and whether it carries the
+/// paste-time permanent-deletion warning.
+typedef SyncRsyncExport = ({String text, bool permanentDeletions});
+
+/// §2.1's body for [pair], shared by the plan view (which passes its
+/// settled [plan]: manual overrides and scan-derived skip paths) and
+/// the Sync sheet (no scan yet: the ruleset alone). [mtimesUntrusted]
+/// is §4's sync_state downgrade — it lives outside the ruleset, so the
+/// caller resolves it. Null when a remote side does not resolve to a
+/// dialable identity; the caller disables the affordance rather than
+/// emit a silently wrong command.
+SyncRsyncExport? syncRsyncExport(
+  SyncPair pair,
+  RsyncEndpointResolver resolver, {
+  SyncPlan? plan,
+  bool mtimesUntrusted = false,
+  required DateTime now,
+}) {
+  final endpoints = resolver(pair);
+  if (endpoints == null) return null;
+  final downgraded =
+      mtimesUntrusted && pair.rules.comparison == ComparisonMode.sizeAndMtime;
+  final rules = downgraded
+      ? pair.rules.copyWith(comparison: ComparisonMode.sizeOnly)
+      : pair.rules;
+  return (
+    text: buildRsyncCommand(
+      endpoints,
+      rules,
+      manualOverrides:
+          plan?.items.where((item) => item.userOverridden).length ?? 0,
+      mtimesUntrusted: downgraded,
+      engineSkipPaths: plan == null ? const [] : rsyncEngineSkipPaths(plan),
+      now: now,
+    ),
+    permanentDeletions:
+        rules.deletions == DeletionPolicy.permanent &&
+        rules.backups == BackupPolicy.none,
+  );
+}
+
 /// The scan seam — production walks through [TreeScanner]; tests feed
 /// canned [ScanResult]s. Per-side overrides arrive as arguments: the
 /// pair-state rescan path re-probes with them.
@@ -174,6 +298,7 @@ final class SyncPlanController extends ChangeNotifier {
     SyncPlanDiffer? differ,
     this.deviceId = 'local',
     SyncCaseOverrides? caseOverrides,
+    SyncPlanIntent intent = SyncPlanIntent.review,
     // Required rather than defaulted to `resolveRsyncEndpoints`: the
     // plain resolver cannot see the shared-mode server catalog, so a
     // construction site that forgot to bind one would silently disable
@@ -188,6 +313,7 @@ final class SyncPlanController extends ChangeNotifier {
   }) : _pair = pair,
        _environment = environment,
        _pendingCaseOverrides = caseOverrides,
+       _autoRunPending = intent == SyncPlanIntent.synchronize,
        // ignore: prefer_initializing_formals
        _rsyncEndpoints = rsyncEndpoints,
        _scanner = scanner ?? _TreeScannerAdapter(environment),
@@ -216,6 +342,16 @@ final class SyncPlanController extends ChangeNotifier {
   /// persisted under the FINAL pairId — never saved under the
   /// pre-edit one. Null leaves the stored state authoritative.
   SyncCaseOverrides? _pendingCaseOverrides;
+
+  /// [SyncPlanIntent.synchronize] awaiting the first settled scan —
+  /// consumed there whatever the outcome, so no later rescan runs
+  /// unreviewed.
+  bool _autoRunPending;
+
+  /// Synchronize stopped on the review — [reviewHold] reads the live
+  /// reasons while this holds; a rescan, a run, or a dismissal clears
+  /// it.
+  bool _holdingForReview = false;
 
   // -- Session state -----------------------------------------------------
 
@@ -264,6 +400,21 @@ final class SyncPlanController extends ChangeNotifier {
   int get rightScanned => _rightScanned;
   bool get isRunning => _phase == SyncPlanPhase.running;
   bool get isPaused => _pause?.isPaused ?? false;
+
+  /// Why Synchronize did not run this plan on its own (D32 §7's
+  /// banner) — live over the effective actions, null once nothing that
+  /// needs review remains or the banner was dismissed.
+  SyncReviewHold? get reviewHold {
+    final stats = _stats;
+    if (!_holdingForReview || stats == null || isRunning) return null;
+    return syncAutoRunHold(stats);
+  }
+
+  void dismissReviewHold() {
+    if (!_holdingForReview) return;
+    _holdingForReview = false;
+    notifyListeners();
+  }
 
   /// The run's rail outcome — reassessed on every effective-action
   /// change so the Run button always describes what would happen NOW.
@@ -471,6 +622,21 @@ final class SyncPlanController extends ChangeNotifier {
     _reassess();
   }
 
+  /// Back to the differ's proposal for every row in [items] — the
+  /// review's re-check of a row or a whole section — with one
+  /// reassessment.
+  void resetOverrides(Iterable<SyncItem> items) {
+    if (_plan == null || isRunning) return;
+    var changed = false;
+    for (final item in items) {
+      if (!item.userOverridden && item.effective == item.suggested) continue;
+      item.effective = item.suggested;
+      item.userOverridden = false;
+      changed = true;
+    }
+    if (changed) _reassess();
+  }
+
   /// Bulk conflict decisions (§7's bar). Returns the resolved count —
   /// `newerWins` silently resolves nothing on untrusted clocks (the
   /// bar hides it then), `keepLeft`/`keepRight` skip rows whose source
@@ -602,28 +768,15 @@ final class SyncPlanController extends ChangeNotifier {
   /// pulled) — the caller hides the affordance rather than emit a
   /// silently wrong command. [now] is a seam so the timestamped
   /// backup-dir stays deterministic under test.
-  ({String text, bool permanentDeletions})? rsyncExport({DateTime? now}) {
+  SyncRsyncExport? rsyncExport({DateTime? now}) {
     final plan = _exportablePlan;
     if (plan == null) return null;
-    final endpoints = _rsyncEndpoints(_pair);
-    if (endpoints == null) return null;
-    final downgraded = _downgradesToSizeOnly;
-    final rules = downgraded
-        ? _rulesWith(comparison: ComparisonMode.sizeOnly)
-        : _pair.rules;
-    return (
-      text: buildRsyncCommand(
-        endpoints,
-        rules,
-        manualOverrides:
-            plan.items.where((item) => item.userOverridden).length,
-        mtimesUntrusted: downgraded,
-        engineSkipPaths: rsyncEngineSkipPaths(plan),
-        now: now ?? DateTime.now(),
-      ),
-      permanentDeletions:
-          rules.deletions == DeletionPolicy.permanent &&
-          rules.backups == BackupPolicy.none,
+    return syncRsyncExport(
+      _pair,
+      _rsyncEndpoints,
+      plan: plan,
+      mtimesUntrusted: _downgradesToSizeOnly,
+      now: now ?? DateTime.now(),
     );
   }
 
@@ -715,6 +868,7 @@ final class SyncPlanController extends ChangeNotifier {
     // belong to the plan the user is no longer reviewing (rail 1).
     _lastRun = null;
     _binding?.retry = null;
+    _holdingForReview = false;
     _phase = SyncPlanPhase.scanning;
     _errorMessage = null;
     _errorKind = null;
@@ -780,8 +934,12 @@ final class SyncPlanController extends ChangeNotifier {
       _suggestHeavyDirectory();
       _phase = SyncPlanPhase.ready;
       _reassess();
+      _settleAutoRun();
     } catch (error) {
       if (_disposed || generation != _scanGeneration) return;
+      // A failed first scan consumes the intent — the rescan the user
+      // triggers from the error state is a review, not a silent run.
+      _autoRunPending = false;
       _phase = SyncPlanPhase.error;
       _errorMessage = error is RemoteFileException
           ? error.message
@@ -888,6 +1046,23 @@ final class SyncPlanController extends ChangeNotifier {
     }
   }
 
+  /// Synchronize's post-scan step (D32 §7): a creates-only plan whose
+  /// gate is clear runs now; anything else holds on the review with
+  /// the reason banner. A plan with nothing to do simply rests on its
+  /// "Both sides match" state.
+  void _settleAutoRun() {
+    if (!_autoRunPending) return;
+    _autoRunPending = false;
+    final stats = _stats;
+    if (stats == null || !stats.hasWork) return;
+    if (syncAutoRunHold(stats) == null && gate is SyncRunClear) {
+      unawaited(run());
+      return;
+    }
+    _holdingForReview = true;
+    notifyListeners();
+  }
+
   // -- Run ---------------------------------------------------------------
 
   /// Runs the reviewed plan. The typed confirmation is a VIEW concern:
@@ -905,6 +1080,7 @@ final class SyncPlanController extends ChangeNotifier {
       return;
     }
     _phase = SyncPlanPhase.running;
+    _holdingForReview = false;
     _pause = SyncRunPause();
     _runCancellation = RemoteTransferCancellation();
     // A fresh run supersedes the previous task row — its retry verb
@@ -1171,8 +1347,10 @@ final class SyncPlanController extends ChangeNotifier {
     lastRunAt: _pair.lastRunAt,
   );
 
-  /// SyncRuleSet carries no copyWith — the few edits the view makes go
-  /// through this one place so a missed field cannot silently revert.
+  /// The few edits the view makes go through this one place: the
+  /// package's [SyncRuleSet.copyWith] keeps every other field, and the
+  /// bidirectional × deletions invariant collapses here — dropping the
+  /// deletion policy when the direction no longer admits it.
   SyncRuleSet _rulesWith({
     SyncDirection? direction,
     DeletionPolicy? deletions,
@@ -1181,30 +1359,13 @@ final class SyncPlanController extends ChangeNotifier {
   }) {
     final rules = _pair.rules;
     final nextDirection = direction ?? rules.direction;
-    final nextDeletions = deletions ?? rules.deletions;
-    // The bidirectional × deletions invariant fails the constructor —
-    // drop the deletion policy when the direction no longer admits it.
-    final effectiveDeletions =
-        nextDirection == SyncDirection.bidirectional
-        ? DeletionPolicy.none
-        : nextDeletions;
-    return SyncRuleSet(
+    return rules.copyWith(
       direction: nextDirection,
-      deletions: effectiveDeletions,
-      backups: rules.backups,
-      comparison: comparison ?? rules.comparison,
-      mtimeToleranceSecs: rules.mtimeToleranceSecs,
-      acceptedTimeShifts: rules.acceptedTimeShifts,
-      conflictDefault: rules.conflictDefault,
-      excludeGlobs: excludeGlobs ?? rules.excludeGlobs,
-      includeHidden: rules.includeHidden,
-      symlinks: rules.symlinks,
-      trashPathLeft: rules.trashPathLeft,
-      trashPathRight: rules.trashPathRight,
-      maxDelete: rules.maxDelete,
-      deleteFractionWarn: rules.deleteFractionWarn,
-      preserveMtime: rules.preserveMtime,
-      transferConcurrency: rules.transferConcurrency,
+      deletions: nextDirection == SyncDirection.bidirectional
+          ? DeletionPolicy.none
+          : deletions ?? rules.deletions,
+      comparison: comparison,
+      excludeGlobs: excludeGlobs,
     );
   }
 
