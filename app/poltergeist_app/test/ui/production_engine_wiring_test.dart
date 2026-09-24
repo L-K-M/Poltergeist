@@ -83,8 +83,8 @@ void main() {
     );
     await tester.pump();
 
-    // The sidebar mounts inline at desktop width; its Connections
-    // section listens to the engine's state lanes directly.
+    // The sidebar mounts inline at desktop width; its SERVERS rows
+    // listen to the engine's state lanes directly.
     expect(engine.statesControllers['b1']!.hasListener, isTrue);
 
     // Live blocked truth from the engine's lane.
@@ -95,15 +95,22 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Host key changed.'), findsOneWidget);
+    // D32 §5: the saved server's one-line row carries the block — the
+    // detail rides its tooltip, not a second line.
+    final row = find.byKey(const ValueKey('sidebar.favorite.b1'));
+    expect(
+      tester
+          .widget<Tooltip>(
+            find.descendant(of: row, matching: find.byType(Tooltip)),
+          )
+          .message,
+      contains('Host key changed.'),
+    );
 
     // The blocked review affordance is reachable through the row's
     // context menu (previously null: no composition could start a
     // connect).
-    await tester.tap(
-      find.byKey(const ValueKey('sidebar.connection.b1')),
-      buttons: kSecondaryButton,
-    );
+    await tester.tap(row, buttons: kSecondaryButton);
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('sidebar.menu.review.b1')),
@@ -168,7 +175,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(const ValueKey('sidebar.connection.b1')),
+      find.byKey(const ValueKey('sidebar.favorite.b1')),
       buttons: kSecondaryButton,
     );
     await tester.pumpAndSettle();

@@ -16,6 +16,7 @@ import 'package:poltergeist_app/ui/adaptive_shell.dart';
 import 'package:poltergeist_app/ui/panes/pane_commands.dart';
 import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
+import 'package:poltergeist_app/ui/sidebar/sidebar_kit.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
@@ -385,7 +386,7 @@ void main() {
     addTearDown(session!.shutdown);
 
     // Same store, session added: the panes bind and the sidebar's
-    // Connections section must pick the session's lanes (a stale null
+    // server rows must pick the session's lanes (a stale null
     // bridge would never surface the row).
     await tester.pumpWidget(
       PoltergeistApp(
@@ -406,13 +407,20 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The Connections section surfaces pool-held servers only, so the
-    // row itself is the live-truth assertion — and the lane proves the
-    // row reads THIS session's state stream (no pane binds srv-x, so
-    // the sidebar's controller is the only possible listener).
+    // The saved server's SERVERS row carries the live truth as its one
+    // dot (D32 §5 retired the separate Connections section) — and the
+    // lane proves the row reads THIS session's state stream (no pane
+    // binds srv-x, so the sidebar's controller is the only possible
+    // listener).
+    final row = find.byKey(const ValueKey('sidebar.favorite.srv-x'));
+    expect(row, findsOneWidget);
     expect(
-      find.byKey(const ValueKey('sidebar.connection.srv-x')),
-      findsOneWidget,
+      tester
+          .widget<SidebarRow>(
+            find.descendant(of: row, matching: find.byType(SidebarRow)),
+          )
+          .statusColor,
+      isNotNull,
     );
     expect(engine.statesControllers['srv-x']!.hasListener, isTrue);
   });

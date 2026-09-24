@@ -944,7 +944,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.region'",
     r"'sidebar.open: localFolder ${bookmark.id} has no path'",
     r"'sidebar.open: savedSync ${bookmark.id} has no spec'",
-    r"'sidebar.connOpen: no bookmark for ${server.serverId}'",
     // The catalog open path's unresolved-serverConfigId diagnostic and
     // the transient bookmark's empty sort key — reported fault and
     // machine data, never rendered copy.
@@ -1380,12 +1379,145 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'Probe truth must be painted by ProbeStatusDot/ServerStateIndicator; '",
     "'ServerStateGlyph has no probe paint.'",
   },
+  // The D32 sidebar library (sidebar_view.dart and its parts): widget keys,
+  // selection-key and menu-key compositions, path separators for folder
+  // labels, and semantics/tooltip labels composed of localized parts or
+  // endpoint data — plumbing, never authored copy.
+  'lib/ui/sidebar/sidebar_view.dart': {
+    "'sidebar.noMatches'",
+    "'sidebar.filter'",
+    "'sidebar.filter.field'",
+    "'sidebar.bottomBar'",
+    "'sidebar.add'",
+    "'sidebar.settings'",
+    "'sidebar.add.newServer'",
+    "'sidebar.add.quickConnect'",
+    "'sidebar.add.currentFolder'",
+    "'sidebar.add.newGroup'",
+    "'sidebar.add.importSshConfig'",
+    "'/'",
+    "'sidebar.syncChip'",
+    r"r'\'",
+    r"'device:$path'",
+    r"'fav:$id'",
+    r"'server:$serverId'",
+    "'sidebar.menu'",
+    r"'$keyPrefix.open'",
+    r"'$keyPrefix.openNewTab'",
+    r"'$keyPrefix.openOtherPane'",
+  },
+  'lib/ui/sidebar/sidebar_devices_section.dart': {
+    r"'${volume.name} ${volume.path}'",
+    r"'sidebar.device.${volume.path}'",
+    r"'sidebar.section.$sectionKey'",
+    r"'device:${volume.path}'",
+    "''",
+    r"'${volume.name}, ${l10n.sidebarFreeSpaceSemantics(freeSpace!)}'",
+    r"'sidebar.device.eject.${volume.path}'",
+    "'sidebar.menu.addToFavorites'",
+    "'sidebar.menu.eject'",
+  },
+  'lib/ui/sidebar/sidebar_dialogs.dart': {
+    "''",
+    "'sidebar.renameField'",
+    "'sidebar.renameSave'",
+    "'sidebar.groupField'",
+    "'sidebar.groupSave'",
+    "'sidebar.deleteConfirm'",
+    "'sidebar.saveServerField'",
+    "'sidebar.saveServerSave'",
+    r"'${identity.host}:${identity.port}'",
+    r"'${identity.username}@$host'",
+  },
+  'lib/ui/sidebar/sidebar_favorites_section.dart': {
+    "'sidebar.retry'",
+    r"'sidebar.group.$collapseKey'",
+    r"'sidebar.section.$collapseKey'",
+    "'sidebar.favorites.header'",
+    r"'sidebar.section.$sectionKey'",
+    "'sidebar.favorites.add'",
+    "' '",
+    "'sidebar.favorites.empty'",
+    "'sidebar.favorites.addStandard'",
+    r"'sidebar.favorite.${bookmark.id}'",
+    "'sidebar.menu.updateWorkspace'",
+    "'sidebar.menu.rename'",
+    "'sidebar.menu.moveToGroup'",
+    "'sidebar.menu.ungroup'",
+    "'sidebar.menu.newGroup'",
+    "'sidebar.menu.delete'",
+  },
+  'lib/ui/sidebar/sidebar_servers_section.dart': {
+    "''",
+    r"'${bookmark.label} ${_endpointLabel(bookmark)}'",
+    r"'sidebar.adhoc.${bookmark.id}'",
+    r"'sidebar.group.$collapseKey'",
+    r"'sidebar.section.$collapseKey'",
+    "'sidebar.servers.empty'",
+    "'sidebar.importSshConfig'",
+    "'sidebar.servers.header'",
+    r"'sidebar.section.$sectionKey'",
+    "'sidebar.servers.add'",
+    "' '",
+    r"'sidebar.favorite.${bookmark.id}'",
+    r"'sidebar.catalog.row.${server.id}'",
+    r"'$username@${host.toLowerCase()}:$port'",
+    r"'sidebar.row.disconnect.${server.serverId}'",
+    "'sidebar.menu.disconnect'",
+    "', '",
+    r"'\n'",
+    r"'sidebar.menu.review.$id'",
+    "'sidebar.menu.localEdits'",
+    r"'${identity.username}@${identity.host}:${identity.port}'",
+    r"'${server.username}@${server.host}:${server.port}'",
+    r"'${server.label}, ${appearance.label}'",
+    "'sidebar.catalog.menu'",
+    "'sidebar.catalog.menu.edit'",
+    "'sidebar.catalog.menu.duplicate'",
+    "'sidebar.catalog.menu.delete'",
+    "'sidebar.adhoc.menu.save'",
+  },
+  // The portable kit's empty query (the filter's clear button).
+  'lib/ui/sidebar/sidebar_kit.dart': {
+    "''",
+  },
+  // The sidebar filter's term split and the path-separator trimming of
+  // the selection match — machinery, never rendered.
+  'lib/ui/sidebar/sidebar_facts.dart': {
+    r"r'\s+'",
+    "'/'",
+    r"r'\'",
+    r"r'^[A-Za-z]:[\\/]$'",
+  },
+  // The sidebar filter command's registry id.
+  'lib/ui/sidebar/sidebar_commands.dart': {
+    "'view.filterSidebar'",
+  },
   // The ported middle-ellipsis glyph and its head/tail compositions —
   // typography, not copy.
   'lib/ui/middle_ellipsis_text.dart': {
     "'…'",
     r"'${graphemes.take(head).join()}$_ellipsis'",
     r"'${graphemes.skip(graphemes.length - tail).join()}'",
+  },
+  // The collapse-key namespaces, the legacy keys they migrate, the
+  // empty filter query, and the controller's ArgumentError/StateError
+  // diagnostics — persisted identifiers and programmer errors, never
+  // rendered UI copy.
+  'lib/services/sidebar_controller.dart': {
+    "'sec:'",
+    "'fav:'",
+    "'srv:'",
+    r"'$_section${section.name}'",
+    r"'$_favoriteGroup$groupKey'",
+    r"'$_serverGroup$groupKey'",
+    "'sidebar.connections'",
+    "'sidebar.catalog'",
+    "'sidebar.catalog.'",
+    "''",
+    "'id'",
+    "'unknown bookmark'",
+    "'SidebarController used after dispose'",
   },
   // DEVICES enumeration: mount roots, OS ids, environment keys, drive
   // letters, the XDG user-dirs file and its keys, the fallback folder
@@ -1432,72 +1564,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'-kP'",
     "' '",
     r"r'\s+'",
-  },
-  // The portable kit's empty query (the filter's clear button).
-  'lib/ui/sidebar/sidebar_kit.dart': {
-    "''",
-  },
-  // The sidebar's widget keys, its section-collapse key prefix, the
-  // semantics-label compositions (machine data beside ARB copy), and the
-  // endpoint line — plumbing, never authored copy.
-  'lib/ui/sidebar/sidebar_view.dart': {
-    "'sidebar.connections'",
-    r"'sidebar.connection.${server.serverId}'",
-    "'sidebar.retry'",
-    r"'sidebar.favorite.${bookmark.id}'",
-    r"'sidebar.section.${widget.sectionKey}'",
-    "'sidebar.favorite'",
-    "'sidebar.importSshConfig'",
-    r"'${bookmark.label}, ${appearance.label}'",
-    "'sidebar.menu.open'",
-    "'sidebar.menu.openNewTab'",
-    "'sidebar.menu.openOtherPane'",
-    "'sidebar.menu.updateWorkspace'",
-    "'sidebar.menu.localEdits'",
-    "'sidebar.menu.rename'",
-    "'sidebar.menu.moveToGroup'",
-    "'sidebar.menu.delete'",
-    "'sidebar.menu.ungroup'",
-    "'sidebar.menu.newGroup'",
-    "'sidebar.renameField'",
-    "'sidebar.renameSave'",
-    "'sidebar.groupField'",
-    "'sidebar.groupSave'",
-    "'sidebar.deleteConfirm'",
-    "'sidebar.connection'",
-    "'sidebar.menu.connOpen'",
-    "'sidebar.menu.disconnect'",
-    r"'sidebar.menu.review.${server.serverId}'",
-    r"'${server.username}@${server.host}:${server.port}'",
-    // The connection semantic label's separator between segments.
-    "', '",
-    // The new-group field's empty seed — a starting value, not copy.
-    "''",
-    // The catalog section's keys: collapse-key namespaces, row/menu
-    // ValueKeys, the FocusNode debug label, and the semantics label
-    // composed of localized parts — identifiers, not copy.
-    "'sidebar.catalog'",
-    "'sidebar.catalog.'",
-    r"'$_catalogGroupKeyPrefix${section.key}'",
-    r"'$_catalogGroupKeyPrefix$key'",
-    r"'sidebar.catalog.row.${server.id}'",
-    "'sidebar.catalog.syncNow'",
-    "'sidebar.catalogRow'",
-    r"'${server.label}, ${appearance.label}'",
-    "'sidebar.catalog.menu.open'",
-    "'sidebar.catalog.menu.openNewTab'",
-    "'sidebar.catalog.menu.openOtherPane'",
-    "'sidebar.catalog.add'",
-    "'sidebar.catalog.menu.edit'",
-    "'sidebar.catalog.menu.duplicate'",
-    "'sidebar.catalog.menu.delete'",
-  },
-  // The controller's ArgumentError/StateError diagnostics — programmer
-  // errors, never rendered UI copy.
-  'lib/services/sidebar_controller.dart': {
-    "'id'",
-    "'unknown bookmark'",
-    "'SidebarController used after dispose'",
   },
   // The probe owner's dedup key composition (serverId@host:port) —
   // machine identity, never rendered.

@@ -3602,4 +3602,142 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get headerTitleEmpty => 'No location';
+
+  @override
+  String get sidebarDevicesSection => 'Devices';
+
+  @override
+  String get sidebarFavoritesSection => 'Favorites';
+
+  @override
+  String get sidebarServersSection => 'Servers';
+
+  @override
+  String get sidebarShowSection => 'Show';
+
+  @override
+  String get sidebarHideSection => 'Hide';
+
+  @override
+  String get sidebarFilterHint => 'Filter';
+
+  @override
+  String get sidebarNoMatches => 'No matches';
+
+  @override
+  String get sidebarAddMenu => 'Add';
+
+  @override
+  String get sidebarSettings => 'Settings';
+
+  @override
+  String get sidebarAddNewServer => 'New Server…';
+
+  @override
+  String get sidebarAddQuickConnect => 'Quick Connect…';
+
+  @override
+  String get sidebarAddCurrentFolder => 'Add Current Folder to Favorites';
+
+  @override
+  String get sidebarFavoritesAdd => 'Add Current Folder';
+
+  @override
+  String get sidebarServersAddNew => 'New Server';
+
+  @override
+  String get sidebarServersAddConnect => 'Quick Connect';
+
+  @override
+  String get sidebarSyncOff => 'Sync off';
+
+  @override
+  String get sidebarSyncOffTooltip => 'Set up Sync';
+
+  @override
+  String get sidebarSyncFailedChip => 'Sync failed';
+
+  @override
+  String get sidebarSyncNever => 'Not synced yet';
+
+  @override
+  String get sidebarSyncedJustNow => 'Synced · just now';
+
+  @override
+  String sidebarSyncedMinutes(int minutes) {
+    return 'Synced · $minutes min';
+  }
+
+  @override
+  String sidebarSyncedHours(int hours) {
+    return 'Synced · $hours h';
+  }
+
+  @override
+  String sidebarSyncedDays(int days) {
+    return 'Synced · $days d';
+  }
+
+  @override
+  String sidebarTabCount(int count) {
+    return '×$count';
+  }
+
+  @override
+  String get sidebarFavoritesAddStandard =>
+      'Add Desktop, Documents, and Downloads';
+
+  @override
+  String get sidebarFavoritesEmpty => 'Drag folders here to keep them close.';
+
+  @override
+  String get sidebarServersEmpty =>
+      'No servers yet. Connect to one, then save it here.';
+
+  @override
+  String get sidebarGroupEmpty => 'Drag favorites here';
+
+  @override
+  String get sidebarAddToFavorites => 'Add to Favorites';
+
+  @override
+  String get sidebarEject => 'Eject';
+
+  @override
+  String get sidebarSaveToServers => 'Save to Servers…';
+
+  @override
+  String get sidebarSaveToServersTitle => 'Save to Servers';
+
+  @override
+  String get sidebarUnsavedSession => 'not saved';
+
+  @override
+  String get sidebarRenameServerTitle => 'Rename Server';
+
+  @override
+  String get sidebarDeleteServerTitle => 'Remove Server';
+
+  @override
+  String get viewFilterSidebarLabel => 'Filter Sidebar';
+
+  @override
+  String sidebarEjectFailed(String name) {
+    return 'Couldn\'t eject “$name”. Close anything using it and try again.';
+  }
+
+  @override
+  String sidebarAlreadyFavorite(String label) {
+    return '“$label” is already in Favorites.';
+  }
+
+  @override
+  String sidebarDeleteServerBody(String label) {
+    return 'Remove “$label” from Servers? This cannot be undone.';
+  }
+
+  @override
+  String sidebarFreeSpaceSemantics(String size) {
+    return '$size available';
+  }
 }
