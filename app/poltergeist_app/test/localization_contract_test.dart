@@ -148,16 +148,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // `operation` label is diagnostic metadata (the exception renders
   // `message`, which is ARB copy) — never authored UI text.
   'lib/services/transfer_queue_session.dart': {"'transfer channel'"},
-  // The checkout session's store paths, the `df` probe invocation, and
-  // its output parsing — machine data, never rendered UI copy.
+  // The checkout session's store paths — machine data, never rendered UI
+  // copy (its `df` probe moved to local_volumes.dart).
   'lib/services/checkout_session.dart': {
     "'\$supportDirectoryPath\${Platform.pathSeparator}'",
     "'managed_remote_files.json'",
     "'\$supportDirectoryPath\${Platform.pathSeparator}checkouts'",
-    "'df'",
-    "'-k'",
-    r"'\n'",
-    r"r'\s+'",
   },
   'lib/services/app_preferences.dart': {
     "'layout.paneRatio'",
@@ -1390,6 +1386,52 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'…'",
     r"'${graphemes.take(head).join()}$_ellipsis'",
     r"'${graphemes.skip(graphemes.length - tail).join()}'",
+  },
+  // DEVICES enumeration: mount roots, OS ids, environment keys, drive
+  // letters, the XDG user-dirs file and its keys, the fallback folder
+  // names (on-disk names, not display copy — rows show the folder's own
+  // name), and the df/diskutil/gio/umount invocations and parsing.
+  'lib/services/local_volumes.dart': {
+    "'/Volumes'",
+    "'/media'",
+    "'/run/media'",
+    "'/mnt'",
+    "'/'",
+    "'windows'",
+    "'macos'",
+    "'linux'",
+    "'USERPROFILE'",
+    "'HOME'",
+    "'USER'",
+    "'USERNAME'",
+    "'LOGNAME'",
+    "'SystemDrive'",
+    "'C:'",
+    r"'${String.fromCharCode(code)}:'",
+    r"'$letter\\'",
+    "'XDG_DESKTOP_DIR'",
+    "'Desktop'",
+    "'XDG_DOCUMENTS_DIR'",
+    "'Documents'",
+    "'XDG_DOWNLOAD_DIR'",
+    "'Downloads'",
+    "'XDG_CONFIG_HOME'",
+    "'.config'",
+    "'user-dirs.dirs'",
+    "'diskutil'",
+    "'eject'",
+    "'gio'",
+    "'mount'",
+    "'-u'",
+    "'umount'",
+    r"r'^\s*(XDG_[A-Z]+_DIR)\s*=\s*\x22(.*)\x22\s*$'",
+    r"'\n'",
+    r"r'$HOME'",
+    r"'$home${value.substring(5)}'",
+    "'df'",
+    "'-kP'",
+    "' '",
+    r"r'\s+'",
   },
   // The sidebar's widget keys, its section-collapse key prefix, the
   // semantics-label compositions (machine data beside ARB copy), and the

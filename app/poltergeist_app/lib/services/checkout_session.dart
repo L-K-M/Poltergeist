@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show ChangeNotifier;
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'application_error_reporter.dart';
+import 'local_volumes.dart' show dfFreeSpaceBytes;
 
 /// The app-wide managed-checkout seam (06 §3, 03 §6): one
 /// [CheckoutManager] over the durable [ManagedRemoteFileStore] inside
@@ -207,7 +208,9 @@ Future<CheckoutSession?> startCheckoutSession({
       store: store,
       connections: connections,
       queue: queue,
-      freeSpaceBytes: _freeSpaceBytes,
+      // The §3.2 free-space preflight over the app-support volume —
+      // null (degrade to the write failure) where `df` cannot answer.
+      freeSpaceBytes: dfFreeSpaceBytes,
       onError: errors.report,
     );
     await manager.start();
@@ -226,31 +229,6 @@ Future<CheckoutSession?> startCheckoutSession({
     } on Object catch (closeError, closeStack) {
       errors.report(closeError, closeStack);
     }
-    return null;
-  }
-}
-
-/// The §3.2 free-space preflight over the app-support volume — `df -k`'s
-/// available column on POSIX, null (degrade to the write failure) on
-/// platforms without it or when the probe itself fails.
-Future<int?> _freeSpaceBytes(String path) async {
-  if (Platform.isWindows) return null;
-  try {
-    final result = await Process.run('df', ['-k', path]);
-    if (result.exitCode != 0) return null;
-    // A wrapped df line still ends with one row whose fields split as
-    // <fs> <blocks> <used> <avail> … — the last line's fourth field.
-    final lines = (result.stdout as String)
-        .trim()
-        .split('\n')
-        .where((line) => line.trim().isNotEmpty)
-        .toList();
-    if (lines.length < 2) return null;
-    final fields = lines.last.trim().split(RegExp(r'\s+'));
-    if (fields.length < 4) return null;
-    final kibibytes = int.tryParse(fields[3]);
-    return kibibytes == null ? null : kibibytes * 1024;
-  } on Object {
     return null;
   }
 }
