@@ -489,6 +489,64 @@ class FakeAppTransferQueue implements AppTransferQueue {
     if (error != null) throw error;
   }
 
+  /// Delete-verb scripting: every prepare/enqueue is recorded;
+  /// [deleteConfirmation] answers prepares (a permanent, quantified
+  /// default), and [enqueueDeleteError] throws on enqueue.
+  final prepareDeleteCalls =
+      <({FsLocation source, List<String> rootPaths, bool preferTrash})>[];
+  final enqueuedDeletes = <DeleteRequest>[];
+  DeleteConfirmation? deleteConfirmation;
+  Object? enqueueDeleteError;
+
+  @override
+  Future<DeleteConfirmation> prepareDelete({
+    required FsLocation source,
+    required List<String> rootPaths,
+    bool preferTrash = true,
+    RemoteTransferCancellation? cancellation,
+  }) async {
+    prepareDeleteCalls.add((
+      source: source,
+      rootPaths: rootPaths,
+      preferTrash: preferTrash,
+    ));
+    return deleteConfirmation ??
+        DeleteConfirmation(
+          source: source,
+          rootPaths: rootPaths,
+          names: [for (final root in rootPaths.take(3)) root.split('/').last],
+          effectiveDisposition: preferTrash
+              ? DeleteDisposition.trash
+              : DeleteDisposition.permanent,
+          quantified: true,
+          remoteTrashOptIn: false,
+          trashUnavailable: false,
+          totalItems: rootPaths.length,
+          totalBytes: 0,
+        );
+  }
+
+  @override
+  Future<TransferTask> enqueueDelete(DeleteRequest request) async {
+    final error = enqueueDeleteError;
+    if (error != null) throw error;
+    enqueuedDeletes.add(request);
+    final task = TransferTask(
+      TransferTaskSpec(
+        source: request.source,
+        destination: request.source,
+        rootPaths: request.rootPaths,
+        destinationDir: '/',
+        policy: ResolvedConflictPolicy(),
+        operation: TransferOperation.delete,
+        disposition: request.disposition,
+      ),
+    );
+    _tasks.add(task);
+    emit(TransferQueueTaskEvent(task.id, task.state));
+    return task;
+  }
+
   TransferTask? _task(String taskId) {
     for (final task in _tasks) {
       if (task.id == taskId) return task;

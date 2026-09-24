@@ -101,6 +101,27 @@ abstract interface class AppTransferQueue {
   /// queue fully writable. A queue with no persistence resolves
   /// immediately: nothing exists to flush.
   Future<void> flushJournal();
+
+  /// 02 §2.6/§10's delete confirmation model (D15): the disposition the
+  /// confirmed action will really run (OS trash, remote
+  /// `.poltergeist-trash/`, or permanent), the quantified count and size
+  /// the dialog discloses, and the trash-unavailable notice. [preferTrash]
+  /// is the gesture — `file.delete` passes true, `file.deletePermanently`
+  /// false. Throws `cancelled` when [cancellation] trips mid-quantify.
+  Future<DeleteConfirmation> prepareDelete({
+    required FsLocation source,
+    required List<String> rootPaths,
+    bool preferTrash = true,
+    RemoteTransferCancellation? cancellation,
+  });
+
+  /// Enqueues one confirmed delete task: a post-order walk whose every
+  /// item routes through the trash layer; progress, cancel, and failures
+  /// ride the activity panel like any transfer. A permanent disposition
+  /// requires [DeleteRequest.confirmed] (D15: never an unconfirmed
+  /// unlink); a local trash request whose OS trash went unavailable
+  /// throws [TrashException] so the caller re-confirms permanent.
+  Future<TransferTask> enqueueDelete(DeleteRequest request);
 }
 
 /// [TransferQueue] behind the app seam — the in-process adapter used by
@@ -191,6 +212,23 @@ final class TransferQueueAdapter implements AppTransferQueue {
 
   @override
   Future<void> clearHistory() => _queue.clearHistory();
+
+  @override
+  Future<DeleteConfirmation> prepareDelete({
+    required FsLocation source,
+    required List<String> rootPaths,
+    bool preferTrash = true,
+    RemoteTransferCancellation? cancellation,
+  }) => _queue.prepareDelete(
+    source: source,
+    rootPaths: rootPaths,
+    preferTrash: preferTrash,
+    cancellation: cancellation,
+  );
+
+  @override
+  Future<TransferTask> enqueueDelete(DeleteRequest request) =>
+      _queue.enqueueDelete(request);
 
   @override
   Future<void> flushJournal() {

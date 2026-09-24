@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show basicLocaleListResolution;
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import '../l10n/app_localizations.dart';
 import 'double_click_action.dart';
 import 'engine_session.dart';
 import 'folder_size.dart';
@@ -520,6 +522,12 @@ class PaneController extends ChangeNotifier {
   /// convention). Consumed by the next accepted listing; cleared by any
   /// newer navigation issue.
   String? _pendingRenameSelectPath;
+
+  /// Set with [_pendingRenameSelectPath] by the create verbs: the
+  /// accepted listing that lands the cursor on the new row also opens
+  /// its inline rename (Finder's New Folder flow). Cleared with the
+  /// select path by every invalidation.
+  bool _renameAfterSelect = false;
 
   /// The Get Info inspector's on-demand folder-size session (02 §2.6):
   /// the walk's live or terminal snapshot, keyed by target path so the
@@ -1455,6 +1463,137 @@ class PaneController extends ChangeNotifier {
   /// commit, the row's current name on a fresh open.
   String get renameSeed =>
       _renameSession?.attempted ?? _renameSession?.entry.name ?? '';
+
+  /// `file.newFolder` (02 §8.3): creates a folder in the pane's current
+  /// location named [name] — by default the localized "untitled folder" —
+  /// numbered `untitled folder (2)`, `(3)`, … past any name the listing
+  /// shows or the filesystem already holds. The listing then refreshes
+  /// with the new row under the cursor and its inline rename open
+  /// (Finder's New Folder flow), so typing names it.
+  ///
+  /// Returns the created path, or null when the pane cannot act right
+  /// now ([verbsEnabled] false — mid-navigation, recovering, unbound). A
+  /// pane that moved on while the create was in flight still gets the
+  /// created path back; it just opens no editor. Typed refusals
+  /// (permission denied, a read-only volume, a vanished directory) are
+  /// thrown as the channel's [RemoteFileException] for the caller to
+  /// render.
+  Future<String?> createFolder({String? name}) =>
+      _createEntry(name ?? _l10n().paneNewFolderName, directory: true);
+
+  /// `file.newFile` (02 §8.3): [createFolder]'s twin for an empty regular
+  /// file — default name the localized "untitled file", created through
+  /// the VFS's temporary-then-rename upload so an existing name is a
+  /// typed conflict, never an overwrite. Same return and error contract
+  /// as [createFolder].
+  Future<String?> createFile({String? name}) =>
+      _createEntry(name ?? _l10n().paneNewFileName, directory: false);
+
+  /// Numbering stops here: a directory holding 100 taken variants is a
+  /// pathological case worth a typed refusal, not an unbounded probe.
+  static const int _maxCreateAttempts = 100;
+
+  Future<String?> _createEntry(
+    String baseName, {
+    required bool directory,
+  }) async {
+    final channel = _channel;
+    final location = _location;
+    if (_disposed || channel == null || location == null || !verbsEnabled) {
+      return null;
+    }
+    final operation = directory ? 'create directory' : 'create file';
+    // An explicit name obeys the rename field's rules and refuses with
+    // the same typed faults the view already renders.
+    final nameError = renameNameError(
+      baseName,
+      remote: location is RemotePaneLocation,
+      platform: defaultTargetPlatform,
+    );
+    if (nameError != null) {
+      throw PaneFaultException(switch (nameError) {
+        RenameNameError.empty => PaneFault.renameNameEmpty,
+        RenameNameError.separator => PaneFault.renameNameSeparator,
+        RenameNameError.invalid => PaneFault.renameNameInvalid,
+      }, operation: operation);
+    }
+
+    // The same ownership token submitRename uses: a rebind or a
+    // navigation retires it, so a late create never drives a listing
+    // the pane no longer shows.
+    final attempt = _bindAttempt;
+    final revision = _locationRevision;
+    bool ownsPresentation() =>
+        !_disposed &&
+        identical(channel, _channel) &&
+        attempt == _bindAttempt &&
+        revision == _locationRevision &&
+        location == _location;
+
+    final taken = {for (final entry in _sortedListing) entry.name};
+    final separator = paneSeparator(location.path);
+    final parent = location.path.endsWith(separator)
+        ? location.path
+        : '${location.path}$separator';
+    for (var number = 1; number <= _maxCreateAttempts; number++) {
+      final candidate = number == 1
+          ? baseName
+          : numberedConflictName(baseName, number, isDirectory: directory);
+      if (taken.contains(candidate)) continue;
+      final path = '$parent$candidate';
+      try {
+        if (directory) {
+          await channel.createDirectory(path);
+        } else {
+          await channel.createEmptyFile(path);
+        }
+      } on RemoteFileException catch (error) {
+        if (await _nameTaken(channel, path, error)) continue;
+        rethrow;
+      }
+      if (!ownsPresentation()) return path;
+      refresh();
+      // Set AFTER refresh() issues: a navigation issue clears the
+      // pending select, and the refresh's own accept consumes it.
+      _pendingRenameSelectPath = path;
+      _renameAfterSelect = true;
+      return path;
+    }
+    throw RemoteFileException(
+      kind: RemoteFileErrorKind.conflict,
+      operation: operation,
+      path: '$parent$baseName',
+      message: _l10n().paneCreateNamesExhausted(baseName),
+    );
+  }
+
+  /// Whether a create refusal means "that name exists": the channel's
+  /// typed conflict, or SFTP's plain failure (OpenSSH answers an
+  /// existing mkdir target with SSH_FX_FAILURE, which the adapter maps
+  /// to `other`) when the path now stats.
+  Future<bool> _nameTaken(
+    AppBrowseChannel channel,
+    String path,
+    RemoteFileException error,
+  ) async {
+    if (error.kind == RemoteFileErrorKind.conflict) return true;
+    if (error.kind != RemoteFileErrorKind.other) return false;
+    try {
+      await channel.stat(path);
+      return true;
+    } on RemoteFileException {
+      return false;
+    }
+  }
+
+  /// The ARB copy for defaults resolved without a BuildContext — the
+  /// same locale resolution the MaterialApp applies.
+  static AppLocalizations _l10n() => lookupAppLocalizations(
+    basicLocaleListResolution(
+      PlatformDispatcher.instance.locales,
+      AppLocalizations.supportedLocales,
+    ),
+  );
 
   /// `file.rename` (02 §2.6): opens the inline editor on the cursor row.
   /// Inert off the verb surface (unbound, loading, errored, or lost
@@ -2679,6 +2818,7 @@ class PaneController extends ChangeNotifier {
     _quickSelect = null;
     _renameSession = null;
     _pendingRenameSelectPath = null;
+    _renameAfterSelect = false;
     _endFolderSize();
     _endEnclosedApply();
     _noticeTimer?.cancel();
@@ -2968,6 +3108,7 @@ class PaneController extends ChangeNotifier {
     _answeredGeneration = _issuedGeneration;
     // A cancelled listing can never consume a pending rename re-select.
     _pendingRenameSelectPath = null;
+    _renameAfterSelect = false;
   }
 
   /// The browse target of the in-flight or last-failed local open —
@@ -3044,6 +3185,7 @@ class PaneController extends ChangeNotifier {
     // A rename's refresh-select hint is consumed by the listing THIS
     // issue's answer accepts; any newer issue invalidates it.
     _pendingRenameSelectPath = null;
+    _renameAfterSelect = false;
     // Every navigation issue is newer intent: an in-flight mirror probe
     // taken before it is stale and must be abandoned by the replay.
     _operationIdentity = Object();
@@ -3135,14 +3277,20 @@ class PaneController extends ChangeNotifier {
       _staleRows = false;
       _applyEntries(_filteredListing());
       final renameSelect = _pendingRenameSelectPath;
+      final renameAfterSelect = _renameAfterSelect;
       _pendingRenameSelectPath = null;
+      _renameAfterSelect = false;
+      var openRenameAt = -1;
       if (renameSelect != null) {
         // The rename changed the row's key; re-anchor the cursor to the
         // renamed row's new index instead of letting the prune drop it.
         final index = _entries.indexWhere(
           (entry) => entry.path == renameSelect,
         );
-        if (index >= 0) setCursorIndex(index);
+        if (index >= 0) {
+          setCursorIndex(index);
+          if (renameAfterSelect) openRenameAt = index;
+        }
       }
       _recovery = _RecoveryPhase.none;
       _answeredGeneration = generation;
@@ -3160,6 +3308,18 @@ class PaneController extends ChangeNotifier {
         );
       }
       _error = null;
+      // A created row opens its inline rename once the listing is live
+      // (the session needs an owned, answered listing to anchor on).
+      if (openRenameAt >= 0 &&
+          openRenameAt < _entries.length &&
+          _renameSession == null &&
+          !_renameInFlight &&
+          !nameIsFlagged(_entries[openRenameAt].name)) {
+        _renameSession = _RenameSession(
+          entry: _entries[openRenameAt],
+          rowKey: _rowKeys[openRenameAt],
+        );
+      }
       notifyListeners();
     } on RemoteFileException catch (error) {
       if (_disposed ||

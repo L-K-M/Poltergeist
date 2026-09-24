@@ -1052,6 +1052,14 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'\uFFFD'",
     // Debug-only invariant messages — never rendered.
     "'_loweredNames out of sync with _listing — assign via _setListing'",
+    // The create verbs' operation tags and path arithmetic (02 §8.3's
+    // file.newFolder / file.newFile) — the engine's operation labels and
+    // machine path data, never UI copy.
+    "'create directory'",
+    "'create file'",
+    r"'${location.path}$separator'",
+    r"'$parent$candidate'",
+    r"'$parent$baseName'",
   },
   // The bridged lease's config source: the resolve operation tag and the
   // sync-endpoint serverId scheme — machine identifiers, never UI copy

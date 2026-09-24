@@ -330,6 +330,23 @@ final class CompositeAppTransferQueue implements AppTransferQueue {
       List.unmodifiable([..._inner.tasks, ..._syncTasks.tasks]);
 
   @override
+  Future<DeleteConfirmation> prepareDelete({
+    required FsLocation source,
+    required List<String> rootPaths,
+    bool preferTrash = true,
+    RemoteTransferCancellation? cancellation,
+  }) => _inner.prepareDelete(
+    source: source,
+    rootPaths: rootPaths,
+    preferTrash: preferTrash,
+    cancellation: cancellation,
+  );
+
+  @override
+  Future<TransferTask> enqueueDelete(DeleteRequest request) =>
+      _inner.enqueueDelete(request);
+
+  @override
   bool get isPaused => _inner.isPaused;
 
   @override
