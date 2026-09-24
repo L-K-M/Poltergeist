@@ -671,7 +671,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     '\'finally\'',
     '\'float\'',
     '\'fn\'',
-    '\'font-face\'',
     '\'for\'',
     '\'foreach\'',
     '\'foreign\'',

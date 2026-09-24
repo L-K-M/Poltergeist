@@ -591,7 +591,6 @@ class SyntaxLanguages {
       'import',
       'charset',
       'namespace',
-      'font-face',
       'page',
       'important',
       'inherit',
