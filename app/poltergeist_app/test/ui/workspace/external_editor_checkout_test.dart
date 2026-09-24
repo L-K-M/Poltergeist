@@ -171,6 +171,17 @@ late OpenerSeams seams;
 AppLocalizations l10nOf(WidgetTester tester) =>
     AppLocalizations.of(tester.element(find.byType(Scaffold).first));
 
+/// Whether a managed upload has finished on the queue. The fake remote
+/// records `uploadCalls` when an upload STARTS and lands the bytes only
+/// once the content stream drains, so a check of the remote bytes waits
+/// for this, not for the call.
+bool managedUploadCompleted() => harness.queue.tasks.any(
+  (task) =>
+      task.spec.managedCheckout?.direction ==
+          ManagedCheckoutDirection.upload &&
+      task.state == TransferTaskState.completed,
+);
+
 /// The cursor's row — finds the entry by name on the live left pane.
 RemoteFileEntry cursorEntry(WidgetTester tester, String name) {
   final pane = leftPane(tester);
@@ -633,8 +644,10 @@ void main() {
           await tester.tap(find.widgetWithText(TextButton, 'Upload'));
           await pollUntil(
             tester,
-            () => harness.fs.uploadCalls.contains(remoteConfigPath),
-            reason: 'upload never reached the remote',
+            () =>
+                harness.fs.uploadCalls.contains(remoteConfigPath) &&
+                managedUploadCompleted(),
+            reason: 'upload never completed on the remote',
           );
           expect(
             utf8.decode(harness.fs.bytes(remoteConfigPath)!),
@@ -729,8 +742,10 @@ void main() {
           );
           await pollUntil(
             tester,
-            () => harness.fs.uploadCalls.contains(remoteConfigPath),
-            reason: 'overwrite upload never reached the remote',
+            () =>
+                harness.fs.uploadCalls.contains(remoteConfigPath) &&
+                managedUploadCompleted(),
+            reason: 'overwrite upload never completed on the remote',
           );
           expect(
             utf8.decode(harness.fs.bytes(remoteConfigPath)!),
