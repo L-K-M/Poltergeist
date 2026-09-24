@@ -5,6 +5,8 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'application_error_reporter.dart';
 import 'connection_state_bridge.dart';
+import 'pane_controller.dart';
+import 'quick_connect_address.dart' show quickConnectAdhocIdPrefix;
 
 /// The server list's own load state — distinct from per-server connection
 /// state: a ready list can be entirely offline, and a failed load has no rows
@@ -356,4 +358,28 @@ final class ConnectionStatusController extends ChangeNotifier {
     _cancelWatches();
     super.dispose();
   }
+}
+
+/// Whether [serverId] is connected right now. A saved or synced server
+/// answers from the catalog's live status — and only from it: a saved
+/// server missing from the catalog has no config to upload through,
+/// whatever a restored tab reports. A Quick Connect session is in no
+/// catalog by design; its only record is the tab that opened it, so the
+/// open [panes] bound to its `adhoc:` id answer for it.
+bool serverConnectedNow(
+  String serverId, {
+  required Iterable<ConnectionServer> catalog,
+  required Iterable<PaneController> panes,
+}) {
+  for (final server in catalog) {
+    if (server.serverId == serverId) {
+      return server.status?.state == ServerConnectionState.connected;
+    }
+  }
+  if (!serverId.startsWith(quickConnectAdhocIdPrefix)) return false;
+  return panes.any(
+    (pane) =>
+        pane.remoteBookmark?.id == serverId &&
+        pane.connectionStatus?.state == ServerConnectionState.connected,
+  );
 }

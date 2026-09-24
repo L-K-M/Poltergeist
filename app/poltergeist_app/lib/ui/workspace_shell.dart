@@ -786,13 +786,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// Whether [serverId] currently reports a live connection — the
   /// dirty-prompt's connected gate (a disconnected server cannot upload,
   /// so prompting would dead-end into a raw connection error).
-  bool _serverConnected(String serverId) {
-    for (final server in _connections?.servers ?? const <ConnectionServer>[]) {
-      if (server.serverId == serverId) {
-        return server.status?.state == ServerConnectionState.connected;
+  bool _serverConnected(String serverId) => serverConnectedNow(
+    serverId,
+    catalog: _connections?.servers ?? const <ConnectionServer>[],
+    panes: _openPanes(),
+  );
+
+  /// Every open tab's pane, both strips.
+  Iterable<PaneController> _openPanes() sync* {
+    final workspace = _workspace;
+    if (workspace == null) return;
+    for (final strip in [workspace.left, workspace.right]) {
+      for (final tab in strip.tabs) {
+        yield tab.controller;
       }
     }
-    return false;
   }
 
   /// 06 §3.3's prompt surface: a copy the watcher just marked dirty
@@ -894,7 +902,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     if (session == null || !mounted) return;
     final bookmark = await widget.bookmarks?.byId(serverId);
     if (!mounted) return;
-    final serverLabel = bookmark?.label ?? serverId;
+    final serverLabel = bookmark?.label ?? _serverLabel(serverId) ?? serverId;
     await showLocalEditsReview(
       context,
       session: session,
@@ -908,7 +916,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         // Re-resolve the label per upload — a rename while the dialog
         // is open must not reach the progress/toast copy stale.
         final label =
-            (await widget.bookmarks?.byId(serverId))?.label ?? serverId;
+            (await widget.bookmarks?.byId(serverId))?.label ??
+            _serverLabel(serverId) ??
+            serverId;
         final uploaded = await _uploadCheckout(record, label);
         if (uploaded && mounted) {
           showTopToastIn(
@@ -1841,13 +1851,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     }
     // A Quick Connect session is in neither list: its only record is
     // the ad-hoc bookmark bound on the tab that opened it.
-    final workspace = _workspace;
-    if (workspace == null) return null;
-    for (final strip in [workspace.left, workspace.right]) {
-      for (final tab in strip.tabs) {
-        final bookmark = tab.controller.remoteBookmark;
-        if (bookmark != null && bookmark.id == serverId) return bookmark.label;
-      }
+    for (final pane in _openPanes()) {
+      final bookmark = pane.remoteBookmark;
+      if (bookmark != null && bookmark.id == serverId) return bookmark.label;
     }
     return null;
   }
