@@ -89,6 +89,16 @@ final class BackupEnrolledView extends StatelessWidget {
     }
   }
 
+  Future<void> _setSyncSecrets(BuildContext context, bool enabled) async {
+    try {
+      await service.setSyncSecrets(enabled);
+    } catch (error) {
+      if (context.mounted) {
+        _reportError(context, error);
+      }
+    }
+  }
+
   Future<void> _deleteAccount(BuildContext context) async {
     final account = service.account;
     if (account == null) return;
@@ -190,6 +200,22 @@ final class BackupEnrolledView extends StatelessWidget {
                   ],
                 ),
               ],
+            ),
+          ),
+        // §4.2: credentials only travel on a shared account, and only
+        // with this device-level opt-in (Séance's syncSecrets).
+        if (shared)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: SwitchListTile(
+              key: const ValueKey('backup.enrolled.syncSecrets'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(l10n.backupSyncSecretsTitle),
+              subtitle: Text(l10n.backupSyncSecretsSubtitle),
+              value: service.syncSecrets,
+              onChanged: service.syncing
+                  ? null
+                  : (enabled) => _setSyncSecrets(context, enabled),
             ),
           ),
         const SizedBox(height: 12),

@@ -8412,6 +8412,32 @@ though §3.13 predates naming it.
     matching (M8 dated section; item 2 closed). Still open: the
     shared-mode "Your Séance servers" UI surface and its
     running-patched-Séance/real-SSH QA legs.
+    **2026-09-24 — surface + write path landed on
+    `feat/seance-catalog-surface`:** the sidebar renders a "Séance
+    servers" section (Séance's grouping/filter rules, reachability dots,
+    Sync-now button), and `serverConfigId` bookmarks resolve through the
+    catalog at open time. Bidirectionality is now the design per the
+    2026-09-24 §4.2 amendment (owner directive): `SyncTrackingServerStore`
+    (`servers.json`), coordinator `onServerSaved`/`onServerDeleted`/
+    `onServerSecretSaved` write paths with prefixless `serverConfig`
+    records and tombstones, pulled-`secret` vault apply under the
+    exclusion shield + freshness floor, `FileVaultStore` re-key journal
+    (enrollment swaps the keystore key without orphaning credentials),
+    and a `DynamicSecretVault` seam for prompt/engine consumers.
+    **2026-09-24 — the editor half landed:** ported `server_editor.dart`
+    (driven by a `ServerEditorDelegate` seam in place of `AppState`),
+    the mark/color pickers, `connection_test_report`/`connection_log_view`,
+    `badge_image`, and `server_duplication`; `ServerEditorBackend`
+    composes the delegate over the backup service, dynamic vault, pin
+    store, and identity audit log; catalog rows gain add/edit/duplicate/
+    delete verbs (read-only when no backend is wired), deletes
+    disconnect live sessions and name managed checkout edits in the
+    confirmation. **Review fixes, same day:** server deletes and their
+    credential retractions stamp past every version seen (Séance's
+    `_deletionStamp`), and credentials sync only behind the device-level
+    "Sync saved passwords & keys" switch (Settings → Backup, shared
+    mode, off by default — Séance's `syncSecrets`). Still open: the
+    running-patched-Séance/real-SSH QA legs.
 26. **2026-09-21: M7's native-boundary QA is manual — Quick Look's
     real `QLPreviewPanel` runtime and the engine-driven remote
     checkout path.** The §3.8 audit's criterion 4 is met on the

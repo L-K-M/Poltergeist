@@ -106,7 +106,12 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   fallback.** A new `bookmark` record kind travels inside the existing
   encrypted-record protocol (zero server changes — kind lives inside the
   ciphertext). Sharing the user's Séance *account* (Design A: same
-  passphrases, server list visible read-only, host-key pins synced
+  passphrases, server list **read-write** — amended 2026-09-24 by owner
+  directive: Poltergeist authors `serverConfig` records, including
+  tombstones, under Séance's bare-id/LWW conventions so servers managed in
+  either app appear in both, and publishes `secret:` records for
+  credentials whose referencing servers opted into `syncSecret`; details
+  in 04 §4.2 — host-key pins synced
   bidirectionally — Poltergeist honors pulled `hostkey:` records and pushes
   its own new pins as standard `hostkey:<host:port>` records — a push that
   diverges from the pin already on the account is held back behind the same

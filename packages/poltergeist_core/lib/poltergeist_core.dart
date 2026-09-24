@@ -56,6 +56,25 @@ export 'package:seance_core/seance_core.dart'
         ServerColor,
         ServerConfig,
         ServerIcon,
+        // The resolved mark a config's icon/emoji/image fields become (04
+        // §7.2): the sidebar's catalog rows draw `server.mark` through the
+        // ported appearance module.
+        ServerMark,
+        ServerGlyphMark,
+        ServerEmojiMark,
+        ServerImageMark,
+        // The server editor's own vocabulary (04 §4.2, amended — the
+        // writable catalog's add/edit surface): emoji/image normalization
+        // and caps, the login-script normalizer, and the connection-test
+        // seam the editor's Test button drives. (`uuidV4` stays out of the
+        // barrel deliberately: it collides with the app's own minter in
+        // services/uuid.dart, which the editor uses instead.)
+        normalizeServerEmoji,
+        normalizeLoginScript,
+        kMaxServerIconImageBytes,
+        runConnectionTest,
+        liveHostAuthenticator,
+        ConnectionTestResult,
         // Sync protocol types (04 §3): the record layer, the LWW rule both
         // ends share, and the transport seam the coordinator is driven over.
         ApiError,
@@ -82,6 +101,7 @@ export 'package:seance_core/seance_core.dart'
         VaultKeys,
         VaultStore,
         expandHomePath,
+        normalizeServerCustomColor,
         normalizeServerGroup,
         remoteBasename,
         remoteJoin,
@@ -137,6 +157,12 @@ export 'src/sync/enrollment.dart'
         syncPassphraseCheckFailedMessage,
         syncRegistrationClosedMessage;
 export 'src/sync/seance_server_catalog.dart' show SeanceServerCatalog;
+export 'src/sync/server_store.dart'
+    show
+        FileServerConfigStore,
+        ServerSyncTuple,
+        SyncTrackingServerStore,
+        serverStoreQuarantinePath;
 export 'src/update/update_check.dart' show poltergeistUpdateRepo;
 export 'src/sync/sync_verdicts.dart'
     show

@@ -13,13 +13,17 @@ import 'services/application_error_reporter.dart';
 import 'services/bookmark_backup_service.dart';
 import 'services/checkout_session.dart';
 import 'services/desktop_window_lifecycle.dart';
+import 'services/dynamic_secret_vault.dart';
 import 'services/editor_registry_controller.dart';
 import 'services/engine_session.dart';
 import 'services/file_stores.dart';
+import 'services/identity_audit_log.dart';
+import 'services/identity_file_reader.dart';
 import 'services/probe_settings_store.dart';
 import 'services/quit_guard.dart';
 import 'services/recent_locations.dart';
 import 'services/secure_master_key.dart';
+import 'services/server_editor_backend.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
 import 'services/session_state_store.dart';
@@ -58,6 +62,38 @@ Future<void> main() async {
     onError: errorReporter.report,
     syncDeviceId: () => syncEnrollmentState.cachedDeviceId,
   );
+  // The shared-mode server domain (04 §4.2, amended): local ServerConfig
+  // rows plus their LWW tuples — the coordinator materializes pulled
+  // records in and seals local edits out. Same lazy device-id binding as
+  // the bookmark store, so unenrolled installs keep the clean shape.
+  final servers = FileServerConfigStore(
+    path: '${supportDirectory.path}${Platform.pathSeparator}servers.json',
+    onError: errorReporter.report,
+    syncDeviceId: () => syncEnrollmentState.cachedDeviceId,
+  );
+  // The credential vault: one FileVaultStore beside the settings file
+  // feeds every consumer so its serialized-write discipline covers all
+  // of them. DynamicSecretVault re-resolves the key per call —
+  // enrollment's re-key swaps the keystore entry underneath long-lived
+  // consumers like the prompt coordinator.
+  final masterKeys = MasterKeyManager();
+  final vaultStore = FileVaultStore(
+    File('${supportDirectory.path}${Platform.pathSeparator}vault.json'),
+  );
+  // Settle an interrupted re-key before anything else reads the vault:
+  // a crash between the keystore swap and the settle leaves .rekey
+  // behind, and whichever sealed generation the installed key still
+  // opens wins.
+  try {
+    final vaultKey = await masterKeys.probeKeystore();
+    if (vaultKey != null) await vaultStore.settleRekey(vaultKey);
+  } on Object catch (error, stack) {
+    errorReporter.report(error, stack);
+  }
+  final dynamicVault = DynamicSecretVault(vaultStore, () async {
+    final key = await masterKeys.probeKeystore();
+    return key == null ? null : SecretVault(vaultStore, key);
+  });
   final preferences = AppPreferences(store: settingsStore);
   // The external-editor registry (06 §4.1): one versioned document in
   // the shared settings.json — the Open With ▸ submenu and the remote
@@ -166,6 +202,7 @@ Future<void> main() async {
     bookmarks: bookmarks,
     navigatorKey: navigatorKey,
     scaffoldMessengerKey: scaffoldMessengerKey,
+    vault: dynamicVault,
     onError: errorReporter.report,
   );
 
@@ -239,7 +276,6 @@ Future<void> main() async {
   // store behind sync_records.json. The pin store is the engine
   // session's own when one spawned: two FileHostKeyStores over one path
   // would race their load-once caches.
-  final masterKeys = MasterKeyManager();
   final syncRecordsPath =
       '${supportDirectory.path}${Platform.pathSeparator}sync_records.json';
   // Concrete type: the reset closure and the quarantine-path reader both
@@ -249,8 +285,22 @@ Future<void> main() async {
     path: syncRecordsPath,
     onError: errorReporter.report,
   );
+  // The pin store the engine's mirror writes to, when an engine spawned —
+  // the backup coordinator's TOFU truth and the editor's trial verifier
+  // share the instance: two FileHostKeyStores over one path would race
+  // their load-once caches.
+  final pinStore = engineSession?.pinStore ??
+      FileHostKeyStore(
+        File(
+          '${supportDirectory.path}${Platform.pathSeparator}'
+          '$kPinStoreFileName',
+        ),
+      );
   final bookmarkBackup = BookmarkBackupService(
-    credentials: SecureSyncCredentialStore(keys: masterKeys),
+    credentials: SecureSyncCredentialStore(
+      keys: masterKeys,
+      vaultJournal: vaultStore,
+    ),
     retainedTokens: SecureRetainedSyncTokenStore(keys: masterKeys),
     enrollmentState: syncEnrollmentState,
     records: syncRecords,
@@ -267,17 +317,13 @@ Future<void> main() async {
       return syncRecords;
     },
     bookmarks: bookmarks,
-    hostKeys: engineSession?.pinStore ??
-        FileHostKeyStore(
-          File(
-            '${supportDirectory.path}${Platform.pathSeparator}'
-            '$kPinStoreFileName',
-          ),
-        ),
+    hostKeys: pinStore,
     pinVerdicts: SettingsPinVerdictStore(store: settingsStore),
     tripwires: SettingsSyncTripwireStore(store: settingsStore),
     transportFactory: httpSyncTransport,
     vaultKey: masterKeys.probeKeystore,
+    servers: servers,
+    vaultStore: vaultStore,
     settings: settingsStore,
     recordQuarantinePath: () => syncRecords.quarantinedPath,
   );
@@ -287,6 +333,27 @@ Future<void> main() async {
   // than dropping the feature — the enrolled state must never vanish
   // because one status key failed to decode.
   await errorReporter.guard(bookmarkBackup.load);
+
+  // The server editor's application layer (04 §4.2's management verbs):
+  // catalog truth and sync writes through the backup service, credential
+  // reads through the dynamic vault, the connection test over the real
+  // transport with trial-only host-key pinning. The identity reader is a
+  // second instance over the same append-only audit log the engine
+  // session's own reader writes.
+  final serverEditor = ServerEditorBackend(
+    backups: bookmarkBackup,
+    vault: dynamicVault,
+    hostKeys: pinStore,
+    identityReader: IdentityFileReader(
+      IdentityAuditLog(
+        File(
+          '${supportDirectory.path}${Platform.pathSeparator}'
+          '$kIdentityAuditLogFileName',
+        ),
+      ),
+    ),
+    navigatorKey: navigatorKey,
+  );
 
   // The D19 link-only update check (07 §3.10, 01 §6): one plain GET of
   // GitHub's latest-release endpoint per launch, compared locally —
@@ -310,6 +377,7 @@ Future<void> main() async {
       recentLocations: recentLocations,
       engineSession: engineSession,
       bookmarkBackup: bookmarkBackup,
+      serverEditor: serverEditor,
       navigatorKey: navigatorKey,
       scaffoldMessengerKey: scaffoldMessengerKey,
       quitGuard: quitGuard,

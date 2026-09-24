@@ -18,6 +18,16 @@ final class SeanceServerCatalog {
   /// list is unmodifiable and identity-stable between [replace] calls.
   List<ServerConfig> get servers => _servers;
 
+  /// The config [id] resolves to, or null when the catalog has no such
+  /// record — the answer a `serverConfigId` reference needs before a
+  /// connect may dial anything.
+  ServerConfig? byId(String id) {
+    for (final server in _servers) {
+      if (server.id == id) return server;
+    }
+    return null;
+  }
+
   /// Swap in a fresh materialization — the coordinator calls this after
   /// diffing the store's prefixless records on each apply pass.
   void replace(Iterable<ServerConfig> servers) {

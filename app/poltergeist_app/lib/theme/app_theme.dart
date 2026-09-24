@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 
 const _seedColor = Color(0xFF3D8A78);
 
+/// The colour the scheme seeds from, public for the two places that draw it
+/// directly rather than through the scheme: the server editor's custom
+/// colour picker starts from it when no accent is in force.
+const poltergeistSeedColor = _seedColor;
+
 /// The app's monospace family stack — primary first, then the
 /// cross-platform fallbacks (a bare 'monospace' does not resolve on
 /// every platform, notably macOS/iOS). Also the built-in editor's

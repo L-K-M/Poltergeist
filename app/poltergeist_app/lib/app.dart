@@ -35,6 +35,7 @@ import 'services/update_check_controller.dart';
 import 'services/workspace_library.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
+import 'ui/server_editor.dart' show ServerEditorDelegate;
 import 'ui/workspace_shell.dart';
 
 class PoltergeistApp extends StatefulWidget {
@@ -53,6 +54,7 @@ class PoltergeistApp extends StatefulWidget {
     this.scaffoldMessengerKey,
     this.sshConfigImport,
     this.bookmarkBackup,
+    this.serverEditor,
     this.bookmarks,
     this.workspaces,
     this.recentLocations,
@@ -125,6 +127,12 @@ class PoltergeistApp extends StatefulWidget {
   /// leaves `open-settings-backup` unregistered; `main.dart` supplies
   /// it from the app-support stores and the OS keystore.
   final BookmarkBackupService? bookmarkBackup;
+
+  /// The server editor's application layer (04 §4.2's management
+  /// verbs): add/edit on the catalog rows and the editor's own saves
+  /// and test-connection route through it. Null renders the catalog
+  /// read-only — the management verbs hide rather than dead-end.
+  final ServerEditorDelegate? serverEditor;
 
   /// The persisted bookmark store behind the sidebar's favorites list
   /// (03 §6's `BookmarkStore` seam). Null unmounts the sidebar — and
@@ -423,6 +431,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       onPaneRatioSaveError: widget.onPaneRatioSaveError,
       sshConfigImport: widget.sshConfigImport,
       bookmarkBackup: widget.bookmarkBackup,
+      serverEditor: widget.serverEditor,
       bookmarks: widget.bookmarks,
       workspaces: widget.workspaces,
       recentLocations: widget.recentLocations,
