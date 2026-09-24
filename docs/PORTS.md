@@ -565,6 +565,20 @@ counterpart is ported here.
   otherwise verbatim (imports re-pointed).
 - Port-back candidates: none.
 
+## app/poltergeist_app/lib/ui/sidebar/sidebar_kit.dart (port-out)
+
+- Direction: Poltergeist → Séance (D32 §10's shared sidebar anatomy). New
+  Poltergeist code written to be copied into Séance verbatim; no Séance
+  source was copied in.
+- Written: 2026-09-24
+- Contract: imports only Flutter, the chrome tokens (through the file's
+  one `_chrome()` function — Séance points it at its own ThemeExtension
+  with the same token names), and `../middle_ellipsis_text.dart` (above,
+  same path in both apps). Every string arrives through
+  `SidebarKitStrings`; every behavior through callbacks. No store,
+  service, or model type is referenced.
+- Port-back candidates: the whole file, when Séance adopts the D32 rail.
+
 ## app/poltergeist_app/lib/services/badge_image.dart
 
 - Source: app/seance_app/lib/services/badge_image.dart

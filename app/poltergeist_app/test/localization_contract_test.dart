@@ -1433,6 +1433,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "' '",
     r"r'\s+'",
   },
+  // The portable kit's empty query (the filter's clear button).
+  'lib/ui/sidebar/sidebar_kit.dart': {
+    "''",
+  },
   // The sidebar's widget keys, its section-collapse key prefix, the
   // semantics-label compositions (machine data beside ARB copy), and the
   // endpoint line — plumbing, never authored copy.
