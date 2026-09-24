@@ -105,21 +105,34 @@ class _ActivityHeader extends StatelessWidget {
         padding: const EdgeInsetsDirectional.symmetric(horizontal: 8),
         child: Row(
           children: [
-            _PanelTab(
-              key: const ValueKey('activity.tab.activity'),
-              label: l10n.activityTabActivity,
-              selected: controller.tab == ActivityPanelTab.activity,
-              onTap: () =>
-                  controller.selectTab(ActivityPanelTab.activity),
+            // The tab pair yields width to the queue controls: in the
+            // inspector's Transfers tab (D32) the header is only the
+            // column's width, so long labels ellipsize instead of
+            // overflowing the row.
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: _PanelTab(
+                      key: const ValueKey('activity.tab.activity'),
+                      label: l10n.activityTabActivity,
+                      selected: controller.tab == ActivityPanelTab.activity,
+                      onTap: () =>
+                          controller.selectTab(ActivityPanelTab.activity),
+                    ),
+                  ),
+                  Flexible(
+                    child: _PanelTab(
+                      key: const ValueKey('activity.tab.history'),
+                      label: l10n.activityTabHistory,
+                      selected: controller.tab == ActivityPanelTab.history,
+                      onTap: () =>
+                          controller.selectTab(ActivityPanelTab.history),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            _PanelTab(
-              key: const ValueKey('activity.tab.history'),
-              label: l10n.activityTabHistory,
-              selected: controller.tab == ActivityPanelTab.history,
-              onTap: () =>
-                  controller.selectTab(ActivityPanelTab.history),
-            ),
-            const Spacer(),
             IconButton(
               key: const ValueKey('activity.pause'),
               visualDensity: VisualDensity.compact,
@@ -195,6 +208,9 @@ class _PanelTab extends StatelessWidget {
             ),
             child: Text(
               label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                 color: selected ? null : colors.onSurfaceVariant,
               ),
