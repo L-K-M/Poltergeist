@@ -54,8 +54,16 @@ List<RegisteredCommand> buildSyncCommands({
       // 02 §9's Commands table: "Synchronize…" holds the third slot —
       // between the transfer/move block and Calculate Folder Sizes.
       menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.commands,
+        menu: AppMenuId.server,
         order: 30,
+        group: 1,
+      ),
+      // D32 §4: Sync is a labelled primary header action.
+      shortLabel: (l10n) => l10n.syncShortLabel,
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.primary,
+        order: 10,
+        labelled: true,
       ),
     ),
     RegisteredCommand(
@@ -70,8 +78,9 @@ List<RegisteredCommand> buildSyncCommands({
       // Directly under Synchronize…; the §9 table names no saved-sync
       // slot, so it sits in the gap before Calculate Folder Sizes (40).
       menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.commands,
+        menu: AppMenuId.server,
         order: 35,
+        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -88,8 +97,9 @@ List<RegisteredCommand> buildSyncCommands({
       // plan tab is focused (05 §2.1: the exporter is reachable only
       // from the plan view).
       menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.commands,
+        menu: AppMenuId.server,
         order: 37,
+        group: 1,
       ),
     ),
   ];

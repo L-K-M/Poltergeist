@@ -84,7 +84,7 @@ void main() {
     await tester.pump();
 
     final l10n = l10nOf(tester);
-    await tester.tap(find.text(l10n.menuCommands));
+    await tester.tap(find.text(l10n.menuServer));
     await tester.pumpAndSettle();
     final item = find.byKey(
       const ValueKey('menu.item.queue.togglePause'),
@@ -112,7 +112,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final l10n = l10nOf(tester);
-    await tester.tap(find.text(l10n.menuCommands));
+    await tester.tap(find.text(l10n.menuServer));
     await tester.pumpAndSettle();
     final item = tester.widget<MenuItemButton>(
       find.byKey(const ValueKey('menu.item.queue.togglePause')),
@@ -148,8 +148,8 @@ void main() {
     );
   });
 
-  testWidgets('the splitter drags the panel height and persists on '
-      'release', (tester) async {
+  testWidgets('the inspector splitter drags the width and persists on '
+      'release (D32 §3.1)', (tester) async {
     double? saved;
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
@@ -161,66 +161,25 @@ void main() {
         supportedLocales: AppLocalizations.supportedLocales,
         home: WorkspaceShell(
           transferQueue: queue,
-          onActivityPanelHeightChanged: (height) async => saved = height,
+          onInspectorWidthChanged: (width) async => saved = width,
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(
-      find.byKey(const ValueKey('command.view.toggleActivityPanel')),
-    );
-    await tester.pumpAndSettle();
-
-    final splitter = find.byKey(const ValueKey('activity.splitter'));
+    final splitter = find.byKey(const ValueKey('inspector.splitter'));
     expect(splitter, findsOneWidget);
     final before = tester.getSize(
-      find.byKey(const ValueKey('activity.panel')),
+      find.byKey(const ValueKey('inspector.region')),
     );
-    // Dragging up grows the panel; the commit lands on release.
-    await tester.drag(splitter, const Offset(0, -60));
+    // Dragging left grows the inspector; the commit lands on release.
+    await tester.drag(splitter, const Offset(-60, 0));
     await tester.pumpAndSettle();
     final after = tester.getSize(
-      find.byKey(const ValueKey('activity.panel')),
+      find.byKey(const ValueKey('inspector.region')),
     );
-    expect(after.height, greaterThan(before.height));
-    expect(saved, closeTo(after.height, 0.01));
+    expect(after.width, greaterThan(before.width));
+    expect(saved, closeTo(after.width, 0.01));
   });
 
-  testWidgets('the splitter clamps instead of throwing when the '
-      'reported window is shorter than twice the panel floor', (
-    tester,
-  ) async {
-    // The resize ceiling is half the reported window: a window under
-    // 240px puts it below the 120px floor, where an unguarded clamp
-    // throws. The override keeps the real layout roomy so the pane
-    // column still fits — the exercise is the clamp, not the squeeze.
-    tester.view.physicalSize = const Size(1400, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(
-      MaterialApp(
-        debugShowCheckedModeBanner: false,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: MediaQuery(
-          data: const MediaQueryData(size: Size(1400, 230)),
-          child: WorkspaceShell(transferQueue: queue),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(
-      find.byKey(const ValueKey('command.view.toggleActivityPanel')),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.drag(
-      find.byKey(const ValueKey('activity.splitter')),
-      const Offset(0, -20),
-    );
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
 }

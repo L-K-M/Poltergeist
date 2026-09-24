@@ -29,6 +29,7 @@ update the plan first.**
 | [07-MILESTONES.md](07-MILESTONES.md) | Milestones M0–M10 with exit criteria; the distribution workstream; the mobile-constraints memo |
 | [08-TESTING.md](08-TESTING.md) | Test strategy: engine tests, fakes, sshd-in-Docker matrix, perf benchmarks, a11y checks |
 | [09-PLAYBOOK.md](09-PLAYBOOK.md) | The implementation playbook: conventions, guardrails, definition of done, PR workflow, what never to do |
+| [10-WORKSPACE-REDESIGN.md](10-WORKSPACE-REDESIGN.md) | The D32 inspector workspace: window anatomy, header toolbar, shared sidebar, pane anatomy, inspector, Sync sheet, menus, Android posture, the Séance sibling contract |
 
 Repository infrastructure (CI, GLM review workflow, release pipeline, build
 scripts) already exists on `main` and is documented in
@@ -63,7 +64,8 @@ D12 perf budgets · D13 single window · D14 drag & drop · D15 trash ·
 D16 activity panel · D17 editor · D18 security model · D19 trust
 stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
 D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
-permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
+permissions · D29 mobile hooks · D30 Séance license · D31 no mounting ·
+D32 inspector workspace
 
 ### Stack and shape
 
@@ -506,6 +508,35 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   traversal is not the only extraction hazard; pin an audited
   `package:archive` version at implementation time. Remote-side extraction and
   browsable archives are later, consciously scheduled in 07.
+
+- **D32 — The inspector workspace (2026-09-24, owner-directed redesign).**
+  The v1.0 chrome is replaced by a ForkLift/Transmit-grade layout
+  specified in [10-WORKSPACE-REDESIGN.md](10-WORKSPACE-REDESIGN.md):
+  a curated, registry-driven header toolbar (a command appears only if it
+  declares a toolbar placement — D21 holds), a full-height sidebar with
+  DEVICES / FAVORITES / SERVERS in the anatomy Séance shares, panes with
+  a location header and column header, and a resizable right
+  **inspector** with Info / Transfers / Alerts tabs. It supersedes:
+  02 §1's bottom activity panel, always-on status bar, and stage table
+  (the inspector collapses first, then the sidebar, then pane B); 02
+  §2.6's per-pane Get Info overlay and 06 §5.2's separate preview rail
+  (both merge into the Info tab); 02 §2.9's footer (its facts move to
+  the location header); 02 §9's "Commands" menu (renamed Server, Settings
+  moves to the macOS app menu, Linux/Windows render the tree behind a ☰
+  header button instead of a menu-bar band); 05 §7's "never a modal
+  wizard" (sync opens Transmit's options sheet with a truthful
+  plain-language plan sentence; Simulate opens the existing review) and
+  05 §8 rail 1 for the one case of a plan with no deletions, no
+  replacements, and no conflicts, which Synchronize may run without the
+  review step (every other plan still lands on the review; rails 2–4 are
+  unchanged); and 04 §4.1's default of a separate backup account (the
+  shared Séance account becomes the default, per the owner's "same
+  server, same account" requirement; the version gate and pin-trust
+  disclosure stay). D16's substance is untouched: per-item rows, pause,
+  cancel, retry, History, and bandwidth all live in the Transfers tab,
+  the header shows a progress ring whenever work runs, and new work
+  opens the inspector on Transfers. Anything D32 does not name in 02
+  still holds.
 
 ### Security, trust, distribution
 

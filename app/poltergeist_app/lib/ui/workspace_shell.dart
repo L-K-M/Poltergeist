@@ -3,14 +3,17 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_sync/poltergeist_sync.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:window_manager/window_manager.dart' show DragToMoveArea;
 
 import '../l10n/app_localizations.dart';
 import '../services/activity_panel_controller.dart';
+import '../services/alert_center.dart';
 import '../services/app_lifecycle_forwarder.dart';
-import '../services/app_preferences.dart' show minActivityPanelHeight;
 import '../services/app_transfer_queue.dart';
 import '../services/application_error_reporter.dart';
 import '../services/bookmark_backup_service.dart';
@@ -38,7 +41,6 @@ import '../services/session_state.dart';
 import '../services/sidebar_controller.dart';
 import '../services/sidebar_probe_owner.dart';
 import '../services/ssh_config_import_setup.dart';
-import '../services/sync_browsing_controller.dart';
 import '../services/sync_environment.dart';
 import '../services/sync_plan_controller.dart';
 import '../services/sync_queue_facade.dart';
@@ -47,11 +49,11 @@ import '../services/uuid.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
 import '../services/workspace_state.dart';
-import '../theme/app_theme.dart' show poltergeistMonoFontFamilies;
+import '../theme/app_theme.dart';
 import 'activity/activity_commands.dart';
-import 'activity/activity_format.dart';
-import 'activity/activity_panel.dart';
 import 'adaptive_shell.dart';
+import 'inspector/alerts_view.dart';
+import 'inspector/inspector_view.dart';
 import 'built_in_text_editor.dart';
 import 'import/ssh_config_import_command.dart';
 import 'layout/pane_allocation.dart';
@@ -59,9 +61,8 @@ import 'local_edits_review.dart';
 import 'menus/app_menu_host.dart';
 import 'panes/open_with_commands.dart';
 import 'panes/pane_commands.dart';
-import 'panes/pane_format.dart' show paneUnevaluated;
 import 'panes/pane_tabs_view.dart';
-import 'panes/sync_browse_chip.dart';
+import 'panes/quick_connect_view.dart';
 import 'pdf_preview.dart';
 import 'preview_panel.dart';
 import 'quick_open/quick_open_palette.dart';
@@ -70,19 +71,17 @@ import 'settings/backup_settings_command.dart';
 import 'settings/general_settings.dart';
 import 'settings/preview_settings.dart';
 import 'server_editor.dart';
+import 'server_label_scope.dart';
+import 'shell/header_toolbar.dart';
+import 'shell/shell_commands.dart';
+import 'shell/shell_splitter.dart';
 import 'sidebar/sidebar_view.dart';
 import 'sync/rsync_copy.dart';
 import 'sync/sync_commands.dart';
 import 'sync/sync_pair_editor.dart';
 import 'sync/sync_plan_format.dart' show syncEndpointLabel;
 import 'top_toast.dart';
-import 'update_banner.dart';
 import 'workspace/workspace_commands.dart';
-
-/// The inline sidebar's width (02 §1: default 240, min 200, max 320 —
-/// the sidebar↔panes splitter and its persisted width land with the
-/// layout-splitter slice; a fixed default keeps this slice honest).
-const _sidebarWidth = 240.0;
 
 /// The production two-pane shell (02 §1): toolbar over the registered
 /// commands (D21), the global sidebar of 02 §4 inline at stage 0 and in
@@ -116,9 +115,10 @@ class WorkspaceShell extends StatefulWidget {
     this.externalOpener = const ExternalFileOpener(),
     this.quitGuard,
     this.conflictPolicy,
-    this.initialActivityPanelHeight = 200,
-    this.onActivityPanelHeightChanged,
-    this.onActivityPanelHeightSaveError,
+    this.initialSidebarWidth = sidebarDefaultWidth,
+    this.onSidebarWidthChanged,
+    this.initialInspectorWidth = inspectorDefaultWidth,
+    this.onInspectorWidthChanged,
     this.initialDownloadLimit,
     this.initialUploadLimit,
     this.onDownloadLimitChanged,
@@ -268,12 +268,12 @@ class WorkspaceShell extends StatefulWidget {
   /// settings slice — until then the default keeps the ask-park flow.
   final ConflictPolicy? conflictPolicy;
 
-  /// The activity panel's persisted pixel height (02 §1's third
-  /// splitter): default 200, floor 120, capped at half the window in
-  /// the splitter's resize path.
-  final double initialActivityPanelHeight;
-  final PaneRatioSaver? onActivityPanelHeightChanged;
-  final void Function(Object, StackTrace)? onActivityPanelHeightSaveError;
+  /// The persisted region widths (D32, 10 §3.1): seeded once, clamped to
+  /// their bounds, and saved once at the end of each splitter drag.
+  final double initialSidebarWidth;
+  final FutureOr<void> Function(double width)? onSidebarWidthChanged;
+  final double initialInspectorWidth;
+  final FutureOr<void> Function(double width)? onInspectorWidthChanged;
 
   /// The persisted throttle choices seeded onto the queue's limiters
   /// (02 §6's "persisted"); null is unlimited.
@@ -425,8 +425,16 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// a workspace rebuild rebinds panes, not the queue mirror — so it
   /// lives on the shell state, not inside [_buildWorkspace].
   late final ActivityPanelController _activity;
-  late final FocusNode _activitySplitterFocus;
-  double _activityPanelHeight = 0;
+  /// D32's alert inbox over the queue mirror, connections, checkouts,
+  /// and the update check (10 §3's Alerts tab).
+  late final AlertCenter _alerts;
+
+  /// The region widths (10 §3.1) and the splitter/header focus nodes.
+  late double _sidebarWidth;
+  late double _inspectorWidth;
+  final _sidebarSplitterFocus = FocusNode(debugLabel: 'sidebar.splitter');
+  final _inspectorSplitterFocus = FocusNode(debugLabel: 'inspector.splitter');
+  final _headerFilterFocus = FocusNode(debugLabel: 'header.filter');
 
   /// The live queue seam the quit guard reads — a lookup, not a
   /// snapshot, so a didUpdateWidget rebind is always seen.
@@ -453,8 +461,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // re-claimed by the left pane.
     _leftFocus = FocusNode(debugLabel: 'pane.left.listing');
     _rightFocus = FocusNode(debugLabel: 'pane.right.listing');
-    _activitySplitterFocus = FocusNode(debugLabel: 'activity.panel.splitter');
-    _activityPanelHeight = widget.initialActivityPanelHeight;
+    _sidebarWidth = widget.initialSidebarWidth.clamp(
+      sidebarMinWidth,
+      sidebarMaxWidth,
+    );
+    _inspectorWidth = widget.initialInspectorWidth.clamp(
+      inspectorMinWidth,
+      inspectorMaxWidth,
+    );
     _previewThresholdBytes = widget.initialPreviewThresholdBytes;
     _activity = ActivityPanelController(
       queue: widget.transferQueue,
@@ -470,6 +484,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       onTasksArrived: () => _workspace?.setActivityPanelHidden(false),
     );
     _connections = _buildConnections();
+    _alerts = AlertCenter(
+      activity: _activity,
+      connections: _connections,
+      checkouts: widget.checkoutSession,
+      updates: widget.updateCheck,
+    );
     _sidebar = _buildSidebar();
     _probes = _buildProbes();
     _attachBookmarkBackup(widget.bookmarkBackup);
@@ -639,7 +659,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _probes?.dispose();
     _sidebar?.dispose();
     _activity.dispose();
-    _activitySplitterFocus.dispose();
+    _alerts.dispose();
+    _sidebarSplitterFocus.dispose();
+    _inspectorSplitterFocus.dispose();
+    _headerFilterFocus.dispose();
     _connections?.dispose();
     _disposeWorkspace();
     _leftFocus?.dispose();
@@ -1086,9 +1109,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         strip?.restoreSession(pane);
       }
       workspace.setSecondPaneHidden(restored.secondPaneHidden);
-      // The panel's persisted intent (02 §1): only explicit user
-      // toggles land here — auto-hide never writes this flag.
-      workspace.setActivityPanelHidden(restored.activityPanelHidden);
+      // The inspector's persisted intent (D32, 10 §3.1): only explicit
+      // user toggles land here — the responsive overlay never writes it.
+      // A pre-inspector document derives it from the activity flag.
+      final restoredTab = InspectorTab.values
+          .where((tab) => tab.name == restored.inspectorTab)
+          .firstOrNull;
+      if (restoredTab != null) workspace.selectInspectorTab(restoredTab);
+      final inspectorHidden = restored.inspectorHidden;
+      if (inspectorHidden != null) {
+        workspace.setInspectorHidden(inspectorHidden);
+      } else if (!restored.activityPanelHidden) {
+        workspace.showInspector(InspectorTab.transfers);
+      }
       if (restored.activePaneId == PaneTabsController.rightPaneId) {
         // Refused while pane B is hidden — the workspace's own rule
         // parks commands on the survivor (02 §3).
@@ -1222,9 +1255,6 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
   @override
   Widget build(BuildContext context) {
-    final strings = AppLocalizations.of(context);
-    final colors = Theme.of(context).colorScheme;
-
     final sshConfigImport = widget.sshConfigImport;
     final workspace = _workspace;
     final sidebar = _sidebar;
@@ -1240,6 +1270,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         : buildSshConfigImportCommand(
             setup: sshConfigImport,
             enabled: () => !_commandSessionActive,
+          );
+    // The drop enqueue seam (02 §5.1, D14): exists only while a queue
+    // is bound — without one there is nowhere a drop could land, so
+    // rows stay undraggable and every target refuses. Cheap and
+    // stateless, so it rebuilds per build like the command list.
+    final transferQueue = widget.transferQueue;
+    final dropDelegate = transferQueue == null
+        ? null
+        : PaneDropDelegate(
+            queue: transferQueue,
+            conflictPolicy: widget.conflictPolicy,
           );
     final commands = <RegisteredCommand>[
       if (workspace != null) buildQuickOpenCommand(open: _openQuickOpen),
@@ -1271,7 +1312,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           swapFocus: () => _focusPane(workspace.swapFocus()),
           sidebarAvailable: () => _sidebar != null,
           toggleSidebarDrawer: _toggleSidebarDrawer,
+          sidebarIsDrawer: () => !_sidebarInline,
+          focusFilter: _focusHeaderFilter,
           preview: preview,
+        ),
+      if (workspace != null)
+        ...buildShellCommands(
+          workspace: workspace,
+          dropDelegate: () => dropDelegate,
+          openConnect: () => unawaited(_openConnectDialog()),
         ),
       // `open-with-external` registers whenever a workspace exists
       // (D21): the Open With ▸ submenu renders disabled rows while no
@@ -1316,17 +1365,6 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // registry reachable outside build (it is rebuilt cheaply anyway).
     _commands = commands;
 
-    // The drop enqueue seam (02 §5.1, D14): exists only while a queue
-    // is bound — without one there is nowhere a drop could land, so
-    // rows stay undraggable and every target refuses. Cheap and
-    // stateless, so it rebuilds per build like the command list.
-    final transferQueue = widget.transferQueue;
-    final dropDelegate = transferQueue == null
-        ? null
-        : PaneDropDelegate(
-            queue: transferQueue,
-            conflictPolicy: widget.conflictPolicy,
-          );
     // 06 §3.7's banner verb — one closure for both panes.
     void onReviewLocalEdits(String serverId) =>
         unawaited(_showLocalEditsReview(serverId));
@@ -1344,233 +1382,57 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       ?preview,
     ]);
 
+    final platform = Theme.of(context).platform;
+    final mac = platform == TargetPlatform.macOS;
+    final chrome = PoltergeistChrome.of(context);
+
     return Scaffold(
       key: _scaffoldKey,
-      // The stage-1/2 sidebar mount (02 §1's staged collapse): an
-      // overlay drawer `view.toggleSidebar` opens. At stage 0 the same
-      // tree mounts inline instead — the drawer stays attached so the
-      // stage boundary is the only difference.
+      backgroundColor: chrome.paneBackground,
+      // The narrow-window sidebar mount (D32 §3.2): an overlay drawer
+      // `view.toggleSidebar` opens once the allocation cannot fit the
+      // sidebar inline. Wide windows mount the same tree inline instead.
       drawer: sidebar == null
           ? null
-          : Drawer(child: SafeArea(child: _buildSidebarView(sshImportCommand))),
-      body: SafeArea(
-        child: CommandChordScope(
-          commands: commands,
-          child: ListenableBuilder(
-            listenable: enablement,
-            builder: (context, child) => AppMenuHost(
-              commands: commands,
-              onRun: _runCommand,
-              child: child!,
+          : Drawer(
+              backgroundColor: chrome.sidebarBackground,
+              child: SafeArea(child: _buildSidebarView(sshImportCommand)),
             ),
-            child: Column(
-              children: [
-                ListenableBuilder(
-                  listenable: enablement,
-                  builder: (context, child) => _Toolbar(
-                    title: strings.appTitle,
-                    commands: commands,
-                    onRun: _runCommand,
-                  ),
-                ),
-                Divider(height: 1, color: colors.outlineVariant),
-                // D19's update banner (07 §3.10): mounts only while the
-                // controller reports a newer tag — dismiss is
-                // session-scoped, the opt-out lives in `app.settings`.
-                if (widget.updateCheck != null)
-                  ListenableBuilder(
-                    listenable: widget.updateCheck!,
-                    builder: (context, _) {
-                      final update = widget.updateCheck!.update;
-                      if (update == null) return const SizedBox.shrink();
-                      return UpdateBanner(
-                        info: update,
-                        onDismiss: widget.updateCheck!.dismiss,
-                      );
-                    },
-                  ),
-                Expanded(
-                  // `view.toggleSecondPane` and the Sync Browsing link
-                  // state ride the workspace listenable — a hide/show or
-                  // a suspension must re-lay-out the panes without a
-                  // parent rebuild.
-                  child: workspace == null || leftFocus == null
-                      ? const SizedBox.shrink()
-                      : ListenableBuilder(
-                          listenable: workspace,
-                          builder: (context, _) => Row(
-                            children: [
-                              // The stage-0 inline sidebar (02 §1/§4):
-                              // mounted at desktop width unless the user
-                              // hid the region — below the boundary the
-                              // Scaffold's drawer carries the same tree.
-                              if (sidebar != null &&
-                                  !workspace.sidebarHidden &&
-                                  MediaQuery.sizeOf(context).width >=
-                                      desktopStageBoundary) ...[
-                                SizedBox(
-                                  key: const ValueKey('sidebar.region'),
-                                  width: _sidebarWidth,
-                                  child: _buildSidebarView(sshImportCommand),
-                                ),
-                                VerticalDivider(
-                                  width: 1,
-                                  color: colors.outlineVariant,
-                                ),
-                              ],
-                              Expanded(
-                                child: Stack(
-                                  // `expand`: the shell fills the
-                                  // region and the Quick Look card is a
-                                  // Positioned overlay on top of it —
-                                  // 06 §5.1's in-window surface (the
-                                  // native panel cannot host Flutter
-                                  // content and modals over it are
-                                  // forbidden).
-                                  fit: StackFit.expand,
-                                  children: [
-                                    AdaptiveShell(
-                                  initialPaneRatio: widget.initialPaneRatio,
-                                  secondPaneIntent: workspace.secondPaneHidden
-                                      ? SecondPaneIntent.hidden
-                                      : SecondPaneIntent.shown,
-                                  onSecondPaneVisibilityChanged:
-                                      workspace.setSecondPaneLayoutShown,
-                                  onPaneRatioChanged: widget.onPaneRatioChanged,
-                                  onPaneRatioSaveError:
-                                      widget.onPaneRatioSaveError,
-                                  resizeLabel: strings.resizePanes,
-                                  formatRatio: (ratio) => strings
-                                      .paneRatioPercent((ratio * 100).round()),
-                                  primary: PaneTabsView(
-                                    tabs: workspace.left,
-                                    workspace: workspace,
-                                    focusNode: leftFocus,
-                                    preview: preview,
-                                    onSwapFocus: () =>
-                                        _focusPane(workspace.right),
-                                    onCancelRecovery: () => _cancelPaneRecovery(
-                                      workspace,
-                                      workspace.left.activeTabController,
-                                    ),
-                                    bookmarks: widget.bookmarks,
-                                    dropDelegate: dropDelegate,
-                                    checkoutSession: widget.checkoutSession,
-                                    onReviewLocalEdits: onReviewLocalEdits,
-                                    onSyncSaveAsFavorite:
-                                        _saveSyncAsFavorite,
-                                    onSyncEditRules: _editSyncRules,
-                                    onImportSshConfig:
-                                        sshImportCommand == null
-                                        ? null
-                                        : () => unawaited(
-                                            _runCommand(sshImportCommand),
-                                          ),
-                                  ),
-                                  secondary: rightFocus == null
-                                      ? const SizedBox.shrink()
-                                      : PaneTabsView(
-                                          tabs: workspace.right,
-                                          workspace: workspace,
-                                          focusNode: rightFocus,
-                                          preview: preview,
-                                          onSwapFocus: () =>
-                                              _focusPane(workspace.left),
-                                          onCancelRecovery: () =>
-                                              _cancelPaneRecovery(
-                                                workspace,
-                                                workspace
-                                                    .right
-                                                    .activeTabController,
-                                              ),
-                                          bookmarks: widget.bookmarks,
-                                          dropDelegate: dropDelegate,
-                                          checkoutSession:
-                                              widget.checkoutSession,
-                                          onReviewLocalEdits:
-                                              onReviewLocalEdits,
-                                          onSyncSaveAsFavorite:
-                                              _saveSyncAsFavorite,
-                                          onSyncEditRules:
-                                              _editSyncRules,
-                                          onImportSshConfig:
-                                              sshImportCommand == null
-                                              ? null
-                                              : () => unawaited(
-                                                  _runCommand(
-                                                    sshImportCommand,
-                                                  ),
-                                                ),
-                                        ),
-                                    ),
-                                    if (preview != null)
-                                      PreviewQuickLookOverlay(
-                                        session: preview,
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              // The docked preview rail (06 §5.2): the
-                              // window's rightmost region while
-                              // `view.togglePreview` shows it — Space
-                              // then routes to the panel and Quick Look
-                              // is suppressed on macOS (§5's split).
-                              if (preview != null &&
-                                  !workspace.previewPanelHidden)
-                                PreviewPanel(
-                                  session: preview,
-                                  pdfRenderer: pdfPreviewBuilder,
-                                  // Every launch verb routes onto the
-                                  // focused ENTRY — never the
-                                  // `preview-cache/` path (§5.3's
-                                  // open-boundary rule).
-                                  onOpen: (pane, entry) =>
-                                      unawaited(pane.openEntry(entry)),
-                                  onOpenWith: (context, pane, entry) =>
-                                      unawaited(
-                                        _chooseEditorFor(pane, entry),
-                                      ),
-                                  onOpenInEditor: (pane, entry) =>
-                                      unawaited(
-                                        pane.editInBuiltInEditor(entry),
-                                      ),
-                                  onClose: preview.closePanel,
-                                  onEscape: (event) => preview.escape()
-                                      ? KeyEventResult.handled
-                                      : KeyEventResult.ignored,
-                                ),
-                            ],
-                          ),
+      body: SafeArea(
+        child: ServerLabelScope(
+          resolve: _serverLabel,
+          child: CommandChordScope(
+            commands: commands,
+            child: ListenableBuilder(
+              listenable: enablement,
+              builder: (context, child) => AppMenuHost(
+                commands: commands,
+                onRun: _runCommand,
+                showMenuBar: false,
+                child: child!,
+              ),
+              child: workspace == null || leftFocus == null
+                  ? const SizedBox.shrink()
+                  : LayoutBuilder(
+                      builder: (context, constraints) => ListenableBuilder(
+                        listenable: workspace,
+                        builder: (context, _) => _buildWorkspaceLayout(
+                          context,
+                          constraints.maxWidth,
+                          mac: mac,
+                          workspace: workspace,
+                          leftFocus: leftFocus,
+                          rightFocus: rightFocus,
+                          sidebar: sidebar,
+                          preview: preview,
+                          commands: commands,
+                          enablement: enablement,
+                          dropDelegate: dropDelegate,
+                          onReviewLocalEdits: onReviewLocalEdits,
+                          sshImportCommand: sshImportCommand,
                         ),
-                ),
-                // The activity panel's persisted intent rides the
-                // workspace listenable (02 §1: user-shown, never
-                // auto-hidden) — unmounted entirely while hidden.
-                if (workspace != null)
-                  ListenableBuilder(
-                    listenable: workspace,
-                    builder: (context, _) {
-                      if (workspace.activityPanelHidden) {
-                        return const SizedBox.shrink();
-                      }
-                      return _ActivitySection(
-                        controller: _activity,
-                        height: _activityPanelHeight,
-                        splitterFocus: _activitySplitterFocus,
-                        onResize: _resizeActivityPanel,
-                        onResizeEnd: _commitActivityPanelHeight,
-                        onClose: () => workspace.setActivityPanelHidden(true),
-                        onReveal: _revealTransferDestination,
-                      );
-                    },
-                  ),
-                Divider(height: 1, color: colors.outlineVariant),
-                _StatusBar(
-                  label: strings.readyStatus,
-                  syncLink: workspace?.syncBrowsing,
-                  activity: _activity,
-                ),
-              ],
+                      ),
+                    ),
             ),
           ),
         ),
@@ -1578,42 +1440,356 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
   }
 
-  /// The activity splitter's drag/key resize: pixel deltas grow the
-  /// panel upward, clamped to 02 §1's bounds (floor 120, cap half the
-  /// window — MediaQuery height is the window's content box, the honest
-  /// ceiling available here).
-  void _resizeActivityPanel(double delta) {
-    final halfWindow = MediaQuery.sizeOf(context).height / 2;
-    // clamp() throws when lower > upper, so keep the ceiling at least
-    // the floor for windows shorter than 2 * minActivityPanelHeight.
-    final max = halfWindow < minActivityPanelHeight
-        ? minActivityPanelHeight
-        : halfWindow;
+  /// Whether the sidebar is inline in the current allocation (D32 §3.2)
+  /// — the last layout's answer, read by `view.toggleSidebar` to choose
+  /// between the inline intent and the drawer.
+  bool _sidebarInline = true;
+
+  /// D32's window anatomy (10 §3): sidebar | header over (pane A | pane B
+  /// | inspector), with the staged collapse evaluated on the content
+  /// width — the inspector folds into an overlay first, then the sidebar
+  /// into the drawer; pane B's own auto-hide stays [AdaptiveShell]'s.
+  Widget _buildWorkspaceLayout(
+    BuildContext context,
+    double width, {
+    required bool mac,
+    required WorkspaceController workspace,
+    required FocusNode leftFocus,
+    required FocusNode? rightFocus,
+    required SidebarController? sidebar,
+    required PreviewSession? preview,
+    required List<RegisteredCommand> commands,
+    required Listenable enablement,
+    required PaneDropDelegate? dropDelegate,
+    required void Function(String serverId) onReviewLocalEdits,
+    required RegisteredCommand? sshImportCommand,
+  }) {
+    final strings = AppLocalizations.of(context);
+    final chrome = PoltergeistChrome.of(context);
+    const paneRegionMin = 2 * minPaneWidth + paneSplitterExtent;
+    final sidebarWidth = _sidebarWidth;
+    final inspectorWidth = _inspectorWidth;
+    final sidebarWanted = sidebar != null && !workspace.sidebarHidden;
+    final sidebarInline =
+        sidebarWanted &&
+        width >= sidebarWidth + shellSplitterExtent + paneRegionMin;
+    _sidebarInline = sidebarInline;
+    final inspectorWanted = !workspace.inspectorHidden;
+    final usedBySidebar = sidebarInline
+        ? sidebarWidth + shellSplitterExtent
+        : 0.0;
+    final inspectorInline =
+        inspectorWanted &&
+        width >=
+            usedBySidebar + inspectorWidth + shellSplitterExtent + paneRegionMin;
+    final inspectorOverlay = inspectorWanted && !inspectorInline;
+
+    final inspector = InspectorView(
+      workspace: workspace,
+      activity: _activity,
+      alerts: _alerts,
+      alertActions: AlertActions(
+        showTransfers: () => workspace.showInspector(InspectorTab.transfers),
+        retryTask: (task) => _activity.retryTask(task.id),
+        resumeRestored: _activity.resumeRestoredQueue,
+        reviewHostKey: widget.engineSession == null
+            ? null
+            : (serverId) => unawaited(
+                widget.engineSession!.reviewBlockedHostKey(serverId),
+              ),
+        reviewLocalEdits: widget.checkoutSession == null
+            ? null
+            : onReviewLocalEdits,
+        openRelease: (info) => unawaited(launchUrl(info.releasesUrl)),
+      ),
+      preview: preview,
+      pdfRenderer: pdfPreviewBuilder,
+      // Every launch verb routes onto the focused ENTRY — never the
+      // `preview-cache/` path (06 §5.3's open-boundary rule).
+      onOpen: (pane, entry) => unawaited(pane.openEntry(entry)),
+      onOpenWith: (context, pane, entry) =>
+          unawaited(_chooseEditorFor(pane, entry)),
+      onOpenInEditor: (pane, entry) =>
+          unawaited(pane.editInBuiltInEditor(entry)),
+      onReveal: _revealTransferDestination,
+      onEscape: (event) => preview != null && preview.escape()
+          ? KeyEventResult.handled
+          : KeyEventResult.ignored,
+    );
+
+    Widget paneTabs(PaneTabsController tabs, FocusNode focus, PaneTabsController other) =>
+        PaneTabsView(
+          tabs: tabs,
+          workspace: workspace,
+          focusNode: focus,
+          preview: preview,
+          onSwapFocus: () => _focusPane(other),
+          onCancelRecovery: () =>
+              _cancelPaneRecovery(workspace, tabs.activeTabController),
+          bookmarks: widget.bookmarks,
+          dropDelegate: dropDelegate,
+          checkoutSession: widget.checkoutSession,
+          onReviewLocalEdits: onReviewLocalEdits,
+          onSyncSaveAsFavorite: _saveSyncAsFavorite,
+          onSyncEditRules: _editSyncRules,
+          onImportSshConfig: sshImportCommand == null
+              ? null
+              : () => unawaited(_runCommand(sshImportCommand)),
+        );
+
+    final panes = Stack(
+      fit: StackFit.expand,
+      children: [
+        AdaptiveShell(
+          initialPaneRatio: widget.initialPaneRatio,
+          secondPaneIntent: workspace.secondPaneHidden
+              ? SecondPaneIntent.hidden
+              : SecondPaneIntent.shown,
+          onSecondPaneVisibilityChanged: workspace.setSecondPaneLayoutShown,
+          onPaneRatioChanged: widget.onPaneRatioChanged,
+          onPaneRatioSaveError: widget.onPaneRatioSaveError,
+          resizeLabel: strings.resizePanes,
+          formatRatio: (ratio) =>
+              strings.paneRatioPercent((ratio * 100).round()),
+          primary: paneTabs(workspace.left, leftFocus, workspace.right),
+          secondary: rightFocus == null
+              ? const SizedBox.shrink()
+              : paneTabs(workspace.right, rightFocus, workspace.left),
+        ),
+        if (preview != null) PreviewQuickLookOverlay(session: preview),
+        if (inspectorOverlay)
+          PositionedDirectional(
+            key: const ValueKey('inspector.overlay'),
+            top: 0,
+            bottom: 0,
+            end: 0,
+            width: inspectorWidth,
+            child: Material(
+              elevation: 8,
+              color: chrome.inspectorBackground,
+              child: inspector,
+            ),
+          ),
+      ],
+    );
+
+    final header = ListenableBuilder(
+      listenable: Listenable.merge([enablement, _alerts]),
+      builder: (context, _) => HeaderToolbar(
+        commands: commands,
+        onRun: _runCommand,
+        leadingInset: mac && !sidebarInline ? _macTrafficLightsInset : 0,
+        title: _HeaderTitle(workspace: workspace),
+        badges: {kViewToggleInspectorCommandId: _alerts.attentionCount},
+        statusExtras: {
+          kViewToggleActivityPanelCommandId: (context, button) =>
+              _ActivityRing(controller: _activity, child: button),
+        },
+        filterField: _HeaderFilterField(
+          workspace: workspace,
+          focusNode: _headerFilterFocus,
+        ),
+        menuButton: mac
+            ? null
+            : AppMainMenuButton(commands: commands, onRun: _runCommand),
+      ),
+    );
+
+    final main = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _WindowDragArea(enabled: mac, child: header),
+        Divider(height: 1, color: chrome.separator),
+        // D19's update banner lives in Alerts now (D32 §3); the pane
+        // row owns the rest of the column.
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: panes),
+              if (inspectorInline) ...[
+                ShellSplitter(
+                  key: const ValueKey('inspector.splitter'),
+                  focusNode: _inspectorSplitterFocus,
+                  label: strings.resizeInspector,
+                  value: strings.splitterWidthPx(inspectorWidth.round()),
+                  grow: -1,
+                  onResize: (delta) => _resizeInspector(delta, width),
+                  onResizeEnd: _commitInspectorWidth,
+                  onReset: () {
+                    setState(() => _inspectorWidth = inspectorDefaultWidth);
+                    _commitInspectorWidth();
+                  },
+                ),
+                SizedBox(
+                  key: const ValueKey('inspector.region'),
+                  width: inspectorWidth,
+                  child: inspector,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (sidebarInline) ...[
+          SizedBox(
+            key: const ValueKey('sidebar.region'),
+            width: sidebarWidth,
+            child: ColoredBox(
+              color: chrome.sidebarBackground,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // macOS: the traffic lights sit over the sidebar's
+                  // top band (the full-size content view), which doubles
+                  // as a window drag area — Finder's layout.
+                  if (mac)
+                    _WindowDragArea(
+                      enabled: true,
+                      child: SizedBox(height: chrome.headerHeight),
+                    ),
+                  Expanded(child: _buildSidebarView(sshImportCommand)),
+                ],
+              ),
+            ),
+          ),
+          ShellSplitter(
+            key: const ValueKey('sidebar.splitter'),
+            focusNode: _sidebarSplitterFocus,
+            label: strings.resizeSidebar,
+            value: strings.splitterWidthPx(sidebarWidth.round()),
+            onResize: (delta) => _resizeSidebar(delta, width),
+            onResizeEnd: _commitSidebarWidth,
+            onReset: () {
+              setState(() => _sidebarWidth = sidebarDefaultWidth);
+              _commitSidebarWidth();
+            },
+          ),
+        ],
+        Expanded(child: main),
+      ],
+    );
+  }
+
+  /// Sidebar drag/key resize (10 §3.1): clamped to its bounds and to the
+  /// room the panes need; dragging well past the minimum hides it as a
+  /// user hide.
+  void _resizeSidebar(double delta, double windowWidth) {
+    final next = _sidebarWidth + delta;
+    if (next < sidebarMinWidth - _collapseOvershoot) {
+      _workspace?.setSidebarHidden(true);
+      setState(() => _sidebarWidth = sidebarMinWidth);
+      return;
+    }
     setState(() {
-      _activityPanelHeight = (_activityPanelHeight + delta).clamp(
-        minActivityPanelHeight,
-        max,
-      );
+      _sidebarWidth = next.clamp(sidebarMinWidth, sidebarMaxWidth);
     });
   }
 
-  /// Persist once at the interaction boundary, not per drag pixel —
-  /// the same posture as the pane ratio's save.
-  void _commitActivityPanelHeight() {
-    final save = widget.onActivityPanelHeightChanged;
+  void _resizeInspector(double delta, double windowWidth) {
+    final next = _inspectorWidth + delta;
+    if (next < inspectorMinWidth - _collapseOvershoot) {
+      _workspace?.setInspectorHidden(true);
+      setState(() => _inspectorWidth = inspectorMinWidth);
+      return;
+    }
+    setState(() {
+      _inspectorWidth = next.clamp(inspectorMinWidth, inspectorMaxWidth);
+    });
+  }
+
+  void _commitSidebarWidth() =>
+      _persist(widget.onSidebarWidthChanged, _sidebarWidth);
+
+  void _commitInspectorWidth() =>
+      _persist(widget.onInspectorWidthChanged, _inspectorWidth);
+
+  /// Persists a width once at the interaction boundary — never per drag
+  /// pixel — reporting (never throwing) a failed write.
+  void _persist(FutureOr<void> Function(double)? save, double value) {
     if (save == null) return;
-    final report = widget.onActivityPanelHeightSaveError;
     try {
-      final result = save(_activityPanelHeight);
+      final result = save(value);
       if (result is Future<void>) {
         unawaited(
           result.catchError((Object error, StackTrace stack) {
-            report?.call(error, stack);
+            ApplicationErrorReporter().report(error, stack);
           }),
         );
       }
     } on Object catch (error, stack) {
-      report?.call(error, stack);
+      ApplicationErrorReporter().report(error, stack);
+    }
+  }
+
+  /// ⌘F (D32 §4): the header's filter field takes focus.
+  void _focusHeaderFilter() => _headerFilterFocus.requestFocus();
+
+  /// The id → name resolver behind [ServerLabelScope]: favorites and
+  /// connection rows first, then the shared-account catalog.
+  String? _serverLabel(String serverId) {
+    for (final server in _connections?.servers ?? const <ConnectionServer>[]) {
+      if (server.serverId == serverId) return server.label;
+    }
+    for (final server
+        in widget.bookmarkBackup?.catalog?.servers ?? const <ServerConfig>[]) {
+      if (server.id == serverId) return server.label;
+    }
+    return null;
+  }
+
+  /// ⌘K's Connect dialog (D32 §4): Quick Connect over a fresh tab in the
+  /// active pane — the same seam the pane launcher uses.
+  Future<void> _openConnectDialog() async {
+    final workspace = _workspace;
+    if (workspace == null) return;
+    final l10n = AppLocalizations.of(context);
+    final focus = FocusNode();
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          key: const ValueKey('connect.dialog'),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    l10n.connectDialogTitle,
+                    style: Theme.of(dialogContext).textTheme.titleMedium,
+                  ),
+                  QuickConnectView(
+                    focusNode: focus,
+                    onConnect: (bookmark, initialPath) {
+                      Navigator.of(dialogContext).pop();
+                      final tab = workspace.activePane.newTab(
+                        target: NewTabTarget.launcher,
+                      );
+                      unawaited(
+                        tab.controller.connectRemote(
+                          bookmark,
+                          initialPath: initialPath,
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    } finally {
+      focus.dispose();
     }
   }
 
@@ -3265,273 +3441,262 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }
 }
 
-class _Toolbar extends StatelessWidget {
-  const _Toolbar({
-    required this.title,
-    required this.commands,
-    required this.onRun,
-  });
+/// Leading room for the macOS traffic lights when the header reaches the
+/// window's leading edge (sidebar hidden or in the drawer).
+const _macTrafficLightsInset = 72.0;
 
-  final String title;
-  final List<RegisteredCommand> commands;
-  final Future<void> Function(RegisteredCommand command) onRun;
+/// How far past a region's minimum a drag must go before it hides the
+/// region (10 §3.1): a deliberate fling, never an accidental nudge.
+const _collapseOvershoot = 48.0;
+
+/// Sidebar width bounds (10 §3.1).
+const sidebarDefaultWidth = 232.0;
+const sidebarMinWidth = 180.0;
+const sidebarMaxWidth = 360.0;
+
+/// macOS: the header and the sidebar's top band sit under the
+/// transparent titlebar (full-size content view), so they double as the
+/// window's drag area; a double-click zooms, as a titlebar does.
+class _WindowDragArea extends StatelessWidget {
+  const _WindowDragArea({required this.enabled, required this.child});
+
+  final bool enabled;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      enabled ? DragToMoveArea(child: child) : child;
+}
+
+/// The header's title block (10 §4): the active pane's location — the
+/// folder or server name, and a secondary line with the full path
+/// (remote: `user@host:path`).
+class _HeaderTitle extends StatelessWidget {
+  const _HeaderTitle({required this.workspace});
+
+  final WorkspaceController workspace;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return SizedBox(
-      height: 44,
-      child: Padding(
-        padding: const EdgeInsetsDirectional.symmetric(horizontal: 12),
-        child: Row(
-          children: [
-            Icon(
-              Icons.drive_file_move_outline,
-              size: 20,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                title,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-            ),
-            const Spacer(),
-            for (final command in commands)
-              Flexible(
-                child: TextButton(
-                  key: ValueKey('command.${command.id}'),
-                  onPressed: command.enabled() ? () => onRun(command) : null,
-                  // Compact density: every registered command stays on
-                  // the strip, so a growing registry shares the width —
-                  // the label's Flexible ellipsis is what lets a button
-                  // shrink below its natural size instead of overflowing.
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: const Size(0, 36),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // The icon rides in a Flexible too: a growing
-                      // registry squeezes a button below icon width, and
-                      // a rigid 18px box would overflow its slot.
-                      Flexible(
-                        child: Icon(
-                          command.icon ?? Icons.bug_report_outlined,
-                          size: 18,
-                        ),
-                      ),
-                      // The gap rides inside the Flexible so a squeezed
-                      // button can collapse to the icon alone instead of
-                      // overflowing at icon + spacing width.
-                      Flexible(
-                        child: Padding(
-                          padding: const EdgeInsetsDirectional.only(start: 4),
-                          child: Text(
-                            command.label(l10n),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The activity panel + its top splitter — one mounted unit gated on
-/// the workspace's persisted visibility intent.
-class _ActivitySection extends StatelessWidget {
-  const _ActivitySection({
-    required this.controller,
-    required this.height,
-    required this.splitterFocus,
-    required this.onResize,
-    required this.onResizeEnd,
-    required this.onClose,
-    required this.onReveal,
-  });
-
-  final ActivityPanelController controller;
-  final double height;
-  final FocusNode splitterFocus;
-  final ValueChanged<double> onResize;
-  final VoidCallback onResizeEnd;
-  final VoidCallback onClose;
-  final void Function(TransferTask task)? onReveal;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ActivityHeightSplitter(
-          key: const ValueKey('activity.splitter'),
-          focusNode: splitterFocus,
-          label: l10n.resizeActivityPanel,
-          value: l10n.activityPanelHeightPx(height.round()),
-          increasedValue: l10n.activityPanelHeightPx(height.round() + 16),
-          decreasedValue: l10n.activityPanelHeightPx(height.round() - 16),
-          onResize: onResize,
-          onResizeEnd: onResizeEnd,
-        ),
-        SizedBox(
-          height: height,
-          child: ListenableBuilder(
-            listenable: controller,
-            builder: (context, _) => ActivityPanel(
-              key: const ValueKey('activity.panel'),
-              controller: controller,
-              onClose: onClose,
-              onReveal: onReveal,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatusBar extends StatelessWidget {
-  const _StatusBar({required this.label, this.syncLink, this.activity});
-
-  final String label;
-
-  /// The workspace's Sync Browsing link (02 §7): while enabled the
-  /// status bar carries the same chip the path bars do — the amber
-  /// link-broken variant while suspended.
-  final SyncBrowsingController? syncLink;
-
-  /// The transfer queue's mirror (02 §6/§1): a live task count + rate
-  /// chip, and the bandwidth-limit chip while either direction is
-  /// capped. The status bar is never the queue's only representation —
-  /// the panel's rows are — these chips are the always-on summary.
-  final ActivityPanelController? activity;
-
-  @override
-  Widget build(BuildContext context) {
-    final link = syncLink;
-    return SizedBox(
-      height: 24,
-      child: Padding(
-        padding: const EdgeInsetsDirectional.symmetric(horizontal: 10),
-        child: Row(
-          children: [
-            // Both children ride Flexible — the named-cause line can
-            // exceed a narrow status row's width, and an unbounded chip
-            // would overflow it the way the toolbar did.
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
-            ),
-            if (link != null)
-              Flexible(
-                child: ListenableBuilder(
-                  listenable: link,
-                  builder: (context, _) {
-                    if (!link.enabled) return const SizedBox.shrink();
-                    return Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: Padding(
-                        padding: const EdgeInsetsDirectional.only(start: 10),
-                        child: SyncBrowseChip(
-                          key: const ValueKey('statusbar.syncChip'),
-                          link: link,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            if (activity != null)
-              Flexible(
-                child: ListenableBuilder(
-                  listenable: activity!,
-                  builder: (context, _) =>
-                      _TransferChips(controller: activity!),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The status bar's transfer summary (02 §1/§6): a rate+count chip while
-/// any task is live, plus the bandwidth chip while a direction is
-/// capped. Both chips are summaries only — per-item truth stays on the
-/// panel's rows (D16).
-class _TransferChips extends StatelessWidget {
-  const _TransferChips({required this.controller});
-
-  final ActivityPanelController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final platform = Theme.of(context).platform;
-    final live = controller.tasks.where((task) => !task.isTerminal).length;
-    final down = controller.downloadLimit;
-    final up = controller.uploadLimit;
-    final rate = controller.aggregateRate;
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(start: 10),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    final theme = Theme.of(context);
+    final chrome = PoltergeistChrome.of(context);
+    final tab = workspace.activePane.activeTab;
+    final controller = tab?.controller;
+    final title = tab == null ? l10n.headerTitleEmpty : paneTabTitle(tab, l10n);
+    final location = controller?.location;
+    final bookmark = controller?.remoteBookmark;
+    final identity = bookmark?.server?.identity;
+    final subtitle = switch (location) {
+      null => bookmark?.label,
+      final loc when identity != null =>
+        '${identity.username}@${identity.host}:${loc.path}',
+      final loc when bookmark != null => '${bookmark.label}:${loc.path}',
+      final loc => loc.path,
+    };
+    return Semantics(
+      header: true,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (live > 0)
-            Flexible(
-              child: Text(
-                key: const ValueKey('statusbar.transferChip'),
-                l10n.statusTransferChip(
-                  rate > 0
-                      ? formatTransferRate(rate, platform: platform)
-                      : paneUnevaluated,
-                  live,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
-            ),
-          if (down != null || up != null)
-            Flexible(
-              child: Padding(
-                padding: EdgeInsetsDirectional.only(start: live > 0 ? 10 : 0),
-                child: Text(
-                  key: const ValueKey('statusbar.limitChip'),
-                  l10n.statusLimitChip(
-                    down == null
-                        ? l10n.activityBandwidthUnlimited
-                        : formatTransferLimit(down, platform: platform),
-                    up == null
-                        ? l10n.activityBandwidthUnlimited
-                        : formatTransferLimit(up, platform: platform),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall,
-                ),
+          Text(
+            title,
+            key: const ValueKey('header.title'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleSmall,
+          ),
+          if (subtitle != null)
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: chrome.secondaryText,
               ),
             ),
         ],
       ),
+    );
+  }
+}
+
+/// D32 §4's filter field: filters the active pane's listing as the user
+/// types (the pane's own strip no longer opens for ⌘F), shows `12 of
+/// 348` while a query is active, and Esc clears it back to the listing.
+class _HeaderFilterField extends StatefulWidget {
+  const _HeaderFilterField({required this.workspace, required this.focusNode});
+
+  final WorkspaceController workspace;
+  final FocusNode focusNode;
+
+  @override
+  State<_HeaderFilterField> createState() => _HeaderFilterFieldState();
+}
+
+class _HeaderFilterFieldState extends State<_HeaderFilterField> {
+  final _text = TextEditingController();
+  PaneController? _bound;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.workspace.addListener(_rebind);
+    _rebind();
+  }
+
+  @override
+  void didUpdateWidget(covariant _HeaderFilterField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.workspace, widget.workspace)) {
+      oldWidget.workspace.removeListener(_rebind);
+      widget.workspace.addListener(_rebind);
+      _rebind();
+    }
+  }
+
+  /// Follows the active pane's active tab: the field always shows the
+  /// query the focused listing is filtered by.
+  void _rebind() {
+    final next = widget.workspace.activeTabController;
+    if (identical(next, _bound)) {
+      _syncText();
+      return;
+    }
+    _bound?.removeListener(_syncText);
+    _bound = next;
+    _bound?.addListener(_syncText);
+    _syncText();
+  }
+
+  void _syncText() {
+    final query = _bound?.filterQuery ?? '';
+    if (_text.text != query) {
+      _text.value = TextEditingValue(
+        text: query,
+        selection: TextSelection.collapsed(offset: query.length),
+      );
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.workspace.removeListener(_rebind);
+    _bound?.removeListener(_syncText);
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final theme = Theme.of(context);
+    final chrome = PoltergeistChrome.of(context);
+    final pane = _bound;
+    final active = pane != null && pane.filterActive;
+    return SizedBox(
+      height: 28,
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () {
+            pane?.clearFilter();
+            _text.clear();
+            widget.focusNode.unfocus();
+          },
+        },
+        child: TextField(
+          key: const ValueKey('header.filter'),
+          controller: _text,
+          focusNode: widget.focusNode,
+          enabled: pane != null && pane.verbsEnabled,
+          style: theme.textTheme.bodyMedium,
+          textAlignVertical: TextAlignVertical.center,
+          onChanged: (value) => pane?.setFilterQuery(value),
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: chrome.capsuleFill,
+            hintText: l10n.headerFilterHint,
+            contentPadding: const EdgeInsets.symmetric(vertical: 6),
+            prefixIcon: Icon(Icons.search, size: 16, color: chrome.secondaryText),
+            prefixIconConstraints: const BoxConstraints(minWidth: 28),
+            suffixIcon: active
+                ? Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 8),
+                    child: Center(
+                      widthFactor: 1,
+                      child: Text(
+                        l10n.paneFilterCount(
+                          pane.entries.length,
+                          pane.unfilteredCount,
+                        ),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: chrome.secondaryText,
+                        ),
+                      ),
+                    ),
+                  )
+                : null,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(7),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The activity button's progress ring (D16 via D32 §4): while any task
+/// is live the toolbar shows the queue's aggregate progress around the
+/// Transfers button — the always-visible honesty signal that replaced
+/// the status bar's transfer chip.
+class _ActivityRing extends StatelessWidget {
+  const _ActivityRing({required this.controller, required this.child});
+
+  final ActivityPanelController controller;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, child) {
+        var done = 0;
+        var total = 0;
+        var live = false;
+        for (final task in controller.tasks) {
+          if (task.isTerminal) continue;
+          live = true;
+          done += task.transferredBytes;
+          total += task.totalBytes ?? 0;
+        }
+        if (!live) return child!;
+        final colors = Theme.of(context).colorScheme;
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            child!,
+            IgnorePointer(
+              child: SizedBox(
+                key: const ValueKey('header.activityRing'),
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  value: total > 0 ? (done / total).clamp(0.0, 1.0) : null,
+                  color: colors.primary,
+                  backgroundColor: colors.primary.withValues(alpha: 0.15),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+      child: child,
     );
   }
 }

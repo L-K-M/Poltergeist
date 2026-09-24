@@ -28,8 +28,9 @@ List<RegisteredCommand> buildActivityCommands({
         activity?.toggleQueuePause();
       },
       menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.commands,
+        menu: AppMenuId.server,
         order: 70,
+        group: 4,
       ),
     ),
   ];

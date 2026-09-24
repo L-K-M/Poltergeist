@@ -10,6 +10,10 @@ import 'workspace_state.dart';
 /// the second pane's visibility (02 §3's toggle), and the Sync Browsing
 /// link (02 §7). Each pane owns its tab strip (02 §3); layout ratios
 /// already persist through the M1 shell's splitter.
+/// The D32 inspector's tabs (10 §3): item facts, work in flight, and
+/// things that need the user.
+enum InspectorTab { info, transfers, alerts }
+
 class WorkspaceController extends ChangeNotifier {
   WorkspaceController({required this.left, required this.right})
     : assert(
@@ -67,26 +71,70 @@ class WorkspaceController extends ChangeNotifier {
   /// [secondPaneShown] going false whichever path hid the pane (02 §7).
   bool _secondPaneLayoutShown = true;
 
-  /// `view.toggleActivityPanel`'s user intent (02 §1/§6, D16): the
-  /// activity panel is optional chrome — hidden it collapses to the
-  /// status bar's transfer chip. The default is hidden: the shell
-  /// un-hides it on the first-tasks edge, and only the explicit toggle
-  /// persists (there is no responsive auto-hide for the panel).
-  bool _activityPanelHidden = true;
+  /// The D32 inspector column's visibility (10 §3): default-shown, and
+  /// written only through [setInspectorHidden] / [showInspector] so every
+  /// flip notifies — the session document persists it. The responsive
+  /// overlay collapse is layout-only and never lands here.
+  bool _inspectorHidden = false;
+  InspectorTab _inspectorTab = InspectorTab.info;
 
-  /// Whether the user intent hides the activity panel. Written only
-  /// through [setActivityPanelHidden] so every flip notifies — the
-  /// session document persists this flag (02 §1's persistence list).
-  bool get activityPanelHidden => _activityPanelHidden;
+  bool get inspectorHidden => _inspectorHidden;
 
-  void setActivityPanelHidden(bool hidden) {
-    if (hidden == _activityPanelHidden) return;
-    _activityPanelHidden = hidden;
+  /// The tab the inspector shows (or will show when re-opened).
+  InspectorTab get inspectorTab => _inspectorTab;
+
+  void setInspectorHidden(bool hidden) {
+    if (hidden == _inspectorHidden) return;
+    _inspectorHidden = hidden;
     notifyListeners();
   }
 
-  void toggleActivityPanel() =>
-      setActivityPanelHidden(!_activityPanelHidden);
+  void toggleInspector() => setInspectorHidden(!_inspectorHidden);
+
+  /// Shows the inspector on [tab] — `file.getInfo`, `view.showTransfers`,
+  /// the alert badge, and D16's new-work edge all land here.
+  void showInspector(InspectorTab tab) {
+    if (!_inspectorHidden && _inspectorTab == tab) return;
+    _inspectorHidden = false;
+    _inspectorTab = tab;
+    notifyListeners();
+  }
+
+  /// Selects [tab] without changing visibility (the inspector's own tab
+  /// switcher; a hidden inspector re-opens on it).
+  void selectInspectorTab(InspectorTab tab) {
+    if (_inspectorTab == tab) return;
+    _inspectorTab = tab;
+    notifyListeners();
+  }
+
+  /// The tab-scoped toggle behind `view.toggleActivityPanel` and
+  /// `view.togglePreview`: showing [tab] when the inspector is hidden or
+  /// on another tab, hiding it when it already shows [tab].
+  void toggleInspectorTab(InspectorTab tab) {
+    if (!_inspectorHidden && _inspectorTab == tab) {
+      setInspectorHidden(true);
+    } else {
+      showInspector(tab);
+    }
+  }
+
+  /// D16's activity surface, now the inspector's Transfers tab (D32):
+  /// "hidden" means the Transfers tab is not on screen. Kept as the
+  /// seam the activity auto-show, the queue boot seed, and the session
+  /// document's legacy flag already speak.
+  bool get activityPanelHidden =>
+      _inspectorHidden || _inspectorTab != InspectorTab.transfers;
+
+  void setActivityPanelHidden(bool hidden) {
+    if (!hidden) {
+      showInspector(InspectorTab.transfers);
+    } else if (!activityPanelHidden) {
+      setInspectorHidden(true);
+    }
+  }
+
+  void toggleActivityPanel() => toggleInspectorTab(InspectorTab.transfers);
 
   /// `view.toggleSidebar`'s user intent (02 §1): the global sidebar is
   /// default-shown; only the explicit toggle writes this flag — the
@@ -107,25 +155,22 @@ class WorkspaceController extends ChangeNotifier {
 
   void toggleSidebar() => setSidebarHidden(!_sidebarHidden);
 
-  /// `view.togglePreview`'s user intent (06 §5.2): the docked preview
-  /// panel is optional chrome, hidden by default. While it is visible
-  /// on macOS, Space routes to the panel and Quick Look is suppressed
-  /// (06 §5's surface split — the two macOS surfaces never both claim
-  /// the key). Session state only — 02 §1's persistence list carries no
-  /// preview flag, so a relaunch always starts panel-hidden.
-  bool _previewPanelHidden = true;
-
-  /// Whether the user intent hides the preview panel. Written only
-  /// through [setPreviewPanelHidden] so every flip notifies.
-  bool get previewPanelHidden => _previewPanelHidden;
+  /// 06 §5.2's preview surface, now the inspector's Info tab (D32): the
+  /// preview renders at the top of Info, so "hidden" means the Info tab
+  /// is not on screen. The preview session reads this to decide whether
+  /// a selection change evaluates a preview.
+  bool get previewPanelHidden =>
+      _inspectorHidden || _inspectorTab != InspectorTab.info;
 
   void setPreviewPanelHidden(bool hidden) {
-    if (hidden == _previewPanelHidden) return;
-    _previewPanelHidden = hidden;
-    notifyListeners();
+    if (!hidden) {
+      showInspector(InspectorTab.info);
+    } else if (!previewPanelHidden) {
+      setInspectorHidden(true);
+    }
   }
 
-  void togglePreviewPanel() => setPreviewPanelHidden(!_previewPanelHidden);
+  void togglePreviewPanel() => toggleInspectorTab(InspectorTab.info);
 
   /// Whether pane B is on screen: not user-hidden and not layout-hidden.
   bool get secondPaneShown => !_secondPaneHidden && _secondPaneLayoutShown;

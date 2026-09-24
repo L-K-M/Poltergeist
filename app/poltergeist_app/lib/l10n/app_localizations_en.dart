@@ -24,7 +24,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get menuGo => 'Go';
 
   @override
-  String get menuCommands => 'Commands';
+  String get menuServer => 'Server';
 
   @override
   String get menuWindow => 'Window';
@@ -3462,4 +3462,144 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get connectionTestFailed => 'Connection test failed';
+
+  @override
+  String get mainMenuTooltip => 'Main menu';
+
+  @override
+  String get toolbarMoreTooltip => 'More';
+
+  @override
+  String get inspectorLabel => 'Inspector';
+
+  @override
+  String get inspectorTabInfo => 'Info';
+
+  @override
+  String get inspectorTabTransfers => 'Transfers';
+
+  @override
+  String get inspectorTabAlerts => 'Alerts';
+
+  @override
+  String get alertsEmpty => 'All clear';
+
+  @override
+  String alertTransferFailed(String name) {
+    return 'Couldn\'t transfer “$name”';
+  }
+
+  @override
+  String alertConflictsPending(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count conflicts need a decision',
+      one: '1 conflict needs a decision',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String alertRestoredQueue(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transfers from last session are paused',
+      one: '1 transfer from last session is paused',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String alertHostKeyChanged(String server) {
+    return 'The host key for $server changed';
+  }
+
+  @override
+  String alertConnectionFailed(String server) {
+    return 'Couldn\'t connect to $server';
+  }
+
+  @override
+  String alertLocalEdits(int count, String server) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count local edits on $server aren\'t uploaded',
+      one: '1 local edit on $server isn\'t uploaded',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String alertUpdateAvailable(String version) {
+    return 'Poltergeist $version is available';
+  }
+
+  @override
+  String get alertActionRetry => 'Retry';
+
+  @override
+  String get alertActionShow => 'Show';
+
+  @override
+  String get alertActionResolve => 'Resolve…';
+
+  @override
+  String get alertActionReview => 'Review…';
+
+  @override
+  String get alertActionViewRelease => 'View Release';
+
+  @override
+  String get alertActionDismiss => 'Dismiss';
+
+  @override
+  String get viewShowInspectorLabel => 'Show Inspector';
+
+  @override
+  String get viewHideInspectorLabel => 'Hide Inspector';
+
+  @override
+  String get viewShowAlertsLabel => 'Alerts';
+
+  @override
+  String get connectQuickConnectLabel => 'Connect…';
+
+  @override
+  String get connectShortLabel => 'Connect';
+
+  @override
+  String get connectDialogTitle => 'Connect to Server';
+
+  @override
+  String get syncShortLabel => 'Sync';
+
+  @override
+  String get selectionCopyToOtherPaneLabel => 'Copy to Other Pane';
+
+  @override
+  String get selectionMoveToOtherPaneLabel => 'Move to Other Pane';
+
+  @override
+  String get commandDisabledNeedsTwoPanes =>
+      'Select items, and open a folder in the other pane';
+
+  @override
+  String get resizeSidebar => 'Resize sidebar';
+
+  @override
+  String get resizeInspector => 'Resize inspector';
+
+  @override
+  String splitterWidthPx(int value) {
+    return '$value pixels';
+  }
+
+  @override
+  String get headerFilterHint => 'Filter';
+
+  @override
+  String get headerTitleEmpty => 'No location';
 }

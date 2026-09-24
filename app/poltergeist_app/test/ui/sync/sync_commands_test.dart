@@ -77,10 +77,10 @@ void main() {
     // 02 §9's Commands table: Synchronize sits between the transfer
     // block and Calculate Folder Sizes; New Saved Sync right under it;
     // the rsync export follows inside the sync block (05 §2.1).
-    expect(synchronize.menuPlacement?.menu, AppMenuId.commands);
+    expect(synchronize.menuPlacement?.menu, AppMenuId.server);
     expect(synchronize.menuPlacement?.order, 30);
     expect(newSaved.menuPlacement?.order, 35);
-    expect(copyRsync.menuPlacement?.menu, AppMenuId.commands);
+    expect(copyRsync.menuPlacement?.menu, AppMenuId.server);
     expect(copyRsync.menuPlacement?.order, 37);
 
     // Enabled predicates delegate to the shell's checks.

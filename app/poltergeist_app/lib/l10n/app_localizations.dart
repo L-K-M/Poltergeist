@@ -124,11 +124,11 @@ abstract class AppLocalizations {
   /// **'Go'**
   String get menuGo;
 
-  /// Title of the Commands application menu (02 §9 menu table).
+  /// Title of the Server application menu (D32's rename of 02 §9's Commands menu: connect, sync, workspaces, transfers).
   ///
   /// In en, this message translates to:
-  /// **'Commands'**
-  String get menuCommands;
+  /// **'Server'**
+  String get menuServer;
 
   /// Title of the Window application menu.
   ///
@@ -5399,6 +5399,216 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Connection test failed'**
   String get connectionTestFailed;
+
+  /// D32 §8: tooltip of the header's ☰ button that holds the whole menu tree on Windows and Linux.
+  ///
+  /// In en, this message translates to:
+  /// **'Main menu'**
+  String get mainMenuTooltip;
+
+  /// D32 §4: tooltip of the header's » overflow button on narrow windows.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get toolbarMoreTooltip;
+
+  /// D32 §3: accessibility label of the right inspector column.
+  ///
+  /// In en, this message translates to:
+  /// **'Inspector'**
+  String get inspectorLabel;
+
+  /// D32 §3: the inspector's Info tab (the focused item's preview and facts).
+  ///
+  /// In en, this message translates to:
+  /// **'Info'**
+  String get inspectorTabInfo;
+
+  /// D32 §3: the inspector's Transfers tab (the transfer queue's rows).
+  ///
+  /// In en, this message translates to:
+  /// **'Transfers'**
+  String get inspectorTabTransfers;
+
+  /// D32 §3: the inspector's Alerts tab (things that need the user).
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts'**
+  String get inspectorTabAlerts;
+
+  /// D32 §3: the Alerts tab's empty state.
+  ///
+  /// In en, this message translates to:
+  /// **'All clear'**
+  String get alertsEmpty;
+
+  /// D32 alert row: a transfer task failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t transfer “{name}”'**
+  String alertTransferFailed(String name);
+
+  /// D32 alert row: parked transfer conflicts (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 conflict needs a decision} other{{count} conflicts need a decision}}'**
+  String alertConflictsPending(int count);
+
+  /// D32 alert row: journaled work restored behind the queue pause.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 transfer from last session is paused} other{{count} transfers from last session are paused}}'**
+  String alertRestoredQueue(int count);
+
+  /// D32 alert row: a server is blocked on a changed host key (D18).
+  ///
+  /// In en, this message translates to:
+  /// **'The host key for {server} changed'**
+  String alertHostKeyChanged(String server);
+
+  /// D32 alert row: a server's connection failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t connect to {server}'**
+  String alertConnectionFailed(String server);
+
+  /// D32 alert row: managed checkouts with un-uploaded edits (06 §3.7).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 local edit on {server} isn\'t uploaded} other{{count} local edits on {server} aren\'t uploaded}}'**
+  String alertLocalEdits(int count, String server);
+
+  /// D32 alert row: a newer release exists (D19).
+  ///
+  /// In en, this message translates to:
+  /// **'Poltergeist {version} is available'**
+  String alertUpdateAvailable(String version);
+
+  /// Alert row action: retry the failed transfer.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get alertActionRetry;
+
+  /// Alert row action: show the Transfers tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Show'**
+  String get alertActionShow;
+
+  /// Alert row action: go to the pending conflicts.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolve…'**
+  String get alertActionResolve;
+
+  /// Alert row action: open the review surface (host key, local edits).
+  ///
+  /// In en, this message translates to:
+  /// **'Review…'**
+  String get alertActionReview;
+
+  /// Alert row action: open the release page in the browser.
+  ///
+  /// In en, this message translates to:
+  /// **'View Release'**
+  String get alertActionViewRelease;
+
+  /// Tooltip of an alert row's dismiss button.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get alertActionDismiss;
+
+  /// D32: view.toggleInspector's label while the inspector is hidden.
+  ///
+  /// In en, this message translates to:
+  /// **'Show Inspector'**
+  String get viewShowInspectorLabel;
+
+  /// D32: view.toggleInspector's label while the inspector is shown.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide Inspector'**
+  String get viewHideInspectorLabel;
+
+  /// D32: View menu item that shows the inspector's Alerts tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts'**
+  String get viewShowAlertsLabel;
+
+  /// D32 §4: connect.quickConnect (⌘K) — Server menu item and header button tooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect…'**
+  String get connectQuickConnectLabel;
+
+  /// D32 §4: the header's labelled Connect button.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect'**
+  String get connectShortLabel;
+
+  /// Title of the Connect dialog (⌘K).
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to Server'**
+  String get connectDialogTitle;
+
+  /// D32 §4: the header's labelled Sync button.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync'**
+  String get syncShortLabel;
+
+  /// D32 §4: selection.transferToOtherPane (F5).
+  ///
+  /// In en, this message translates to:
+  /// **'Copy to Other Pane'**
+  String get selectionCopyToOtherPaneLabel;
+
+  /// D32: selection.moveToOtherPane (F6).
+  ///
+  /// In en, this message translates to:
+  /// **'Move to Other Pane'**
+  String get selectionMoveToOtherPaneLabel;
+
+  /// Disabled reason for Copy/Move to Other Pane.
+  ///
+  /// In en, this message translates to:
+  /// **'Select items, and open a folder in the other pane'**
+  String get commandDisabledNeedsTwoPanes;
+
+  /// Accessibility label of the sidebar splitter.
+  ///
+  /// In en, this message translates to:
+  /// **'Resize sidebar'**
+  String get resizeSidebar;
+
+  /// Accessibility label of the inspector splitter.
+  ///
+  /// In en, this message translates to:
+  /// **'Resize inspector'**
+  String get resizeInspector;
+
+  /// A region splitter's current width in whole pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'{value} pixels'**
+  String splitterWidthPx(int value);
+
+  /// Placeholder of the header's filter field (filters the active pane).
+  ///
+  /// In en, this message translates to:
+  /// **'Filter'**
+  String get headerFilterHint;
+
+  /// Header title while the active pane shows the launcher.
+  ///
+  /// In en, this message translates to:
+  /// **'No location'**
+  String get headerTitleEmpty;
 }
 
 class _AppLocalizationsDelegate

@@ -33,7 +33,14 @@ class InfoPanel extends StatelessWidget {
     required this.clock,
     required this.onClose,
     required this.onEscape,
+    this.embedded = false,
   });
+
+  /// D32's inspector embedding (10 §3): the panel renders inside the
+  /// window-level inspector's Info tab — no slide-in, no elevation, no
+  /// fixed width, no ✕ (the inspector owns its own chrome and never
+  /// covers the listing). False keeps the standalone slide-over.
+  final bool embedded;
 
   /// The active tab's browsing controller — the panel's data source and
   /// the folder-size session's owner.
@@ -58,6 +65,24 @@ class InfoPanel extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final colors = Theme.of(context).colorScheme;
     final target = controller.infoTarget;
+    if (embedded) {
+      return Focus(
+        canRequestFocus: false,
+        skipTraversal: true,
+        onKeyEvent: (node, event) {
+          if (event is! KeyDownEvent ||
+              event.logicalKey != LogicalKeyboardKey.escape) {
+            return KeyEventResult.ignored;
+          }
+          return onEscape(event);
+        },
+        child: Semantics(
+          container: true,
+          label: l10n.infoPanelLabel,
+          child: _body(context, l10n, colors, target),
+        ),
+      );
+    }
     return Focus(
       // The panel never takes focus itself — its controls do — but Esc
       // pressed while one of them holds it still runs the pane's tier
@@ -100,41 +125,50 @@ class InfoPanel extends StatelessWidget {
                   top: 8,
                   bottom: 14,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _header(context, l10n, target),
-                    if (target != null) ...[
-                      const SizedBox(height: 4),
-                      if (controller.selectedCount > 1)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            l10n.infoPanelSelectedCount(
-                              controller.selectedCount,
-                            ),
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: colors.onSurfaceVariant),
-                          ),
-                        ),
-                      _detailRows(context, l10n, target),
-                    ] else
-                      Padding(
-                        padding: const EdgeInsets.only(top: 24),
-                        child: Text(
-                          l10n.infoPanelEmpty,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: colors.onSurfaceVariant),
-                        ),
-                      ),
-                  ],
-                ),
+                child: _body(context, l10n, colors, target),
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _body(
+    BuildContext context,
+    AppLocalizations l10n,
+    ColorScheme colors,
+    RemoteFileEntry? target,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _header(context, l10n, target),
+        if (target != null) ...[
+          const SizedBox(height: 4),
+          if (controller.selectedCount > 1)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                l10n.infoPanelSelectedCount(controller.selectedCount),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+              ),
+            ),
+          _detailRows(context, l10n, target),
+        ] else
+          Padding(
+            padding: const EdgeInsets.only(top: 24),
+            child: Text(
+              l10n.infoPanelEmpty,
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+            ),
+          ),
+      ],
     );
   }
 
@@ -176,13 +210,14 @@ class InfoPanel extends StatelessWidget {
             ),
           ),
         ),
-        IconButton(
-          key: const ValueKey('infoPanel.close'),
-          tooltip: l10n.infoPanelClose,
-          onPressed: onClose,
-          icon: const Icon(Icons.close, size: 18),
-          visualDensity: VisualDensity.compact,
-        ),
+        if (!embedded)
+          IconButton(
+            key: const ValueKey('infoPanel.close'),
+            tooltip: l10n.infoPanelClose,
+            onPressed: onClose,
+            icon: const Icon(Icons.close, size: 18),
+            visualDensity: VisualDensity.compact,
+          ),
       ],
     );
   }

@@ -23,7 +23,14 @@ class AppMenuHost extends StatefulWidget {
     required this.commands,
     required this.onRun,
     required this.child,
+    this.showMenuBar = true,
   });
+
+  /// Whether Windows/Linux render the Flutter [MenuBar] strip above
+  /// [child]. D32's shell passes false and renders the same tree behind
+  /// the header's ☰ [AppMainMenuButton] instead (10 §8) — no second
+  /// chrome band. macOS always uses the native menu bar.
+  final bool showMenuBar;
 
   /// The live registry snapshot from the shell.
   ///
@@ -69,6 +76,7 @@ class _AppMenuHostState extends State<AppMenuHost> {
         child: widget.child,
       );
     }
+    if (!widget.showMenuBar) return widget.child;
 
     return Column(
       children: [
@@ -85,7 +93,7 @@ class _AppMenuHostState extends State<AppMenuHost> {
                     for (var i = 0; i < menu.groups.length; i++) ...[
                       if (i > 0) const _MenuGroupDivider(),
                       for (final row in menu.groups[i])
-                        _anchorRow(row, l10n, platform),
+                        _anchorMenuRow(row, l10n, platform, widget.onRun),
                     ],
                   ],
                   child: Text(menu.title),
@@ -157,47 +165,6 @@ class _AppMenuHostState extends State<AppMenuHost> {
     }
   }
 
-  // -- MenuBar (Windows/Linux) -----------------------------------------
-
-  Widget _anchorRow(
-    AppMenuRow row,
-    AppLocalizations l10n,
-    TargetPlatform platform,
-  ) {
-    return switch (row) {
-      AppMenuCommandRow(:final command) => MenuItemButton(
-        key: ValueKey('menu.item.${command.id}'),
-        shortcut: _displayShortcut(command, platform),
-        onPressed: command.enabled()
-            ? () => unawaited(widget.onRun(command))
-            : null,
-        child: Text(command.label(l10n)),
-      ),
-      AppMenuSubmenuRow(:final title, :final items) => SubmenuButton(
-        menuChildren: [
-          for (final item in items) _anchorRow(item, l10n, platform),
-        ],
-        child: Text(title),
-      ),
-      // Provided rows are macOS chrome; the model never emits them on
-      // other platforms.
-      AppMenuProvidedRow() => const SizedBox.shrink(),
-    };
-  }
-
-  /// The first registered activator, for the displayed shortcut hint.
-  ///
-  /// [MenuItemButton.shortcut] is display-only: actual dispatch stays in
-  /// the app's chord layer, so the hint and the binding can never drift.
-  MenuSerializableShortcut? _displayShortcut(
-    RegisteredCommand command,
-    TargetPlatform platform,
-  ) {
-    final activators = command.activators?.call(platform);
-    if (activators == null || activators.isEmpty) return null;
-    final first = activators.first;
-    return first is MenuSerializableShortcut ? first : null;
-  }
 
   // -- PlatformMenuBar (macOS) ------------------------------------------
 
@@ -333,5 +300,111 @@ class _MenuGroupDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Divider(height: 9, indent: 12, endIndent: 12);
+  }
+}
+
+/// The first registered activator, for the displayed shortcut hint.
+///
+/// [MenuItemButton.shortcut] is display-only: actual dispatch stays in
+/// the app's chord layer, so the hint and the binding can never drift.
+MenuSerializableShortcut? _displayShortcut(
+  RegisteredCommand command,
+  TargetPlatform platform,
+) {
+  final activators = command.activators?.call(platform);
+  if (activators == null || activators.isEmpty) return null;
+  final first = activators.first;
+  return first is MenuSerializableShortcut ? first : null;
+}
+
+/// One registered-command row in a Flutter menu (the Windows/Linux
+/// [MenuBar] and the D32 ☰ button share it): `menu.item.<id>` keys,
+/// display-only shortcut hints, and activation through [onRun].
+Widget _anchorMenuRow(
+  AppMenuRow row,
+  AppLocalizations l10n,
+  TargetPlatform platform,
+  Future<void> Function(RegisteredCommand command) onRun,
+) {
+  return switch (row) {
+    AppMenuCommandRow(:final command) =>
+      command.checked == null
+          ? MenuItemButton(
+              key: ValueKey('menu.item.${command.id}'),
+              shortcut: _displayShortcut(command, platform),
+              onPressed: command.enabled()
+                  ? () => unawaited(onRun(command))
+                  : null,
+              child: Text(command.label(l10n)),
+            )
+          : CheckboxMenuButton(
+              key: ValueKey('menu.item.${command.id}'),
+              shortcut: _displayShortcut(command, platform),
+              value: command.checked!(),
+              onChanged: command.enabled()
+                  ? (_) => unawaited(onRun(command))
+                  : null,
+              child: Text(command.label(l10n)),
+            ),
+    AppMenuSubmenuRow(:final title, :final items) => SubmenuButton(
+      menuChildren: [
+        for (final item in items) _anchorMenuRow(item, l10n, platform, onRun),
+      ],
+      child: Text(title),
+    ),
+    // Provided rows are macOS chrome; the model never emits them on
+    // other platforms.
+    AppMenuProvidedRow() => const SizedBox.shrink(),
+  };
+}
+
+/// D32's Windows/Linux main menu (10 §8): the whole registry-derived
+/// menu tree behind one header button — the GNOME/Windows 11 convention
+/// — instead of a menu-bar band. Each top-level menu is a submenu keyed
+/// `menu.<id>`, its rows keyed `menu.item.<id>` exactly as the strip's.
+class AppMainMenuButton extends StatelessWidget {
+  const AppMainMenuButton({
+    super.key,
+    required this.commands,
+    required this.onRun,
+  });
+
+  final List<RegisteredCommand> commands;
+  final Future<void> Function(RegisteredCommand command) onRun;
+
+  @override
+  Widget build(BuildContext context) {
+    final platform = Theme.of(context).platform;
+    final l10n = AppLocalizations.of(context);
+    final menus = buildAppMenus(
+      commands: commands,
+      l10n: l10n,
+      platform: platform,
+    );
+    return MenuAnchor(
+      menuChildren: [
+        for (final menu in menus)
+          SubmenuButton(
+            key: ValueKey('menu.${menu.id.name}'),
+            menuChildren: [
+              for (var i = 0; i < menu.groups.length; i++) ...[
+                if (i > 0) const _MenuGroupDivider(),
+                for (final row in menu.groups[i])
+                  _anchorMenuRow(row, l10n, platform, onRun),
+              ],
+            ],
+            child: Text(menu.title),
+          ),
+      ],
+      builder: (context, controller, _) => IconButton(
+        key: const ValueKey('menu.main'),
+        tooltip: l10n.mainMenuTooltip,
+        visualDensity: VisualDensity.compact,
+        iconSize: 18,
+        onPressed: () =>
+            controller.isOpen ? controller.close() : controller.open(),
+        icon: const Icon(Icons.menu),
+      ),
+    );
   }
 }

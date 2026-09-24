@@ -4,6 +4,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/activity_panel_controller.dart';
+import '../server_label_scope.dart';
 import 'activity_format.dart';
 
 /// The History tab (02 §6): the queue's persisted, capped history —
@@ -128,10 +129,11 @@ class _HistoryRow extends StatelessWidget {
       TransferTaskState.cancelled => l10n.transferStateCancelled,
       _ => l10n.transferStateFailed,
     };
+    final serverLabel = ServerLabelScope.maybeOf(context);
     final route =
-        '${transferEndpointLabel(entry.source, localLabel: l10n.activityTaskRouteLocal)}'
+        '${transferEndpointLabel(entry.source, localLabel: l10n.activityTaskRouteLocal, serverLabel: serverLabel)}'
         ' → '
-        '${transferEndpointLabel(entry.destination, localLabel: l10n.activityTaskRouteLocal)}'
+        '${transferEndpointLabel(entry.destination, localLabel: l10n.activityTaskRouteLocal, serverLabel: serverLabel)}'
         ':${entry.destinationDir}';
     final names = entry.rootPaths.map(pathBasename).join(', ');
     return Padding(

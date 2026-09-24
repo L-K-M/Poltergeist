@@ -116,7 +116,8 @@ Future<void> main() async {
   // The activity panel's persisted chrome state (02 §1/§6): height,
   // per-direction throttle limits, and the auto-remove setting — all
   // plain settings keys beside the pane ratio.
-  final activityPanelHeight = await preferences.loadActivityPanelHeight();
+  final sidebarWidth = await preferences.loadSidebarWidth();
+  final inspectorWidth = await preferences.loadInspectorWidth();
   final downloadLimit = await preferences.loadDownloadLimit();
   final uploadLimit = await preferences.loadUploadLimit();
   final autoClearCompleted =
@@ -392,10 +393,10 @@ Future<void> main() async {
       transferQueue: composedQueue,
       checkoutSession: checkoutSession,
       editorRegistry: editorRegistry,
-      initialActivityPanelHeight: activityPanelHeight,
-      onActivityPanelHeightChanged:
-          preferences.saveActivityPanelHeight,
-      onActivityPanelHeightSaveError: errorReporter.report,
+      initialSidebarWidth: sidebarWidth,
+      onSidebarWidthChanged: preferences.saveSidebarWidth,
+      initialInspectorWidth: inspectorWidth,
+      onInspectorWidthChanged: preferences.saveInspectorWidth,
       initialDownloadLimit: downloadLimit,
       initialUploadLimit: uploadLimit,
       onDownloadLimitChanged: preferences.saveDownloadLimit,

@@ -62,25 +62,41 @@ List<AppMenuModel> buildAppMenus({
   required AppLocalizations l10n,
   required TargetPlatform platform,
 }) {
+  final mac = platform == TargetPlatform.macOS;
   final placed = <AppMenuId, List<RegisteredCommand>>{};
+  final appMenu = <RegisteredCommand>[];
   for (final command in commands) {
     final placement = command.menuPlacement;
     if (placement == null) continue;
     assert(
       placement.menu != AppMenuId.app,
-      'the macOS application menu is platform chrome only',
+      'commands reach the macOS application menu via appMenuOnMac',
     );
+    if (mac && placement.appMenuOnMac) {
+      appMenu.add(command);
+      continue;
+    }
     placed.putIfAbsent(placement.menu, () => []).add(command);
   }
 
   final menus = <AppMenuModel>[
-    if (platform == TargetPlatform.macOS) _macAppMenu(l10n),
+    if (mac) _macAppMenu(l10n, _menuGroups(appMenu, l10n)),
   ];
 
   for (final id in AppMenuId.values) {
     if (id == AppMenuId.app) continue;
     var groups = _menuGroups(placed[id] ?? const [], l10n);
-    if (platform == TargetPlatform.macOS && id == AppMenuId.window) {
+    if (mac && id == AppMenuId.view) {
+      // AppKit's own Enter/Exit Full Screen item (⌃⌘F), last in View as
+      // every Mac app places it.
+      groups = [
+        ...groups,
+        const [
+          AppMenuProvidedRow(PlatformProvidedMenuItemType.toggleFullScreen),
+        ],
+      ];
+    }
+    if (mac && id == AppMenuId.window) {
       groups = [
         const [
           AppMenuProvidedRow(PlatformProvidedMenuItemType.minimizeWindow),
@@ -102,20 +118,25 @@ List<AppMenuModel> buildAppMenus({
   return menus;
 }
 
-/// The macOS application menu — standard chrome only (02 §9). No
-/// Poltergeist commands live here.
-AppMenuModel _macAppMenu(AppLocalizations l10n) => AppMenuModel(
+/// The macOS application menu (10 §8): About, then the commands that
+/// declare [CommandMenuPlacement.appMenuOnMac] (Settings…, Check for
+/// Updates…), then Services, the hide trio, and Quit — AppKit's order.
+AppMenuModel _macAppMenu(
+  AppLocalizations l10n,
+  List<List<AppMenuRow>> commandGroups,
+) => AppMenuModel(
   id: AppMenuId.app,
   title: l10n.appTitle,
-  groups: const [
-    [AppMenuProvidedRow(PlatformProvidedMenuItemType.about)],
-    [AppMenuProvidedRow(PlatformProvidedMenuItemType.servicesSubmenu)],
-    [
+  groups: [
+    const [AppMenuProvidedRow(PlatformProvidedMenuItemType.about)],
+    ...commandGroups,
+    const [AppMenuProvidedRow(PlatformProvidedMenuItemType.servicesSubmenu)],
+    const [
       AppMenuProvidedRow(PlatformProvidedMenuItemType.hide),
       AppMenuProvidedRow(PlatformProvidedMenuItemType.hideOtherApplications),
       AppMenuProvidedRow(PlatformProvidedMenuItemType.showAllApplications),
     ],
-    [AppMenuProvidedRow(PlatformProvidedMenuItemType.quit)],
+    const [AppMenuProvidedRow(PlatformProvidedMenuItemType.quit)],
   ],
 );
 
@@ -221,7 +242,7 @@ String _menuTitle(AppMenuId id, AppLocalizations l10n) => switch (id) {
   AppMenuId.edit => l10n.menuEdit,
   AppMenuId.view => l10n.menuView,
   AppMenuId.go => l10n.menuGo,
-  AppMenuId.commands => l10n.menuCommands,
+  AppMenuId.server => l10n.menuServer,
   AppMenuId.window => l10n.menuWindow,
   AppMenuId.help => l10n.menuHelp,
 };

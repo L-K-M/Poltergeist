@@ -18,7 +18,8 @@ const _windowHeightKey = 'window.height';
 const _newTabTargetKey = 'tabs.newTabTarget';
 const _doubleClickActionKey = 'panes.doubleClickAction';
 const _reconnectRestoredTabsKey = 'tabs.reconnectRestored';
-const _activityPanelHeightKey = 'layout.activityPanelHeight';
+const _sidebarWidthKey = 'layout.sidebarWidth';
+const _inspectorWidthKey = 'layout.inspectorWidth';
 const _downloadLimitKey = 'transfer.downloadLimitBytesPerSecond';
 const _uploadLimitKey = 'transfer.uploadLimitBytesPerSecond';
 const _autoClearCompletedKey = 'transfer.autoClearCompleted';
@@ -28,10 +29,6 @@ const _previewCacheCapacityKey = 'preview.cacheCapacityBytes';
 const _previewThresholdKey = 'preview.largeDownloadThresholdBytes';
 const _updateChecksEnabledKey = 'updates.checkEnabled';
 
-/// The activity panel's persisted height floor/default (02 §1's
-/// persistence block: default 200 px, min 120, max half the window).
-const defaultActivityPanelHeight = 200.0;
-const minActivityPanelHeight = 120.0;
 
 class AppPreferences {
   AppPreferences({required SettingsStore store})
@@ -120,31 +117,33 @@ class AppPreferences {
   Future<void> saveReconnectRestoredTabs(bool value) =>
       _store.set(_reconnectRestoredTabsKey, value);
 
-  /// The activity panel's height (02 §1): persisted as plain pixels and
-  /// clamped to the floor at load — the 50%-of-window cap is enforced by
-  /// the splitter at layout time, where the window size is known.
-  Future<double> loadActivityPanelHeight() async {
+  /// The D32 region widths (10 §3.1): plain logical pixels, null when
+  /// never saved or unreadable — the shell applies its default and its
+  /// clamp, so a stale value from a wider screen can never overflow.
+  Future<double?> loadSidebarWidth() => _loadWidth(_sidebarWidthKey);
+
+  Future<void> saveSidebarWidth(double width) =>
+      _saveWidth(_sidebarWidthKey, width);
+
+  Future<double?> loadInspectorWidth() => _loadWidth(_inspectorWidthKey);
+
+  Future<void> saveInspectorWidth(double width) =>
+      _saveWidth(_inspectorWidthKey, width);
+
+  Future<double?> _loadWidth(String key) async {
     num? stored;
     try {
-      stored = await _store.get<num>(_activityPanelHeightKey);
+      stored = await _store.get<num>(key);
     } catch (_) {
-      return defaultActivityPanelHeight;
+      return null;
     }
-    if (stored == null || !stored.isFinite) {
-      return defaultActivityPanelHeight;
-    }
-    final height = stored.toDouble();
-    return height < minActivityPanelHeight
-        ? minActivityPanelHeight
-        : height;
+    if (stored == null || !stored.isFinite || stored <= 0) return null;
+    return stored.toDouble();
   }
 
-  Future<void> saveActivityPanelHeight(double height) {
-    if (!height.isFinite) return Future.value();
-    return _store.set(
-      _activityPanelHeightKey,
-      height < minActivityPanelHeight ? minActivityPanelHeight : height,
-    );
+  Future<void> _saveWidth(String key, double width) {
+    if (!width.isFinite || width <= 0) return Future.value();
+    return _store.set(key, width);
   }
 
   /// The throttle popover's persisted per-direction limits (02 §6's

@@ -2412,6 +2412,17 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// D32 §4's header filter field: sets the query directly. The header
+  /// owns the text surface, so no pane strip opens; an empty query shows
+  /// the whole listing again (Esc in the pane still clears through
+  /// [clearFilter]'s below-navigation tier).
+  void setFilterQuery(String query) {
+    if (_disposed || !verbsEnabled || query == _filterQuery) return;
+    _filterQuery = query;
+    _applyEntries(_filteredListing());
+    notifyListeners();
+  }
+
   /// Clears the query AND closes the strip — the field tier's Esc while
   /// the field is focused, the below-navigation tier's Esc once the
   /// filter outlives focus, and the strip's Clear affordance all land

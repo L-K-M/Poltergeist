@@ -20,9 +20,9 @@
   "@menuGo": {
     "description": "Title of the Go application menu."
   },
-  "menuCommands": "Commands",
-  "@menuCommands": {
-    "description": "Title of the Commands application menu (02 §9 menu table)."
+  "menuServer": "Server",
+  "@menuServer": {
+    "description": "Title of the Server application menu (D32's rename of 02 §9's Commands menu: connect, sync, workspaces, transfers)."
   },
   "menuWindow": "Window",
   "@menuWindow": {
@@ -4490,5 +4490,188 @@
   "connectionTestFailed": "Connection test failed",
   "@connectionTestFailed": {
     "description": "Screen-reader label of the failure icon in the connection-test report."
+  },
+  "mainMenuTooltip": "Main menu",
+  "@mainMenuTooltip": {
+    "description": "D32 §8: tooltip of the header's ☰ button that holds the whole menu tree on Windows and Linux."
+  },
+  "toolbarMoreTooltip": "More",
+  "@toolbarMoreTooltip": {
+    "description": "D32 §4: tooltip of the header's » overflow button on narrow windows."
+  },
+  "inspectorLabel": "Inspector",
+  "@inspectorLabel": {
+    "description": "D32 §3: accessibility label of the right inspector column."
+  },
+  "inspectorTabInfo": "Info",
+  "@inspectorTabInfo": {
+    "description": "D32 §3: the inspector's Info tab (the focused item's preview and facts)."
+  },
+  "inspectorTabTransfers": "Transfers",
+  "@inspectorTabTransfers": {
+    "description": "D32 §3: the inspector's Transfers tab (the transfer queue's rows)."
+  },
+  "inspectorTabAlerts": "Alerts",
+  "@inspectorTabAlerts": {
+    "description": "D32 §3: the inspector's Alerts tab (things that need the user)."
+  },
+  "alertsEmpty": "All clear",
+  "@alertsEmpty": {
+    "description": "D32 §3: the Alerts tab's empty state."
+  },
+  "alertTransferFailed": "Couldn't transfer “{name}”",
+  "@alertTransferFailed": {
+    "description": "D32 alert row: a transfer task failed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "alertConflictsPending": "{count, plural, =1{1 conflict needs a decision} other{{count} conflicts need a decision}}",
+  "@alertConflictsPending": {
+    "description": "D32 alert row: parked transfer conflicts (02 §5.2).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "alertRestoredQueue": "{count, plural, =1{1 transfer from last session is paused} other{{count} transfers from last session are paused}}",
+  "@alertRestoredQueue": {
+    "description": "D32 alert row: journaled work restored behind the queue pause.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "alertHostKeyChanged": "The host key for {server} changed",
+  "@alertHostKeyChanged": {
+    "description": "D32 alert row: a server is blocked on a changed host key (D18).",
+    "placeholders": {
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "alertConnectionFailed": "Couldn't connect to {server}",
+  "@alertConnectionFailed": {
+    "description": "D32 alert row: a server's connection failed.",
+    "placeholders": {
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "alertLocalEdits": "{count, plural, =1{1 local edit on {server} isn't uploaded} other{{count} local edits on {server} aren't uploaded}}",
+  "@alertLocalEdits": {
+    "description": "D32 alert row: managed checkouts with un-uploaded edits (06 §3.7).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "alertUpdateAvailable": "Poltergeist {version} is available",
+  "@alertUpdateAvailable": {
+    "description": "D32 alert row: a newer release exists (D19).",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "alertActionRetry": "Retry",
+  "@alertActionRetry": {
+    "description": "Alert row action: retry the failed transfer."
+  },
+  "alertActionShow": "Show",
+  "@alertActionShow": {
+    "description": "Alert row action: show the Transfers tab."
+  },
+  "alertActionResolve": "Resolve…",
+  "@alertActionResolve": {
+    "description": "Alert row action: go to the pending conflicts."
+  },
+  "alertActionReview": "Review…",
+  "@alertActionReview": {
+    "description": "Alert row action: open the review surface (host key, local edits)."
+  },
+  "alertActionViewRelease": "View Release",
+  "@alertActionViewRelease": {
+    "description": "Alert row action: open the release page in the browser."
+  },
+  "alertActionDismiss": "Dismiss",
+  "@alertActionDismiss": {
+    "description": "Tooltip of an alert row's dismiss button."
+  },
+  "viewShowInspectorLabel": "Show Inspector",
+  "@viewShowInspectorLabel": {
+    "description": "D32: view.toggleInspector's label while the inspector is hidden."
+  },
+  "viewHideInspectorLabel": "Hide Inspector",
+  "@viewHideInspectorLabel": {
+    "description": "D32: view.toggleInspector's label while the inspector is shown."
+  },
+  "viewShowAlertsLabel": "Alerts",
+  "@viewShowAlertsLabel": {
+    "description": "D32: View menu item that shows the inspector's Alerts tab."
+  },
+  "connectQuickConnectLabel": "Connect…",
+  "@connectQuickConnectLabel": {
+    "description": "D32 §4: connect.quickConnect (⌘K) — Server menu item and header button tooltip."
+  },
+  "connectShortLabel": "Connect",
+  "@connectShortLabel": {
+    "description": "D32 §4: the header's labelled Connect button."
+  },
+  "connectDialogTitle": "Connect to Server",
+  "@connectDialogTitle": {
+    "description": "Title of the Connect dialog (⌘K)."
+  },
+  "syncShortLabel": "Sync",
+  "@syncShortLabel": {
+    "description": "D32 §4: the header's labelled Sync button."
+  },
+  "selectionCopyToOtherPaneLabel": "Copy to Other Pane",
+  "@selectionCopyToOtherPaneLabel": {
+    "description": "D32 §4: selection.transferToOtherPane (F5)."
+  },
+  "selectionMoveToOtherPaneLabel": "Move to Other Pane",
+  "@selectionMoveToOtherPaneLabel": {
+    "description": "D32: selection.moveToOtherPane (F6)."
+  },
+  "commandDisabledNeedsTwoPanes": "Select items, and open a folder in the other pane",
+  "@commandDisabledNeedsTwoPanes": {
+    "description": "Disabled reason for Copy/Move to Other Pane."
+  },
+  "resizeSidebar": "Resize sidebar",
+  "@resizeSidebar": {
+    "description": "Accessibility label of the sidebar splitter."
+  },
+  "resizeInspector": "Resize inspector",
+  "@resizeInspector": {
+    "description": "Accessibility label of the inspector splitter."
+  },
+  "splitterWidthPx": "{value} pixels",
+  "@splitterWidthPx": {
+    "description": "A region splitter's current width in whole pixels.",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "headerFilterHint": "Filter",
+  "@headerFilterHint": {
+    "description": "Placeholder of the header's filter field (filters the active pane)."
+  },
+  "headerTitleEmpty": "No location",
+  "@headerTitleEmpty": {
+    "description": "Header title while the active pane shows the launcher."
   }
 }

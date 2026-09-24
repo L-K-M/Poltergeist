@@ -356,11 +356,12 @@ final class PreviewSession extends ChangeNotifier {
 
   // -- The Space verb --------------------------------------------------
 
-  /// `file.preview` (02 §8.3's Space, sel scope): routes to Quick Look
-  /// on macOS while the docked panel is hidden (§5's surface split —
-  /// the two macOS surfaces never both claim the key), the panel
-  /// otherwise. Returns false when nothing is previewable — the pane
-  /// then lets the key fall through to ancestors.
+  /// `file.preview` (02 §8.3's Space, sel scope): Quick Look on macOS —
+  /// always, since D32 moved the in-app preview into the inspector's
+  /// Info tab, a passive well that follows the selection rather than a
+  /// surface competing for Space — and the Info tab elsewhere. Returns
+  /// false when nothing is previewable — the pane then lets the key
+  /// fall through to ancestors.
   bool previewFocused() {
     final pane = _boundTab;
     if (pane == null || !pane.verbsEnabled) return false;
@@ -372,7 +373,7 @@ final class PreviewSession extends ChangeNotifier {
     // always acts on the row the type-ahead landed on (02 §8.2's
     // precedence rule).
     _selectionChanged();
-    if (_platform == TargetPlatform.macOS && _panelHidden) {
+    if (_platform == TargetPlatform.macOS) {
       return _quickLookVerb(pane);
     }
     return _panelVerb(pane);
@@ -485,8 +486,10 @@ final class PreviewSession extends ChangeNotifier {
       case PreviewPhase.idle:
       case PreviewPhase.prompt:
       case PreviewPhase.rendered:
-        closePanel();
-        return true;
+        // D32: the preview lives in the inspector column, which is
+        // persistent chrome — Esc never closes it (10 §2's "nothing
+        // blocks the view"): the press falls through to lower tiers.
+        return false;
     }
   }
 

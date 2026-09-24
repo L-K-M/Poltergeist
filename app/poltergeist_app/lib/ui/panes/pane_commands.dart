@@ -63,6 +63,15 @@ List<RegisteredCommand> buildPaneCommands({
   /// (D21); a null session leaves them visible-disabled — the same
   /// posture `queue.togglePause` takes without a queue.
   PreviewSession? preview,
+
+  /// Whether the sidebar currently lives in the overlay drawer (D32's
+  /// allocation decides, not a bare window-width check); null falls back
+  /// to the 02 §1 stage boundary.
+  bool Function()? sidebarIsDrawer,
+
+  /// D32 §4: `view.filter` focuses the header's filter field; null keeps
+  /// the pane's own filter strip.
+  VoidCallback? focusFilter,
 }) {
   // Browsing commands resolve the active pane's ACTIVE TAB at invocation
   // time (02 §8.1) — null while the pane sits on the launcher, and every
@@ -91,6 +100,11 @@ List<RegisteredCommand> buildPaneCommands({
         activeTab()?.goBack();
       },
       // 02 §9's Go menu leads with Back/Forward.
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.leading,
+        order: 20,
+        group: 1,
+      ),
       menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 10),
     ),
     RegisteredCommand(
@@ -112,6 +126,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.goForward();
       },
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.leading,
+        order: 21,
+        group: 1,
+      ),
       menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 20),
     ),
     RegisteredCommand(
@@ -278,20 +297,13 @@ List<RegisteredCommand> buildPaneCommands({
         macOS: const [SingleActivator(LogicalKeyboardKey.keyI, meta: true)],
         other: const [SingleActivator(LogicalKeyboardKey.enter, alt: true)],
       ),
-      // Needs a row to describe — the cursor/primary selected row is the
-      // panel's target. An already-open panel keeps the command live so
-      // the same chord toggles it closed even with the selection empty.
-      enabled: () {
-        final pane = activeTab();
-        return pane != null &&
-            (pane.infoTarget != null || workspace.activePane.infoPanelOpen);
-      },
-      disabledReason: (l10n) => l10n.commandDisabledNoSelection,
-      run: (_) async {
-        // The inspector is pane chrome on the FOCUSED pane (02 §2.6):
-        // the active strip toggles it over its own right edge.
-        workspace.activePane.toggleInfoPanel();
-      },
+      // D32: Get Info is the inspector's Info tab, which follows the
+      // focused item — live whenever a browsing tab exists (an empty
+      // selection shows the Info tab's own empty state), and a toggle:
+      // the chord hides the inspector when Info is already showing.
+      enabled: () => activeTab() != null,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      run: (_) async => workspace.toggleInspectorTab(InspectorTab.info),
       // 02 §9's File menu: between Edit in Poltergeist and Duplicate —
       // the still-unregistered verbs' slots — ahead of Rename.
       menuPlacement: const CommandMenuPlacement(
@@ -449,17 +461,25 @@ List<RegisteredCommand> buildPaneCommands({
         // Below the stage-0 boundary the sidebar lives in the overlay
         // drawer — the toggle opens/closes it there rather than latching
         // the inline region's hidden intent (02 §1's stage table).
-        if (MediaQuery.sizeOf(context).width < desktopStageBoundary) {
+        final drawer =
+            sidebarIsDrawer?.call() ??
+            MediaQuery.sizeOf(context).width < desktopStageBoundary;
+        if (drawer) {
           toggleSidebarDrawer?.call();
           return;
         }
         workspace.toggleSidebar();
       },
+      checked: () => !workspace.sidebarHidden,
       // 02 §9's View menu: the Show/Hide Sidebar slot, before
       // Show/Hide Second Pane.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 60,
+      ),
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.leading,
+        order: 10,
       ),
     ),
     RegisteredCommand(
@@ -492,7 +512,7 @@ List<RegisteredCommand> buildPaneCommands({
       id: kViewToggleActivityPanelCommandId,
       scope: CommandScope.app,
       label: (l10n) => l10n.viewToggleActivityPanelLabel,
-      icon: Icons.vertical_align_bottom_outlined,
+      icon: Icons.swap_vert,
       // ⌥⌘A on macOS, Ctrl+Alt+A elsewhere (02 §8.3's table). Hiding is
       // user intent — the panel un-hides on the first-task edge again
       // (02 §6: rows are the queue's only window, D16).
@@ -509,6 +529,12 @@ List<RegisteredCommand> buildPaneCommands({
       },
       // 02 §9's View menu: the Show/Hide Activity slot the §8.1 note
       // reserves between Show/Hide Second Pane and Customize Sidebar.
+      checked: () => !workspace.activityPanelHidden,
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.status,
+        order: 10,
+        group: 1,
+      ),
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 80,
@@ -714,6 +740,10 @@ List<RegisteredCommand> buildPaneCommands({
       enabled: () => activeTab()?.verbsEnabled ?? false,
       disabledReason: (l10n) => l10n.commandDisabledNoListing,
       run: (_) async {
+        if (focusFilter != null) {
+          focusFilter();
+          return;
+        }
         activeTab()?.openFilter();
       },
       // 02 §9 puts Filter in the Edit menu (after Quick Select).
@@ -883,6 +913,15 @@ List<ShortcutActivator> Function(TargetPlatform) _perPlatform({
 /// equivalents live at app scope, which this layer would otherwise
 /// intercept first). Dialog routes push above the shell, so their
 /// fields never see these chords either.
+/// The Commander-style function keys that bind unmodified at the chord
+/// layer (F5 copy / F6 move to the other pane, F7 new folder). F2 is not
+/// here — rename's F2 stays a pane key (02 §8.2).
+final _functionKeys = <LogicalKeyboardKey>{
+  LogicalKeyboardKey.f5,
+  LogicalKeyboardKey.f6,
+  LogicalKeyboardKey.f7,
+};
+
 class CommandChordScope extends StatelessWidget {
   const CommandChordScope({
     super.key,
@@ -905,8 +944,13 @@ class CommandChordScope extends StatelessWidget {
         // nodes (02 §8.2), not only SingleActivator spellings; skip them
         // BEFORE the duplicate diagnostics so an unmodified overlap is
         // not misreported as a chord collision.
+        // Function keys are never typing keys, so an unmodified F5/F6
+        // (the dual-pane copy/move convention) binds at this layer too.
         final bool unmodified = activator is SingleActivator
-            ? !activator.control && !activator.meta && !activator.alt
+            ? !activator.control &&
+                  !activator.meta &&
+                  !activator.alt &&
+                  !_functionKeys.contains(activator.trigger)
             : activator is CharacterActivator &&
                   !activator.control &&
                   !activator.meta &&

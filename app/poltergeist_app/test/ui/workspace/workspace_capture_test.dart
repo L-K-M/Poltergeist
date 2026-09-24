@@ -226,7 +226,7 @@ void main() {
 
     // Open the Commands menu, then expand the Workspaces submenu row.
     expect(find.byType(MenuBar), findsOneWidget);
-    await tester.tap(find.text(l10n.menuCommands));
+    await tester.tap(find.text(l10n.menuServer));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Save Workspace…'), findsWidgets);
