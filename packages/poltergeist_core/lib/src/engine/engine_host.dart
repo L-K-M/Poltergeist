@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:isolate';
 
 import 'package:meta/meta.dart';
@@ -105,6 +106,10 @@ class EngineHost {
   /// the shutdown ack or a close ack forever; the bounded-teardown
   /// convention). Injectable for tests.
   late final Duration _shutdownDrainTimeout;
+
+  /// The environment local panes expand `~` through: the process's own,
+  /// with [EngineConfig.fallbackHome] as `HOME` when it names no home.
+  late final Map<String, String> _localEnvironment;
   static const _defaultDrainTimeout = Duration(seconds: 30);
   int _nextChannelId = 1;
   bool _shuttingDown = false;
@@ -118,7 +123,8 @@ class EngineHost {
   /// the platform's opener; tests script the launch. [localTrash] is the
   /// same for D15's OS trash: the default dispatches per platform (channel
   /// over [EngineConfig.trashRequests] on macOS/Windows, `gio` on Linux);
-  /// tests inject a scripted service.
+  /// tests inject a scripted service. [environment] stands in for
+  /// `Platform.environment` in local `~` expansion.
   factory EngineHost({
     required EngineConfig config,
     required SendPort events,
@@ -130,8 +136,13 @@ class EngineHost {
     LocalFileOpener? fileOpener,
     LocalTrashService? localTrash,
     Duration? shutdownDrainTimeout,
+    Map<String, String>? environment,
   }) {
     final host = EngineHost._(events);
+    host._localEnvironment = _withFallbackHome(
+      environment ?? Platform.environment,
+      config.fallbackHome,
+    );
     host._localWatch = localWatch ?? LocalWatchBackend.platform();
     host._fileOpener = fileOpener ?? LocalFileOpener.platform();
     host.localTrash =
@@ -269,7 +280,7 @@ class EngineHost {
       case final OpenLocalBrowseChannelRequest request:
         _guard(request.requestId, () async {
           _rejectIfShuttingDown();
-          final fs = LocalFileSystem();
+          final fs = LocalFileSystem(environment: _localEnvironment);
           // 03 §2.2: canonicalize never fails for a missing path, so the
           // open succeeds and an unresolvable root surfaces through the
           // typed notFound taxonomy at first listing, like any navigation.
@@ -1294,4 +1305,19 @@ final class _PromptBroker {
     final prompt = _open[promptId];
     if (prompt != null && prompt.completer.isCompleted) _open.remove(promptId);
   }
+}
+
+/// [environment] with [fallbackHome] as `HOME` when it names no home of
+/// its own (the variables `expandHomePath` reads).
+Map<String, String> _withFallbackHome(
+  Map<String, String> environment,
+  String? fallbackHome,
+) {
+  if (fallbackHome == null || fallbackHome.isEmpty) return environment;
+  final named = [
+    environment['HOME'],
+    environment['USERPROFILE'],
+  ].any((home) => home != null && home.isNotEmpty);
+  if (named) return environment;
+  return {...environment, 'HOME': fallbackHome};
 }

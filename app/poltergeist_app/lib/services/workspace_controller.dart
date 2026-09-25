@@ -15,12 +15,18 @@ import 'workspace_state.dart';
 enum InspectorTab { info, transfers, alerts }
 
 class WorkspaceController extends ChangeNotifier {
-  WorkspaceController({required this.left, required this.right})
-    : assert(
-        !identical(left, right),
-        'Workspace panes must be distinct PaneTabsController instances.',
-      ),
-      _activePane = left {
+  WorkspaceController({
+    required this.left,
+    required this.right,
+    bool inspectorHidden = false,
+  }) : assert(
+         !identical(left, right),
+         'Workspace panes must be distinct PaneTabsController instances.',
+       ),
+       // Named parameters cannot be private.
+       // ignore: prefer_initializing_formals
+       _inspectorHidden = inspectorHidden,
+       _activePane = left {
     syncBrowsing = SyncBrowsingController(workspace: this);
     _shownTab = activeTabController;
     left.addListener(_followActiveTab);
@@ -93,11 +99,13 @@ class WorkspaceController extends ChangeNotifier {
   /// [secondPaneShown] going false whichever path hid the pane (02 §7).
   bool _secondPaneLayoutShown = true;
 
-  /// The D32 inspector column's visibility (10 §3): default-shown, and
-  /// written only through [setInspectorHidden] / [showInspector] so every
-  /// flip notifies — the session document persists it. The responsive
-  /// overlay collapse is layout-only and never lands here.
-  bool _inspectorHidden = false;
+  /// The D32 inspector column's visibility (10 §3): default-shown on the
+  /// desktop, default-hidden on touch (the constructor's seed: a phone or
+  /// a tablet has no width to spare for it until asked), and written
+  /// only through [setInspectorHidden] / [showInspector] so every flip
+  /// notifies — the session document persists it. The responsive overlay
+  /// collapse is layout-only and never lands here.
+  bool _inspectorHidden;
   InspectorTab _inspectorTab = InspectorTab.info;
 
   bool get inspectorHidden => _inspectorHidden;

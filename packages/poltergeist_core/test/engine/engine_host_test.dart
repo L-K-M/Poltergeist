@@ -184,6 +184,7 @@ class HostHarness {
     LocalWatchBackend? localWatch,
     LocalFileOpener? fileOpener,
     Duration? shutdownDrainTimeout,
+    Map<String, String>? environment,
   }) : opener = opener ?? FakeTransportOpener() {
     this.opener.transportFsBuilder = (_) => fs;
     _port.listen((message) {
@@ -202,6 +203,7 @@ class HostHarness {
       localWatch: localWatch,
       fileOpener: fileOpener,
       shutdownDrainTimeout: shutdownDrainTimeout,
+      environment: environment,
     );
   }
 
@@ -1668,6 +1670,34 @@ void main() {
       if (home != null && home.isNotEmpty) {
         expect(opened.homePath, isNot(contains('~')));
       }
+    });
+
+    // An Android app process has no HOME: `~` stayed unexpanded, was
+    // made absolute against `/`, and the pane opened on "/~".
+    test('`~` falls back to the configured home when the environment '
+        'names none', () async {
+      final home = _localFixture('pg-local-fallback-home');
+      final h = HostHarness(
+        config: EngineConfig(fallbackHome: home.path),
+        environment: const {},
+      );
+      addTearDown(h.dispose);
+
+      final opened = await h.openLocal('~');
+      expect(opened.homePath, await home.resolveSymbolicLinks());
+    });
+
+    test("the environment's own home wins over the fallback", () async {
+      final home = _localFixture('pg-local-env-home');
+      final fallback = _localFixture('pg-local-unused-home');
+      final h = HostHarness(
+        config: EngineConfig(fallbackHome: fallback.path),
+        environment: {'HOME': home.path},
+      );
+      addTearDown(h.dispose);
+
+      final opened = await h.openLocal('~');
+      expect(opened.homePath, await home.resolveSymbolicLinks());
     });
 
     test('shutdown retires local channels', () async {

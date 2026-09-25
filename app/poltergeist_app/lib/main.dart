@@ -255,6 +255,12 @@ Future<void> main(List<String> args) async {
   final engineSession = await startEngineSession(
     supportDirectoryPath: supportDirectory.path,
     bookmarks: bookmarks,
+    // An Android app process has no HOME, so `~` would resolve to "/~".
+    // Without a storage permission the app's own documents directory is
+    // the one local folder it can always list.
+    fallbackHome: Platform.isAndroid
+        ? (await getApplicationDocumentsDirectory()).path
+        : null,
     navigatorKey: navigatorKey,
     scaffoldMessengerKey: scaffoldMessengerKey,
     vault: dynamicVault,
@@ -550,6 +556,9 @@ Future<void> main(List<String> args) async {
       autoClearCompletedTransfers: autoClearCompleted,
       probeSettings: probeSettings,
       initialSidebarHidden: seeds.sidebarHidden,
+      // Touch screens start without the inspector: on a tablet it takes
+      // width the two panes need. The header toggle brings it back.
+      initialInspectorHidden: Platform.isAndroid || Platform.isIOS,
       onSidebarHiddenChanged: seeds.sidebarHiddenSink(
         preferences.saveSidebarHidden,
       ),

@@ -505,6 +505,7 @@ void main() {
           policy: PoolPolicy(maxTransports: 3),
           hostKeyPins: [_pin],
           incidents: [_incident, _otherIncident],
+          fallbackHome: '/data/user/0/app/files',
         ),
       );
     },
@@ -941,6 +942,7 @@ Future<void> _roundTrip(
       );
       expect(got.hostKeyPins.single.pinnedAt, sent.hostKeyPins.single.pinnedAt);
       expect(got.incidents, sent.incidents);
+      expect(got.fallbackHome, sent.fallbackHome);
     default:
       fail(
         'Message type changed across the port: '
