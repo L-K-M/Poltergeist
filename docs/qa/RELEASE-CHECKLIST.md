@@ -131,6 +131,42 @@ known-divergent surface.
 - [ ] OWNER MANUAL QA (Linux, Windows): drag a remote row past the window
   edge: no OS drag starts, the pane shows the "use Download To…" hint,
   and the drag keeps working inside the window.
+- [ ] OWNER MANUAL QA (Windows backend, `windows/runner/drag_out.cpp`).
+  This code has never run on Windows, so do it before the Windows rows
+  of the drag-out items above. `flutter build windows` must compile it
+  under the runner's `/W4 /WX` and link `windowscodecs.lib`; a warning
+  is a bug to fix, not to silence. Then, in a debug build started from
+  a console (`flutter run -d windows`):
+  1. Drag a local file past the window edge into an Explorer window on
+     the same drive: the cursor shows a move and the file moves, and
+     the source pane refreshes. On another drive it copies. Shift,
+     Ctrl, and Alt while dragging force a move, a copy, and a shortcut.
+     (No "Move to …" caption is expected: drop descriptions are not
+     enabled yet.)
+  2. The drag image is Poltergeist's pill (the name, or "N items" with
+     a count badge) under the pointer at the offset the in-app avatar
+     had (no jump at the edge), sharp at 100 %, 150 %, and 200 %
+     scaling, and neither clipped nor stretched.
+  3. Without moving the mouse first, click a row: it selects on the
+     first click (no stuck press). Hover highlights come back, and a
+     plain click selects one row (Ctrl and Shift are not stuck).
+  4. Press Esc mid-drag: nothing lands, and typing into the filter
+     field works afterwards (no stuck key).
+  5. Drag a three-item selection: all three arrive.
+  6. While the drag hovers Explorer, a running transfer's row in
+     Transfers keeps moving (Dart keeps running during the drag loop).
+  7. Drag out and back onto the other pane: the pane labels it with the
+     in-app verb, and a same-drive drop moves in-app.
+  8. Drop onto the Desktop, a browser upload field (Edge or Chrome),
+     Outlook or Teams, and Notepad: each receives the files.
+  9. Drop a local file on the Recycle Bin and record what happens.
+     Poltergeist deletes nothing itself (D15); if the shell recycles
+     the file, it restores from the Recycle Bin.
+  10. With a pen or a touch screen, a row drag past the edge stays
+      in-app (no OS drag starts and nothing stays pressed).
+  11. The console shows no assertion or error from the embedder or the
+      runner during any of the above (in particular no "key up without
+      key down" after Esc).
 - [ ] OWNER MANUAL QA: theme flip (light/dark) live-restyles listing,
   plan view, and editor; HiDPI scaling at 100 %/150 %/200 % shows no
   clipped chrome.

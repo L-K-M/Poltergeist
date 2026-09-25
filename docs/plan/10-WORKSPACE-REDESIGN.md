@@ -411,9 +411,10 @@ Poltergeist and Séance are one product family. The contract:
 - **Drag and drop:** drop-in from other apps works through `desktop_drop`.
   Drag-out follows D14's 2026-09-25 amendment: a row drag that leaves the
   window becomes a native drag carrying local items as file URLs (Linux
-  GTK today, verified under Xvfb) and remote items as file promises
-  (macOS `NSFilePromiseProvider`, on the `poltergeist/dragout` channel,
-  still to be built and verified on a Mac). Remote rows on Linux and
+  GTK, verified under Xvfb; Windows `CF_HDROP`, built but not yet run
+  on Windows) and remote items as file promises (macOS
+  `NSFilePromiseProvider`, on the `poltergeist/dragout` channel, built
+  but not yet run on a Mac). Remote rows on Linux and
   Windows show a "use Download To…" hint, and File ▸ Download To… is the
   fallback everywhere.
 

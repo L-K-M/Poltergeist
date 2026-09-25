@@ -8153,6 +8153,73 @@ root-only chmod checkout tests failing as always and
 passing when rerun alone. The protocol guard exits 0. Not verified
 here: anything on a Mac.
 
+## D14 amendment: OS drag-out, stage 3, the Windows backend (2026-09-25)
+
+`windows/runner/drag_out.{h,cpp}` implements the `poltergeist/dragout`
+protocol on Windows for local items. `FlutterWindow` creates it next to
+the trash channel, forwards it every top-level message first, and tears
+it down before the engine. Dart declares `localFiles` here, so remote
+rows keep the "use Download To…" hint and virtual files
+(`FILEGROUPDESCRIPTOR`/`FILECONTENTS`) stay the follow-up.
+
+- **Data object.** The items' folder's own
+  `IShellFolder::GetUIObjectOf`, the data object Explorer drags: it
+  renders `CF_HDROP` and the shell formats and keeps what the drag
+  image helper stores. `SHCreateDataObject` was not used: it only
+  promises the shell ID list, and `desktop_drop` and many other targets
+  read `CF_HDROP` alone. The items must share one folder, as a pane
+  selection does; otherwise the drag stays in-app (`unsupportedItems`).
+- **Image.** The Dart PNG, decoded through WIC into a straight-alpha
+  bottom-up DIB for `IDragSourceHelper::InitializeFromBitmap`, with the
+  anchor scaled to pixels. Without it `SHDoDragDrop` shows the shell's
+  generic image.
+- **Start.** `startDrag` answers `busy`, `unsupportedItems`,
+  `buttonReleased`, or `noPointerEvent` (the Flutter view no longer
+  holds the mouse capture, as in a pen or touch drag) where the protocol
+  says. Otherwise it builds the session, posts a registered window
+  message, and replies `started`. The message's handler sends the view
+  a synthetic `WM_LBUTTONUP` at the pointer, which ends the embedder's
+  press and capture, then runs `SHDoDragDrop` with a small
+  `IDropSource` (Esc cancels, releasing the button drops).
+- **End.** `sessionEnded` carries the logical performed effect first,
+  then the performed one, then the loop's answer: the shell's optimized
+  move returns none so the source does not delete. Nothing here ever
+  deletes on a move (D15). A window closed under the loop is survived
+  (nothing is touched after it).
+
+Verified here (no Windows host):
+- Both runner files compile, as syntax and type checks, with mingw-w64
+  g++ 13 and clang 18 against the mingw-w64 headers and the engine's
+  C++ client wrapper headers, with `-Wall -Wextra -Wshadow -Wconversion`
+  and also with `STRICT_TYPED_ITEMIDS`. No warning from the runner's
+  own code. That is not MSVC: `/W4 /WX`, the Windows SDK headers, and
+  the link (`windowscodecs.lib`, new in the runner's CMake) are
+  checked only by a real build.
+- `test/windows_drag_out_runner_test.dart` (6 tests) pins the contract
+  from a marked block in `drag_out.cpp`. Every key the C++ parses
+  arrives from the Dart backend with the wire type its parser reads.
+  Every refusal reason and operation it sends parses on the Dart side.
+  The runner wiring, the reply before the loop, the embedder release
+  before `SHDoDragDrop`, and the no-delete rule hold. Renaming a key
+  or a reason on the C++ side fails it.
+
+Needs Windows, since none of this has run there: the MSVC build, then
+the release checklist's Windows drag-out item. It covers Explorer's
+move and copy, the image and its anchor at each scale, no stuck press or
+key after the drag, Dart running during the loop, the echo through
+`desktop_drop`, browser, Office, and Notepad targets, the Recycle Bin,
+and pen or touch drags.
+
+Validation, on `190be47` (this stage's last code commit): `flutter
+analyze` is clean; the full app suite passes (2380 tests, the 6 new
+ones in `windows_drag_out_runner_test.dart`). Core is untouched here:
+`poltergeist_core` ran 1539 passed, 37 skipped, and 3 failed, twice.
+Two failures are the root-only chmod checkout tests. The third was a
+timing test under load, a different one each run
+(`linux_inotify_overflow_test.dart`, then `engine_client_test.dart`'s
+debounced local watch), and each passed when rerun alone. The protocol
+guard exits 0. Not verified here: anything on Windows.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

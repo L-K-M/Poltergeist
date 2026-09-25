@@ -523,7 +523,8 @@ D32 inspector workspace
       root under its own name; whether Finder ever renames is open).
     - *Linux and Windows* carry local items only for now (GTK
       `text/uri-list`, built and verified under Xvfb; Windows
-      `CF_HDROP`, next). Remote rows there show a
+      `CF_HDROP` in the shell's own data object, built but not yet
+      run on Windows). Remote rows there show a
       "use Download To…" hint and keep dragging in-app; File ▸ Download
       To… is the fallback everywhere. Windows virtual files are the
       follow-up.
@@ -542,6 +543,21 @@ D32 inspector workspace
       count badge. Promise writes hop from a private queue to the main
       queue and never wait on Dart; each publishes a cancellable
       `NSProgress` on the promised URL. Not yet run on a Mac.
+    - *Windows backend* (`windows/runner/drag_out.cpp`, same day). The
+      items leave as their folder's own `IShellFolder::GetUIObjectOf`
+      data object, the one Explorer drags (`CF_HDROP` plus the shell
+      formats), not `SHCreateDataObject`, which only promises the shell
+      ID list; they must share one folder, as a pane selection does.
+      `startDrag` requires the primary button down and the mouse
+      capture still on the Flutter view (a pen or touch drag has none
+      and stays in-app), posts a registered message, and replies; the
+      message's handler sends the view a synthetic `WM_LBUTTONUP` and
+      runs `SHDoDragDrop` under the Dart PNG (decoded through WIC).
+      `sessionEnded` reports the logical performed effect first, since
+      the shell's optimized move returns none. Nothing is deleted on a
+      move; a Recycle Bin drop is the shell's own recycle, if it does
+      one. Not yet run on Windows; virtual files for remote items are
+      the follow-up.
 - **D17 — Editor.** Séance's editor stack (document I/O with BOM/CRLF
   fidelity, syntax engine, find bar, conflict-aware save-and-upload) is
   ported per D2 and kept behaviorally identical; external editors reuse the

@@ -36,7 +36,8 @@
   edge hands them to the system, so they can land in a file manager or
   another app; several selected items travel together, and the
   destination decides whether to copy or move. On Linux this carries
-  local files today. On macOS local files travel as file URLs, and
+  local files today, and so does Windows (built, awaiting its first run
+  on Windows). On macOS local files travel as file URLs, and
   remote files and folders as file promises that download straight to
   where you drop them (built, awaiting its first run on a Mac); on
   Linux and Windows a remote drag shows a hint and stays inside the
