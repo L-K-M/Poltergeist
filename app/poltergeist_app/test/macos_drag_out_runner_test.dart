@@ -407,7 +407,7 @@ void main() {
         'noPointerEvent',
         'buttonReleased',
       });
-      expect(swift, contains('return ["started": true]'));
+      expect(swift, contains('result(["started": true])'));
       expect(
         _body(swift, 'private static func refusal('),
         allOf(
@@ -525,6 +525,16 @@ void main() {
       expect(begin, greaterThan(release));
       // The mask is asked for as soon as the session begins.
       expect(start.indexOf('activeSession = ActiveSession('), lessThan(begin));
+      // Dart hears `started` before anything the session reports, and
+      // every refusal is a reply too.
+      final started = start.indexOf('result(["started": true])');
+      expect(started, greaterThan(release));
+      expect(started, lessThan(begin));
+      expect(start, isNot(contains('return Self.refusal(')));
+      expect(
+        RegExp(r'result\(Self\.refusal\(').allMatches(start).length,
+        RegExp(r'Self\.refusal\(').allMatches(start).length,
+      );
       expect(
         _body(swift, 'private func endFlutterPress('),
         allOf(contains('with: .leftMouseUp'), contains('controller.mouseUp(')),

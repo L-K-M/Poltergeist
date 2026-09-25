@@ -163,7 +163,7 @@ final class DragOutChannel: NSObject {
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "startDrag":
-      result(startDrag(call.arguments))
+      startDrag(call.arguments, result: result)
     case "promiseProgress":
       updateProgress(call.arguments)
       result(nil)
@@ -174,21 +174,26 @@ final class DragOutChannel: NSObject {
 
   // MARK: - startDrag
 
-  private func startDrag(_ arguments: Any?) -> [String: Any] {
+  /// Answers exactly once through `result`: a refusal, or `started`
+  /// just before the session begins.
+  private func startDrag(_ arguments: Any?, result: FlutterResult) {
     guard let args = arguments as? [String: Any],
           let sessionId = args["sessionId"] as? String,
           let rawItems = args["items"] as? [[String: Any]],
           !rawItems.isEmpty else {
-      return Self.refusal("failed", "startDrag needs a sessionId and items")
+      result(Self.refusal("failed", "startDrag needs a sessionId and items"))
+      return
     }
     if activeSession != nil {
-      return Self.refusal("busy", nil)
+      result(Self.refusal("busy", nil))
+      return
     }
 
     var items: [DragOutItem] = []
     for raw in rawItems {
       guard let item = Self.parseItem(raw, sessionId: sessionId) else {
-        return Self.refusal("unsupportedItems", nil)
+        result(Self.refusal("unsupportedItems", nil))
+        return
       }
       items.append(item)
     }
@@ -197,14 +202,17 @@ final class DragOutChannel: NSObject {
     // pointer is now; the press alone would leave the image behind at
     // the row the drag began on.
     guard let event = lastDragged ?? lastDown else {
-      return Self.refusal("noPointerEvent", nil)
+      result(Self.refusal("noPointerEvent", nil))
+      return
     }
     guard (NSEvent.pressedMouseButtons & 1) != 0 else {
-      return Self.refusal("buttonReleased", nil)
+      result(Self.refusal("buttonReleased", nil))
+      return
     }
     guard let controller = flutterViewController,
           let window = controller.view.window else {
-      return Self.refusal("failed", "the Flutter view is not in a window")
+      result(Self.refusal("failed", "the Flutter view is not in a window"))
+      return
     }
     let view = controller.view
 
@@ -256,13 +264,15 @@ final class DragOutChannel: NSObject {
       retainedProviders[sessionId] = providers
     }
     endFlutterPress(controller, window: window)
+    // Dart hears `started` before anything the session reports, even
+    // if AppKit were to run the whole session inside the call below.
+    result(["started": true])
     let session = view.beginDraggingSession(with: draggingItems, event: event, source: self)
     if draggingItems.count > 1 {
       // Finder's look for several items: a pile under AppKit's count
       // badge.
       session.draggingFormation = .pile
     }
-    return ["started": true]
   }
 
   private static func parseItem(_ raw: [String: Any], sessionId: String) -> DragOutItem? {
