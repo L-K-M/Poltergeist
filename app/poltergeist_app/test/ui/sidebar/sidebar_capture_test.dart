@@ -117,6 +117,9 @@ final class _CaptureVolumes implements LocalVolumeSource {
   ];
 
   @override
+  Future<int?> freeBytes(LocalVolume volume) async => volume.freeBytes;
+
+  @override
   Future<List<String>> standardFolders() async => const [];
 
   @override

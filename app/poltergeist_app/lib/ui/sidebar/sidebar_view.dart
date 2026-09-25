@@ -276,10 +276,37 @@ class _SidebarViewState extends State<SidebarView> {
           _standardFolders = List.unmodifiable(standard);
           _volumesLoaded = true;
         });
+        // Free space fills in per row as each volume answers: `df` over
+        // a dead network mount answers late or never, and that must cost
+        // only its own row's number, never the section.
+        for (final volume in volumes) {
+          unawaited(_fillFreeSpace(source, volume, generation));
+        }
       } on Object catch (error, stackTrace) {
         ApplicationErrorReporter().report(error, stackTrace);
       }
     }());
+  }
+
+  Future<void> _fillFreeSpace(
+    LocalVolumeSource source,
+    LocalVolume volume,
+    int generation,
+  ) async {
+    try {
+      final bytes = await source.freeBytes(volume);
+      if (bytes == null || !mounted || generation != _volumeGeneration) {
+        return;
+      }
+      setState(() {
+        _volumes = List.unmodifiable([
+          for (final row in _volumes)
+            row.path == volume.path ? row.withFreeBytes(bytes) : row,
+        ]);
+      });
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+    }
   }
 
   void _bindWorkspace() {
