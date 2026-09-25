@@ -50,13 +50,15 @@
 ///
 /// Reply: `{started: true}` once the native session is running, or
 /// `{started: false, reason: String, message: String?}` with `reason`
-/// one of `noPointerEvent` (no recorded press to start from),
-/// `buttonReleased` (the primary button is already up), `busy` (a
-/// session is already running), `unsupportedItems`, or `failed`. A
-/// missing implementation (`MissingPluginException`) reads as
-/// `unsupported`. The reply must be sent before any modal loop starts
-/// (Windows: reply, then post a message that runs `DoDragDrop` on the
-/// next message-loop turn) and must never wait on Dart.
+/// one of `noPointerEvent` (no recorded press to start from; on
+/// Windows, the view does not hold the mouse capture, as in a pen or
+/// touch drag), `buttonReleased` (the primary button is already up),
+/// `busy` (a session is already running), `unsupportedItems`, or
+/// `failed`. A missing implementation (`MissingPluginException`) reads
+/// as `unsupported`. The reply must be sent before any modal loop starts
+/// (Windows: reply, then post a message that runs the drag loop,
+/// `SHDoDragDrop`, on the next message-loop turn) and must never wait on
+/// Dart.
 ///
 /// Before (or while) starting the session the native side MUST end the
 /// embedder's own view of the press: the OS session swallows the real
