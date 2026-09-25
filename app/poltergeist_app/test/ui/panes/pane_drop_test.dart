@@ -779,6 +779,45 @@ void main() {
     expect(queue.enqueuedSpecs.single.destinationDir, '/srv/else');
   });
 
+  dndWidgets('a drop on a tab header waits out an OS drag-out hand-off in '
+      'flight', (tester) async {
+    await bindLocals();
+    final second = PaneController(paneTabId: 'pane.right.tab2', lanes: lanes);
+    rightStrip.addTab(second);
+    final secondChannel = controller_test.FakePaneChannel('/home/tester');
+    secondChannel.listings['/srv/else'] = [_entryAt('/srv/else', 'readme.md')];
+    lanes.nextLocalChannel = secondChannel;
+    await second.openLocalAt('/srv/else');
+    rightStrip.activateTab(rightStrip.tabs.first);
+    await pumpShell(tester, rightTabs: true);
+
+    Future<void> dropOnChip(bool started) async {
+      final gesture = await dragRowOnto(
+        tester,
+        find.text('report.txt'),
+        tester.getCenter(find.text('else')),
+      );
+      final handOff = Completer<bool>();
+      tester
+          .widget<PaneEntryDragAvatar>(find.byType(PaneEntryDragAvatar))
+          .drag
+          .holdDropsUntil(handOff.future);
+      await endDrag(tester, gesture);
+      expect(queue.enqueuedSpecs, isEmpty);
+      handOff.complete(started);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    // The native session took the drag: the release was its own.
+    await dropOnChip(true);
+    expect(queue.enqueuedSpecs, isEmpty);
+
+    // Nothing started: the user's release is the drop.
+    await dropOnChip(false);
+    expect(queue.enqueuedSpecs.single.destinationDir, '/srv/else');
+  });
+
   dndWidgets('a drag hovering a tab header for 700 ms activates it', (
     tester,
   ) async {

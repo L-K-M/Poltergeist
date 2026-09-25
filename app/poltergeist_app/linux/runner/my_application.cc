@@ -5,6 +5,7 @@
 #include <gdk/gdkx.h>
 #endif
 
+#include "drag_out_channel.h"
 #include "flutter/generated_plugin_registrant.h"
 
 constexpr char kWindowTitle[] = "Poltergeist";
@@ -77,6 +78,8 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+  // OS drag-out of local items (poltergeist/dragout, D14's amendment).
+  drag_out_channel_register(view);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }

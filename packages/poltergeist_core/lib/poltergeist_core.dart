@@ -247,6 +247,7 @@ export 'src/preview/preview_kinds.dart'
         PreviewKind,
         defaultLargeDownloadThresholdBytes,
         defaultPreviewCacheCapacityBytes,
+        dragOutProduceSlotLimit,
         previewCacheKey,
         previewExtension,
         previewImageKindCapBytes,
@@ -267,6 +268,8 @@ export 'src/preview/preview_produce.dart'
     show
         PreviewByteGate,
         PreviewProduceSpec,
+        ProduceSlotPool,
+        ProduceWriteMode,
         PreviewProduceTicket,
         PreviewProducer,
         QueuePreviewProducer,
@@ -342,6 +345,7 @@ export 'src/transfer/transfer_task.dart'
         TransferTask,
         TransferTaskSpec,
         TransferTaskState;
+export 'src/transfer/transfer_task_awaiter.dart' show awaitTransferTaskTerminal;
 export 'src/transfer/trash_service.dart'
     show
         ChannelTrashBackend,

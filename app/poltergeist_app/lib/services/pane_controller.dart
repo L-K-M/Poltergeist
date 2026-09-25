@@ -316,6 +316,12 @@ enum PaneNotice {
   /// The inspector's copy-path press landed on the clipboard (02 §2.6).
   pathCopied,
 
+  /// A drag of remote rows left the window where no file promises
+  /// exist (Linux, Windows): the OS drag does not start, the drag
+  /// continues in-app, and the notice points at Download To… (00 D14's
+  /// drag-out amendment).
+  dragOutRemote,
+
   /// The shown local directory's watch kept failing, so the listing no
   /// longer refreshes on its own (03 §7.5: watcher failure is never
   /// silent). A navigation to another directory, a refresh, or
@@ -820,6 +826,13 @@ class PaneController extends ChangeNotifier {
   void noteSaveFavoriteUnavailable() {
     if (_disposed) return;
     _postNotice(PaneNotice.saveFavoriteLater);
+  }
+
+  /// Posts the drag-out hint for remote rows on a platform without
+  /// file promises; the pane's row hand-off calls it once per gesture.
+  void noteDragOutRemoteUnavailable() {
+    if (_disposed) return;
+    _postNotice(PaneNotice.dragOutRemote);
   }
 
   /// Posts the transient copy confirmation for the inspector's path

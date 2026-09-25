@@ -583,6 +583,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Transferring to the other pane isn\'t available yet — the transfer queue arrives in a later milestone.';
 
   @override
+  String get paneNoticeDragOutRemote =>
+      'Remote items can\'t be dragged out of Poltergeist here yet. Use Download To… instead.';
+
+  @override
   String get paneNoticeDismiss => 'Dismiss';
 
   @override
@@ -3483,6 +3487,30 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String alertDragOutFailed(String name) {
+    return 'Couldn\'t drag “$name” out';
+  }
+
+  @override
+  String alertDragOutPaused(String folder) {
+    return 'Transfers are paused. Resume them, then drag it to $folder again.';
+  }
+
+  @override
+  String alertDragOutPausedMidway(String folder) {
+    return 'Transfers were paused, so the download to $folder stopped.';
+  }
+
+  @override
+  String alertDragOutRenamed(String folder) {
+    return 'The drop in $folder asked for a different name than the folder\'s own.';
+  }
+
+  @override
+  String get alertDragOutUnavailable =>
+      'Remote items can\'t be downloaded right now.';
+
+  @override
   String alertConflictsPending(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -3604,6 +3632,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get fileRevealWindowsLabel => 'Show in Explorer';
+
+  @override
+  String get fileDownloadToLabel => 'Download To…';
+
+  @override
+  String get fileDownloadToDialogTitle => 'Download To';
+
+  @override
+  String get commandDisabledDownloadToRemoteOnly => 'Select items on a server';
 
   @override
   String get commandDisabledRevealLocalOnly => 'Select a local item';

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/pane_drop.dart';
 import 'package:poltergeist_app/services/pane_location.dart';
@@ -335,6 +337,86 @@ void main() {
         () => drag.rootPaths.add('/x'),
         throwsUnsupportedError,
       );
+    });
+
+    group('OS drag-out hold', () {
+      PaneEntryDrag drag() => PaneEntryDrag(
+        source: const LocalFsLocation(),
+        rootPaths: const ['/home/tester/a.txt'],
+      );
+
+      test('with no hand-off in flight a drop lands at once', () {
+        final payload = drag();
+        var landed = 0;
+        payload.landInApp(() => landed++);
+        expect(landed, 1);
+      });
+
+      test('a drop during a hand-off that started a native session is '
+          'discarded', () async {
+        final payload = drag();
+        final started = Completer<bool>();
+        payload.holdDropsUntil(started.future);
+        var landed = 0;
+        payload.landInApp(() => landed++);
+        await pumpEventQueue();
+        expect(landed, 0);
+
+        started.complete(true);
+        await pumpEventQueue();
+        expect(landed, 0);
+        // The hold ends with the hand-off: the next drop lands at once.
+        payload.landInApp(() => landed++);
+        expect(landed, 1);
+      });
+
+      test('a drop during a hand-off that started nothing lands once it '
+          'answers', () async {
+        final payload = drag();
+        final started = Completer<bool>();
+        payload.holdDropsUntil(started.future);
+        var landed = 0;
+        payload.landInApp(() => landed++);
+        await pumpEventQueue();
+        expect(landed, 0);
+
+        started.complete(false);
+        await pumpEventQueue();
+        expect(landed, 1);
+      });
+
+      test('a failed hand-off started nothing: its drops land and the '
+          'failure still surfaces', () async {
+        final errors = <Object>[];
+        var landed = 0;
+        await runZonedGuarded(() async {
+          final payload = drag();
+          payload.holdDropsUntil(Future<bool>.error(StateError('boom')));
+          payload.landInApp(() => landed++);
+          await pumpEventQueue();
+        }, (error, _) => errors.add(error));
+        expect(landed, 1);
+        expect(errors.single, isA<StateError>());
+      });
+
+      test('a later hand-off replaces an earlier one', () async {
+        final payload = drag();
+        final first = Completer<bool>();
+        final second = Completer<bool>();
+        payload
+          ..holdDropsUntil(first.future)
+          ..holdDropsUntil(second.future);
+        first.complete(false);
+        await pumpEventQueue();
+        var landed = 0;
+        payload.landInApp(() => landed++);
+        await pumpEventQueue();
+        expect(landed, 0, reason: 'the second hand-off is still in flight');
+
+        second.complete(true);
+        await pumpEventQueue();
+        expect(landed, 0);
+      });
     });
   });
 

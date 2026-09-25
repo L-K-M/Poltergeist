@@ -28,6 +28,31 @@ abstract interface class TransferProducer {
   });
 }
 
+/// How a produce hop commits its file (00 D14's drag-out amendment).
+enum ProduceWriteMode {
+  /// Replace whatever sits at the destination: the preview cache hands
+  /// the hop its own exclusive temp sibling, so replacing it is the
+  /// expected shape.
+  replace,
+
+  /// Refuse an existing destination: the hop fails with a
+  /// `RemoteFileErrorKind.conflict` error and the file already there is
+  /// left untouched. Drag-out writes into a folder the OS chose (the
+  /// Finder window a promise was dropped on), where a same-named file
+  /// belongs to the user.
+  exclusive,
+}
+
+/// Which concurrent-slot budget a produce hop draws from.
+enum ProduceSlotPool {
+  /// Quick Look and the preview pane: `previewProduceSlotLimit` slots.
+  preview,
+
+  /// OS drag-out promise fulfilment: `dragOutProduceSlotLimit` slots of
+  /// its own, so a many-file drop cannot starve Quick Look.
+  dragOut,
+}
+
 /// The work order for one produce task — the richer seam the preview
 /// session drives through `TransferQueue.enqueueProduce`. Carries the
 /// bookkeeping a plain `produceLocalCopy` call cannot: the listing's
@@ -42,6 +67,8 @@ final class PreviewProduceSpec {
     this.maximumBytes,
     this.gate,
     this.onProgress,
+    this.writeMode = ProduceWriteMode.replace,
+    this.slotPool = ProduceSlotPool.preview,
   });
 
   /// The pooled server binding (03 §3.5's serverId).
@@ -71,6 +98,15 @@ final class PreviewProduceSpec {
   /// emit no `TransferQueueProgressEvent` (03 §4.7), so the preview
   /// surface reads its bytes here rather than through the queue mirror.
   final RemoteTransferProgress? onProgress;
+
+  /// Whether the hop may replace an existing file at
+  /// [destinationPath]. The preview cache's temp is its own path
+  /// ([ProduceWriteMode.replace]); drag-out lands in a user folder
+  /// ([ProduceWriteMode.exclusive]).
+  final ProduceWriteMode writeMode;
+
+  /// The slot budget the hop waits on; see [ProduceSlotPool].
+  final ProduceSlotPool slotPool;
 }
 
 /// 06 §5.2's mid-stream confirmation: for a remote file whose size the

@@ -1764,6 +1764,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'selection.transferToOtherPane'",
     "'selection.moveToOtherPane'",
     "'file.reveal'",
+    "'file.downloadTo'",
     "'file.newFolder'",
     "'file.newFile'",
     "'file.delete'",
@@ -1855,6 +1856,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'server:${server.serverId}'",
     r"'edits:$serverId'",
     r"'update:${info.latestVersion}'",
+    r"'dragout:${notice.id}'",
   },
   // Rate/ETA rendering and path grammar: the `/s` suffix, the ETA unit
   // glyphs, the custom-rate regex and its unit table, both path
@@ -2617,6 +2619,71 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'xdg-open'",
     "'gio'",
   },
+  // OS drag-out's channel protocol (00 D14's amendment): method names,
+  // argument keys, item kinds, the channel name, and the English
+  // diagnostics a refused call carries to the native side: wire data,
+  // never rendered UI copy (the Alerts tab localizes drag-out failures).
+  'lib/services/os_drag_out.dart': {
+    "'poltergeist/dragout'",
+    "'file'",
+    "'kind'",
+    "'path'",
+    "'name'",
+    "'isDirectory'",
+    "'promise'",
+    "'promiseId'",
+    "'size'",
+    "'sessionId'",
+    "'position'",
+    "'allowedOperations'",
+    "'items'",
+    "'image'",
+    "'imageSize'",
+    "'imageAnchor'",
+    r"'DragOutPromiseException(${failure.name}: $message)'",
+    "'startDrag'",
+    "'started'",
+    "'reason'",
+    "'message'",
+    "'promiseProgress'",
+    "'completedBytes'",
+    "'totalBytes'",
+    "'badArguments'",
+    r"'${call.method} expects a map'",
+    r"'${call.method} needs a sessionId'",
+    "'fulfilPromise'",
+    "'destinationPath'",
+    "'fulfilPromise needs promiseId and destinationPath'",
+    "'no drag-out delegate is attached'",
+    "'cancelPromise'",
+    "'sessionEnded'",
+    "'operation'",
+    r"'${call.method} is not a drag-out callback'",
+  },
+  // The drag-out controller's session and promise ids, macOS's
+  // `/private` temp spelling, desktop_drop's `Drops` staging folder
+  // name, and the English diagnostics a failed promise hands the native
+  // completion (Finder logs them; the user-facing report is the
+  // localized Alert).
+  'lib/services/drag_out_controller.dart': {
+    r"'p${promises.length + 1}'",
+    r"'dragout-${++_sequence}'",
+    "'/private'",
+    r"'$prefix/tmp/'",
+    r"'$prefix/var/'",
+    "'unknown drag-out session or promise'",
+    "'the drag came back into Poltergeist'",
+    "'the promise is already being fulfilled'",
+    "'no transfer queue to produce remote files'",
+    "'no transfer queue to download remote folders'",
+    "'the drop asked for a different folder name'",
+    "'transfers are paused'",
+    "'transfers were paused during the download'",
+    "'the download was cancelled'",
+    "'Drops'",
+  },
+  // The drag image's ellipsis glyph: typography, not copy.
+  'lib/ui/panes/drag_out_image.dart': {"'\u2026'"},
 };
 
 /// The icon-label/keyword pairs ported verbatim from Séance's picker

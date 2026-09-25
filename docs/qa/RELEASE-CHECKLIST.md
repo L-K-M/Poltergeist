@@ -72,8 +72,101 @@ known-divergent surface.
   `trash_roundtrip_linux_test.dart` in CI — the restore-UX row still
   wants a human pass.)
 - [ ] OWNER MANUAL QA: drop-in from Finder/Explorer/Nautilus into each
-  pane; in-app pane↔pane drag; confirm drag-out is absent (v1) and the
-  "Download to…" path covers it.
+  pane; in-app pane↔pane drag; File ▸ Download To… and the row menu's
+  Download To… land a remote selection in the picked folder.
+- [ ] OWNER MANUAL QA: OS drag-out (D14 amendment 2026-09-25). On each
+  desktop platform, drag a local file, a local folder, and a
+  three-item selection from a pane past the window edge into the file
+  manager: the items arrive, the destination's default verb applies
+  (Finder/Explorer move within a volume, copy across), a move away
+  refreshes the source pane, and nothing is ever moved to the Trash. Esc
+  mid-drag cancels, and the next click in the pane still selects. The
+  drag image shows the name, or "N items" with a count badge. Drag out
+  and back into the other pane: it lands like an in-app drag (a
+  same-volume move stays a move).
+- [ ] OWNER MANUAL QA (macOS): drag a remote file and a remote folder
+  from a server pane onto the Desktop and into a Finder window: each
+  arrives complete, Transfers shows the download, and Finder shows
+  progress. Repeat onto a folder that already holds a same-named file:
+  the existing file is never replaced (the Transfers row fails with a
+  clear message). Cancel from Finder mid-download: the Transfers row
+  cancels and no partial file remains under the name. Pause the queue,
+  then drag a remote folder: the drop fails at once with an Alert. Drag
+  a remote file into Mail and Messages and record whether they accept
+  promises. Record whether Finder ever offers "Keep Both" and what name
+  it hands back (the folder path refuses a renamed URL today).
+- [ ] OWNER MANUAL QA (macOS backend, `macos/Runner/DragOutChannel.swift`).
+  This code has never run on a Mac, so do it before the two macOS items
+  above. `flutter build macos` compiles it (it is in the Runner target).
+  Then, in a debug build with Console.app filtered to Poltergeist:
+  1. Drag a local file past the window edge: the image is its Finder
+     icon and name, in the spot the in-app avatar held (no jump at the
+     edge), and it follows the pointer at that offset. Drop it on the
+     Desktop: it arrives; ⌥ forces a copy and ⌘⌥ makes an alias.
+  2. Without moving the mouse first, click a row: it selects on the
+     first click (no stuck press), and hover highlights come back.
+  3. Start drags from a row near the toolbar band and from rows across
+     the pane (all under `desktop_drop`'s overlay): each hands off.
+  4. Drag three items: a pile of icons under AppKit's count badge "3".
+  5. Press Esc mid-drag: the image slides back, nothing lands, and
+     typing and shortcuts still work afterwards (no stuck key).
+  6. Drop a local file on the Dock's Trash: it must not be trashed
+     (delete is never offered). Record what the Dock does.
+  7. During a large remote file promise, record whether Finder shows a
+     progress pie (the write lands in a hidden temp file first, so it
+     may not) and whether Finder offers a cancel; if it does, cancel:
+     the Transfers row cancels and nothing remains under the name.
+  8. Drop the same remote file twice into one folder: record Finder's
+     prompt and choice and the name the second copy lands under.
+     Poltergeist never replaces the existing file.
+  9. Drag a remote row out of the window and back onto the other pane:
+     the pane labels it with the in-app verb, the drop lands in-app,
+     and no copy appears under `$TMPDIR/Drops` (desktop_drop's staging
+     folder; confirm it is `echo $TMPDIR` plus `Drops`).
+  10. Quit Poltergeist while a large remote file promise is running:
+      nothing appears under the promised name (a hidden
+      `.poltergeist-*.tmp` may remain beside it).
+  11. Console shows no AppKit exception or assertion from Poltergeist
+      during any of the above.
+- [ ] OWNER MANUAL QA (Linux, Windows): drag a remote row past the window
+  edge: no OS drag starts, the pane shows the "use Download To…" hint,
+  and the drag keeps working inside the window.
+- [ ] OWNER MANUAL QA (Windows backend, `windows/runner/drag_out.cpp`).
+  This code has never run on Windows, so do it before the Windows rows
+  of the drag-out items above. `flutter build windows` must compile it
+  under the runner's `/W4 /WX` and link `windowscodecs.lib`; a warning
+  is a bug to fix, not to silence. Then, in a debug build started from
+  a console (`flutter run -d windows`):
+  1. Drag a local file past the window edge into an Explorer window on
+     the same drive: the cursor shows a move and the file moves, and
+     the source pane refreshes. On another drive it copies. Shift,
+     Ctrl, and Alt while dragging force a move, a copy, and a shortcut.
+     (No "Move to …" caption is expected: drop descriptions are not
+     enabled yet.)
+  2. The drag image is Poltergeist's pill (the name, or "N items" with
+     a count badge) under the pointer at the offset the in-app avatar
+     had (no jump at the edge), sharp at 100 %, 150 %, and 200 %
+     scaling, and neither clipped nor stretched.
+  3. Without moving the mouse first, click a row: it selects on the
+     first click (no stuck press). Hover highlights come back, and a
+     plain click selects one row (Ctrl and Shift are not stuck).
+  4. Press Esc mid-drag: nothing lands, and typing into the filter
+     field works afterwards (no stuck key).
+  5. Drag a three-item selection: all three arrive.
+  6. While the drag hovers Explorer, a running transfer's row in
+     Transfers keeps moving (Dart keeps running during the drag loop).
+  7. Drag out and back onto the other pane: the pane labels it with the
+     in-app verb, and a same-drive drop moves in-app.
+  8. Drop onto the Desktop, a browser upload field (Edge or Chrome),
+     Outlook or Teams, and Notepad: each receives the files.
+  9. Drop a local file on the Recycle Bin and record what happens.
+     Poltergeist deletes nothing itself (D15); if the shell recycles
+     the file, it restores from the Recycle Bin.
+  10. With a pen or a touch screen, a row drag past the edge stays
+      in-app (no OS drag starts and nothing stays pressed).
+  11. The console shows no assertion or error from the embedder or the
+      runner during any of the above (in particular no "key up without
+      key down" after Esc).
 - [ ] OWNER MANUAL QA: theme flip (light/dark) live-restyles listing,
   plan view, and editor; HiDPI scaling at 100 %/150 %/200 % shows no
   clipped chrome.

@@ -65,5 +65,6 @@ String compactNoticeText(AppLocalizations l10n, PaneNotice notice) =>
       PaneNotice.transferLater => l10n.paneNoticeTransferLater,
       PaneNotice.saveFavoriteLater => l10n.paneNoticeSaveFavoriteLater,
       PaneNotice.pathCopied => l10n.paneNoticePathCopied,
+      PaneNotice.dragOutRemote => l10n.paneNoticeDragOutRemote,
       PaneNotice.watchStopped => l10n.paneNoticeWatchStopped,
     };

@@ -2193,6 +2193,56 @@ void main() {
       expect(spec.operation, TransferOperation.copy);
     });
 
+    testWidgets('a pane-row drop waits out an OS drag-out hand-off in '
+        'flight', (tester) async {
+      final queue = FakeAppTransferQueue();
+      final volumes = _FakeVolumes()..volumes = const [_home, _usb];
+      final drag = PaneEntryDrag(
+        source: const ServerFsLocation('srv'),
+        rootPaths: ['/srv/report.pdf'],
+      );
+      await pumpSidebar(
+        tester,
+        volumes: volumes,
+        dropDelegate: PaneDropDelegate(queue: queue),
+        dragSource: Center(
+          child: Draggable<Object>(
+            data: drag,
+            feedback: const SizedBox(width: 4, height: 4),
+            child: const Text('drag-me'),
+          ),
+        ),
+      );
+
+      Future<void> dropOnDevice(bool started) async {
+        final handOff = Completer<bool>();
+        drag.holdDropsUntil(handOff.future);
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.text('drag-me')),
+        );
+        await tester.pump();
+        await gesture.moveTo(
+          tester.getCenter(
+            find.byKey(const ValueKey('sidebar.device./Volumes/STICK')),
+          ),
+        );
+        await tester.pump();
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(queue.enqueuedSpecs, isEmpty);
+        handOff.complete(started);
+        await tester.pumpAndSettle();
+      }
+
+      // The native session took the drag: the release was its own.
+      await dropOnDevice(true);
+      expect(queue.enqueuedSpecs, isEmpty);
+
+      // Nothing started: the user's release is the drop.
+      await dropOnDevice(false);
+      expect(queue.enqueuedSpecs.single.destinationDir, '/Volumes/STICK');
+    });
+
     testWidgets('local pane rows dropped on a device copy too; only the '
         'move modifier moves them', (tester) async {
       final queue = FakeAppTransferQueue();

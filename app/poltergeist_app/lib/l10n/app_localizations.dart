@@ -1042,6 +1042,12 @@ abstract class AppLocalizations {
   /// **'Transferring to the other pane isn\'t available yet — the transfer queue arrives in a later milestone.'**
   String get paneNoticeTransferLater;
 
+  /// Transient notice strip (02 §10): a drag of remote rows left the window on a platform without file promises (Linux, Windows); the drag continues in-app.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote items can\'t be dragged out of Poltergeist here yet. Use Download To… instead.'**
+  String get paneNoticeDragOutRemote;
+
   /// Tooltip for the transient notice strip's close button (02 §10).
   ///
   /// In en, this message translates to:
@@ -5436,6 +5442,36 @@ abstract class AppLocalizations {
   /// **'Couldn\'t transfer “{name}”'**
   String alertTransferFailed(String name);
 
+  /// D32 alert row: an OS drag-out of a remote item was refused before any transfer started (00 D14's drag-out amendment).
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t drag “{name}” out'**
+  String alertDragOutFailed(String name);
+
+  /// D32 alert row detail: a remote folder dragged to another app needs the transfer queue, which was paused.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfers are paused. Resume them, then drag it to {folder} again.'**
+  String alertDragOutPaused(String folder);
+
+  /// D32 alert row detail: the transfer queue was paused while a remote folder dragged to another app was downloading, so that download was cancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfers were paused, so the download to {folder} stopped.'**
+  String alertDragOutPausedMidway(String folder);
+
+  /// D32 alert row detail: the receiving app asked for a remote folder under another name, which a download cannot honor.
+  ///
+  /// In en, this message translates to:
+  /// **'The drop in {folder} asked for a different name than the folder\'s own.'**
+  String alertDragOutRenamed(String folder);
+
+  /// D32 alert row detail: a remote item was dragged to another app while no transfer queue exists to download it.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote items can\'t be downloaded right now.'**
+  String get alertDragOutUnavailable;
+
   /// D32 alert row: parked transfer conflicts (02 §5.2).
   ///
   /// In en, this message translates to:
@@ -5615,6 +5651,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Show in Explorer'**
   String get fileRevealWindowsLabel;
+
+  /// File menu and row context menu: download the selected remote items into a local folder the user picks (the fallback where remote items cannot be dragged out).
+  ///
+  /// In en, this message translates to:
+  /// **'Download To…'**
+  String get fileDownloadToLabel;
+
+  /// Title of the folder picker Download To… opens.
+  ///
+  /// In en, this message translates to:
+  /// **'Download To'**
+  String get fileDownloadToDialogTitle;
+
+  /// Disabled reason for Download To…: only remote items can be downloaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Select items on a server'**
+  String get commandDisabledDownloadToRemoteOnly;
 
   /// Disabled reason for Show in Finder/File Manager: only local items can be revealed.
   ///

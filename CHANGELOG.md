@@ -50,6 +50,19 @@
   shows one pane at a time with an A·B switcher. Long-press selects,
   and the inspector is a bottom sheet. System back steps through
   selection, sheets, folders and home.
+- **Drag files out of Poltergeist.** Dragging rows past the window's
+  edge hands them to the system, so they can land in a file manager or
+  another app; several selected items travel together, and the
+  destination decides whether to copy or move. On Linux this carries
+  local files today, and so does Windows (built, awaiting its first run
+  on Windows). On macOS local files travel as file URLs, and
+  remote files and folders as file promises that download straight to
+  where you drop them (built, awaiting its first run on a Mac); on
+  Linux and Windows a remote drag shows a hint and stays inside the
+  window. A drag that comes back into Poltergeist lands like any
+  in-app drag.
+- **Download To….** File ▸ Download To… and the row menu download the
+  selected remote items into a folder you pick.
 - **Shares an account with Séance.** Bookmark sync now preselects the
   Séance sync account, so both apps show the same servers.
 - **Remote transfers work.** Uploads, downloads, remote→remote copies,

@@ -14,12 +14,14 @@ import 'services/bookmark_backup_service.dart';
 import 'services/checkout_session.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/dock_progress.dart';
+import 'services/drag_out_producer.dart';
 import 'services/dynamic_secret_vault.dart';
 import 'services/editor_registry_controller.dart';
 import 'services/engine_session.dart';
 import 'services/file_stores.dart';
 import 'services/identity_audit_log.dart';
 import 'services/identity_file_reader.dart';
+import 'services/os_drag_out.dart' show platformDragOutBackend;
 import 'services/probe_settings_store.dart';
 import 'services/quit_guard.dart';
 import 'services/recent_locations.dart';
@@ -290,6 +292,14 @@ Future<void> main() async {
   final previewProducer = transferQueueSession == null
       ? null
       : QueuePreviewProducer(transferQueueSession.concreteQueue);
+  // OS drag-out (00 D14's 2026-09-25 amendment): a remote file dropped
+  // on Finder is produced straight into the folder the OS gave, over the
+  // same produce hook, as an exclusive hop on its own slot budget (a
+  // many-file drop cannot starve Quick Look). The backend is the
+  // `poltergeist/dragout` channel on the desktop platforms.
+  final dragOutProducer = previewProducer == null
+      ? null
+      : QueueDragOutProducer(previewProducer);
 
   // The managed-checkout pipeline (06 §3, M7): one CheckoutManager over
   // the app-support store, driving every byte through the queue session
@@ -456,6 +466,8 @@ Future<void> main() async {
           errorReporter.observe(preferences.saveSidebarPinnedServers(ids)),
       previewCache: previewCache,
       previewProducer: previewProducer,
+      dragOutProducer: dragOutProducer,
+      dragOutBackend: platformDragOutBackend(),
       initialPreviewThresholdBytes: previewThreshold,
       onPreviewCacheCapacityChanged:
           preferences.savePreviewCacheCapacityBytes,

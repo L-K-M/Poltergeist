@@ -491,6 +491,73 @@ D32 inspector workspace · D33 sidebar density
   OS drop-IN uses `desktop_drop`; OS drag-OUT (promised files) is
   deliberately v1.x — the transfer queue exposes a produce-on-demand hook
   from day one so any promised-file backend can attach later.
+  - **Amendment (2026-09-25): OS drag-out ships, first-party.** No
+    `super_drag_and_drop` / `super_native_extensions`: on macOS it cannot
+    see a press under `desktop_drop`'s overlay, cannot promise folders,
+    writes every remote file twice, and brings CocoaPods and a Rust build
+    into an SPM-only project. Instead one Dart seam
+    (`lib/services/os_drag_out.dart`: `DragOutBackend`, the
+    `poltergeist/dragout` channel whose protocol that file documents, and
+    a no-op backend on mobile, web, and in tests) with small native
+    backends per platform. The rules:
+    - *Hand-off, not replacement.* In-app drags stay Flutter `Draggable`s
+      with every existing target, verb rule, spring-load, and test. Only
+      when a row drag's pointer leaves the window does the pane hand the
+      payload (every selected item) to a native session, once per
+      gesture; the pane then cancels its own pointer, and the native side
+      ends the embedder's view of the press so no click stays stuck.
+    - *Local items* travel as plain file URLs; the destination picks copy,
+      move, or link. Delete is never offered (a Dock-Trash drop would be
+      an unguarded delete, D15), and no backend deletes on a move.
+    - *Remote items* are file promises on macOS (`NSFilePromiseProvider`,
+      `public.folder` for directories). A file is produced straight into
+      the path the OS gave: an exclusive produce hop (never replacing a
+      same-named file) on a two-slot drag-out budget separate from Quick
+      Look's. A folder is an ordinary recursive download task, awaited to
+      its end. It does not bypass the queue pause: a paused queue fails
+      the promise at once, and a pause mid-download cancels the task,
+      each with an Alert, so the OS never waits on a pause. Both show in
+      Transfers; the OS-side cancel cancels the task; a failure fails the
+      promise and keeps its failed row and Alert. A receiver that asks
+      for a different folder name fails with an Alert (the queue lands a
+      root under its own name; whether Finder ever renames is open).
+    - *Linux and Windows* carry local items only for now (GTK
+      `text/uri-list`, built and verified under Xvfb; Windows
+      `CF_HDROP` in the shell's own data object, built but not yet
+      run on Windows). Remote rows there show a
+      "use Download To…" hint and keep dragging in-app; File ▸ Download
+      To… is the fallback everywhere. Windows virtual files are the
+      follow-up.
+    - *Own-drag echo.* A drag of ours that comes back into the window
+      lands on `desktop_drop`; the controller recognizes its session (the
+      dropped paths, or a promise called into `desktop_drop`'s staging
+      folder, which fails fast) and the pane applies the in-app verb
+      rules from the stored payload.
+    - *macOS backend* (`macos/Runner/DragOutChannel.swift`, same day). A
+      local event monitor supplies the press whichever view it hit
+      (`desktop_drop`'s overlay, `macos_window_utils`' passthrough
+      views). A synthetic mouse-up to the FlutterViewController ends
+      Flutter's press, then the session begins from the newest drag
+      event so the image keeps its offset from the pointer. Items show
+      their Finder icons and names, several in a pile under AppKit's
+      count badge. Promise writes hop from a private queue to the main
+      queue and never wait on Dart; each publishes a cancellable
+      `NSProgress` on the promised URL. Not yet run on a Mac.
+    - *Windows backend* (`windows/runner/drag_out.cpp`, same day). The
+      items leave as their folder's own `IShellFolder::GetUIObjectOf`
+      data object, the one Explorer drags (`CF_HDROP` plus the shell
+      formats), not `SHCreateDataObject`, which only promises the shell
+      ID list; they must share one folder, as a pane selection does.
+      `startDrag` requires the primary button down and the mouse
+      capture still on the Flutter view (a pen or touch drag has none
+      and stays in-app), posts a registered message, and replies; the
+      message's handler sends the view a synthetic `WM_LBUTTONUP` and
+      runs `SHDoDragDrop` under the Dart PNG (decoded through WIC).
+      `sessionEnded` reports the logical performed effect first, since
+      the shell's optimized move returns none. Nothing is deleted on a
+      move; a Recycle Bin drop is the shell's own recycle, if it does
+      one. Not yet run on Windows; virtual files for remote items are
+      the follow-up.
 - **D17 — Editor.** Séance's editor stack (document I/O with BOM/CRLF
   fidelity, syntax engine, find bar, conflict-aware save-and-upload) is
   ported per D2 and kept behaviorally identical; external editors reuse the
