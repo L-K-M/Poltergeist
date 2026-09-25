@@ -203,7 +203,8 @@ The header is registry-driven. A command appears only if it declares a
     replaces the separate Connections section.
   - A folded group or section, or a filter, that hides a live server shows
     a dot on the header (D33), green while one is connected, amber while
-    one is connecting.
+    one is connecting. The header's announcement says so after its title
+    and count ("Connected server hidden"), since the dot is drawn only.
   - The account's rows carry a small cloud mark and "From your Séance
     account" in the tooltip and the announced label.
   - Hovering a connected row shows a disconnect glyph.

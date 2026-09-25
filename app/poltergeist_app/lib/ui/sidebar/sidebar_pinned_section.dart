@@ -117,10 +117,10 @@ List<Widget> _pinnedSection(_SidebarData data) {
   }
   final sectionKey = SidebarCollapseKeys.section(SidebarSection.pinned);
   final collapsed = data.collapsed(sectionKey);
-  final hiddenDot = _hiddenLiveDot(data, [
+  final hidden = _hiddenLive(data, [
     for (final entry in collapsed ? pinned : filtered) entry.status(data),
   ]);
-  if (rows.isEmpty && hiddenDot == null) return const [];
+  if (rows.isEmpty && hidden == null) return const [];
   return [
     SidebarSectionHeader(
       key: const ValueKey('sidebar.pinned.header'),
@@ -128,7 +128,8 @@ List<Widget> _pinnedSection(_SidebarData data) {
       title: data.l10n.sidebarPinnedSection,
       count: pinned.length,
       collapsed: collapsed,
-      status: hiddenDot,
+      status: hidden?.dot,
+      statusLabel: hidden?.label,
       onToggle: () => controller.toggleCollapsed(sectionKey),
     ),
     if (!collapsed) ...rows,

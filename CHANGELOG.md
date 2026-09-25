@@ -38,7 +38,9 @@
     too ("Pin to top" in their menu), so it works without a Séance
     account.
   - A folded group or a filter never hides a live connection: the
-    header shows its dot. The filter appears at five servers again,
+    header shows its dot, and a screen reader hears it with the header
+    ("Connected server hidden", or "Connecting server hidden"). The
+    filter appears at five servers again,
     says "↵ opens the first", and offers Clear filter.
 - **New verbs.** Connect (⌘K), New Folder, New File, Duplicate, Move to
   Trash with a clear confirmation, Copy and Move to Other Pane (F5, F6),

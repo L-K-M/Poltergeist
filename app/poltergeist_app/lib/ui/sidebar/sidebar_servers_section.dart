@@ -107,6 +107,10 @@ List<Widget> _serversSection(_SidebarData data) {
       continue;
     }
     final collapsed = data.collapsed(collapseKey);
+    final hidden = _hiddenLive(
+      data,
+      _catalogStatuses(data, collapsed ? group.catalog : filtered),
+    );
     // The account's groups take no bookmark drops: a catalog server's
     // group is edited in the server editor, and bookmarks file under
     // FAVORITES.
@@ -118,10 +122,8 @@ List<Widget> _serversSection(_SidebarData data) {
         title: group.name,
         count: group.length,
         collapsed: collapsed,
-        status: _hiddenLiveDot(
-          data,
-          _catalogStatuses(data, collapsed ? group.catalog : filtered),
-        ),
+        status: hidden?.dot,
+        statusLabel: hidden?.label,
         onToggle: () => controller.toggleCollapsed(collapseKey),
       ),
     );
@@ -153,7 +155,7 @@ List<Widget> _serversSection(_SidebarData data) {
     );
   }
   final collapsed = data.collapsed(sectionKey);
-  final hiddenDot = _hiddenLiveDot(
+  final hidden = _hiddenLive(
     data,
     collapsed
         ? [
@@ -168,7 +170,7 @@ List<Widget> _serversSection(_SidebarData data) {
   );
   // A filter that hides every row drops the section, unless a live
   // server is among the hidden: its header stays to say so.
-  if (data.filtering && body.isEmpty && hiddenDot == null) return const [];
+  if (data.filtering && body.isEmpty && hidden == null) return const [];
 
   final VoidCallback? onAdd = view.onAddCatalogServer ?? view.onQuickConnect;
   return [
@@ -178,7 +180,8 @@ List<Widget> _serversSection(_SidebarData data) {
       title: l10n.sidebarServersSection,
       count: total,
       collapsed: collapsed,
-      status: hiddenDot,
+      status: hidden?.dot,
+      statusLabel: hidden?.label,
       onToggle: () => controller.toggleCollapsed(sectionKey),
       onAdd: onAdd,
       addKey: const ValueKey('sidebar.servers.add'),
@@ -260,7 +263,7 @@ List<Widget> _serverRows(
   return rows;
 }
 
-/// The live states of account servers, for [_hiddenLiveDot].
+/// The live states of account servers, for [_hiddenLive].
 Iterable<ServerStatus?> _catalogStatuses(
   _SidebarData data,
   Iterable<ServerConfig> servers,
@@ -327,11 +330,12 @@ SidebarAdhocSession? _sessionSavedAs(_SidebarData data, Bookmark bookmark) {
   );
 }
 
-/// The dot a header draws for live servers it keeps out of view (D33):
-/// a folded group's or section's rows, or rows the filter hides, so
-/// "what am I connected to" never needs an unfold. A connection up
-/// outranks one being attempted; with nothing live, no dot.
-SidebarStatusDot? _hiddenLiveDot(
+/// The dot a header draws for live servers it keeps out of view (D33),
+/// and its words for a screen reader: a folded group's or section's
+/// rows, or rows the filter hides, so "what am I connected to" never
+/// needs an unfold. A connection up outranks one being attempted; with
+/// nothing live, no dot.
+({SidebarStatusDot dot, String label})? _hiddenLive(
   _SidebarData data,
   Iterable<ServerStatus?> statuses,
 ) {
@@ -340,7 +344,10 @@ SidebarStatusDot? _hiddenLiveDot(
   for (final status in statuses) {
     switch (status?.state) {
       case ServerConnectionState.connected:
-        return SidebarStatusDot(chrome.statusConnected);
+        return (
+          dot: SidebarStatusDot(chrome.statusConnected),
+          label: data.l10n.sidebarHiddenConnected,
+        );
       case ServerConnectionState.connecting ||
           ServerConnectionState.reconnecting:
         pending = true;
@@ -348,7 +355,11 @@ SidebarStatusDot? _hiddenLiveDot(
         break;
     }
   }
-  return pending ? SidebarStatusDot(chrome.statusConnecting) : null;
+  if (!pending) return null;
+  return (
+    dot: SidebarStatusDot(chrome.statusConnecting),
+    label: data.l10n.sidebarHiddenConnecting,
+  );
 }
 
 ConnectionServer? _connectionOf(_SidebarData data, String serverId) {
