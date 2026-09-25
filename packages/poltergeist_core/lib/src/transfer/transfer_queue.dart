@@ -2096,18 +2096,17 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
       directory.planned.name,
     );
     final existing = await _statOrNull(dstFs, destination);
-    // D26's directory self-move, ahead of the conflict verbs: a local→
-    // local move whose resolved destination IS the source directory —
-    // the same path, or a spelling this volume folds/resolves to it —
-    // leaves the tree in place. The file children resolve onto their
-    // own source paths and self-complete in `_decideFile`; marking the
-    // state here keeps `_removeMovedDirectories` from unlinking the
-    // source afterward.
+    // D26's directory self-move, ahead of the conflict verbs: a move
+    // within one endpoint (local→local, or one server) whose resolved
+    // destination IS the source directory — the same path, or a
+    // spelling the endpoint folds/resolves to it — leaves the tree in
+    // place. The file children resolve onto their own source paths and
+    // self-complete in `_decideFile`; marking the state here keeps
+    // `_removeMovedDirectories` from unlinking the source afterward.
     if (existing != null &&
         existing.isDirectory &&
         task.operation == TransferOperation.move &&
-        task.source is LocalFsLocation &&
-        task.destination is LocalFsLocation &&
+        _endpointKey(task.source) == _endpointKey(task.destination) &&
         await _isSelfTarget(
           dstFs,
           directory.planned.source.path,
@@ -3016,16 +3015,18 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
     final file = work.file;
     final candidate = _joinDest(task.destination, containerPath, file.name);
     final existing = await _statOrNull(dstFs, candidate);
-    // D26's self-target rule, ahead of the conflict verbs: a local→local
-    // move whose resolved destination names the source itself — the same
-    // path, or a spelling that folds/resolves to it on this volume —
-    // must never pipe onto itself and then unlink the only copy. The
-    // move's end state already holds, so the item completes in place.
+    // D26's self-target rule, ahead of the conflict verbs: a move within
+    // one endpoint (local→local, or one server — two casings on a
+    // case-insensitive server, a symlinked directory) whose resolved
+    // destination names the source itself — the same path, or a
+    // spelling that folds/resolves to it there — must never pipe onto
+    // itself and then unlink the only copy, whatever the conflict
+    // answer. The move's end state already holds, so the item completes
+    // in place.
     if (existing != null &&
         !existing.isDirectory &&
         task.operation == TransferOperation.move &&
-        task.source is LocalFsLocation &&
-        task.destination is LocalFsLocation &&
+        _endpointKey(task.source) == _endpointKey(task.destination) &&
         await _isSelfTarget(dstFs, file.source.path, candidate)) {
       return _FileSelfTarget(candidate);
     }
@@ -4955,11 +4956,12 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
 
   /// Whether the planned destination names the source entry itself —
   /// the same path, or a spelling that canonicalizes to it on this
-  /// volume (a case-insensitive filesystem folds `SRC/` onto `src/`, and
-  /// a symlink at the destination resolves through to the source).
-  /// Only the local→local move path asks: everywhere else the conflict
-  /// model's view of the occupant is authoritative. A canonicalize
-  /// failure is inconclusive, not proof — the normal rules then apply.
+  /// volume or server (a case-insensitive filesystem folds `SRC/` onto
+  /// `src/`, and a symlink at the destination resolves through to the
+  /// source; on a server, canonicalize is its realpath). Only a move
+  /// within one endpoint asks: across endpoints the conflict model's
+  /// view of the occupant is authoritative. A canonicalize failure is
+  /// inconclusive, not proof — the normal rules then apply.
   Future<bool> _isSelfTarget(
     RemoteFileSystem fs,
     String sourcePath,
