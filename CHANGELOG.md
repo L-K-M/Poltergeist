@@ -8,6 +8,12 @@
   toggle brings it back. The sidebar's filter field is full height, and
   compact rows on touch are 40 dp instead of 48.
 
+- **Tabs switch in place.** Settings and the server mark picker showed
+  the new tab by scrolling the content sideways to it, and a sideways
+  swipe or trackpad scroll flipped between tabs. The new tab now simply
+  appears, a swipe no longer changes tabs, and each tab keeps what you
+  left in it: a half-typed search or form, the scroll position.
+
 - **Colour that means something.** Icons get their colour back, and
   each colour means one thing in both Poltergeist and Séance, so you can
   find things by colour before you read them:

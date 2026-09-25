@@ -8775,7 +8775,7 @@ name, accent and corner scale. Not run: macOS, Windows, Android and iOS
 Settings dialog, which only its widget test covers.
 
 Validation: `flutter analyze` is clean, and the full app suite passes:
-2711 tests on the merge with main, 2573 on main before this change.
+2723 tests on the merge with main, 2585 on main before this change.
 
 ## Open items
 

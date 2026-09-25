@@ -123,6 +123,41 @@ void main() {
     expect(find.byKey(const ValueKey('updates.checkEnabled')), findsOneWidget);
   });
 
+  testWidgets('a tab swaps its page in place instead of sliding to it', (
+    tester,
+  ) async {
+    await pumpWindow(tester, SettingsWindowTab.editing);
+    final editing = tester.getRect(
+      find.byKey(const PageStorageKey(SettingsWindowTab.editing)),
+    );
+
+    await tester.tap(find.widgetWithText(Tab, 'General'));
+    await tester.pump();
+
+    // The first frame after the tap: all of the new page, where the old one
+    // was, and none of the old.
+    expect(find.text('Preview cache limit'), findsNothing);
+    expect(
+      tester.getRect(
+        find.byKey(const PageStorageKey(SettingsWindowTab.general)),
+      ),
+      editing,
+    );
+  });
+
+  testWidgets('a sideways swipe does not change the tab', (tester) async {
+    await pumpWindow(tester, SettingsWindowTab.editing);
+
+    await tester.fling(
+      find.text('Preview cache limit'),
+      const Offset(600, 0),
+      2000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Preview cache limit'), findsOneWidget);
+  });
+
   testWidgets('a window with no sections says so and closes cleanly', (
     tester,
   ) async {
