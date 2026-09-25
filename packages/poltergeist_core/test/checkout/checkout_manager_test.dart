@@ -289,10 +289,15 @@ void main() {
       final record = await manager.checkout(serverId: 's1', entry: entry);
       var changes = 0;
       final sub = manager.changes.listen((_) => changes++);
+      // The reconcile's own change, not a fixed delay: it hashes the file
+      // for real, and a loaded runner (macOS CI) can outlast settle().
+      final reconciled = manager.changes.first;
 
       for (var i = 0; i < 5; i++) {
         emitWatchEvent(record, basenameOf(record));
       }
+      await reconciled.timeout(const Duration(seconds: 10));
+      // One more debounce, so a second reconcile would still be counted.
       await settle();
       expect(changes, 1);
       await sub.cancel();
@@ -318,7 +323,10 @@ void main() {
         await settle();
         expect(changes, 0);
 
+        // As above: wait for the reconcile itself, then one debounce more.
+        final reconciled = manager.changes.first;
         fire('unrelated-sibling.txt');
+        await reconciled.timeout(const Duration(seconds: 10));
         await settle();
         expect(changes, 1);
         await sub.cancel();
