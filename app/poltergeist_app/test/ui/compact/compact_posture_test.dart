@@ -102,6 +102,37 @@ void main() {
       expect(find.byKey(const ValueKey('sidebar.bottomBar')), findsNothing);
     });
 
+    testWidgets('the app bar switch picks the rows\' density', (tester) async {
+      final harness = CompactHarness();
+      await harness.pump(tester);
+
+      final appBar = find.byType(AppBar);
+      expect(_key(CompactKey.homeDensity), findsOneWidget);
+      expect(
+        find.descendant(of: appBar, matching: _key(CompactKey.homeDensity)),
+        findsOneWidget,
+      );
+      // Comfortable by default: the phone's Material list rows.
+      final demo = find.byKey(const ValueKey('sidebar.favorite.demo'));
+      expect(tester.getSize(demo).height, 56);
+
+      await tester.tap(
+        find.descendant(of: appBar, matching: find.byTooltip('Compact rows')),
+      );
+      await tester.pumpAndSettle();
+      // Compact: the rail's one-line touch rows.
+      expect(tester.getSize(demo).height, 48);
+
+      await tester.tap(
+        find.descendant(
+          of: appBar,
+          matching: find.byTooltip('Comfortable rows'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.getSize(demo).height, 56);
+    });
+
     testWidgets('the search bar filters every section', (tester) async {
       final harness = CompactHarness();
       await harness.pump(tester);

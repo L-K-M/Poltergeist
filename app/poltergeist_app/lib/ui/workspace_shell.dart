@@ -1883,6 +1883,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               sshImportCommand,
               presentation: SidebarPresentation.home,
             ),
+      homeDensitySwitch: _sidebar == null
+          ? null
+          : SidebarDensityControl(controller: _sidebar!),
       seams: CompactPaneSeams(
         onCancelRecovery: (pane) =>
             unawaited(_cancelPaneRecovery(workspace, pane)),

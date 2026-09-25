@@ -10,9 +10,10 @@ import 'compact_command_sheet.dart';
 import 'compact_posture.dart';
 
 /// D32 §9's Home: the sidebar, full screen, under an app bar with the
-/// product name, Settings, and ⋮. [sidebar] is the shared sidebar in its
-/// home presentation (search bar, the three sections, the "+" FAB); this
-/// widget adds only the app-level chrome around it.
+/// product name, the rows' density switch (D33), Settings, and ⋮.
+/// [sidebar] is the shared sidebar in its home presentation (search bar,
+/// the three sections, the "+" FAB); this widget adds only the app-level
+/// chrome around it.
 ///
 /// Home's ⋮ renders the registry's APP-scoped commands: a pane or
 /// selection verb has nothing to act on from here (the panes are one
@@ -24,9 +25,14 @@ class CompactHome extends StatelessWidget {
     required this.sidebar,
     required this.commands,
     required this.onRunCommand,
+    this.densitySwitch,
   });
 
   final Widget sidebar;
+
+  /// The sidebar's density switch, drawn before Settings; null draws
+  /// none (no sidebar controller to set).
+  final Widget? densitySwitch;
   final List<RegisteredCommand> commands;
   final Future<void> Function(RegisteredCommand command) onRunCommand;
 
@@ -58,6 +64,12 @@ class CompactHome extends StatelessWidget {
         scrolledUnderElevation: 0,
         title: Text(l10n.appTitle),
         actions: [
+          if (densitySwitch case final densitySwitch?)
+            Padding(
+              key: const ValueKey(CompactKey.homeDensity),
+              padding: const EdgeInsetsDirectional.only(end: 4),
+              child: Center(child: densitySwitch),
+            ),
           if (settings != null)
             IconButton(
               key: const ValueKey(CompactKey.homeSettings),

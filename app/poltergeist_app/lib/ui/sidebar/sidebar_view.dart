@@ -344,19 +344,7 @@ class _SidebarViewState extends State<SidebarView> {
       return _kitStrings!;
     }
     _stringsFor = l10n;
-    return _kitStrings = SidebarKitStrings(
-      sectionSemantics: (title, count) =>
-          l10n.sidebarSectionSemantics(title, l10n.paneItemCount(count)),
-      showSection: l10n.sidebarShowSection,
-      hideSection: l10n.sidebarHideSection,
-      filterHint: l10n.sidebarFilterHint,
-      filterClear: l10n.sidebarCatalogFilterClear,
-      addMenu: l10n.sidebarAddMenu,
-      settings: l10n.sidebarSettings,
-      rowMenu: l10n.sidebarRowMenu,
-      compactRows: l10n.sidebarCompactRows,
-      comfortableRows: l10n.sidebarComfortableRows,
-    );
+    return _kitStrings = _sidebarKitStrings(l10n);
   }
 
   @override
@@ -609,6 +597,48 @@ class _SidebarViewState extends State<SidebarView> {
       tone: SidebarSyncTone.normal,
       tooltip: l10n.sidebarCatalogSyncNow,
       onPressed: widget.onSyncNow,
+    );
+  }
+}
+
+/// The kit's copy, from the app's localizations.
+SidebarKitStrings _sidebarKitStrings(AppLocalizations l10n) =>
+    SidebarKitStrings(
+      sectionSemantics: (title, count) =>
+          l10n.sidebarSectionSemantics(title, l10n.paneItemCount(count)),
+      showSection: l10n.sidebarShowSection,
+      hideSection: l10n.sidebarHideSection,
+      filterHint: l10n.sidebarFilterHint,
+      filterClear: l10n.sidebarCatalogFilterClear,
+      addMenu: l10n.sidebarAddMenu,
+      settings: l10n.sidebarSettings,
+      rowMenu: l10n.sidebarRowMenu,
+      compactRows: l10n.sidebarCompactRows,
+      comfortableRows: l10n.sidebarComfortableRows,
+    );
+
+/// The rows' density switch for a surface outside the sidebar (D33): a
+/// phone Home's app bar. The kit's switch over [controller], in a kit
+/// scope of its own for the strings and the platform's sizes; a pick
+/// lands on the controller, which the sidebar below hears too.
+class SidebarDensityControl extends StatelessWidget {
+  const SidebarDensityControl({required this.controller, super.key});
+
+  final SidebarController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) => SidebarKitScope(
+        strings: _sidebarKitStrings(l10n),
+        density: sidebarKitDensityOf(controller.density),
+        child: SidebarDensitySwitch(
+          onChanged: (density) =>
+              controller.setDensity(sidebarDensityOf(density)),
+        ),
+      ),
     );
   }
 }
