@@ -181,7 +181,10 @@ void main() {
       );
       expect(tester.getSize(disc.first), const Size(40, 40));
       // The verbs are one visible tap away, as on the browser's rows.
-      expect(rowOf(tester, 'sidebar.favorite.demo').showMenuButton, isTrue);
+      expect(
+        find.descendant(of: row, matching: find.byIcon(Icons.more_vert)),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a compact Home draws the touch rail\'s one-line rows', (
@@ -342,8 +345,10 @@ void main() {
       );
     });
 
-    testWidgets('SERVERS spell user@host, a non-default port, and the state '
-        'in words while it needs them', (tester) async {
+    testWidgets('remote favorites spell user@host, a non-default port, the '
+        'landing path, and the state in words while it needs them', (
+      tester,
+    ) async {
       store.bookmarks = [
         _server('alpha', sortKey: 'ma'),
         _server('beta', port: 2222, sortKey: 'mb'),
@@ -370,35 +375,61 @@ void main() {
         );
       await tester.pump();
 
-      // Connected: the dot says it; the line keeps to the endpoint.
+      // Connected: the dot says it; the line keeps to where it lands.
       expect(
         rowOf(tester, 'sidebar.favorite.alpha').subtitle,
-        'deploy@alpha.example.com',
+        'deploy@alpha.example.com · /',
       );
       expect(
         rowOf(tester, 'sidebar.favorite.beta').subtitle,
-        'deploy@beta.example.com:2222',
+        'deploy@beta.example.com:2222 · /',
       );
       expect(
         rowOf(tester, 'sidebar.favorite.gamma').subtitle,
-        '${l10n.connectionStateConnecting} · deploy@gamma.example.com',
+        '${l10n.connectionStateConnecting} · deploy@gamma.example.com · /',
       );
       expect(
         rowOf(tester, 'sidebar.favorite.delta').subtitle,
-        '${l10n.connectionFailedTitle} · deploy@delta.example.com',
+        '${l10n.connectionFailedTitle} · deploy@delta.example.com · /',
       );
     });
 
-    testWidgets('the desktop rail keeps to one line', (tester) async {
+    testWidgets('a compact touch rail keeps to one line but keeps the ⋮', (
+      tester,
+    ) async {
       store.bookmarks = [
         _server('demo'),
         _folder('docs', '/home/deploy/Documents'),
       ];
+      await pumpHome(
+        tester,
+        presentation: SidebarPresentation.rail,
+        density: SidebarDensity.compact,
+      );
+
+      // The host always hands the line over; the kit leaves it undrawn.
+      expect(rowOf(tester, 'sidebar.favorite.docs').subtitle, '~/Documents');
+      expect(find.text('~/Documents'), findsNothing);
+      expect(find.text('deploy@demo.example.com · /'), findsNothing);
+      // Touch has no right-click: the ⋮ stays in view.
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('sidebar.favorite.demo')),
+          matching: find.byIcon(Icons.more_vert),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a comfortable tablet rail spells the second line', (
+      tester,
+    ) async {
+      store.bookmarks = [_folder('docs', '/home/deploy/Documents')];
       await pumpHome(tester, presentation: SidebarPresentation.rail);
 
-      expect(rowOf(tester, 'sidebar.favorite.demo').subtitle, isNull);
-      expect(rowOf(tester, 'sidebar.favorite.docs').subtitle, isNull);
-      expect(rowOf(tester, 'sidebar.favorite.demo').showMenuButton, isFalse);
+      expect(find.text('~/Documents'), findsOneWidget);
+      final row = find.byKey(const ValueKey('sidebar.favorite.docs'));
+      expect(tester.getSize(row).height, 56);
     });
   });
 
@@ -419,7 +450,7 @@ void main() {
       await tester.pump();
 
       const label =
-          'demo, Connection failed, deploy@demo.example.com, '
+          'demo, Connection failed, deploy@demo.example.com · /, '
           'Connection refused';
       expect(find.bySemanticsLabel(label), findsOneWidget);
       final node = tester.getSemantics(find.bySemanticsLabel(label));

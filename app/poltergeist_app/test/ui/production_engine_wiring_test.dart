@@ -95,16 +95,19 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    // D32 §5: the saved server's one-line row carries the block — the
-    // detail rides its tooltip, not a second line.
+    // D32 §5: the saved server's row carries the block — the detail
+    // rides its tooltip (the row's own, beside its ⋮'s).
     final row = find.byKey(const ValueKey('sidebar.favorite.b1'));
     expect(
-      tester
-          .widget<Tooltip>(
-            find.descendant(of: row, matching: find.byType(Tooltip)),
-          )
-          .message,
-      contains('Host key changed.'),
+      find.descendant(
+        of: row,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Tooltip &&
+              (widget.message ?? '').contains('Host key changed.'),
+        ),
+      ),
+      findsOneWidget,
     );
 
     // The blocked review affordance is reachable through the row's

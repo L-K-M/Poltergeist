@@ -251,6 +251,70 @@ class _HomeSyncFooter extends StatelessWidget {
   }
 }
 
+/// A comfortable rail row's mark for a place (a device, a folder, a
+/// workspace, a live session): [glyph] on a rounded tile the shape of
+/// the servers' badge, filled with the favorite's own colour or the
+/// neutral tone an uncoloured server's badge wears, so every mark in the
+/// rail is one size (D33). [extent] and [glyphSize] are read at the row,
+/// under the kit's scope: a drag's floating copy renders outside it.
+class _RailTile extends StatelessWidget {
+  const _RailTile({
+    required this.glyph,
+    required this.extent,
+    required this.glyphSize,
+    this.accent,
+  });
+
+  final IconData glyph;
+  final double extent;
+  final double glyphSize;
+  final ServerAccent? accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox.square(
+      dimension: extent,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: accent?.container ?? scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(extent * ServerBadge.cornerRatio),
+        ),
+        child: Icon(
+          glyph,
+          size: glyphSize,
+          color: accent?.onContainer ?? scheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+/// A rail row's mark for a place: the bare glyph a compact row keeps
+/// (tinted by the favorite's colour, if any), or the [_RailTile] a
+/// comfortable row wears. Home's list draws its disc instead.
+Widget _placeMark(
+  BuildContext context,
+  IconData glyph, {
+  ServerAccent? accent,
+}) {
+  final extent = sidebarMarkExtent(context);
+  final glyphSize = sidebarGlyphSize(context);
+  if (SidebarKitScope.densityOf(context) == SidebarKitDensity.comfortable) {
+    return _RailTile(
+      glyph: glyph,
+      extent: extent,
+      glyphSize: glyphSize,
+      accent: accent,
+    );
+  }
+  return Icon(
+    glyph,
+    size: glyphSize,
+    color: accent?.line ?? PoltergeistChrome.of(context).secondaryText,
+  );
+}
+
 /// A Home row's 40 dp mark: [glyph] on a disc of [tint].
 class _HomeDisc extends StatelessWidget {
   const _HomeDisc({required this.glyph, required this.tint});
@@ -297,22 +361,23 @@ Widget _homeServerMark(
   );
 }
 
-/// A Home row's announcement: its visible lines and the state the dot
-/// shows, in reading order (the row's visuals are excluded from
-/// semantics, so what is not here is not heard).
-String _homeSemantics(List<String?> parts) => [
+/// A row's announcement while its second line is drawn (a comfortable
+/// rail, Home's list): its visible lines and the state the dot shows, in
+/// reading order (the row's visuals are excluded from semantics, so what
+/// is not here is not heard).
+String _spokenLabel(List<String?> parts) => [
   for (final part in parts)
     if (part != null && part.isNotEmpty) part,
 ].join(', ');
 
-/// Where a bookmark location sits, for a Home line: a local path
+/// Where a bookmark location sits, for a row's second line: a local path
 /// home-relative (`~/Documents`), a remote one as "server · path".
-String _homeLocation(_SidebarData data, BookmarkLocation location) {
+String _locationLine(_SidebarData data, BookmarkLocation location) {
   final server = location.server;
   if (server == null) {
     return sidebarHomeRelativePath(location.path, data.localHome);
   }
-  final name = _homeServerName(data, server);
+  final name = _locationServerName(data, server);
   return name == null
       ? location.path
       : data.l10n.compactHomeRemoteLocation(name, location.path);
@@ -320,7 +385,7 @@ String _homeLocation(_SidebarData data, BookmarkLocation location) {
 
 /// The name a remote location's server goes by: the catalog server's
 /// label, else a saved server of the same endpoint, else the endpoint.
-String? _homeServerName(_SidebarData data, BookmarkServerRef server) {
+String? _locationServerName(_SidebarData data, BookmarkServerRef server) {
   if (server.serverConfigId case final id?) {
     if (data.view.catalog?.byId(id) case final config?) return config.label;
   }
@@ -341,40 +406,35 @@ String? _homeServerName(_SidebarData data, BookmarkServerRef server) {
   );
 }
 
-/// A server row's live state in words for its Home line, when the dot
+/// A server row's live state in words for its second line, when the dot
 /// alone would leave it unexplained: an attempt running, a failure, a
 /// host-key block, or a probe that found the host down. Connected and
 /// idle rows need no words — the dot, or its absence, says it.
-String? _homeStateWords(
-  ServerIndicatorAppearance appearance,
-  ProbeStatus? probe,
-) => switch (appearance.glyph) {
-  ServerIndicatorGlyph.pending ||
-  ServerIndicatorGlyph.failed ||
-  ServerIndicatorGlyph.blocked => appearance.label,
-  ServerIndicatorGlyph.probe when probe == ProbeStatus.offline =>
-    appearance.label,
-  _ => null,
-};
+String? _stateWords(ServerIndicatorAppearance appearance, ProbeStatus? probe) =>
+    switch (appearance.glyph) {
+      ServerIndicatorGlyph.pending ||
+      ServerIndicatorGlyph.failed ||
+      ServerIndicatorGlyph.blocked => appearance.label,
+      ServerIndicatorGlyph.probe when probe == ProbeStatus.offline =>
+        appearance.label,
+      _ => null,
+    };
 
-/// A server row's Home line: the state words (first, so the ellipsis
-/// never takes them) and the endpoint.
-String? _homeServerLine(
-  AppLocalizations l10n,
-  String? state,
-  String? endpoint,
-) => switch ((state, endpoint)) {
-  (final state?, final endpoint?) => l10n.compactHomeServerState(
-    state,
-    endpoint,
-  ),
-  (final state?, null) => state,
-  (null, final endpoint) => endpoint,
-};
+/// A server row's second line (D33, both apps): the state words (first,
+/// so the ellipsis never takes them) and the endpoint.
+String? _serverLine(AppLocalizations l10n, String? state, String? endpoint) =>
+    switch ((state, endpoint)) {
+      (final state?, final endpoint?) => l10n.compactHomeServerState(
+        state,
+        endpoint,
+      ),
+      (final state?, null) => state,
+      (null, final endpoint) => endpoint,
+    };
 
-/// "N tabs open" for a Home row's announcement, where the rail's `×N`
-/// shows (a screen reader would read the glyph as "times").
-String? _homeTabsSpoken(_SidebarData data, String serverId) {
+/// "N tabs open" for a row's announcement, where the `×N` shows (a
+/// screen reader would read the glyph as "times").
+String? _tabsSpoken(_SidebarData data, String serverId) {
   final tabs = data.facts.bound[serverId]?.tabs ?? 0;
   return tabs > 1 ? data.l10n.compactHomeTabsOpen(tabs) : null;
 }

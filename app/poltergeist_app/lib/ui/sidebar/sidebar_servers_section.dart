@@ -387,8 +387,13 @@ class _SavedServerRow extends StatelessWidget {
       ServerTint(named: bookmark.color),
       ServerGlyphMark(bookmark.icon),
     );
-    final home = data.home;
-    final endpoint = home ? _homeSavedEndpoint(data, bookmark) : null;
+    final endpoint = _savedEndpoint(data, bookmark);
+    // The landing path follows the endpoint: two remote favorites of one
+    // server differ only there.
+    final place = bookmark.remotePath;
+    final where = endpoint == null || place == null
+        ? endpoint ?? place
+        : l10n.compactHomeRemoteLocation(endpoint, place);
 
     // The row's visuals are excluded from semantics; the label carries
     // the state and the failure a sighted user reads in the tooltip.
@@ -398,13 +403,13 @@ class _SavedServerRow extends StatelessWidget {
       if (failure != null)
         l10n.connectionsPaneFailure(failure.paneTabId, failure.message),
     ];
-    final semanticLabel = home
-        ? _homeSemantics([
+    final semanticLabel = data.comfortable
+        ? _spokenLabel([
             bookmark.label,
             appearance.label,
-            endpoint,
+            where,
             ...details,
-            _homeTabsSpoken(data, liveId),
+            _tabsSpoken(data, liveId),
           ])
         : [
             bookmark.label,
@@ -422,10 +427,7 @@ class _SavedServerRow extends StatelessWidget {
       mark: mark,
       status: dot,
       title: bookmark.label,
-      subtitle: home
-          ? _homeServerLine(l10n, _homeStateWords(appearance, probe), endpoint)
-          : null,
-      showMenuButton: home,
+      subtitle: _serverLine(l10n, _stateWords(appearance, probe), where),
       depth: depth,
       dropIndicator: indicator,
       trailingText: _tabsText(data, liveId),
@@ -507,10 +509,12 @@ class _SavedServerRow extends StatelessWidget {
   }
 }
 
-/// A server row's 18 px mark: a plain glyph like every other rail row
-/// when the server has no colour and no image or emoji of its own; the
-/// shared badge (Séance's tint and mark) when it does. Home draws the
-/// 40 dp disc instead.
+/// A server row's mark. Compact, a plain glyph like every other rail row
+/// when the server has no colour and no image or emoji of its own, and
+/// the shared badge (Séance's tint and mark) at the kit's 18 px (24 on
+/// touch) when it does. Comfortable, always the 32 px badge, whose
+/// neutral tile an uncoloured server wears, as Séance's rows did before
+/// the kit (D33). Home's list draws the 40 dp disc instead.
 Widget _serverMark(
   _SidebarData data,
   BuildContext context,
@@ -519,19 +523,27 @@ Widget _serverMark(
   String? label,
 }) {
   if (data.list) return _homeServerMark(context, tint, mark, label: label);
-  if (mark is ServerGlyphMark && serverAccent(context, tint) == null) {
+  final extent = sidebarMarkExtent(context);
+  if (!data.comfortable &&
+      mark is ServerGlyphMark &&
+      serverAccent(context, tint) == null) {
     return Icon(
       serverIconData(mark.icon),
-      size: 16,
+      size: sidebarGlyphSize(context),
       color: PoltergeistChrome.of(context).secondaryText,
     );
   }
-  return ServerBadge(tint: tint, mark: mark, size: 18, semanticsLabel: label);
+  return ServerBadge(
+    tint: tint,
+    mark: mark,
+    size: extent,
+    semanticsLabel: label,
+  );
 }
 
-/// A saved server's endpoint for its Home line: the embedded identity,
+/// A saved server's endpoint for its second line: the embedded identity,
 /// else the catalog server it references.
-String? _homeSavedEndpoint(_SidebarData data, Bookmark bookmark) {
+String? _savedEndpoint(_SidebarData data, Bookmark bookmark) {
   final identity = bookmark.server?.identity;
   if (identity != null) {
     return sidebarEndpointText(
@@ -594,7 +606,6 @@ class _CatalogServerRow extends StatelessWidget {
           username: server.username,
         );
     final open = view.onOpenCatalogServer;
-    final home = data.home;
     final endpoint = sidebarEndpointText(
       username: server.username,
       host: server.host,
@@ -614,14 +625,7 @@ class _CatalogServerRow extends StatelessWidget {
         ),
         status: dot,
         title: server.label,
-        subtitle: home
-            ? _homeServerLine(
-                l10n,
-                _homeStateWords(appearance, probe),
-                endpoint,
-              )
-            : null,
-        showMenuButton: home,
+        subtitle: _serverLine(l10n, _stateWords(appearance, probe), endpoint),
         depth: depth,
         trailingText: _tabsText(data, server.id),
         hoverAction: _disconnectAction(data, connection, live),
@@ -629,12 +633,12 @@ class _CatalogServerRow extends StatelessWidget {
           if (appearance.label.isNotEmpty) appearance.label,
           '${server.username}@${server.host}:${server.port}',
         ].join('\n'),
-        semanticLabel: home
-            ? _homeSemantics([
+        semanticLabel: data.comfortable
+            ? _spokenLabel([
                 server.label,
                 appearance.label,
                 endpoint,
-                _homeTabsSpoken(data, server.id),
+                _tabsSpoken(data, server.id),
               ])
             : appearance.label.isEmpty
             ? server.label
@@ -709,7 +713,6 @@ class _AdhocRow extends StatelessWidget {
       username: identity?.username ?? '',
     );
     final open = view.onOpenFavorite;
-    final home = data.home;
     final endpoint = identity == null
         ? null
         : sidebarEndpointText(
@@ -717,26 +720,17 @@ class _AdhocRow extends StatelessWidget {
             host: identity.host,
             port: identity.port,
           );
-    final unsaved = home
-        ? l10n.paneUnsavedSession(endpoint ?? bookmark.label)
-        : null;
+    final unsaved = l10n.paneUnsavedSession(endpoint ?? bookmark.label);
     return SidebarRow(
       mark: data.list
           ? _HomeDisc(
               glyph: Icons.bolt,
               tint: Theme.of(context).colorScheme.tertiary,
             )
-          : Icon(
-              Icons.bolt,
-              size: 16,
-              color: PoltergeistChrome.of(context).secondaryText,
-            ),
+          : _placeMark(context, Icons.bolt),
       status: dot,
       title: bookmark.label,
-      subtitle: home
-          ? _homeServerLine(l10n, _homeStateWords(appearance, null), unsaved)
-          : null,
-      showMenuButton: home,
+      subtitle: _serverLine(l10n, _stateWords(appearance, null), unsaved),
       italic: true,
       trailingText: _tabsText(data, bookmark.id),
       hoverAction: _disconnectAction(data, connection, live),
@@ -745,13 +739,13 @@ class _AdhocRow extends StatelessWidget {
         ?_endpointLabelWithPort(bookmark),
         ?session.path,
       ].join('\n'),
-      semanticLabel: home
-          ? _homeSemantics([
+      semanticLabel: data.comfortable
+          ? _spokenLabel([
               bookmark.label,
               l10n.sidebarUnsavedSession,
               appearance.label,
               endpoint,
-              _homeTabsSpoken(data, bookmark.id),
+              _tabsSpoken(data, bookmark.id),
             ])
           : [
               bookmark.label,

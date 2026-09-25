@@ -326,30 +326,25 @@ class _FavoriteRow extends StatelessWidget {
     final l10n = data.l10n;
     final view = data.view;
     final open = view.onOpenFavorite;
-    final chrome = PoltergeistChrome.of(context);
     final accent = serverAccent(context, ServerTint(named: bookmark.color));
-    final home = data.home;
     final mark = data.list
         ? _HomeDisc(
             glyph: _favoriteIcon(bookmark),
             tint: accent?.line ?? _homeFavoriteTint(context, bookmark),
           )
-        : Icon(
-            _favoriteIcon(bookmark),
-            size: 16,
-            color: accent?.line ?? chrome.secondaryText,
-          );
+        : _placeMark(context, _favoriteIcon(bookmark), accent: accent);
     final localPath = bookmark.kind == BookmarkKind.localFolder
         ? bookmark.localPath
         : null;
-    final subtitle = home ? _homeFavoriteLine(data, bookmark) : null;
+    final subtitle = _favoriteLine(data, bookmark);
 
     Widget row(SidebarDropIndicator indicator) => SidebarRow(
       mark: mark,
       title: bookmark.label,
       subtitle: subtitle,
-      semanticLabel: home ? _homeSemantics([bookmark.label, subtitle]) : null,
-      showMenuButton: home,
+      semanticLabel: data.comfortable
+          ? _spokenLabel([bookmark.label, subtitle])
+          : null,
       depth: depth,
       dropIndicator: indicator,
       tooltip: switch (bookmark.kind) {
@@ -421,10 +416,10 @@ Color _homeFavoriteTint(BuildContext context, Bookmark bookmark) {
   };
 }
 
-/// A favorite's Home line (D32 §9): where it opens — a folder's path
-/// home-relative, a saved sync's two sides — or, for a workspace (two
-/// panes, no single place), its kind.
-String? _homeFavoriteLine(_SidebarData data, Bookmark bookmark) {
+/// A favorite's second line (D32 §9, D33): where it opens — a folder's
+/// path home-relative, a saved sync's two sides — or, for a workspace
+/// (two panes, no single place), its kind.
+String? _favoriteLine(_SidebarData data, Bookmark bookmark) {
   final l10n = data.l10n;
   switch (bookmark.kind) {
     case BookmarkKind.localFolder:
@@ -438,8 +433,8 @@ String? _homeFavoriteLine(_SidebarData data, Bookmark bookmark) {
       final sync = bookmark.sync;
       if (sync == null) return l10n.sidebarKindSavedSync;
       return l10n.compactHomeSyncRoute(
-        _homeLocation(data, sync.source),
-        _homeLocation(data, sync.destination),
+        _locationLine(data, sync.source),
+        _locationLine(data, sync.destination),
       );
     case BookmarkKind.remotePath:
       final path = bookmark.remotePath;
@@ -447,7 +442,7 @@ String? _homeFavoriteLine(_SidebarData data, Bookmark bookmark) {
       if (path == null) return null;
       return server == null
           ? path
-          : _homeLocation(data, BookmarkLocation(server: server, path: path));
+          : _locationLine(data, BookmarkLocation(server: server, path: path));
   }
 }
 

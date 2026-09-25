@@ -77,8 +77,7 @@ List<Widget> _thisDeviceSection(_SidebarData data) {
   final sectionKey = SidebarCollapseKeys.section(SidebarSection.devices);
   final collapsed = data.collapsed(sectionKey);
   final context = data.context;
-  final chrome = PoltergeistChrome.of(context);
-  final subtitle = data.home ? l10n.compactHomeThisDeviceSubtitle : null;
+  final subtitle = l10n.compactHomeThisDeviceSubtitle;
   return [
     SidebarSectionHeader(
       headerKey: ValueKey('sidebar.section.$sectionKey'),
@@ -95,15 +94,12 @@ List<Widget> _thisDeviceSection(_SidebarData data) {
                 glyph: Icons.smartphone_outlined,
                 tint: Theme.of(context).colorScheme.primary,
               )
-            : Icon(
-                Icons.smartphone_outlined,
-                size: 16,
-                color: chrome.secondaryText,
-              ),
+            : _placeMark(context, Icons.smartphone_outlined),
         title: label,
         subtitle: subtitle,
-        semanticLabel: data.home ? _homeSemantics([label, subtitle]) : null,
-        showMenuButton: data.home,
+        semanticLabel: data.comfortable
+            ? _spokenLabel([label, subtitle])
+            : null,
         // No volume or favorite claims a local location here, so any
         // local folder the active pane shows is this device's.
         selected:
@@ -144,7 +140,6 @@ class _DeviceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = data.l10n;
-    final chrome = PoltergeistChrome.of(context);
     final view = data.view;
     final open = onOpen;
     final eject = volume.ejectable
@@ -154,17 +149,15 @@ class _DeviceRow extends StatelessWidget {
         : null;
 
     final free = freeSpace;
-    // Home spells the free space (or, without it, the place) on the
-    // second line; the rail keeps free space trailing and the path in
-    // the tooltip.
-    final home = data.home;
-    final subtitle = !home
-        ? null
-        : (free == null
-              ? sidebarHomeRelativePath(volume.path, data.localHome)
-              : l10n.compactHomeFreeSpace(free));
-    final semanticLabel = home
-        ? _homeSemantics([
+    // A comfortable row spells the free space (or, without it, the
+    // place) on its second line; a compact one keeps free space trailing
+    // and the path in the tooltip.
+    final comfortable = data.comfortable;
+    final subtitle = free == null
+        ? sidebarHomeRelativePath(volume.path, data.localHome)
+        : l10n.compactHomeFreeSpace(free);
+    final semanticLabel = comfortable
+        ? _spokenLabel([
             volume.name,
             free == null ? subtitle : l10n.sidebarFreeSpaceSemantics(free),
           ])
@@ -178,13 +171,12 @@ class _DeviceRow extends StatelessWidget {
               glyph: _iconFor(volume.kind),
               tint: Theme.of(context).colorScheme.primary,
             )
-          : Icon(_iconFor(volume.kind), size: 16, color: chrome.secondaryText),
+          : _placeMark(context, _iconFor(volume.kind)),
       title: volume.name,
       subtitle: subtitle,
-      trailingText: home ? null : freeSpace,
+      trailingText: comfortable ? null : freeSpace,
       tooltip: volume.path,
       semanticLabel: semanticLabel,
-      showMenuButton: home,
       selected: data.selectionKey == _deviceSelectionKey(volume.path),
       onActivate: open == null ? null : (how) => open(_openActionFor(how)),
       hoverAction: eject == null

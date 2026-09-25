@@ -305,7 +305,9 @@ Widget _bookmarkDraggable(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
           children: [
-            SizedBox(width: 18, height: 18, child: Center(child: mark)),
+            // Scaled into the copy's 18 px slot: a comfortable row's
+            // mark is 32 px.
+            SizedBox(width: 18, height: 18, child: FittedBox(child: mark)),
             const SizedBox(width: 6),
             Expanded(
               child: Text(

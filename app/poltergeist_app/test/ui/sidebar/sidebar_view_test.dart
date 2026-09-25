@@ -15,6 +15,7 @@ import 'package:poltergeist_app/services/pane_drop.dart';
 import 'package:poltergeist_app/services/sidebar_controller.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
+import 'package:poltergeist_app/ui/server_appearance.dart';
 import 'package:poltergeist_app/ui/sidebar/sidebar_kit.dart';
 import 'package:poltergeist_app/ui/sidebar/sidebar_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -785,6 +786,15 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(BottomSheet), findsOneWidget);
+      // The sheet's heading spells the row's second line under its name,
+      // the one place a compact row's path shows on touch.
+      expect(
+        find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.text('/home/deploy/a'),
+        ),
+        findsOneWidget,
+      );
       await tester.tap(find.byKey(const ValueKey('sidebar.menu.open')));
       await tester.pumpAndSettle();
       expect(opens.single.$1.id, 'a');
@@ -1395,6 +1405,138 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sidebar.filter')), findsNothing);
+    });
+  });
+
+  group('comfortable rows', () {
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    Finder row(String key) => find.byKey(ValueKey(key));
+
+    testWidgets('every row kind spells its second line', (tester) async {
+      store.bookmarks = [
+        _local('l1', label: 'Docs', path: '/home/deploy/docs', sortKey: 'ma'),
+        Bookmark(
+          id: 'w1',
+          kind: BookmarkKind.workspace,
+          label: 'Daily pair',
+          sortKey: 'mb',
+          createdAt: _now,
+          updatedAt: _now,
+        ),
+        _remote('r1', sortKey: 'mc'),
+      ];
+      final volumes = _FakeVolumes()..volumes = const [_home, _usb];
+      await pumpSidebar(
+        tester,
+        volumes: volumes,
+        density: SidebarDensity.comfortable,
+      );
+
+      // DEVICES: free space moves from the trailing text to the line.
+      expect(find.text('69 GB free'), findsOneWidget);
+      expect(
+        rowOf(tester, row('sidebar.device./home/deploy')).trailingText,
+        isNull,
+      );
+      // A folder home-relative, a workspace by kind.
+      expect(find.text('~/docs'), findsOneWidget);
+      expect(find.text('Workspace'), findsOneWidget);
+      // A remote favorite: the endpoint and the folder it lands in.
+      expect(find.text('deploy@r1.example.com · /srv/r1'), findsOneWidget);
+      // The tooltips stay: a second line has room for one fact.
+      expect(find.byTooltip('/home/deploy/docs'), findsOneWidget);
+    });
+
+    testWidgets('a server line leads with the state words it needs', (
+      tester,
+    ) async {
+      store.bookmarks = [_remote('r1')];
+      await pumpSidebar(
+        tester,
+        withConnections: true,
+        density: SidebarDensity.comfortable,
+      );
+      const endpoint = 'deploy@r1.example.com · /srv/r1';
+
+      lanes.watches['r1']!.add(
+        const ServerStatus(ServerConnectionState.connecting),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('${l10n.connectionStateConnecting} · $endpoint'),
+        findsOneWidget,
+      );
+
+      lanes.watches['r1']!.add(
+        const ServerStatus(
+          ServerConnectionState.blocked,
+          detail: 'Host key changed.',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('${l10n.connectionBlockedTitle} · $endpoint'),
+        findsOneWidget,
+      );
+
+      // Connected needs no words: the dot and the ring say it.
+      lanes.watches['r1']!.add(
+        const ServerStatus(ServerConnectionState.connected),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(endpoint), findsOneWidget);
+    });
+
+    testWidgets('marks are 32 px: a badge for a server, a tile for a place', (
+      tester,
+    ) async {
+      store.bookmarks = [
+        _local('l1', label: 'Docs', sortKey: 'ma'),
+        _remote('r1', sortKey: 'mb'),
+      ];
+      await pumpSidebar(tester, density: SidebarDensity.comfortable);
+
+      // An uncoloured server still wears its badge: the neutral tile.
+      final badge = tester.widget<ServerBadge>(
+        find.descendant(
+          of: row('sidebar.favorite.r1'),
+          matching: find.byType(ServerBadge),
+        ),
+      );
+      expect(badge.size, 32);
+      final glyph = find.descendant(
+        of: row('sidebar.favorite.l1'),
+        matching: find.byIcon(Icons.folder_outlined),
+      );
+      expect(tester.widget<Icon>(glyph).size, 20);
+      expect(
+        tester.getSize(
+          find.ancestor(of: glyph, matching: find.byType(DecoratedBox)).first,
+        ),
+        const Size(32, 32),
+      );
+    });
+
+    testWidgets('the row ⋮ is drawn when comfortable, not on a compact rail', (
+      tester,
+    ) async {
+      store.bookmarks = [_local('l1')];
+      await pumpSidebar(tester, density: SidebarDensity.comfortable);
+      expect(
+        find.descendant(
+          of: row('sidebar.favorite.l1'),
+          matching: find.byIcon(Icons.more_vert),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the compact rail keeps the row ⋮ to the right-click', (
+      tester,
+    ) async {
+      store.bookmarks = [_local('l1')];
+      await pumpSidebar(tester);
+      expect(find.byIcon(Icons.more_vert), findsNothing);
     });
   });
 
