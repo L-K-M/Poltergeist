@@ -14,6 +14,7 @@ add_executable(${BINARY_NAME} WIN32
   "trash_operations.cpp"
   "utils.cpp"
   "win32_window.cpp"
+  "workspace_windows.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
   "Runner.rc"
   "runner.exe.manifest"

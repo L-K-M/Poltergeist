@@ -6,6 +6,7 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "settings_window.h"
 #include "window_title.h"
+#include "workspace_windows.h"
 
 constexpr char kWindowTitle[] = "Poltergeist";
 
@@ -55,6 +56,8 @@ static void my_application_activate(GApplication* application) {
   // OS drag-out of local items (poltergeist/dragout, D14's amendment).
   drag_out_channel_register(view);
   settings_window_install(GTK_APPLICATION(application), window, view);
+  // More workspace windows on this engine (00 D37).
+  workspace_windows_install(GTK_APPLICATION(application), window, view);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }

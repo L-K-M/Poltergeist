@@ -1310,6 +1310,18 @@ abstract class AppLocalizations {
   /// **'Tabs'**
   String get tabStripLabel;
 
+  /// Command label: open another workspace window with the default layout (window.new, 00 D37).
+  ///
+  /// In en, this message translates to:
+  /// **'New Window'**
+  String get windowNewLabel;
+
+  /// Command label: close the current workspace window; the last one quits the app (window.close, 00 D37).
+  ///
+  /// In en, this message translates to:
+  /// **'Close Window'**
+  String get windowCloseLabel;
+
   /// Command label and button tooltip: open a new tab in the focused pane (tab.new, 02 §3).
   ///
   /// In en, this message translates to:

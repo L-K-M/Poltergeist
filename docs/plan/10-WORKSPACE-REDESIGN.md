@@ -360,7 +360,7 @@ source.**
 | Menu | Contents |
 |---|---|
 | Poltergeist (macOS) | About, Check for Updates…, Settings… ⌘, · Services · Hide, Hide Others, Show All · Quit |
-| File | New Tab, New Folder, New File │ Open, Open With ▸, Edit in Poltergeist, Quick Look │ Get Info, Rename, Duplicate │ Copy to Other Pane, Move to Other Pane │ Move to Trash │ Reopen Closed Tab, Close Tab │ (Linux/Windows: Settings…, Quit) |
+| File | New Window, New Tab, New Folder, New File │ Open, Open With ▸, Edit in Poltergeist, Quick Look │ Get Info, Rename, Duplicate │ Copy to Other Pane, Move to Other Pane │ Move to Trash │ Reopen Closed Tab, Close Tab, Close Window │ (Linux/Windows: Settings…, Quit) |
 | Edit | Undo, Redo │ Cut, Copy, Paste │ Select All, Invert Selection, Quick Select │ Copy Path │ Filter |
 | View | Show/Hide Sidebar, Use Compact/Comfortable Sidebar Rows (D33: one item naming the density it switches to, since the macOS menu cannot show a check), Inspector, Second Pane │ Info, Transfers, Alerts │ Show Hidden Files │ Refresh │ Enter Full Screen |
 | Go | Back, Forward, Enclosing Folder, Home │ Go to Folder…, Edit Path │ Focus Left/Right Pane, Sync Browsing │ Quick Open… |
@@ -483,7 +483,7 @@ Poltergeist and Séance are one product family. The contract:
 ## 12. What is intentionally not in this chapter
 
 - Icon, column, and cover-flow view modes: 02 §2.2 stands.
-- Multi-window: D13 / D25.
+- Multi-window: D37 (it was D13 / D25).
 - Tree disclosure in lists: ForkLift's inline expansion needs a flattened
   tree model in the controller, so it is its own slice.
 - Remote free space: this needs `statvfs@openssh.com` exposed through the

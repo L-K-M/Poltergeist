@@ -201,6 +201,28 @@ known-divergent surface.
   with it. On Windows the window stays above the workspace. Linux was
   run under Xvfb (STATUS D36 section); macOS and Windows are compiled
   by CI only, so this row is their first run.
+- [ ] OWNER MANUAL QA: more than one workspace window (D37). On each
+  desktop platform: File ▸ New Window (⌘N / Ctrl+N) opens a window with
+  a local home tab in each pane, as the active window, at the size of
+  the one it came from; typing and shortcuts go to the window you are
+  in, and clicking back into another window puts focus back where it
+  was there. Tabs, navigation and connections in one window leave the
+  other alone; a transfer started in one shows in both windows'
+  Transfers and keeps running after its window closes. Close a tab on a
+  server that the other window still browses: the other window stays
+  connected. A host-key or password prompt appears in the window you
+  are working in. On macOS the menu bar acts on the key window (New Tab,
+  Close Tab, Get Info), ⇧⌘W closes the key window, and Enter Full Screen
+  works on an extra window; on Linux and Windows View ▸ Enter Full
+  Screen takes the window it was chosen in. Closing the first window
+  while another is open only hides it; New Window then brings it back
+  empty. Closing the last window, and Quit with several open, ask first
+  when a transfer is running, then close everything. Quit with two
+  windows open and relaunch: both come back with their tabs. On macOS
+  with VoiceOver on, open a second window: the first window's elements
+  still read correctly. Linux was run under Xvfb with openbox (STATUS
+  D37 section); macOS and Windows are compiled by CI only, so this row
+  is their first run.
 - [ ] OWNER MANUAL QA: theme flip (light/dark) live-restyles listing,
   plan view, and editor; HiDPI scaling at 100 %/150 %/200 % shows no
   clipped chrome.

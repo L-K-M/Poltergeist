@@ -66,7 +66,7 @@ stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
 D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
 permissions · D29 mobile hooks · D30 Séance license · D31 no mounting ·
 D32 inspector workspace · D33 sidebar density · D34 colour vocabulary ·
-D35 Android supported · D36 settings window
+D35 Android supported · D36 settings window · D37 workspace windows
 
 ### Stack and shape
 
@@ -462,7 +462,8 @@ D35 Android supported · D36 settings window
 - **D13 — Single window in v1.** One window, dual pane, tabs per pane; a
   `WorkspaceController` owns one window's state so multi-window becomes
   mechanical when Flutter's windowing API stabilizes. Multi-window itself
-  is parked in D25.
+  is parked in D25. *Superseded by D37 (2026-09-25): the desktops open
+  more than one workspace window, each with its own `WorkspaceController`.*
 - **D16 — The activity panel is a trust organ.** A first-class
   `TransferQueue` service above panes drives the optional bottom panel:
   per-item rows (never just a summary bar — Transmit's launch mistake),
@@ -779,7 +780,67 @@ D35 Android supported · D36 settings window
     the termination handler, so the window forwards exit requests to the
     app's isolate, whose quit guard and exit flush decide them.
   - **Still parked (D25):** more than one workspace window. D13's single
-    workspace window stands.
+    workspace window stands. *D37 lifted this the same day.*
+
+- **D37 — More than one workspace window (2026-09-25, owner-directed;
+  supersedes D13's single window and D25's multi-window item).** The owner
+  asked for a New Window command so different views, connections, and
+  running actions can sit side by side. Binding:
+  - **What the user gets.** File ▸ New Window (⌘N, Ctrl+N) opens a window
+    with the default workspace (a local home tab in each pane) and makes it
+    active. File ▸ Close Window (⇧⌘W, Ctrl+Shift+W; ⌘W stays Close Tab) and
+    the close button close one window; closing the last open window quits,
+    through the quit guard. Quit closes them all. Relaunch reopens every
+    window that was open, each with its tabs.
+  - **Per window, per app.** A window owns what it shows: its tabs and
+    panes, selection, sidebar and inspector state, and which connections
+    its panes browse. The app owns everything else, shared by every
+    window: the stores, the engine session and its pool, the transfer
+    queue (every window's Transfers tab shows the one queue, and a
+    transfer keeps running after the window that started it closes),
+    Settings, and the probe owner. 03 §3.2's last-binding rule spans
+    windows: closing a window's last tab on a server keeps the pool's
+    reference while another window's tab still browses it. The app-wide
+    reactions run once, in the active window (the one last worked in):
+    its menus fill the macOS menu bar, its navigator shows the engine's
+    prompts and the quit guard's dialog, it asks the dirty-checkout
+    question, and its inspector opens for new transfers. Closing a window
+    does not disconnect its servers: its transfers may still be using
+    them, and the pool keeps them until Disconnect or quit.
+  - **How.** Every window is a view on the app's one Flutter engine, not a
+    second engine as D36's Settings window is, so the windows share one
+    isolate and every model in it. The Dart side is stable Flutter
+    (`runWidget`, `ViewCollection`, `View`); Flutter's own windowing API
+    is still master-only. Each runner hosts the views on
+    `poltergeist/windows` (`lib/services/workspace_windows/window_host.dart`):
+    Linux through the public `fl_view_new_for_engine`; Windows through
+    `FlutterDesktopEngineCreateViewController` and
+    `FlutterDesktopEngineForId`, exported by the engine but declared only
+    in its internal header; macOS through `initWithEngine:` once the
+    engine's multi-view flag is set directly, because the private
+    `-enableMultiView` asserts that no view exists yet. Both non-public
+    routes are reassessed on every Flutter upgrade.
+  - **The first window is the engine's implicit view,** which cannot leave
+    the engine and carries the plugins that know one window. Closing it
+    while another window is open hides it and drops its workspace; the
+    next New Window shows it again, fresh. Its size and place are
+    remembered as before; an extra window opens at the size of the one it
+    came from and is not remembered.
+  - **What an extra window lacks today,** because the plugin or the
+    embedder serves the implicit view only: drops from other apps
+    (desktop_drop reports the main window's drops in its coordinates, so
+    an extra window refuses them), drag-out to other apps, on macOS the
+    unified toolbar (a standard titlebar instead, since macos_window_utils'
+    click passthrough serves one window), the Quick Look panel (the
+    in-window Quick Look instead) and accessibility (Flutter 3.47's macOS
+    embedder hands every view's semantics to the main window's bridge, so
+    an extra window sends none rather than overwrite the main window's
+    tree), and on Windows the taskbar progress while the main window is
+    hidden. Each is a follow-up, not a design limit.
+  - **Session document.** `session.state` keeps its v1 shape and holds the
+    first open window, so an older build still restores it; the others go
+    in `session.windows`, versioned and fail-closed like it, in the same
+    write.
 
 ### Security, trust, distribution
 
@@ -904,7 +965,7 @@ D35 Android supported · D36 settings window
   builds them early): true two-way sync with baseline DB; resumable
   transfers (ranged read/write); rsync accelerator; S3/WebDAV behind a
   capability matrix; browsable archives; scheduled/watched sync;
-  multi-window; Custom Tools (user scripts); content search on remotes;
+  multi-window (landed as D37); Custom Tools (user scripts); content search on remotes;
   byte-preserving *operations* on non-UTF-8 remote filenames — v1's
   policy for them (strict-decode; lossy display with a warning badge,
   paired with a byte-accurate escaped rendering wherever a lossy-render

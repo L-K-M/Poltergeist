@@ -18,6 +18,7 @@ import '../services/app_lifecycle_forwarder.dart';
 import '../services/app_transfer_queue.dart';
 import '../services/application_error_reporter.dart';
 import '../services/bookmark_backup_service.dart';
+import '../services/checkout_prompt_ledger.dart';
 import '../services/checkout_session.dart';
 import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
@@ -58,6 +59,8 @@ import '../services/uuid.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
 import '../services/workspace_state.dart';
+import '../services/workspace_windows/workspace_window_scope.dart';
+import '../services/workspace_windows/workspace_windows.dart';
 import '../theme/app_theme.dart';
 import 'activity/activity_commands.dart';
 import 'adaptive_shell.dart';
@@ -93,6 +96,7 @@ import 'shell/header_toolbar.dart';
 import 'shell/macos_toolbar_band.dart';
 import 'shell/shell_commands.dart';
 import 'shell/shell_splitter.dart';
+import 'shell/window_commands.dart';
 import 'sidebar/sidebar_view.dart';
 import 'sync/rsync_copy.dart';
 import 'sync/sync_commands.dart';
@@ -168,6 +172,10 @@ class WorkspaceShell extends StatefulWidget {
     this.updateCheck,
     this.localVolumes,
     this.settingsWindow,
+    this.window,
+    this.probeOwner,
+    this.previewThreshold,
+    this.checkoutPrompts,
   });
 
   final double initialPaneRatio;
@@ -420,11 +428,35 @@ class WorkspaceShell extends StatefulWidget {
   /// test that does not wire a window.
   final SettingsWindowHost? settingsWindow;
 
+  /// The workspace window this shell fills (00 D37), or null for the
+  /// single-window app. With a window the shell registers New Window and
+  /// Close Window, leaves out what only the main window supports
+  /// ([WorkspaceWindow.capabilities]), and runs the app-wide reactions
+  /// (the dirty-checkout prompt, the activity panel's reveal on new work)
+  /// only while its window is the active one.
+  final WorkspaceWindow? window;
+
+  /// The reachability owner every window's sidebar reads (02 §4), shared
+  /// because each owner drives the engine's one probe target set: a
+  /// window's own would double the probes and, when it closed, clear the
+  /// targets under the others. Null builds and owns one here.
+  final SidebarProbeOwner? probeOwner;
+
+  /// The §8 large-download threshold's live value, shared so a change in
+  /// the Settings window reaches every window. Null keeps it here, seeded
+  /// from [initialPreviewThresholdBytes].
+  final ValueNotifier<int>? previewThreshold;
+
+  /// The dirty-checkout prompt's guards, shared so the prompt is asked
+  /// once whichever window is active. Null keeps them here.
+  final CheckoutPromptLedger? checkoutPrompts;
+
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
 
-class _WorkspaceShellState extends State<WorkspaceShell> {
+class _WorkspaceShellState extends State<WorkspaceShell>
+    implements WorkspaceWindowContent {
   bool _commandSessionActive = false;
 
   /// The latest assembled registry — the Quick Open palette reads it at
@@ -479,8 +511,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
   /// The §8 shared large-download threshold's live value — seeded once
   /// from the persisted setting and written live by the Preview &
-  /// downloads section; the session reads it per gate decision.
-  late int _previewThresholdBytes;
+  /// downloads section; the session reads it per gate decision. The
+  /// windows share [WorkspaceShell.previewThreshold] when there is one.
+  ValueNotifier<int>? _ownPreviewThreshold;
+  ValueNotifier<int> get _previewThreshold =>
+      widget.previewThreshold ?? _ownPreviewThreshold!;
+  int get _previewThresholdBytes => _previewThreshold.value;
+  set _previewThresholdBytes(int bytes) => _previewThreshold.value = bytes;
+
+  /// What this window supports beyond the shared workspace UI.
+  WindowCapabilities get _capabilities =>
+      widget.window?.capabilities ?? WindowCapabilities.all;
+
+  /// Whether this shell's window is the one the user works in; always in
+  /// the single-window app.
+  bool get _isActiveWindow => widget.window?.isActive ?? true;
 
   /// The production Quick Look channel, created once so session
   /// rebuilds share the one native binding (06 §5.1).
@@ -490,9 +535,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
   /// D32: Space is Quick Look on every desktop — the native panel on
   /// macOS, the in-window overlay on Linux and Windows. Touch platforms
-  /// have no surface; Space answers on the Info tab there.
-  static QuickLookChannel _platformQuickLook() =>
+  /// have no surface; Space answers on the Info tab there. A window the
+  /// panel does not serve (00 D37) takes the overlay on macOS too.
+  QuickLookChannel _platformQuickLook() =>
       switch (defaultTargetPlatform) {
+        TargetPlatform.macOS when !_capabilities.nativeQuickLook =>
+          InAppQuickLook(),
         TargetPlatform.macOS => MethodChannelQuickLook(),
         TargetPlatform.linux || TargetPlatform.windows => InAppQuickLook(),
         _ => const NoopQuickLookChannel(),
@@ -550,8 +598,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// persistent indicators are the §3.7 review surface's slice), and
   /// `serverId|remotePath` keys with an upload in flight, so a built-in
   /// save-and-upload racing the watcher never shows a stale prompt.
-  final _promptedDirtyCheckouts = <String>{};
-  final _uploadingCheckoutKeys = <String>{};
+  late final CheckoutPromptLedger _checkoutPrompts =
+      widget.checkoutPrompts ?? CheckoutPromptLedger();
+  Set<String> get _promptedDirtyCheckouts => _checkoutPrompts.prompted;
+  Set<String> get _uploadingCheckoutKeys => _checkoutPrompts.uploading;
   CheckoutSession? _checkoutListener;
 
   static String _checkoutKey(ManagedRemoteFile record) =>
@@ -575,7 +625,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       inspectorMinWidth,
       inspectorMaxWidth,
     );
-    _previewThresholdBytes = widget.initialPreviewThresholdBytes;
+    if (widget.previewThreshold == null) {
+      _ownPreviewThreshold = ValueNotifier(widget.initialPreviewThresholdBytes);
+    }
+    widget.window?.attachContent(this);
     _activity = ActivityPanelController(
       queue: widget.transferQueue,
       autoClearCompleted: widget.autoClearCompletedTransfers,
@@ -590,8 +643,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // The compact posture keeps the sheet closed on new work: its
       // floating progress pill is the always-visible signal there, and a
       // half-height sheet must not cover the listing mid-flow (D32 §9).
+      // With several windows it is the active one that opens: the queue
+      // is the app's, and every window would otherwise pop its panel.
       onTasksArrived: () {
-        if (!_compactPosture) _workspace?.setActivityPanelHidden(false);
+        if (!_compactPosture && _isActiveWindow) {
+          _workspace?.setActivityPanelHidden(false);
+        }
       },
     );
     _connections = _buildConnections();
@@ -658,6 +715,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     if (mounted) setState(() {});
   }
 
+  bool _wasActiveWindow = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The Settings window binds the active window's sections (00 D37): the
+    // sections are the same models in every window, but a closed window's
+    // shell must not stay the one answering.
+    final active = WorkspaceWindowScope.activeOf(context);
+    if (widget.window != null && active && !_wasActiveWindow) {
+      widget.settingsWindow?.attach(_settingsWindowSources());
+    }
+    _wasActiveWindow = active;
+  }
+
   @override
   void didUpdateWidget(WorkspaceShell oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -711,7 +783,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // silently resume while the app sits backgrounded.
     if (!identical(oldWidget.engineSession, widget.engineSession) ||
         !identical(oldWidget.probeSettings, widget.probeSettings)) {
-      _probes?.dispose();
+      _disposeProbes();
       _probes = _buildProbes();
       _probes?.forwardLifecycle(_lifecycleState);
       // A settings-only seam swap leaves the sidebar (and its reload)
@@ -745,8 +817,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // The threshold's live value follows a changed seed — same
     // contract as the other persisted seeds: the settings section's
     // own writes can never arrive through here.
-    if (widget.initialPreviewThresholdBytes !=
-        oldWidget.initialPreviewThresholdBytes) {
+    if (widget.previewThreshold == null &&
+        widget.initialPreviewThresholdBytes !=
+            oldWidget.initialPreviewThresholdBytes) {
+      _ownPreviewThreshold ??= ValueNotifier(0);
       _previewThresholdBytes = widget.initialPreviewThresholdBytes;
     }
     if (!identical(oldWidget.transferQueue, widget.transferQueue)) {
@@ -797,7 +871,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _attachCheckoutSession(null);
     _attachBookmarkBackup(null);
     _lifecycleForwarder?.detach();
-    _probes?.dispose();
+    _disposeProbes();
     _sidebar?.dispose();
     _activity.dispose();
     _alerts.dispose();
@@ -813,8 +887,32 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _leftFocus = null;
     _rightFocus?.dispose();
     _rightFocus = null;
+    _ownPreviewThreshold?.dispose();
+    widget.window?.detachContent(this);
     super.dispose();
   }
+
+  @override
+  WorkspaceController? get workspace => _workspace;
+
+  @override
+  void claimDefaultFocus() {
+    final workspace = _workspace;
+    if (workspace != null && mounted) _focusPane(workspace.activePane);
+  }
+
+  /// Disposes the probe owner unless the windows share it.
+  void _disposeProbes() {
+    if (!identical(_probes, widget.probeOwner)) _probes?.dispose();
+  }
+
+  /// Whether a live binding other than [excluding] keeps [serverId] in the
+  /// pool: in this workspace, or in another window's (00 D37). The
+  /// last-binding close drops the server's pool reference, which would
+  /// disconnect every window's panes on it.
+  bool _serverBoundBesides(String serverId, PaneController excluding) =>
+      (_workspace?.serverStillBound(serverId, excluding) ?? true) ||
+      (widget.window?.serverBoundElsewhere(serverId) ?? false);
 
   ConnectionStatusController? _buildConnections() {
     assert(
@@ -855,6 +953,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }
 
   SidebarProbeOwner? _buildProbes() {
+    final shared = widget.probeOwner;
+    if (shared != null) return shared;
     final bridge = widget.engineSession?.probeLanes;
     final settings = widget.probeSettings;
     if (bridge == null || settings == null) return null;
@@ -949,7 +1049,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// for a missing or disconnected one.
   void _scanDirtyCheckouts() {
     final session = _checkoutListener;
-    if (session == null) return;
+    // One window asks: every window hears the session (00 D37).
+    if (session == null || !_isActiveWindow) return;
     final dirtyIds = {
       for (final record in session.records)
         if (record.dirty) record.id,
@@ -1228,12 +1329,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         confirmClose: _confirmTabClose,
         // The cross-pane half of a remote tab's last-binding check: read
         // the workspace lazily — the strips are built before it exists.
-        serverStillShared: (serverId, excluding) =>
-            // Null-workspace is unreachable by close time — but if timing
-            // ever shifted, "assume shared" is the fail-safe direction:
-            // it detaches rather than dropping a pool reference a sibling
-            // might still hold.
-            _workspace?.serverStillBound(serverId, excluding) ?? true,
+        // Null-workspace is unreachable by close time — but if timing
+        // ever shifted, "assume shared" is the fail-safe direction: it
+        // detaches rather than dropping a pool reference a sibling might
+        // still hold.
+        serverStillShared: _serverBoundBesides,
         onError: ApplicationErrorReporter().report,
       );
       strip.reconnectRestoredTabs = widget.reconnectRestoredTabs;
@@ -1297,7 +1397,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // live tasks initializes _hadLiveTasks, so no arrival ever fires
     // for them. The seed deliberately wins over a restored session's
     // hidden flag — saved chrome intent yields to un-acknowledged work.
-    if (_activity.tasks.any((task) => !task.isTerminal)) {
+    // A window opened later has no such claim: the work is showing in
+    // the window the user came from (00 D37).
+    if ((widget.window?.isLaunchWindow ?? true) &&
+        _activity.tasks.any((task) => !task.isTerminal)) {
       workspace.setActivityPanelHidden(false);
     }
     // The sidebar's persisted visibility intent (02 §1): seeded once
@@ -1326,6 +1429,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       final left = _leftFocus;
       final right = _rightFocus;
       if (left == null || right == null) return;
+      final window = widget.window;
+      if (window != null) {
+        // Only the window the user is in takes focus, and only when
+        // nothing in it holds focus yet; activating a window later
+        // claims it then (WorkspaceWindowContent.claimDefaultFocus).
+        if (!window.isActive) return;
+        final scope = window.focusScope;
+        final primary = FocusManager.instance.primaryFocus;
+        final heldHere =
+            primary != null &&
+            primary != scope &&
+            primary.ancestors.contains(scope);
+        if (!heldHere) left.requestFocus();
+        return;
+      }
       // Claim initial focus only when nothing else holds it: a session
       // rebind mid-interaction must not yank focus from a toolbar
       // control or field back to the left listing.
@@ -1341,7 +1459,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   void _disposeWorkspace() {
     // The writer outlives the shell (the app owns it) — detach so a
     // rebuild's notify storm cannot write a torn-down workspace's doc.
-    widget.sessionPersistence?.detach();
+    final workspace = _workspace;
+    if (workspace != null) widget.sessionPersistence?.detach(workspace);
     // The session unbinds from the workspace in its dispose — run it
     // before the workspace's own teardown so no removal lands on a
     // disposed notifier.
@@ -1484,7 +1603,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         ),
       if (Theme.of(context).platform
           case TargetPlatform.linux || TargetPlatform.windows)
-        buildQuitCommand(),
+        buildQuitCommand(requestClose: widget.window?.quitApplication),
+      // 00 D37's File ▸ New Window and Close Window.
+      if (widget.window case final window? when window.canOpenWindows)
+        ...buildWindowCommands(window: window),
       if (workspace != null && widget.workspaces != null)
         ...buildWorkspaceCommands(
           workspace: workspace,
@@ -1533,6 +1655,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               ? null
               : _disconnectServer,
           pickDirectory: widget.pickDirectory ?? _platformDirectoryPicker(),
+          fullScreen: widget.window?.fullScreen,
         ),
       // `open-with-external` registers whenever a workspace exists
       // (D21): the Open With ▸ submenu renders disabled rows while no
@@ -1652,6 +1775,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                           context,
                           constraints.maxWidth,
                           mac: mac,
+                          unifiedToolbar: mac && _capabilities.unifiedToolbar,
                           workspace: workspace,
                           leftFocus: leftFocus,
                           rightFocus: rightFocus,
@@ -1693,6 +1817,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     BuildContext context,
     double width, {
     required bool mac,
+    required bool unifiedToolbar,
     required WorkspaceController workspace,
     required FocusNode leftFocus,
     required FocusNode? rightFocus,
@@ -1842,9 +1967,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       builder: (context, _) => HeaderToolbar(
         commands: commands,
         onRun: _runCommand,
-        nativeTitlebar: mac,
+        nativeTitlebar: unifiedToolbar,
         leadingInset:
-            mac && !sidebarInline && MacosToolbarBandScope.visibleOf(context)
+            unifiedToolbar &&
+                !sidebarInline &&
+                MacosToolbarBandScope.visibleOf(context)
             ? _macTrafficLightsInset
             : 0,
         title: _HeaderTitle(workspace: workspace),
@@ -1937,7 +2064,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                   // macOS: the traffic lights sit over the sidebar's top
                   // band (the full-size content view under the unified
                   // toolbar, which drags natively) — Finder's layout.
-                  if (mac) SizedBox(height: chrome.headerHeight),
+                  if (unifiedToolbar) SizedBox(height: chrome.headerHeight),
                   Expanded(child: _buildSidebarView(sshImportCommand)),
                 ],
               ),
@@ -1946,7 +2073,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           ShellSplitter(
             key: const ValueKey('sidebar.splitter'),
             focusNode: _sidebarSplitterFocus,
-            nativeTitlebar: mac,
+            nativeTitlebar: unifiedToolbar,
             label: strings.resizeSidebar,
             value: strings.splitterWidthPx(sidebarWidth.round()),
             increasedValue: strings.splitterWidthPx(
@@ -3105,12 +3232,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final serverId = pane?.remoteBookmark?.id;
     if (pane == null || serverId == null) return;
     try {
-      if (workspace.serverStillBound(serverId, pane)) {
+      if (_serverBoundBesides(serverId, pane)) {
         await pane.cancelPendingBind();
       } else {
         await pane.cancelRecovery(
-          serverStillUnshared: () =>
-              !workspace.serverStillBound(serverId, pane),
+          serverStillUnshared: () => !_serverBoundBesides(serverId, pane),
         );
       }
     } on Object catch (error, stackTrace) {

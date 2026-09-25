@@ -287,7 +287,14 @@ class WorkspaceController extends ChangeNotifier {
   /// pooled server reference only when it was the last binding (03 §3.2).
   /// Positional [excluding] matches the strips' `serverStillShared`
   /// typedef, so a tear-off wires the seam without an adapter.
-  bool serverStillBound(String serverId, PaneController excluding) {
+  bool serverStillBound(String serverId, PaneController excluding) =>
+      _bindsServer(serverId, excluding: excluding);
+
+  /// Whether any tab in this workspace binds [serverId] live: another
+  /// window's half of the last-binding check (00 D37).
+  bool bindsServer(String serverId) => _bindsServer(serverId);
+
+  bool _bindsServer(String serverId, {PaneController? excluding}) {
     for (final pane in [left, right]) {
       for (final tab in pane.tabs) {
         final controller = tab.controller;

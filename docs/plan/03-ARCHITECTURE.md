@@ -1848,7 +1848,7 @@ queue). Composition, all `ChangeNotifier`s unless noted:
 
 | Notifier | Scope | Owns |
 |---|---|---|
-| `WorkspaceController` | one per window (D13 — multi-window becomes mechanical later) | pane list, tabs per pane, active pane/tab, sidebar + activity panel visibility, layout ratios |
+| `WorkspaceController` | one per workspace window (D37) | pane list, tabs per pane, active pane/tab, sidebar + activity panel visibility, layout ratios |
 | `PaneController` | one per pane-tab | navigation, entries, sort/filter/hidden, selection, per-location view prefs — a fork of Séance's `RemoteFilesController` — a D2 port with divergences, so it gets a PORTS.md entry and recorded divergence lines per §8.2/§8.3 like any other ported file — with the terminal-follow inputs (`shellDirectory`, `terminalTitle`) deleted and the filesystem reached through `EngineClient` |
 | `CheckoutManager` | app-wide, records keyed by server | the managed-checkout pipeline extracted from `RemoteFilesController`: checkout, watch, reconcile, upload-back, rename-migration. Wraps the ported `ManagedRemoteFileStore`; `editSessionId` is a per-server constant (D17 — checkout ownership is per server, never per pane/tab) |
 | `TransferQueue` UI mirror | app-wide | queue rows, history, throttle state — rebuilt from engine events |

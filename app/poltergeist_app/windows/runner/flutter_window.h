@@ -12,6 +12,7 @@
 #include "trash_operations.h"
 #include "settings_window.h"
 #include "win32_window.h"
+#include "workspace_windows.h"
 
 // A window that does nothing but host a Flutter view.
 class FlutterWindow : public Win32Window {
@@ -42,6 +43,11 @@ class FlutterWindow : public Win32Window {
   // Settings in a window of its own. Declared after the controller so it
   // is destroyed first: it relays for the engine's messenger.
   std::unique_ptr<SettingsWindowHost> settings_window_;
+
+  // More workspace windows on this engine (00 D37). Declared after the
+  // controller so it is destroyed first: its windows' views are the
+  // engine's.
+  std::unique_ptr<WorkspaceWindowsHost> workspace_windows_;
 
   // The D15 trash channel (03 §7.1). Declaration order is teardown
   // order in reverse: trash_channel_ is destroyed first (no new work is

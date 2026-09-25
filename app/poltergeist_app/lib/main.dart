@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show AppExitType;
 
 import 'package:flutter/material.dart' show GlobalKey, ScaffoldMessengerState;
+import 'package:flutter/services.dart' show ServicesBinding;
 import 'package:flutter/widgets.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -10,8 +12,10 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'app.dart';
 import 'settings_window_app.dart';
 import 'services/app_preferences.dart';
+import 'services/app_session_lifecycle.dart';
 import 'services/application_error_reporter.dart';
 import 'services/bookmark_backup_service.dart';
+import 'services/checkout_prompt_ledger.dart';
 import 'services/checkout_session.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/dock_progress.dart';
@@ -34,6 +38,7 @@ import 'services/session_persistence.dart';
 import 'services/session_state.dart';
 import 'services/session_state_store.dart';
 import 'services/settings_store.dart';
+import 'services/sidebar_probe_owner.dart';
 import 'services/ssh_config_import_setup.dart';
 import 'services/sync_credentials.dart';
 import 'services/sync_environment.dart';
@@ -46,6 +51,10 @@ import 'services/settings_window/settings_window_link.dart';
 import 'services/update_check_controller.dart';
 import 'services/workspace_library.dart';
 import 'services/workspace_list_store.dart';
+import 'services/workspace_windows/window_host.dart';
+import 'services/workspace_windows/window_seeds.dart';
+import 'services/workspace_windows/workspace_windows.dart';
+import 'ui/workspace_windows_root.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -167,6 +176,15 @@ Future<void> main(List<String> args) async {
   } on Object catch (error, stack) {
     errorReporter.report(error, stack);
   }
+  // The windows open beside the first one (00 D37), under their own key
+  // with the same fail-closed decode: a bad document restores none of
+  // them and stays on disk.
+  var restoredWindows = const <SessionState>[];
+  try {
+    restoredWindows = await sessionStore.loadWindows();
+  } on Object catch (error, stack) {
+    errorReporter.report(error, stack);
+  }
   final sessionPersistence = SessionPersistence(
     store: sessionStore,
     onError: errorReporter.report,
@@ -198,13 +216,25 @@ Future<void> main(List<String> args) async {
   } on Object catch (error, stack) {
     errorReporter.report(error, stack);
   }
+  // The desktop runners host more than one workspace window (00 D37):
+  // views on this one engine, sharing every model composed here.
+  final windows = Platform.isMacOS || Platform.isLinux || Platform.isWindows
+      ? WorkspaceWindows(
+          host: MethodChannelWindowHost(),
+          quitApplication: _quitApplication,
+          onError: errorReporter.report,
+        )
+      : null;
   // One navigator key for the app, the session's coordinator, and the
-  // quit guard, so dialogs render above whatever surface raised them.
-  final navigatorKey = GlobalKey<NavigatorState>();
-  final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+  // quit guard, so dialogs render above whatever surface raised them —
+  // with several windows, a key that answers for the active window's.
+  final navigatorKey = windows?.navigatorKey ?? GlobalKey<NavigatorState>();
+  final scaffoldMessengerKey =
+      windows?.scaffoldMessengerKey ?? GlobalKey<ScaffoldMessengerState>();
   // 07 §3.5's quit gate: the intercepted close consults the guard, which
   // warns over live transfers and gates the destroy on the journal
-  // flush. The workspace shell binds its queue seam onto the guard.
+  // flush. The workspace shell binds its queue seam onto the guard; with
+  // several windows the composition binds it once, below (00 D37).
   final quitGuard = QuitGuard(
     navigatorKey: navigatorKey,
     onError: errorReporter.report,
@@ -213,6 +243,7 @@ Future<void> main(List<String> args) async {
     preferences,
     onCloseFlush: sessionPersistence.flush,
     confirmClose: quitGuard.confirmClose,
+    closeInstead: windows?.closeMainWindowInstead,
     onError: errorReporter.report,
   );
   await errorReporter.guard(windowLifecycle.prepare);
@@ -430,13 +461,57 @@ Future<void> main(List<String> args) async {
   final toolbarBand = Platform.isMacOS ? MacosToolbarBandChannel() : null;
   if (toolbarBand != null) errorReporter.observe(toolbarBand.start());
 
-  runApp(
-    PoltergeistApp(
-      initialPaneRatio: paneRatio,
+  // What every window shares beyond the models above (00 D37): the
+  // reachability owner (it drives the engine's one probe target set),
+  // the live preview threshold, the dirty-checkout prompt's guards, and
+  // the chrome a window opened later starts from.
+  final probeOwner = windows == null || engineSession == null
+      ? null
+      : SidebarProbeOwner(
+          bridge: engineSession.probeLanes,
+          settings: probeSettings,
+        );
+  final sharedPreviewThreshold = windows == null
+      ? null
+      : ValueNotifier<int>(previewThreshold);
+  final checkoutPrompts = windows == null ? null : CheckoutPromptLedger();
+  final seeds = WindowSeeds(
+    paneRatio: paneRatio,
+    sidebarWidth: sidebarWidth,
+    inspectorWidth: inspectorWidth,
+    sidebarHidden: sidebarHidden,
+    sidebarCollapsedGroups: sidebarCollapsedGroups,
+    sidebarDensity: sidebarDensity,
+    sidebarPinnedServers: sidebarPinnedServers,
+  );
+  final sshConfigImport = buildSshConfigImportSetup(
+    environment: Platform.environment,
+    isMacOS: Platform.isMacOS,
+    isWindows: Platform.isWindows,
+    bookmarks: bookmarks,
+  );
+  final dragOutBackend = platformDragOutBackend();
+  // Desktop only: the runners there host the Settings window.
+  final settingsWindow =
+      Platform.isMacOS || Platform.isLinux || Platform.isWindows
+      ? SettingsWindowHost()
+      : null;
+  // An extra window has no unified toolbar band on macOS (00 D37).
+  final noToolbarBand = ValueNotifier(false);
+
+  // The app for one window, or the single-window app. Built once per
+  // window: its parameters must keep their identity across the root's
+  // rebuilds.
+  PoltergeistApp buildApp([WorkspaceWindow? window]) {
+    final main = window == null || window.isMain;
+    return PoltergeistApp(
+      initialPaneRatio: seeds.paneRatio,
       newTabTarget: newTabTarget,
       doubleClickAction: doubleClickAction,
       reconnectRestoredTabs: reconnectRestoredTabs,
-      restoredSession: restoredSession,
+      restoredSession: window == null
+          ? restoredSession
+          : window.restoredSession,
       sessionPersistence: sessionPersistence,
       bookmarks: bookmarks,
       workspaces: workspaces,
@@ -446,45 +521,60 @@ Future<void> main(List<String> args) async {
       serverEditor: serverEditor,
       navigatorKey: navigatorKey,
       scaffoldMessengerKey: scaffoldMessengerKey,
-      quitGuard: quitGuard,
-      sshConfigImport: buildSshConfigImportSetup(
-        environment: Platform.environment,
-        isMacOS: Platform.isMacOS,
-        isWindows: Platform.isWindows,
-        bookmarks: bookmarks,
-      ),
-      onPaneRatioChanged: preferences.savePaneRatio,
+      // With several windows the root binds the guard once, below.
+      quitGuard: window == null ? quitGuard : null,
+      sshConfigImport: sshConfigImport,
+      onPaneRatioChanged: seeds.paneRatioSink(preferences.savePaneRatio),
       onPaneRatioSaveError: errorReporter.report,
       transferQueue: composedQueue,
       checkoutSession: checkoutSession,
       editorRegistry: editorRegistry,
-      initialSidebarWidth: sidebarWidth,
-      onSidebarWidthChanged: preferences.saveSidebarWidth,
-      initialInspectorWidth: inspectorWidth,
-      onInspectorWidthChanged: preferences.saveInspectorWidth,
-      initialDownloadLimit: downloadLimit,
-      initialUploadLimit: uploadLimit,
+      initialSidebarWidth: seeds.sidebarWidth,
+      onSidebarWidthChanged: seeds.sidebarWidthSink(
+        preferences.saveSidebarWidth,
+      ),
+      initialInspectorWidth: seeds.inspectorWidth,
+      onInspectorWidthChanged: seeds.inspectorWidthSink(
+        preferences.saveInspectorWidth,
+      ),
+      // The limiters live on the one queue: a later window starts from
+      // what they hold now.
+      initialDownloadLimit: window == null || window.isLaunchWindow
+          ? downloadLimit
+          : transferQueue?.downloadLimiter.bytesPerSecond,
+      initialUploadLimit: window == null || window.isLaunchWindow
+          ? uploadLimit
+          : transferQueue?.uploadLimiter.bytesPerSecond,
       onDownloadLimitChanged: preferences.saveDownloadLimit,
       onUploadLimitChanged: preferences.saveUploadLimit,
       autoClearCompletedTransfers: autoClearCompleted,
       probeSettings: probeSettings,
-      initialSidebarHidden: sidebarHidden,
-      onSidebarHiddenChanged: preferences.saveSidebarHidden,
+      initialSidebarHidden: seeds.sidebarHidden,
+      onSidebarHiddenChanged: seeds.sidebarHiddenSink(
+        preferences.saveSidebarHidden,
+      ),
       onSidebarHiddenSaveError: errorReporter.report,
-      initialSidebarCollapsedGroups: sidebarCollapsedGroups,
+      initialSidebarCollapsedGroups: seeds.sidebarCollapsedGroups,
       // Both sinks write one change against the stored set, never the
       // sidebar's own set, which a failed launch read starts empty. The
       // sidebar reports their failures.
-      onSidebarCollapsedGroupsChanged: preferences.setSidebarGroupCollapsed,
-      initialSidebarDensity: sidebarDensity,
-      onSidebarDensityChanged: (density) =>
-          errorReporter.observe(preferences.saveSidebarDensity(density)),
-      initialSidebarPinnedServers: sidebarPinnedServers,
-      onSidebarPinnedServersChanged: preferences.setSidebarServerPinned,
+      onSidebarCollapsedGroupsChanged: seeds.collapsedGroupsSink(
+        preferences.setSidebarGroupCollapsed,
+      ),
+      initialSidebarDensity: seeds.sidebarDensity,
+      onSidebarDensityChanged: seeds.sidebarDensitySink(
+        (density) =>
+            errorReporter.observe(preferences.saveSidebarDensity(density)),
+      ),
+      initialSidebarPinnedServers: seeds.sidebarPinnedServers,
+      onSidebarPinnedServersChanged: seeds.pinnedServersSink(
+        preferences.setSidebarServerPinned,
+      ),
       previewCache: previewCache,
       previewProducer: previewProducer,
       dragOutProducer: dragOutProducer,
-      dragOutBackend: platformDragOutBackend(),
+      // The drag-out channel serves the main window's view only.
+      dragOutBackend: main ? dragOutBackend : null,
       initialPreviewThresholdBytes: previewThreshold,
       onPreviewCacheCapacityChanged:
           preferences.savePreviewCacheCapacityBytes,
@@ -492,21 +582,62 @@ Future<void> main(List<String> args) async {
       syncEnvironment: syncEnvironment,
       syncTasks: syncTasks,
       updateCheck: updateCheck,
-      // Desktop only: the runners there host the Settings window.
-      settingsWindow: Platform.isMacOS || Platform.isLinux || Platform.isWindows
-          ? SettingsWindowHost()
+      settingsWindow: settingsWindow,
+      toolbarBand: main || toolbarBand == null ? toolbarBand : noToolbarBand,
+      // window_manager sizes the main window only; the runner gives an
+      // extra window its minimum itself.
+      onContentSizeChanged: main
+          ? (size) {
+              errorReporter.observe(windowLifecycle.calibrateMinimumSize(size));
+            }
           : null,
-      toolbarBand: toolbarBand,
-      onContentSizeChanged: (size) {
-        errorReporter.observe(windowLifecycle.calibrateMinimumSize(size));
-      },
-    ),
-  );
+      window: window,
+      probeOwner: probeOwner,
+      previewThreshold: sharedPreviewThreshold,
+      checkoutPrompts: checkoutPrompts,
+    );
+  }
+
+  if (windows == null) {
+    runApp(buildApp());
+  } else {
+    await windows.start(session: restoredSession);
+    // The one lifecycle listener for every window (the single-window
+    // app's lives in PoltergeistApp), and the quit guard's one queue.
+    attachAppSessionLifecycle(
+      session: engineSession,
+      persistence: sessionPersistence,
+      quitGuard: quitGuard,
+      checkouts: checkoutSession,
+      recentLocations: recentLocations,
+      exitFlushes: [windowLifecycle.saveBounds],
+    );
+    quitGuard.bindQueue(() => composedQueue);
+    final apps = Expando<PoltergeistApp>();
+    runWidget(
+      WorkspaceWindowsRoot(
+        windows: windows,
+        buildWindow: (window) => apps[window] ??= buildApp(window),
+      ),
+    );
+  }
   // The launch-time check fires beside the window bring-up — the
   // banner mounts whenever the answer lands, and any failure here
   // (no package info, no network) simply leaves it absent.
   unawaited(_checkForUpdate(updateCheck));
   await errorReporter.guard(windowLifecycle.show);
+  // The windows the last session had open beside the first, once the
+  // first is on screen.
+  if (windows != null) {
+    await errorReporter.guard(() => windows.restoreWindows(restoredWindows));
+  }
+}
+
+/// Quit with several windows open (00 D37): the engine asks the app's
+/// lifecycle listener, whose quit guard and exit flush decide, then
+/// closes every window with the process. The same path ⌘Q takes.
+Future<void> _quitApplication() async {
+  await ServicesBinding.instance.exitApplication(AppExitType.cancelable);
 }
 
 /// Look up the running version and ask the controller to compare it

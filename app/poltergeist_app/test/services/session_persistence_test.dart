@@ -95,7 +95,7 @@ void main() {
     );
     workspace = WorkspaceController(left: left, right: right);
     addTearDown(() async {
-      persistence.detach();
+      persistence.detachAll();
       workspace.dispose();
       if (await temporaryDirectory.exists()) {
         await temporaryDirectory.delete(recursive: true);
@@ -264,5 +264,95 @@ void main() {
     expect(decoded.secondPaneHidden, isTrue);
     expect(decoded.panes[0].tabs.single.path, '/home/tester/docs');
     expect(decoded.panes[0].tabs.single.listing.single.name, 'a.txt');
+  });
+
+  group('several windows (00 D37)', () {
+    late PaneTabsController otherLeft;
+    late PaneTabsController otherRight;
+    late WorkspaceController other;
+
+    Map<String, dynamic> settings() =>
+        jsonDecode(settingsFile.readAsStringSync()) as Map<String, dynamic>;
+
+    List<dynamic> otherWindows() =>
+        (settings()['session.windows'] as Map<String, dynamic>)['windows']
+            as List<dynamic>;
+
+    setUp(() {
+      otherLeft = PaneTabsController(
+        paneId: PaneTabsController.leftPaneId,
+        lanes: lanes,
+      );
+      otherRight = PaneTabsController(
+        paneId: PaneTabsController.rightPaneId,
+        lanes: lanes,
+      );
+      other = WorkspaceController(left: otherLeft, right: otherRight);
+      addTearDown(() {
+        persistence.detachAll();
+        other.dispose();
+      });
+    });
+
+    test('the first window is the v1 document and the others sit beside '
+        'it, in one write', () async {
+      persistence.attach(workspace);
+      persistence.attach(other);
+      await bindLocal(otherLeft, '/home/tester/docs');
+      await Future<void>.delayed(Duration.zero);
+      final writesBefore = writeCount;
+      await persistence.flush();
+
+      expect(writeCount, writesBefore + 1);
+      expect(tabsOf(PaneTabsController.leftPaneId), isEmpty);
+      final windows = otherWindows();
+      expect(windows, hasLength(1));
+      final decoded = SessionState.fromJson(windows.single);
+      expect(decoded.panes[0].tabs.single.path, '/home/tester/docs');
+    });
+
+    test("another window's changes are commit points too", () async {
+      persistence.attach(workspace);
+      persistence.attach(other);
+      await debounce.fire();
+      final writesBefore = writeCount;
+
+      other.setSecondPaneHidden(true);
+      await debounce.fire();
+
+      expect(writeCount, greaterThan(writesBefore));
+      expect(
+        SessionState.fromJson(otherWindows().single).secondPaneHidden,
+        isTrue,
+      );
+    });
+
+    test('a closed window leaves the document, and the next one becomes '
+        'the first', () async {
+      persistence.attach(workspace);
+      persistence.attach(other);
+      other.setSecondPaneHidden(true);
+      await persistence.flush();
+
+      persistence.detach(workspace);
+      await debounce.fire();
+
+      expect(sessionJson()['secondPaneHidden'], isTrue);
+      expect(otherWindows(), isEmpty);
+    });
+
+    test('the last window detaching writes nothing and keeps the document',
+        () async {
+      persistence.attach(workspace);
+      await persistence.flush();
+      final writesBefore = writeCount;
+
+      persistence.detach(workspace);
+      await debounce.fire();
+      await persistence.flush();
+
+      expect(writeCount, writesBefore);
+      expect(sessionJson()['version'], SessionState.schemaVersion);
+    });
   });
 }

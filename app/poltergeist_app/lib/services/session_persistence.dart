@@ -23,7 +23,7 @@ SessionState captureSessionState(WorkspaceController workspace) =>
       ],
     );
 
-/// 02 §3's safe-point persistence: every state change the workspace
+/// 02 §3's safe-point persistence: every state change a window's workspace
 /// reports — tab open/close/switch, navigation commit, pane toggle —
 /// schedules a capture of the session document. Writes are debounced
 /// (a navigation burst costs one write), deduplicated by content (a
@@ -55,8 +55,11 @@ final class SessionPersistence {
   _scheduleDebounce;
   final void Function(Object, StackTrace)? _onError;
 
-  WorkspaceController? _workspace;
-  final _listened = <Listenable>[];
+  /// The attached workspaces, one per open window, in the order their
+  /// windows opened: the first is persisted as the v1 document, the rest
+  /// beside it (00 D37).
+  final _workspaces = <WorkspaceController>[];
+  final _listened = <WorkspaceController, List<Listenable>>{};
   void Function()? _cancelScheduled;
   Future<void> _tail = Future<void>.value();
   // JSON of the last write attempt — notifications that leave the
@@ -64,41 +67,51 @@ final class SessionPersistence {
   // no write.
   String? _lastEncoded;
 
-  /// Starts persisting [workspace]'s state. Attaching also schedules
-  /// the first write so the freshly restored (or default) session is on
-  /// disk before the user changes anything.
+  /// Starts persisting [workspace]'s state beside any already attached.
+  /// Attaching also schedules a write so the freshly restored (or default)
+  /// session is on disk before the user changes anything.
   void attach(WorkspaceController workspace) {
-    if (identical(_workspace, workspace)) return;
-    detach();
-    _workspace = workspace;
-    for (final listened in [
-      workspace,
-      workspace.left,
-      workspace.right,
-    ]) {
-      listened.addListener(_scheduleWrite);
-      _listened.add(listened);
+    if (_workspaces.contains(workspace)) return;
+    _workspaces.add(workspace);
+    final listened = [workspace, workspace.left, workspace.right];
+    for (final listenable in listened) {
+      listenable.addListener(_scheduleWrite);
     }
+    _listened[workspace] = listened;
+    // The dedupe key attests what is on disk for the previous set — an
+    // attach must not inherit it and skip the first capture.
+    _lastEncoded = null;
     _scheduleWrite();
   }
 
-  /// Stops listening and cancels any scheduled write. [flush] remains
-  /// callable — quit may legitimately arrive mid-rebuild.
-  void detach() {
+  /// Stops persisting [workspace]: its window closed, or its workspace is
+  /// being rebuilt. With other windows still attached the document is
+  /// rewritten without it; with none, any scheduled write is cancelled and
+  /// the last document stays. [flush] remains callable — quit may
+  /// legitimately arrive mid-rebuild.
+  void detach(WorkspaceController workspace) {
+    if (!_workspaces.remove(workspace)) return;
+    for (final listenable in _listened.remove(workspace) ?? const []) {
+      listenable.removeListener(_scheduleWrite);
+    }
+    if (_workspaces.isNotEmpty) {
+      _scheduleWrite();
+      return;
+    }
     _cancelScheduled?.call();
     _cancelScheduled = null;
-    // The dedupe key attests what's on disk for the DETACHED workspace —
-    // a re-attach must not inherit it and skip the first capture.
     _lastEncoded = null;
-    for (final listened in _listened) {
-      listened.removeListener(_scheduleWrite);
+  }
+
+  /// Detaches every workspace.
+  void detachAll() {
+    for (final workspace in List.of(_workspaces)) {
+      detach(workspace);
     }
-    _listened.clear();
-    _workspace = null;
   }
 
   void _scheduleWrite() {
-    if (_workspace == null) return;
+    if (_workspaces.isEmpty) return;
     _cancelScheduled?.call();
     _cancelScheduled = _scheduleDebounce(_saveDelay, _writeNow);
   }
@@ -119,16 +132,19 @@ final class SessionPersistence {
   }
 
   Future<void> _write() async {
-    final workspace = _workspace;
-    if (workspace == null) return;
+    if (_workspaces.isEmpty) return;
     // Capture and encode sit inside the try too: a controller that
     // throws mid-capture reports through the same lane rather than
     // surfacing as an unhandled error on a scheduled write.
     try {
-      final state = captureSessionState(workspace);
-      final encoded = jsonEncode(state.toJson());
+      final states = [
+        for (final workspace in _workspaces) captureSessionState(workspace),
+      ];
+      final encoded = jsonEncode([
+        for (final state in states) state.toJson(),
+      ]);
       if (encoded == _lastEncoded) return;
-      await _store.save(state);
+      await _store.saveAll(states.first, states.sublist(1));
       _lastEncoded = encoded;
     } catch (error, stack) {
       _report(error, stack);

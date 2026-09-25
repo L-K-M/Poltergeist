@@ -99,6 +99,7 @@ final class DesktopWindowLifecycle {
     scheduleDebounce,
     Future<void> Function()? onCloseFlush,
     Future<bool> Function()? confirmClose,
+    Future<bool> Function()? closeInstead,
     void Function(Object, StackTrace)? onError,
   }) : _window = window ?? _WindowManagerAdapter(),
        _displays = displays ?? _ScreenRetrieverAdapter(),
@@ -114,6 +115,9 @@ final class DesktopWindowLifecycle {
        // Keep the close guard private to the lifecycle.
        // ignore: prefer_initializing_formals
        _confirmClose = confirmClose,
+       // Keep the window-close seam private to the lifecycle.
+       // ignore: prefer_initializing_formals
+       _closeInstead = closeInstead,
        // Keep the callback private while allowing test-only error injection.
        // ignore: prefer_initializing_formals
        _onError = onError;
@@ -137,6 +141,12 @@ final class DesktopWindowLifecycle {
   /// inside [_close] before anything else — false vetoes the close and
   /// the window stays up. Null means nothing guards the close.
   final Future<bool> Function()? _confirmClose;
+
+  /// 00 D37: with other workspace windows open, the close button closes
+  /// this window only. Consulted before the quit guard; true means it
+  /// took the close (the window is hidden, not destroyed) and the quit
+  /// path does not run.
+  final Future<bool> Function()? _closeInstead;
   final void Function(Object, StackTrace)? _onError;
 
   final _windowReady = Completer<void>();
@@ -337,6 +347,16 @@ final class DesktopWindowLifecycle {
     return closed;
   }
 
+  /// Saves the window's bounds now, behind any window operation in
+  /// flight: the app's exit flush, for a quit that does not come through
+  /// this window's close (00 D37's Quit with several windows, ⌘Q).
+  Future<void> saveBounds() {
+    if (!_prepared || _closing) return Future.value();
+    _cancelScheduledSave?.call();
+    _cancelScheduledSave = null;
+    return _enqueueWindowOperation(_saveCurrentBounds);
+  }
+
   void _onWindowMove() => _scheduleSave();
 
   void _onWindowResize() => _scheduleSave();
@@ -383,6 +403,10 @@ final class DesktopWindowLifecycle {
   }
 
   Future<bool> _close() async {
+    // Only this window closing is not a quit: nothing below applies.
+    final instead = _closeInstead;
+    if (instead != null && await instead()) return false;
+
     // The quit guard runs first: a veto must leave nothing behind —
     // no bounds save, no flush, no destroy.
     final guard = _confirmClose;

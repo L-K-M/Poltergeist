@@ -88,6 +88,19 @@
   dragged remote item's download in Transfers stops the drop and says
   so under Alerts, and a drag that has to leave links or names that
   aren't valid UTF-8 behind says how many.
+- **More than one window.** File ▸ New Window (⌘N on macOS, Ctrl+N on
+  Linux and Windows) opens another workspace window, so different
+  folders, servers and transfers can sit side by side. Each window has
+  its own tabs, panes, sidebar and inspector; bookmarks, connections,
+  Settings and the transfer queue are shared, so a transfer keeps
+  running after the window that started it closes, and every window's
+  Transfers tab shows all of them. File ▸ Close Window (⇧⌘W, Ctrl+Shift+W)
+  or the close button closes one window; closing the last one quits,
+  asking first if transfers are running. The next launch reopens every
+  window you had open. For now an extra window does not take files
+  dropped from other apps or drag files out, and on macOS it has a
+  standard title bar, in-window Quick Look and no screen-reader
+  support. Run on Linux; built for macOS and Windows.
 - **Settings in its own window.** On macOS, Linux and Windows, Settings
   opens in a window of its own instead of over the workspace, with
   General, Editing and Sync tabs. Settings, Back up and sync… and
