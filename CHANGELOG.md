@@ -55,15 +55,19 @@
   selection, sheets, folders and home.
 - **Drag files out of Poltergeist.** Dragging rows past the window's
   edge hands them to the system, so they can land in a file manager or
-  another app; several selected items travel together, and the
-  destination decides whether to copy or move. On Linux this carries
-  local files today, and so does Windows (built, awaiting its first run
-  on Windows). On macOS local files travel as file URLs, and
-  remote files and folders as file promises that download straight to
-  where you drop them (built, awaiting its first run on a Mac); on
-  Linux and Windows a remote drag shows a hint and stays inside the
-  window. A drag that comes back into Poltergeist lands like any
-  in-app drag.
+  another app; several selected items travel together, and they arrive
+  as copies (or links). A drag out never moves or deletes the
+  originals, so the Trash and the Recycle Bin refuse it; drags between
+  the two panes still move. On Linux this carries local files today,
+  and so does Windows (built, awaiting its first run on Windows). On
+  macOS local files travel as file URLs, and remote files and folders
+  as file promises that download straight to where you drop them
+  (built, awaiting its first run on a Mac); on Linux and Windows a
+  remote drag shows a hint and stays inside the window. A drag that
+  comes back into Poltergeist lands like any in-app drag. Pausing a
+  dragged remote item's download in Transfers stops the drop and says
+  so under Alerts, and a drag that has to leave links or names that
+  aren't valid UTF-8 behind says how many.
 - **Download To….** File ▸ Download To… and the row menu download the
   selected remote items into a folder you pick.
 - **Shares an account with Séance.** Bookmark sync now preselects the
