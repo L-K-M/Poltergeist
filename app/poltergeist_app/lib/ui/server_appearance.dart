@@ -664,6 +664,11 @@ String serverColorLabel(ServerColor? color) => color == null
 /// of mark keep, and the fill is the echo that two of them add to it. It is
 /// also the shape the eye can run down a list, which a tinted square among
 /// the marks is not: that is why the colour is not left to the fill alone.
+///
+/// The sidebar draws its copy of the line through the shared kit's
+/// `SidebarRow.accent` (D33), in both densities; this widget is the
+/// editor's and the colour picker's preview of it, so [width] and the
+/// kit's line stay the same 4 px.
 class ServerAccentBar extends StatelessWidget {
   final ServerTint tint;
 

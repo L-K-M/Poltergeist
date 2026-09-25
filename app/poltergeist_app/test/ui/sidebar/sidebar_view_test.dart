@@ -1531,6 +1531,70 @@ void main() {
       );
     });
 
+    for (final density in SidebarDensity.values) {
+      testWidgets('a coloured server leads with its colour line '
+          '(${density.name})', (tester) async {
+        store.bookmarks = [
+          Bookmark(
+            id: 'c1',
+            kind: BookmarkKind.remotePath,
+            label: 'prod',
+            color: ServerColor.red,
+            server: _remote('x').server,
+            remotePath: '/srv',
+            sortKey: 'ma',
+            createdAt: _now,
+            updatedAt: _now,
+          ),
+          _remote('plain', sortKey: 'mb'),
+        ];
+        await pumpSidebar(tester, density: density);
+
+        final coloured = row('sidebar.favorite.c1');
+        final line = serverAccent(
+          tester.element(coloured),
+          const ServerTint(named: ServerColor.red),
+        )!.line;
+        expect(rowOf(tester, coloured).accent, line);
+        expect(rowOf(tester, row('sidebar.favorite.plain')).accent, isNull);
+        // The editor's preview of the line is the same width (D33).
+        final drawn = find.descendant(
+          of: coloured,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is DecoratedBox &&
+                widget.decoration is BoxDecoration &&
+                (widget.decoration as BoxDecoration).color == line,
+          ),
+        );
+        expect(tester.getSize(drawn).width, ServerAccentBar.width);
+      });
+    }
+
+    testWidgets('a connected server wears the green ring beside its dot', (
+      tester,
+    ) async {
+      store.bookmarks = [_remote('r1')];
+      await pumpSidebar(tester, withConnections: true);
+      final chrome = PoltergeistChrome.of(
+        tester.element(row('sidebar.favorite.r1')),
+      );
+
+      lanes.watches['r1']!.add(
+        const ServerStatus(ServerConnectionState.connecting),
+      );
+      await tester.pumpAndSettle();
+      expect(rowOf(tester, row('sidebar.favorite.r1')).markRing, isNull);
+
+      lanes.watches['r1']!.add(
+        const ServerStatus(ServerConnectionState.connected),
+      );
+      await tester.pumpAndSettle();
+      final connected = rowOf(tester, row('sidebar.favorite.r1'));
+      expect(connected.markRing, chrome.statusConnected);
+      expect(connected.status?.color, chrome.statusConnected);
+    });
+
     testWidgets('the compact rail keeps the row ⋮ to the right-click', (
       tester,
     ) async {

@@ -286,6 +286,14 @@ ConnectionServer? _connectionOf(_SidebarData data, String serverId) {
   return null;
 }
 
+/// The green ring a connected server's mark wears beside its dot (D33,
+/// Séance's old connected ring): only while a connection is up, not
+/// while one is being attempted.
+Color? _connectedRing(BuildContext context, ServerStatus? status) =>
+    status?.state == ServerConnectionState.connected
+    ? PoltergeistChrome.of(context).statusConnected
+    : null;
+
 bool _isLive(ServerStatus? status) => switch (status?.state) {
   ServerConnectionState.connecting ||
   ServerConnectionState.connected ||
@@ -381,10 +389,11 @@ class _SavedServerRow extends StatelessWidget {
     final failure = listed?.paneFailure;
     final open = view.onOpenFavorite;
     final adhocEndpoint = _activeAdhocEndpoint(data);
+    final tint = ServerTint(named: bookmark.color);
     final mark = _serverMark(
       data,
       context,
-      ServerTint(named: bookmark.color),
+      tint,
       ServerGlyphMark(bookmark.icon),
     );
     final endpoint = _savedEndpoint(data, bookmark);
@@ -426,6 +435,8 @@ class _SavedServerRow extends StatelessWidget {
     Widget row(SidebarDropIndicator indicator) => SidebarRow(
       mark: mark,
       status: dot,
+      accent: serverAccent(context, tint)?.line,
+      markRing: _connectedRing(context, status),
       title: bookmark.label,
       subtitle: _serverLine(l10n, _stateWords(appearance, probe), where),
       depth: depth,
@@ -606,6 +617,7 @@ class _CatalogServerRow extends StatelessWidget {
           username: server.username,
         );
     final open = view.onOpenCatalogServer;
+    final tint = ServerTint.of(server);
     final endpoint = sidebarEndpointText(
       username: server.username,
       host: server.host,
@@ -619,11 +631,13 @@ class _CatalogServerRow extends StatelessWidget {
         mark: _serverMark(
           data,
           context,
-          ServerTint.of(server),
+          tint,
           server.mark,
           label: server.label,
         ),
         status: dot,
+        accent: serverAccent(context, tint)?.line,
+        markRing: _connectedRing(context, status),
         title: server.label,
         subtitle: _serverLine(l10n, _stateWords(appearance, probe), endpoint),
         depth: depth,
@@ -729,6 +743,8 @@ class _AdhocRow extends StatelessWidget {
             )
           : _placeMark(context, Icons.bolt),
       status: dot,
+      accent: serverAccent(context, ServerTint(named: bookmark.color))?.line,
+      markRing: _connectedRing(context, status),
       title: bookmark.label,
       subtitle: _serverLine(l10n, _stateWords(appearance, null), unsaved),
       italic: true,
