@@ -822,7 +822,7 @@ void main() {
     expect(workspace.activePane, leftStrip);
   });
 
-  testWidgets('Esc over an inline error retries the navigation', (
+  testWidgets('Esc over an inline error cancels back to the folder it left', (
     tester,
   ) async {
     final channel = localChannelWithEntries();
@@ -835,13 +835,99 @@ void main() {
     await tester.pumpAndSettle();
     expect(left.error, isNotNull);
 
-    // The failed path now lists successfully; Esc retries it.
+    // Esc backs out. It never re-attempts the failed folder, even one
+    // that would now list.
     channel.listings['/home/tester/gone'] = [_entry('back.txt')];
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
 
     expect(left.error, isNull);
+    expect(left.location, const LocalPaneLocation('/home/tester'));
+    expect(find.text('report.txt'), findsOneWidget);
+    expect(find.text('back.txt'), findsNothing);
+    expect(
+      channel.listCalls.where((path) => path == '/home/tester/gone'),
+      hasLength(1),
+    );
+  });
+
+  testWidgets('Enter over an inline error retries the navigation', (
+    tester,
+  ) async {
+    final channel = localChannelWithEntries();
+    await left.openLocalHome();
+    await pumpShell(tester);
+    leftNode.requestFocus();
+    await tester.pump();
+
+    left.navigate('/home/tester/gone');
+    await tester.pumpAndSettle();
+    expect(left.error, isNotNull);
+
+    channel.listings['/home/tester/gone'] = [_entry('back.txt')];
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(left.error, isNull);
     expect(find.text('back.txt'), findsOneWidget);
+  });
+
+  testWidgets('a denied folder offers Cancel back to a live listing', (
+    tester,
+  ) async {
+    final channel = localChannelWithEntries()
+      ..listingFailures['/root'] = const RemoteFileException(
+        kind: RemoteFileErrorKind.permissionDenied,
+        operation: 'list',
+        path: '/root',
+        message: 'Could not list "/root": Permission denied',
+      );
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    left.navigate('/root');
+    await tester.pumpAndSettle();
+    expect(
+      find.text("You don't have permission to open this folder."),
+      findsOneWidget,
+    );
+
+    // Retry cannot get out of a folder that refuses every time.
+    await tester.tap(find.byKey(const ValueKey('pane.error.retry')));
+    await tester.pumpAndSettle();
+    expect(left.error?.kind, RemoteFileErrorKind.permissionDenied);
+
+    await tester.tap(find.byKey(const ValueKey('pane.error.cancel')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('pane.error.cancel')), findsNothing);
+    expect(left.error, isNull);
+    expect(left.location, const LocalPaneLocation('/home/tester'));
+    // The rows are live again: a click selects one.
+    await tester.tap(find.text('report.txt'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(left.entries[left.cursorIndex!].name, 'report.txt');
+    expect(channel.listCalls.where((path) => path == '/root'), hasLength(2));
+  });
+
+  testWidgets('a failed connect offers Cancel through the binding exit', (
+    tester,
+  ) async {
+    lanes.remoteOpenFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'connect',
+      message: 'Authentication failed for tester@web.example.com:22',
+    );
+    await left.connectRemote(_bookmark('srv-1'));
+    await pumpShell(tester);
+    expect(left.phase, PanePhase.connectingRemote);
+
+    await tester.tap(find.byKey(const ValueKey('pane.error.cancel')));
+    await tester.pumpAndSettle();
+
+    // The harness wires onCancelRecovery to the pane's own detach.
+    expect(left.phase, PanePhase.unbound);
+    expect(left.error, isNull);
   });
 
   testWidgets('Enter is inert on stale entries during connection-lost', (
@@ -892,7 +978,7 @@ void main() {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
     final semantics = tester.ensureSemantics();
     try {
-      final channel = localChannelWithEntries();
+      localChannelWithEntries();
       await left.openLocalHome();
       await pumpShell(tester);
       leftNode.requestFocus();
@@ -905,8 +991,8 @@ void main() {
       expect(left.error, isNotNull);
 
       // Owned keys are consumed: no cursor move, no hidden navigation.
+      // (Enter is the overlay's Retry; its own test pins that.)
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
       await tester.pumpAndSettle();
       expect(left.cursorIndex, isNull);
@@ -925,14 +1011,21 @@ void main() {
       expect(excluderOfRow.excluding, isTrue,
           reason: 'the error overlay must exclude row semantics');
 
-      // Esc still reaches the retry escape hatch (scripted to succeed
-      // this time — Esc re-issues the failed navigation).
-      channel.listings['/home/tester/gone'] = [_entry('back.txt')];
+      // Esc still reaches the overlay: it cancels back to the listing
+      // the rows belong to.
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
-      expect(left.error, isNull,
-          reason: 'Esc retried the failed navigation');
-      expect(find.text('back.txt'), findsOneWidget);
+      expect(left.error, isNull, reason: 'Esc cancelled the failed navigation');
+      expect(left.location, const LocalPaneLocation('/home/tester'));
+      await tester.pump();
+      final restoredExcluder = tester.widget<ExcludeSemantics>(
+        find.ancestor(
+          of: find.text('report.txt'),
+          matching: find.byType(ExcludeSemantics),
+        ),
+      );
+      expect(restoredExcluder.excluding, isFalse,
+          reason: 'the restored rows rejoin the semantics tree');
     } finally {
       semantics.dispose();
       debugDefaultTargetPlatformOverride = null;

@@ -48,6 +48,9 @@ enum _RecoveryPhase { none, waiting, listing, failed, reopening }
 
 enum _BindingPresentation { replace, retainCache }
 
+/// [PaneController.cancelError]'s landing, from [PaneErrorExit.pane].
+enum _ErrorFallback { clear, committed, parent, home }
+
 // Connection loss is rendered by the localized banner, not a raw diagnostic.
 const _connectionLostError = RemoteFileException(
   kind: RemoteFileErrorKind.disconnected,
@@ -222,6 +225,24 @@ class PaneFaultException extends RemoteFileException {
     : super(kind: RemoteFileErrorKind.other, message: 'fault:${fault.name}');
 
   final PaneFault fault;
+}
+
+/// Where the inline error's Cancel takes the pane (02 §2.8). Retry
+/// alone is no way out of a failure that will not heal: a folder the
+/// user may not read fails the same way every time.
+enum PaneErrorExit {
+  /// Nothing to leave to: no error shows, or the pane has no channel
+  /// and no binding it could fall back from. No Cancel is offered.
+  none,
+
+  /// The pane itself backs out ([PaneController.cancelError]): back to
+  /// the last folder that listed, or up out of the one that failed.
+  pane,
+
+  /// Only leaving the remote binding gets out: the connect failed, or
+  /// no folder on the server is left to fall back to. The shell's
+  /// sibling-aware detach runs it, like the connecting state's Cancel.
+  unbind,
 }
 
 /// A failed file Open's retry handle: the failed launch's error,
@@ -1272,23 +1293,7 @@ class PaneController extends ChangeNotifier {
     // user navigation thereby survives as forward history: Esc then
     // Forward re-attempts it, like a browser's stop-then-forward.
     final restored = _location;
-    if (restored != null && _history.isNotEmpty) {
-      final origin = _historyIndex.clamp(0, _history.length - 1);
-      for (var delta = 0; delta < _history.length; delta++) {
-        final below = origin - delta;
-        if (below >= 0 && _history[below] == restored) {
-          _historyIndex = below;
-          break;
-        }
-        final above = origin + delta;
-        if (above != below &&
-            above < _history.length &&
-            _history[above] == restored) {
-          _historyIndex = above;
-          break;
-        }
-      }
-    }
+    if (restored != null) _moveHistoryTo(restored);
     final answered = _answeredGeneration;
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
@@ -1487,6 +1492,120 @@ class PaneController extends ChangeNotifier {
         return;
       }
       refresh();
+    }
+  }
+
+  /// What the inline error's Cancel does right now. The view offers
+  /// Cancel unless this is [PaneErrorExit.none], and routes
+  /// [PaneErrorExit.unbind] to the shell.
+  PaneErrorExit get errorExit {
+    if (_disposed || _error == null || connectionLost) {
+      return PaneErrorExit.none;
+    }
+    final remote = _pendingRemote != null;
+    if (_phase == PanePhase.connectingRemote) {
+      return remote ? PaneErrorExit.unbind : PaneErrorExit.none;
+    }
+    if (_phase != PanePhase.browsing) return PaneErrorExit.none;
+    if (_errorFallback() != null) return PaneErrorExit.pane;
+    return remote ? PaneErrorExit.unbind : PaneErrorExit.none;
+  }
+
+  /// The inline error's Cancel ([PaneErrorExit.pane]): abandons what
+  /// failed instead of attempting it again. A failed navigation lands
+  /// back on the last folder that listed; see [_errorFallback] for the
+  /// rest.
+  void cancelError() {
+    if (_disposed || connectionLost || _phase != PanePhase.browsing) return;
+    switch (_errorFallback()) {
+      case null:
+        return;
+      case _ErrorFallback.clear:
+        _error = null;
+        notifyListeners();
+        // A watch refresh held back by the error runs now.
+        _flushWatchRefresh();
+      case _ErrorFallback.committed:
+        _restoreCommitted();
+      case _ErrorFallback.parent:
+        navigate(paneParentPath(_location!.path));
+      case _ErrorFallback.home:
+        navigate(_channel!.homePath);
+    }
+  }
+
+  /// Where [cancelError] lands, by what the error left under it:
+  ///
+  /// - a failed navigation still shows the last committed folder's
+  ///   rows, so that folder comes back as it was (Esc-cancel's restore);
+  /// - a failed file Open or a rejected typed path never touched the
+  ///   rows: the error just goes;
+  /// - a folder that failed its own re-list, or a first listing that
+  ///   never landed, has nothing behind it: the pane moves up out of
+  ///   it (a deleted folder's Finder answer), or home from a root;
+  /// - null when even home is the folder that failed: nothing on this
+  ///   binding is left to fall back to.
+  _ErrorFallback? _errorFallback() {
+    final error = _error;
+    final channel = _channel;
+    if (error == null || channel == null) return null;
+    final location = _location;
+    final committed = _committedLocation;
+    if (committed != null && committed != location) {
+      return _ErrorFallback.committed;
+    }
+    if (error
+        case OpenEntryError() ||
+            PaneFaultException(fault: PaneFault.invalidPath)) {
+      return _ErrorFallback.clear;
+    }
+    if (location != null && paneParentPath(location.path) != location.path) {
+      return _ErrorFallback.parent;
+    }
+    if (location?.path != channel.homePath) return _ErrorFallback.home;
+    return null;
+  }
+
+  /// [cancelError]'s restore: the rows under the error are the last
+  /// accepted listing, so the committed folder comes back without a
+  /// re-list, and the failed target survives as Forward history, like
+  /// an Esc-cancelled navigation. The failed listing dropped the watch,
+  /// so a local folder re-lists once to re-arm it.
+  void _restoreCommitted() {
+    final committed = _committedLocation!;
+    // A navigation still in flight under the error (a typed path
+    // rejected mid-load) must not land on the restored folder.
+    _cancelListing();
+    _location = committed;
+    _error = null;
+    // The restored folder owns its rows again. Cleared before
+    // publishing, so listeners never see owned rows flagged stale.
+    _staleRows = false;
+    _applyEntries(_filteredListing());
+    _moveHistoryTo(committed);
+    notifyListeners();
+    _rewatchRestored(relistIfStale: true);
+  }
+
+  /// Moves the trail's index to the entry nearest the current one that
+  /// names [location], looking below it first (a cancelled push), then
+  /// above (a cancelled traversal). The trail itself stays intact.
+  void _moveHistoryTo(PaneLocation location) {
+    if (_history.isEmpty) return;
+    final origin = _historyIndex.clamp(0, _history.length - 1);
+    for (var delta = 0; delta < _history.length; delta++) {
+      final below = origin - delta;
+      if (below >= 0 && _history[below] == location) {
+        _historyIndex = below;
+        return;
+      }
+      final above = origin + delta;
+      if (above != below &&
+          above < _history.length &&
+          _history[above] == location) {
+        _historyIndex = above;
+        return;
+      }
     }
   }
 

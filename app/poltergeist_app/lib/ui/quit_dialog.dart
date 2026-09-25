@@ -85,11 +85,17 @@ Future<QuitConfirmChoice?> showQuitConfirmDialog(
 /// itself over an unflushed queue. Renders the failure inside
 /// ARB-authored copy — the raw error is machine data, not authored UI
 /// text.
-Future<void> showQuitFlushFailedDialog(
+///
+/// Answers true for Quit Anyway. A write that keeps failing (a full
+/// disk, a wedged writer) would otherwise veto every quit, leaving only
+/// killing the process. Quitting anyway loses nothing more than that,
+/// since the journal is crash-consistent. Dismiss, or a dismissed
+/// dialog, keeps the window open.
+Future<bool> showQuitFlushFailedDialog(
   BuildContext context, {
   required String error,
-}) {
-  return showDialog<void>(
+}) async {
+  final quit = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
       final l10n = AppLocalizations.of(dialogContext);
@@ -100,6 +106,11 @@ Future<void> showQuitFlushFailedDialog(
         content: Text(l10n.quitFlushFailedBody(error)),
         actions: [
           TextButton(
+            key: const ValueKey('quitFlush.quitAnyway'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.quitFlushFailedQuitAnyway),
+          ),
+          TextButton(
             key: const ValueKey('quitFlush.dismiss'),
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: Text(l10n.quitFlushFailedDismiss),
@@ -108,4 +119,5 @@ Future<void> showQuitFlushFailedDialog(
       );
     },
   );
+  return quit ?? false;
 }

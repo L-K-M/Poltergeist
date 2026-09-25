@@ -538,6 +538,15 @@ class _PaneViewState extends State<PaneView> {
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.contextMenu ||
         key == LogicalKeyboardKey.f10;
+    // The inline error is the pane's one live surface: Enter is its
+    // Retry, as a dialog's default button (Esc is its Cancel, below).
+    if (controller.error != null &&
+        !controller.connectionLost &&
+        key == LogicalKeyboardKey.enter &&
+        plainKey) {
+      if (event is! KeyRepeatEvent) unawaited(controller.retry());
+      return KeyEventResult.handled;
+    }
     if ((controller.connectionLost ||
             controller.error != null ||
             controller.inlineRenameActive ||
@@ -699,10 +708,10 @@ class _PaneViewState extends State<PaneView> {
       // Esc goes to the tiers below while one runs.
       controller.cancelNavigation();
     } else if (controller.error != null) {
-      // The inline error's keyboard escape hatch: Esc retries the
-      // failed operation (the overlay's Retry is otherwise
-      // mouse-only in this keyboard-first surface).
-      unawaited(controller.retry());
+      // The inline error's keyboard Cancel (Enter is its Retry): Esc
+      // backs out of what failed and never re-attempts it. A folder
+      // the user may not read would loop Esc → Retry → the same error.
+      _cancelError();
     } else if (_pendingRemoteConnect(controller)) {
       // A pending remote bind is not `loading` (no generation is
       // issued yet), so it cancels through the shell's
@@ -732,6 +741,20 @@ class _PaneViewState extends State<PaneView> {
       return KeyEventResult.ignored;
     }
     return KeyEventResult.handled;
+  }
+
+  /// The inline error's Cancel (button and Esc): the pane backs out on
+  /// its own, or the shell's sibling-aware detach runs when only
+  /// leaving the remote binding gets out, like the connecting Cancel.
+  void _cancelError() {
+    switch (widget.controller.errorExit) {
+      case PaneErrorExit.none:
+        return;
+      case PaneErrorExit.pane:
+        widget.controller.cancelError();
+      case PaneErrorExit.unbind:
+        widget.onCancelRecovery();
+    }
   }
 
   void _openCursor() {
@@ -1189,6 +1212,7 @@ class _PaneViewState extends State<PaneView> {
                     onDropHoverRow: _onDropHoverRow,
                     onCancelNavigation: widget.controller.cancelNavigation,
                     onRetry: () => unawaited(widget.controller.retry()),
+                    onCancelError: _cancelError,
                     onCancelRecovery: widget.onCancelRecovery,
                     onQuickSelectClosed: () => widget.focusNode.requestFocus(),
                     quickSelectFieldKey: _quickSelectFieldKey,
@@ -1296,6 +1320,7 @@ class _PaneSurface extends StatelessWidget {
     required this.onDropHoverRow,
     required this.onCancelNavigation,
     required this.onRetry,
+    required this.onCancelError,
     required this.onCancelRecovery,
     required this.onQuickSelectClosed,
     required this.quickSelectFieldKey,
@@ -1355,6 +1380,9 @@ class _PaneSurface extends StatelessWidget {
 
   final VoidCallback onCancelNavigation;
   final VoidCallback onRetry;
+
+  /// The inline error's Cancel; see [_PaneViewState._cancelError].
+  final VoidCallback onCancelError;
   final VoidCallback onCancelRecovery;
   final VoidCallback onQuickSelectClosed;
   final GlobalKey quickSelectFieldKey;
@@ -1633,7 +1661,13 @@ class _PaneSurface extends StatelessWidget {
           ),
         if (controller.error != null && !controller.connectionLost)
           Positioned.fill(
-            child: _ErrorOverlay(error: controller.error!, onRetry: onRetry),
+            child: _ErrorOverlay(
+              error: controller.error!,
+              onRetry: onRetry,
+              onCancel: controller.errorExit == PaneErrorExit.none
+                  ? null
+                  : onCancelError,
+            ),
           ),
         // 02 §2.5: the type-ahead badge floats over the listing for the
         // buffer's lifetime — transient by construction, it unmounts the
@@ -2994,10 +3028,18 @@ class _PaneRowState extends State<_PaneRow> {
 }
 
 class _ErrorOverlay extends StatelessWidget {
-  const _ErrorOverlay({required this.error, required this.onRetry});
+  const _ErrorOverlay({
+    required this.error,
+    required this.onRetry,
+    required this.onCancel,
+  });
 
   final RemoteFileException error;
   final VoidCallback onRetry;
+
+  /// Backs out of the failure; null only when the pane has nothing to
+  /// fall back to ([PaneErrorExit.none]).
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -3089,14 +3131,27 @@ class _ErrorOverlay extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: FilledButton.tonalIcon(
-                    key: const ValueKey('pane.error.retry'),
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.refresh, size: 16),
-                    label: Text(l10n.connectionRetry),
-                  ),
+                // A dialog's action bar: side by side while they fit,
+                // stacked in a pane at its minimum width.
+                OverflowBar(
+                  alignment: MainAxisAlignment.end,
+                  overflowAlignment: OverflowBarAlignment.end,
+                  spacing: 8,
+                  overflowSpacing: 4,
+                  children: [
+                    if (onCancel != null)
+                      TextButton(
+                        key: const ValueKey('pane.error.cancel'),
+                        onPressed: onCancel,
+                        child: Text(l10n.paneErrorCancel),
+                      ),
+                    FilledButton.tonalIcon(
+                      key: const ValueKey('pane.error.retry'),
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: Text(l10n.connectionRetry),
+                    ),
+                  ],
                 ),
               ],
             ),
