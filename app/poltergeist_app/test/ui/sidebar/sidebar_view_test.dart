@@ -16,6 +16,7 @@ import 'package:poltergeist_app/services/pane_drop.dart';
 import 'package:poltergeist_app/services/sidebar_controller.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
+import 'package:poltergeist_app/theme/family_hues.dart';
 import 'package:poltergeist_app/ui/server_appearance.dart';
 import 'package:poltergeist_app/ui/sidebar/sidebar_kit.dart';
 import 'package:poltergeist_app/ui/sidebar/sidebar_view.dart';
@@ -1964,7 +1965,7 @@ void main() {
       expect(badge.size, 32);
       final glyph = find.descendant(
         of: row('sidebar.favorite.l1'),
-        matching: find.byIcon(Icons.folder_outlined),
+        matching: find.byIcon(Icons.folder),
       );
       expect(tester.widget<Icon>(glyph).size, 20);
       expect(
@@ -1973,6 +1974,29 @@ void main() {
         ),
         const Size(32, 32),
       );
+      // D34: an uncoloured place wears its family hue's tile.
+      final tile = tester.widget<FamilyHueTile>(
+        find.ancestor(of: glyph, matching: find.byType(FamilyHueTile)),
+      );
+      expect(tile.hue, FamilyHue.blue);
+    });
+
+    testWidgets('a compact rail keeps the tile, at the 18 px mark', (
+      tester,
+    ) async {
+      store.bookmarks = [_local('l1', label: 'Docs', sortKey: 'ma')];
+      await pumpSidebar(tester, density: SidebarDensity.compact);
+
+      final tile = find.descendant(
+        of: row('sidebar.favorite.l1'),
+        matching: find.byType(FamilyHueTile),
+      );
+      expect(tester.getSize(tile), const Size(18, 18));
+      final glyph = tester.widget<Icon>(
+        find.descendant(of: tile, matching: find.byIcon(Icons.folder)),
+      );
+      expect(glyph.size, 12);
+      expect(glyph.color, FamilyHue.blue.onTile);
     });
 
     testWidgets('the row ⋮ is drawn when comfortable, not on a compact rail', (

@@ -1323,14 +1323,30 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // The kind-glyph classifier's extension tables, their separator,
     // and the extension dot — file-name machine data, never rendered.
     "'png jpg jpeg gif webp bmp tif tiff heic heif svg ico avif psd raw'",
-    "'txt md markdown rst log csv tsv json yaml yml toml xml html htm css'",
-    "'scss js mjs ts jsx tsx dart py rb go rs java kt swift c h cc cpp hpp'",
+    "'txt md markdown rst log csv tsv rtf doc docx odt pages xls xlsx ods '",
+    "'numbers ppt pptx odp epub'",
+    "'json yaml yml toml xml html htm css scss js mjs ts jsx tsx dart py rb '",
+    "'go rs java kt swift c h cc cpp hpp'",
     "'m mm cs php sh bash zsh fish ps1 bat sql ini conf cfg env lock'",
     "'zip tar gz tgz bz2 xz 7z rar zst lz4 dmg iso deb rpm pkg jar apk'",
-    "'mp3 wav flac aac ogg m4a opus mp4 mov mkv avi webm m4v wmv mpg'",
+    "'mp3 wav flac aac ogg m4a opus'",
+    "'mp4 mov mkv avi webm m4v wmv mpg'",
     "' '",
     "'pdf'",
     "'.'",
+  },
+  // D34's standard-folder table: lowercase folder names matched against
+  // a path's last segment: file-name machine data, never rendered.
+  'lib/ui/place_glyphs.dart': {
+    "'desktop'",
+    "'documents'",
+    "'downloads'",
+    "'pictures'",
+    "'photos'",
+    "'music'",
+    "'movies'",
+    "'videos'",
+    "'applications'",
   },
   // The inspector's widget keys — widget plumbing keyed for tests and
   // the pointer-bounce boundary, never authored copy. '' is the empty

@@ -8,6 +8,8 @@ import '../l10n/app_localizations.dart';
 import '../services/in_app_quick_look.dart';
 import '../theme/app_theme.dart';
 import 'editor_syntax.dart';
+import 'panes/kind_glyph.dart';
+import 'panes/pane_format.dart';
 import 'preview_panel.dart' show PreviewPdfBuilder;
 
 /// The Linux/Windows Quick Look surface (D32, 06 §5.1): a large floating
@@ -125,12 +127,7 @@ class _Panel extends StatelessWidget {
                   padding: const EdgeInsetsDirectional.only(start: 12, end: 4),
                   child: Row(
                     children: [
-                      _HeaderIcon(
-                        key: ValueKey(path),
-                        path: path,
-                        name: name,
-                        color: chrome.secondaryText,
-                      ),
+                      _HeaderIcon(key: ValueKey(path), path: path, name: name),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -187,12 +184,10 @@ class _HeaderIcon extends StatefulWidget {
     super.key,
     required this.path,
     required this.name,
-    required this.color,
   });
 
   final String path;
   final String name;
-  final Color color;
 
   @override
   State<_HeaderIcon> createState() => _HeaderIconState();
@@ -204,20 +199,21 @@ class _HeaderIconState extends State<_HeaderIcon> {
   @override
   Widget build(BuildContext context) => FutureBuilder<bool>(
     future: _folder,
-    builder: (context, snapshot) => Icon(
-      snapshot.data ?? false ? Icons.folder_outlined : _kindIcon(widget.name),
+    builder: (context, snapshot) => kindIcon(
+      context,
+      paneKindCategory(
+        RemoteFileEntry(
+          path: widget.path,
+          name: widget.name,
+          type: snapshot.data ?? false
+              ? RemoteFileType.directory
+              : RemoteFileType.file,
+        ),
+      ),
       size: 16,
-      color: widget.color,
     ),
   );
 }
-
-IconData _kindIcon(String name) => switch (previewKindForName(name)) {
-  PreviewKind.text => Icons.description_outlined,
-  PreviewKind.image => Icons.image_outlined,
-  PreviewKind.pdf => Icons.picture_as_pdf_outlined,
-  _ => Icons.insert_drive_file_outlined,
-};
 
 /// What the overlay can say about one path once it has looked: a folder,
 /// text it read, a file to hand an image or PDF renderer, an image or
@@ -318,7 +314,7 @@ class _BodyState extends State<_Body> {
                 );
         }
         return switch (look) {
-          _Folder() => _nothing(context, icon: Icons.folder_outlined),
+          _Folder() => _nothing(context, folder: true),
           _Text(:final content) => _text(context, content),
           _Renderable(kind: PreviewKind.image) => _image(context),
           _Renderable() => _pdf(context),
@@ -407,7 +403,7 @@ class _BodyState extends State<_Body> {
 
   /// The no-preview card; [reason] replaces its generic line when the
   /// overlay refused a kind it could otherwise render.
-  Widget _nothing(BuildContext context, {IconData? icon, String? reason}) {
+  Widget _nothing(BuildContext context, {bool folder = false, String? reason}) {
     final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final chrome = PoltergeistChrome.of(context);
@@ -416,10 +412,18 @@ class _BodyState extends State<_Body> {
         mainAxisSize: MainAxisSize.min,
         children: [
           ExcludeSemantics(
-            child: Icon(
-              icon ?? _kindIcon(widget.name),
+            child: kindIcon(
+              context,
+              paneKindCategory(
+                RemoteFileEntry(
+                  path: widget.path,
+                  name: widget.name,
+                  type: folder
+                      ? RemoteFileType.directory
+                      : RemoteFileType.file,
+                ),
+              ),
               size: 96,
-              color: chrome.secondaryText.withValues(alpha: 0.6),
             ),
           ),
           const SizedBox(height: 12),

@@ -3,6 +3,8 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'family_hues.dart';
+
 const _seedColor = Color(0xFF3D8A78);
 
 /// The colour the scheme seeds from, public for the two places that draw it
@@ -475,6 +477,6 @@ ThemeData buildPoltergeistTheme(
             ).titleLarge?.copyWith(color: scheme.onSurface)
           : null,
     ),
-    extensions: [chrome],
+    extensions: [chrome, FamilyPalette.forBrightness(brightness)],
   );
 }

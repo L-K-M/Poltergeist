@@ -33,12 +33,14 @@ import '../../services/sync_browsing_controller.dart';
 import '../../services/view_preferences.dart' show PaneViewMode;
 import '../../services/workspace_controller.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/family_hues.dart';
 import '../local_edits_review.dart';
 import '../server_appearance.dart';
 import 'drag_out_notice.dart';
 import 'pane_column_header.dart';
 import 'pane_context_menu.dart';
 import 'pane_drop_area.dart';
+import 'kind_glyph.dart';
 import 'pane_format.dart';
 import 'save_favorite_bar.dart';
 import 'sync_browse_chip.dart';
@@ -2395,11 +2397,14 @@ class _LocationGlyph extends StatelessWidget {
     }
     final path = controller.location?.path;
     final root = path != null && paneParentPath(path) == path;
+    // D34: a folder in the places blue, a volume's root in the disks'
+    // graphite, the same hues the sidebar's place tiles wear.
+    final hue = root ? FamilyHue.graphite : FamilyHue.blue;
     return ExcludeSemantics(
       child: Icon(
-        root ? Icons.storage_outlined : Icons.folder,
+        root ? Icons.storage : Icons.folder,
         size: size,
-        color: Theme.of(context).colorScheme.primary,
+        color: FamilyPalette.of(context).glyph(hue),
       ),
     );
   }
@@ -2521,17 +2526,23 @@ class _AncestorMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final chrome = PoltergeistChrome.of(context);
+    final palette = FamilyPalette.of(context);
     return MenuAnchor(
       menuChildren: [
         for (var i = 0; i < ancestors.length; i++)
           MenuItemButton(
             key: ValueKey('${controller.paneTabId}.path.ancestor.$i'),
-            leadingIcon: Icon(
-              i == ancestors.length - 1
-                  ? Icons.storage_outlined
-                  : Icons.folder_outlined,
-              size: 16,
-            ),
+            leadingIcon: i == ancestors.length - 1
+                ? Icon(
+                    Icons.storage,
+                    size: 16,
+                    color: palette.glyph(FamilyHue.graphite),
+                  )
+                : Icon(
+                    Icons.folder,
+                    size: 16,
+                    color: palette.glyph(FamilyHue.blue),
+                  ),
             onPressed: () => controller.navigate(ancestors[i].$2),
             child: Text(ancestors[i].$1),
           ),
@@ -2705,27 +2716,6 @@ class _PointerModifiers {
   final bool control;
 }
 
-/// The kind glyph's icon and category tint (D32 §6). The tint is a
-/// scheme role per family — never an ad-hoc hue — and the active
-/// selection repaints every glyph on-accent.
-(IconData, Color) _kindGlyph(
-  PaneKindCategory category,
-  ColorScheme colors,
-  PoltergeistChrome chrome,
-) => switch (category) {
-  PaneKindCategory.folder => (Icons.folder, colors.primary),
-  PaneKindCategory.link => (Icons.shortcut_outlined, chrome.secondaryText),
-  PaneKindCategory.image => (Icons.image_outlined, colors.tertiary),
-  PaneKindCategory.text => (Icons.description_outlined, chrome.secondaryText),
-  PaneKindCategory.archive => (Icons.inventory_2_outlined, colors.secondary),
-  PaneKindCategory.pdf => (Icons.picture_as_pdf_outlined, colors.error),
-  PaneKindCategory.media => (Icons.play_circle_outline, colors.tertiary),
-  PaneKindCategory.other => (
-    Icons.insert_drive_file_outlined,
-    chrome.secondaryText,
-  ),
-};
-
 /// One dense listing row (D32 §6): kind glyph, 13 px name, and the size
 /// and date columns in the secondary tone with tabular figures. The
 /// ACTIVE pane's selection paints the accent fill with on-accent text;
@@ -2840,11 +2830,8 @@ class _PaneRowState extends State<_PaneRow> {
       color: secondary,
       fontFeatures: const [FontFeature.tabularFigures()],
     );
-    final (glyph, tint) = _kindGlyph(
-      paneKindCategory(widget.entry),
-      colors,
-      chrome,
-    );
+    final (glyph, hue) = kindGlyph(paneKindCategory(widget.entry));
+    final tint = FamilyPalette.of(context).glyph(hue);
 
     // 02 §5.1's folder-row target ring outranks the cursor ring; both
     // paint in the foreground so they never shift the row's layout.

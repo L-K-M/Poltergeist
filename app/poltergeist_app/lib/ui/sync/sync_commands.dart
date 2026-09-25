@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
+import '../../theme/family_hues.dart';
 
 const kSyncSynchronizePanesCommandId = 'sync.synchronizePanes';
 const kSyncNewSavedSyncCommandId = 'sync.newSavedSync';
@@ -37,6 +38,7 @@ List<RegisteredCommand> buildSyncCommands({
       scope: CommandScope.app,
       label: (l10n) => l10n.syncSynchronizePanes,
       icon: Icons.sync_alt,
+      hue: FamilyHue.indigo,
       // ⌥⌘Y on macOS, Ctrl+Alt+Y elsewhere (02 §8.3's table).
       activators: (platform) => platform == TargetPlatform.macOS
           ? const [
@@ -71,7 +73,8 @@ List<RegisteredCommand> buildSyncCommands({
       id: kSyncNewSavedSyncCommandId,
       scope: CommandScope.app,
       label: (l10n) => l10n.syncNewSavedSync,
-      icon: Icons.sync_outlined,
+      icon: Icons.sync,
+      hue: FamilyHue.indigo,
       // No chord in 02 §8.3 — menu/palette reachable.
       enabled: savedSyncEnabled,
       disabledReason: (l10n) => l10n.commandDisabledNoBookmarks,
@@ -89,6 +92,7 @@ List<RegisteredCommand> buildSyncCommands({
       scope: CommandScope.app,
       label: (l10n) => l10n.syncCopyRsyncCommand,
       icon: Icons.terminal,
+      hue: FamilyHue.orange,
       // No chord in 02 §8.3 — menu/palette reachable; the plan view's
       // action bar renders the same command.
       enabled: copyRsyncEnabled,

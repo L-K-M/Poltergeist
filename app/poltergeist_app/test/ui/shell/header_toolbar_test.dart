@@ -7,6 +7,7 @@ import 'package:poltergeist_app/l10n/app_localizations_en.dart';
 import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/services/shortcut_format.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
+import 'package:poltergeist_app/theme/family_hues.dart';
 import 'package:poltergeist_app/ui/shell/header_toolbar.dart';
 
 /// D32's header (10 §4) rendered straight from a command list: it is a
@@ -22,12 +23,14 @@ void main() {
     String id, {
     CommandToolbarPlacement? placement,
     bool enabled = true,
+    FamilyHue? hue,
     List<ShortcutActivator> Function(TargetPlatform)? activators,
   }) => RegisteredCommand(
     id: id,
     scope: CommandScope.app,
     label: (l10n) => 'Label $id',
     icon: Icons.star_outline,
+    hue: hue,
     enabled: () => enabled,
     activators: activators,
     toolbarPlacement: placement,
@@ -173,6 +176,61 @@ void main() {
     await tester.pump();
     expect(runs, ['action']);
     expect(tester.widget<InkWell>(button('status')).onTap, isNull);
+  });
+
+  testWidgets('a verb wears its family hue until it is disabled; its '
+      'label and a hue-less button keep the ink (D34)', (tester) async {
+    final theme = buildPoltergeistTheme(Brightness.light);
+    final ink = theme.colorScheme.onSurface;
+    await pumpHeader(
+      tester,
+      shown: [
+        command(
+          'trash',
+          hue: FamilyHue.red,
+          placement: const CommandToolbarPlacement(
+            slot: ToolbarSlot.actions,
+            order: 10,
+          ),
+        ),
+        command(
+          'copy',
+          hue: FamilyHue.cyan,
+          enabled: false,
+          placement: const CommandToolbarPlacement(
+            slot: ToolbarSlot.actions,
+            order: 20,
+          ),
+        ),
+        command(
+          'connect',
+          hue: FamilyHue.green,
+          placement: const CommandToolbarPlacement(
+            slot: ToolbarSlot.primary,
+            order: 10,
+            labelled: true,
+          ),
+        ),
+        command(
+          'back',
+          placement: const CommandToolbarPlacement(
+            slot: ToolbarSlot.leading,
+            order: 10,
+          ),
+        ),
+      ],
+    );
+
+    Color? glyph(String id) => tester
+        .widget<Icon>(
+          find.descendant(of: button(id), matching: find.byType(Icon)),
+        )
+        .color;
+    expect(glyph('trash'), FamilyPalette.light.glyph(FamilyHue.red));
+    expect(glyph('copy'), ink.withValues(alpha: 0.38));
+    expect(glyph('connect'), FamilyPalette.light.glyph(FamilyHue.green));
+    expect(glyph('back'), ink);
+    expect(tester.widget<Text>(find.text('Label connect')).style?.color, ink);
   });
 
   testWidgets('narrowing sheds the primary labels, then folds the actions, '

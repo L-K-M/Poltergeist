@@ -254,11 +254,10 @@ class _HomeSyncFooter extends StatelessWidget {
   }
 }
 
-/// A comfortable rail row's mark for a place (a device, a folder, a
-/// workspace, a live session): [glyph] on a rounded tile the shape of
-/// the servers' badge, filled with the favorite's own colour or the
-/// neutral tone an uncoloured server's badge wears, so every mark in the
-/// rail is one size (D33). [extent] and [glyphSize] are read at the row,
+/// A rail row's mark for a place with a colour of its own (a coloured
+/// favorite): [glyph] on a rounded tile the shape of the servers' badge,
+/// filled with that colour, so every mark in the rail is one size (D33).
+/// A place without one wears its family hue's tile instead (D34). [extent] and [glyphSize] are read at the row,
 /// under the kit's scope: a drag's floating copy renders outside it.
 class _RailTile extends StatelessWidget {
   const _RailTile({
@@ -293,30 +292,42 @@ class _RailTile extends StatelessWidget {
   }
 }
 
-/// A rail row's mark for a place: the bare glyph a compact row keeps
-/// (tinted by the favorite's colour, if any), or the [_RailTile] a
-/// comfortable row wears. Home's list draws its disc instead.
+/// A rail row's mark for a place, in both densities a tile the shape of
+/// a server's badge (D34: iTunes' source list, where every row led with
+/// its colour): the favorite's own colour when it has one, else the
+/// place's family hue lit from the top. Home's list draws its disc
+/// instead.
 Widget _placeMark(
   BuildContext context,
-  IconData glyph, {
+  PlaceGlyph place, {
   ServerAccent? accent,
 }) {
   final extent = sidebarMarkExtent(context);
-  final glyphSize = sidebarGlyphSize(context);
-  if (SidebarKitScope.densityOf(context) == SidebarKitDensity.comfortable) {
+  // A comfortable tile keeps the kit's glyph size; a compact one is too
+  // small for it and scales the glyph with the tile.
+  final glyphSize =
+      SidebarKitScope.densityOf(context) == SidebarKitDensity.comfortable
+      ? sidebarGlyphSize(context)
+      : (extent * _compactTileGlyphRatio).roundToDouble();
+  if (accent != null) {
     return _RailTile(
-      glyph: glyph,
+      glyph: place.glyph,
       extent: extent,
       glyphSize: glyphSize,
       accent: accent,
     );
   }
-  return Icon(
-    glyph,
-    size: glyphSize,
-    color: accent?.line ?? PoltergeistChrome.of(context).secondaryText,
+  return FamilyHueTile(
+    hue: place.hue,
+    glyph: place.glyph,
+    extent: extent,
+    glyphSize: glyphSize,
   );
 }
+
+/// A compact tile's glyph against its side: 18 px tiles carry 12 px
+/// glyphs, legible inside the fill with a margin all round.
+const double _compactTileGlyphRatio = 0.66;
 
 /// A Home row's 40 dp mark: [glyph] on a disc of [tint].
 class _HomeDisc extends StatelessWidget {

@@ -7,8 +7,11 @@ import '../../services/quick_open_match.dart';
 import '../../services/recent_locations.dart';
 import '../../services/registered_command.dart';
 import '../../services/shortcut_format.dart';
+import '../../theme/family_hues.dart';
 import '../menus/app_menus.dart';
+import '../place_glyphs.dart';
 import '../server_appearance.dart';
+import '../shell/command_icon.dart';
 
 /// The `app.quickOpen` command id (02 §8.4, ⇧⌘P / Ctrl+Shift+P).
 const kQuickOpenCommandId = 'app.quickOpen';
@@ -563,10 +566,13 @@ class _QuickOpenPaletteState extends State<_QuickOpenPalette> {
       _CommandRow(:final command) => (
         command.label(l10n),
         _menuPath(command, l10n),
-        Icon(
-          command.icon ?? Icons.bolt_outlined,
+        commandIcon(
+          context,
+          command,
           size: 18,
-          color: enabled ? colors.onSurfaceVariant : theme.disabledColor,
+          enabled: enabled,
+          ink: enabled ? colors.onSurfaceVariant : theme.disabledColor,
+          fallback: Icons.bolt_outlined,
         ),
         command.activators
             ?.call(platform)
@@ -585,10 +591,13 @@ class _QuickOpenPaletteState extends State<_QuickOpenPalette> {
       _RecentRow(:final location) => (
         location.label,
         location.path,
+        // D34: a place, in the places blue.
         Icon(
-          location.isRemote ? Icons.cloud_outlined : Icons.folder_outlined,
+          location.isRemote ? Icons.cloud : Icons.folder,
           size: 18,
-          color: enabled ? colors.onSurfaceVariant : theme.disabledColor,
+          color: enabled
+              ? FamilyPalette.of(context).glyph(FamilyHue.blue)
+              : theme.disabledColor,
         ),
         null,
       ),
@@ -687,13 +696,23 @@ class _QuickOpenPaletteState extends State<_QuickOpenPalette> {
     ].join(' ');
   }
 
-  /// The favorite row's leading badge: the server accent + icon, kept
-  /// small beside the sidebar's 26px badge — a disabled row dims both.
+  /// The favorite row's leading badge: the sidebar's tile, small: the
+  /// favorite's accent when it has one, else its place's family hue
+  /// (D34). A disabled row dims both.
   Widget _favoriteBadge(Bookmark bookmark, bool enabled, ThemeData theme) {
     final accent = serverAccent(
       context,
       ServerTint(named: bookmark.color),
     );
+    final place = favoriteGlyph(bookmark);
+    if (enabled && accent == null) {
+      return FamilyHueTile(
+        hue: place.hue,
+        glyph: place.glyph,
+        extent: 22,
+        glyphSize: 14,
+      );
+    }
     final scheme = theme.colorScheme;
     return Container(
       width: 22,
@@ -705,7 +724,7 @@ class _QuickOpenPaletteState extends State<_QuickOpenPalette> {
         borderRadius: BorderRadius.circular(6),
       ),
       child: Icon(
-        _favoriteIcon(bookmark),
+        place.glyph,
         size: 14,
         color: enabled
             ? (accent?.onContainer ?? scheme.onSurfaceVariant)
@@ -731,14 +750,4 @@ class _QuickOpenPaletteState extends State<_QuickOpenPalette> {
         return l10n.sidebarKindSavedSync;
     }
   }
-
-  IconData _favoriteIcon(Bookmark bookmark) => switch (bookmark.kind) {
-    BookmarkKind.localFolder =>
-      bookmark.icon != null
-          ? serverIconData(bookmark.icon)
-          : Icons.folder_outlined,
-    BookmarkKind.remotePath => serverIconData(bookmark.icon),
-    BookmarkKind.workspace => Icons.space_dashboard_outlined,
-    BookmarkKind.savedSync => Icons.sync_alt,
-  };
 }

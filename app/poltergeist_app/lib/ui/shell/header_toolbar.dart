@@ -8,6 +8,7 @@ import '../../l10n/app_localizations.dart';
 import '../../services/registered_command.dart';
 import '../../services/shortcut_format.dart';
 import '../../theme/app_theme.dart';
+import 'command_icon.dart';
 import 'corner_count_badge.dart';
 
 /// How far the header has shed detail (10 §4's overflow order): the
@@ -372,10 +373,14 @@ class _ToolbarButton extends StatelessWidget {
     final color = enabled
         ? (checked ? theme.colorScheme.primary : theme.colorScheme.onSurface)
         : theme.colorScheme.onSurface.withValues(alpha: 0.38);
-    Widget icon = Icon(
-      command.icon ?? Icons.circle_outlined,
+    // D34: a verb's glyph wears its family hue and its label stays in
+    // the ink; a toggle keeps the accent it is checked in.
+    Widget icon = commandIcon(
+      context,
+      command,
       size: _buttonIconSize,
-      color: color,
+      enabled: enabled && !checked,
+      ink: color,
     );
     final badge = this.badge;
     final badged = badge != null && badge.count > 0;
@@ -457,7 +462,12 @@ class _OverflowButton extends StatelessWidget {
         for (final command in commands)
           MenuItemButton(
             key: ValueKey('toolbar.overflow.${command.id}'),
-            leadingIcon: Icon(command.icon, size: 16),
+            leadingIcon: commandIcon(
+              context,
+              command,
+              size: 16,
+              enabled: command.enabled(),
+            ),
             onPressed: command.enabled()
                 ? () => unawaited(onRun(command))
                 : null,

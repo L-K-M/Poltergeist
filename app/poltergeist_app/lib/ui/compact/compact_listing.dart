@@ -12,7 +12,9 @@ import '../../services/pane_permissions.dart' show nameIsFlagged;
 import '../../services/quick_connect_address.dart';
 import '../../services/quick_select_state.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/family_hues.dart';
 import '../local_edits_review.dart';
+import '../panes/kind_glyph.dart';
 import '../panes/pane_format.dart';
 import '../panes/save_favorite_bar.dart';
 import 'compact_pane_messages.dart';
@@ -517,26 +519,6 @@ Bookmark? _saveBarBookmark(PaneController controller) {
   return bookmark;
 }
 
-/// The kind glyph and its category tint (D32 §6), shared with the
-/// desktop row's families: a scheme role per family, never an ad-hoc hue.
-(IconData, Color) compactKindGlyph(
-  PaneKindCategory category,
-  ColorScheme colors,
-  PoltergeistChrome chrome,
-) => switch (category) {
-  PaneKindCategory.folder => (Icons.folder, colors.primary),
-  PaneKindCategory.link => (Icons.shortcut_outlined, chrome.secondaryText),
-  PaneKindCategory.image => (Icons.image_outlined, colors.tertiary),
-  PaneKindCategory.text => (Icons.description_outlined, chrome.secondaryText),
-  PaneKindCategory.archive => (Icons.inventory_2_outlined, colors.secondary),
-  PaneKindCategory.pdf => (Icons.picture_as_pdf_outlined, colors.error),
-  PaneKindCategory.media => (Icons.play_circle_outline, colors.tertiary),
-  PaneKindCategory.other => (
-    Icons.insert_drive_file_outlined,
-    chrome.secondaryText,
-  ),
-};
-
 /// D32 §9's 56 dp two-line row: a 40 dp kind badge (a check while
 /// selected), the name over `size · date`, and a trailing ⋮ for the
 /// item's action sheet. Outside selection mode a tap opens; inside it a
@@ -594,11 +576,8 @@ class _CompactRow extends StatelessWidget {
       RemoteFileType.other => l10n.paneRowKindOther,
     };
     final flagged = nameIsFlagged(entry.name);
-    final (glyph, tint) = compactKindGlyph(
-      paneKindCategory(entry),
-      colors,
-      chrome,
-    );
+    final (glyph, hue) = kindGlyph(paneKindCategory(entry));
+    final tint = FamilyPalette.of(context).glyph(hue);
 
     final label = flagged
         ? l10n.paneRowSemanticsFlagged(entry.name, kind, size, modified)

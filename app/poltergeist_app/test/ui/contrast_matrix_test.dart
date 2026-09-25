@@ -121,12 +121,9 @@ void main() {
           // The unknown-dot/semantic `outline` IS meaningful, so it is
           // pinned instead.
           ('outline', scheme.outline, scheme.surface),
-          // D32 §6's kind-glyph tints on the listing surface.
-          ('folder glyph', scheme.primary, chrome.paneBackground),
-          ('image/media glyph', scheme.tertiary, chrome.paneBackground),
-          ('archive glyph', scheme.secondary, chrome.paneBackground),
-          ('pdf glyph', scheme.error, chrome.paneBackground),
-          ('generic glyph', chrome.secondaryText, chrome.paneBackground),
+          // D32 §6's kind glyphs, and every other glyph D34 tints, wear
+          // the family hues: family_hues_test.dart pins each hue on every
+          // chrome surface and row state.
           // The sync plan's status marks and override dot on a selected
           // row in the focused table (on-accent, as the glyph above).
           (
