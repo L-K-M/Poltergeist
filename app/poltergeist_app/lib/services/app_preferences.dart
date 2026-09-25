@@ -8,6 +8,7 @@ import 'package:poltergeist_core/poltergeist_core.dart'
 import 'double_click_action.dart';
 import 'pane_tabs_controller.dart' show NewTabTarget;
 import 'settings_store.dart';
+import 'sidebar_controller.dart' show SidebarDensity;
 
 const _defaultPaneRatio = 0.5;
 const _paneRatioKey = 'layout.paneRatio';
@@ -25,6 +26,7 @@ const _uploadLimitKey = 'transfer.uploadLimitBytesPerSecond';
 const _autoClearCompletedKey = 'transfer.autoClearCompleted';
 const _sidebarHiddenKey = 'layout.sidebarHidden';
 const _sidebarCollapsedGroupsKey = 'sidebar.collapsedGroups';
+const _sidebarDensityKey = 'sidebar.density';
 const _previewCacheCapacityKey = 'preview.cacheCapacityBytes';
 const _previewThresholdKey = 'preview.largeDownloadThresholdBytes';
 const _updateChecksEnabledKey = 'updates.checkEnabled';
@@ -232,6 +234,25 @@ class AppPreferences {
 
   Future<void> saveSidebarCollapsedGroups(Set<String> keys) =>
       _store.set(_sidebarCollapsedGroupsKey, List<String>.of(keys));
+
+  /// The sidebar's row density (D33): device-local, comfortable by
+  /// default on every platform. An unreadable or unknown stored value
+  /// falls back to that default rather than failing startup.
+  Future<SidebarDensity> loadSidebarDensity() async {
+    String? stored;
+    try {
+      stored = await _store.get<String>(_sidebarDensityKey);
+    } catch (_) {
+      return SidebarDensity.comfortable;
+    }
+    for (final density in SidebarDensity.values) {
+      if (density.name == stored) return density;
+    }
+    return SidebarDensity.comfortable;
+  }
+
+  Future<void> saveSidebarDensity(SidebarDensity density) =>
+      _store.set(_sidebarDensityKey, density.name);
 
   /// The D19 update check's opt-out (00 D19/D23, 01 §6): ON by default
   /// — the check is a plain GET of a static URL carrying nothing — and

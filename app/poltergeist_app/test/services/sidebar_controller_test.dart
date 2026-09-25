@@ -296,6 +296,51 @@ void main() {
     });
   });
 
+  group('density', () {
+    test('rows start comfortable unless seeded, and a change persists', () {
+      final writes = <SidebarDensity>[];
+      final controller = SidebarController(
+        store: store,
+        onDensityChanged: writes.add,
+      );
+      addTearDown(controller.dispose);
+      var notified = 0;
+      controller.addListener(() => notified++);
+
+      expect(controller.density, SidebarDensity.comfortable);
+
+      controller.setDensity(SidebarDensity.compact);
+      expect(controller.density, SidebarDensity.compact);
+      expect(writes, [SidebarDensity.compact]);
+      expect(notified, 1);
+
+      // The same choice again is no change: nothing to repaint or save.
+      controller.setDensity(SidebarDensity.compact);
+      expect(writes, hasLength(1));
+      expect(notified, 1);
+
+      final seeded = SidebarController(
+        store: store,
+        density: SidebarDensity.compact,
+      );
+      addTearDown(seeded.dispose);
+      expect(seeded.density, SidebarDensity.compact);
+    });
+
+    test('a failed save reports and keeps the choice', () {
+      final controller = SidebarController(
+        store: store,
+        onDensityChanged: (_) => throw StateError('disk full'),
+        errors: ApplicationErrorReporter(sink: (error, _) => errors.add(error)),
+      );
+      addTearDown(controller.dispose);
+
+      controller.setDensity(SidebarDensity.compact);
+      expect(errors, hasLength(1));
+      expect(controller.density, SidebarDensity.compact);
+    });
+  });
+
   group('filter', () {
     test('a request opens the field and leaves focus to take once', () {
       final controller = buildController();

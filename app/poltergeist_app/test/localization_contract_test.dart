@@ -172,10 +172,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'transfer.downloadLimitBytesPerSecond'",
     "'transfer.uploadLimitBytesPerSecond'",
     "'transfer.autoClearCompleted'",
-    // The sidebar's persisted keys (02 §4): the hidden intent and the
-    // collapsed-group set — settings.json keys, never rendered.
+    // The sidebar's persisted keys (02 §4, D33): the hidden intent, the
+    // collapsed-group set and the row density — settings.json keys,
+    // never rendered.
     "'layout.sidebarHidden'",
     "'sidebar.collapsedGroups'",
+    "'sidebar.density'",
     // The preview panel's persisted keys (06 §8): cache capacity and the
     // large-download confirmation threshold — settings.json keys.
     "'preview.cacheCapacityBytes'",

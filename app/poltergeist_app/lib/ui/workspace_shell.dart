@@ -142,6 +142,8 @@ class WorkspaceShell extends StatefulWidget {
     this.onSidebarHiddenSaveError,
     this.initialSidebarCollapsedGroups = const {},
     this.onSidebarCollapsedGroupsChanged,
+    this.initialSidebarDensity = SidebarDensity.comfortable,
+    this.onSidebarDensityChanged,
     this.previewCache,
     this.previewProducer,
     this.quickLook,
@@ -323,6 +325,11 @@ class WorkspaceShell extends StatefulWidget {
   /// sink — null leaves collapse memory in-process.
   final Set<String> initialSidebarCollapsedGroups;
   final void Function(Set<String> keys)? onSidebarCollapsedGroupsChanged;
+
+  /// The persisted sidebar row density (D33: device-local, comfortable
+  /// by default) and its save sink — null keeps the choice in-process.
+  final SidebarDensity initialSidebarDensity;
+  final void Function(SidebarDensity density)? onSidebarDensityChanged;
 
   /// 06 §5.3's preview cache — the seam the whole preview slice keys
   /// on. Null composes no [PreviewSession]: Space keeps its pre-preview
@@ -614,6 +621,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         !identical(
           oldWidget.onSidebarCollapsedGroupsChanged,
           widget.onSidebarCollapsedGroupsChanged,
+        ) ||
+        oldWidget.initialSidebarDensity != widget.initialSidebarDensity ||
+        !identical(
+          oldWidget.onSidebarDensityChanged,
+          widget.onSidebarDensityChanged,
         )) {
       _sidebar?.dispose();
       _sidebar = _buildSidebar();
@@ -750,6 +762,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       store: store,
       initiallyCollapsed: widget.initialSidebarCollapsedGroups,
       onCollapsedChanged: widget.onSidebarCollapsedGroupsChanged,
+      density: widget.initialSidebarDensity,
+      onDensityChanged: widget.onSidebarDensityChanged,
       onBookmarksChanged: _onSidebarBookmarksChanged,
       onBookmarkRemoved: _forwardBookmarkRemoval,
     );
