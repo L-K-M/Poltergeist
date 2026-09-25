@@ -29,7 +29,7 @@ update the plan first.**
 | [07-MILESTONES.md](07-MILESTONES.md) | Milestones M0–M10 with exit criteria; the distribution workstream; the mobile-constraints memo |
 | [08-TESTING.md](08-TESTING.md) | Test strategy: engine tests, fakes, sshd-in-Docker matrix, perf benchmarks, a11y checks |
 | [09-PLAYBOOK.md](09-PLAYBOOK.md) | The implementation playbook: conventions, guardrails, definition of done, PR workflow, what never to do |
-| [10-WORKSPACE-REDESIGN.md](10-WORKSPACE-REDESIGN.md) | The D32 inspector workspace: window anatomy, header toolbar, shared sidebar, pane anatomy, inspector, Sync sheet, menus, Android posture, the Séance sibling contract |
+| [10-WORKSPACE-REDESIGN.md](10-WORKSPACE-REDESIGN.md) | The D32 inspector workspace: window anatomy, header toolbar, shared sidebar (its two densities per D33), pane anatomy, inspector, Sync sheet, menus, Android posture, the Séance sibling contract |
 
 Repository infrastructure (CI, GLM review workflow, release pipeline, build
 scripts) already exists on `main` and is documented in
@@ -65,7 +65,7 @@ D16 activity panel · D17 editor · D18 security model · D19 trust
 stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
 D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
 permissions · D29 mobile hooks · D30 Séance license · D31 no mounting ·
-D32 inspector workspace
+D32 inspector workspace · D33 sidebar density
 
 ### Stack and shape
 
@@ -558,6 +558,51 @@ D32 inspector workspace
   the header shows a progress ring whenever work runs, and new work
   opens the inspector on Transfers. Anything D32 does not name in 02
   still holds.
+- **D33 — Sidebar density and restored row detail (2026-09-25,
+  owner-directed; amends D32 and 10 §2, §5, §8, §9, §10).** Aligning
+  both apps' sidebars on one kit had lost what the owner used: the two
+  views (Séance's comfortable and compact lists), the address or path
+  on a second line, and several marks. The owner's calls, binding for
+  both apps:
+  - **Two densities, one switch.** Compact is D32's one-line rail,
+    unchanged; comfortable is the default on every platform: 52 px rows
+    (56 dp on a tablet's touch rail) with a 32 px mark, a 14 px title
+    and a 12 px second line the kit draws only when comfortable, so the
+    hosts always hand it over and cannot drift. Comfortable headers keep
+    their chevron, count and "+" in view, and every comfortable or
+    touch row shows its "⋮". The choice is device-local
+    (`sidebar.density`) and set from the bottom bar's switch, a phone
+    Home's app bar, or View ▸ Use Compact/Comfortable Sidebar Rows (one
+    item naming the other density: the macOS menu cannot show a check).
+    A phone Home is the Material list when comfortable and the rail's
+    touch rows when compact.
+  - **The second line** says what each row's tooltip says first: free
+    space, a home-relative path, a sync's two sides, a workspace's kind,
+    or a server's endpoint, with the state words first while it is
+    connecting, failed, blocked or unreachable, and a remote favorite's
+    landing path after it.
+  - **Marks:** the 4 px accent line in a server's colour
+    (`ServerAccentBar.width`) and a green connected ring around a
+    connected server's mark come back in both densities, beside the one
+    status dot. A blocked host key gets its own no-entry dot and an
+    unreachable host a red ring, so three states no longer share one
+    red dot. A header that hides a live server (folded, or filtered)
+    shows a dot for it.
+  - **Poltergeist's sections:** remote locations are favorites again,
+    under FAVORITES beside local folders as 10 §5 always said (the first
+    D32 build had moved them under SERVERS, a deviation recorded
+    nowhere); SERVERS is the shared account's list plus the live Quick
+    Connect sessions, and the session verb reads "Save to Favorites…". A
+    PINNED section above SERVERS holds the account's servers the user
+    pinned (device-local, "Pin to top" / "Unpin", as in Séance), and the
+    account's rows carry a small cloud mark and "From your Séance
+    account".
+  - **Kept as D32 built it:** ungrouped rows come first with no
+    "Ungrouped" header.
+  - **The filter** shows at five servers again (both apps' old
+    threshold), its count names "↵ opens the first", "No matches" offers
+    Clear filter, and a query drops itself once the rail it filtered is
+    empty.
 
 ### Security, trust, distribution
 

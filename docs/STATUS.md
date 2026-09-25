@@ -7864,6 +7864,8 @@ always read "Ready".
 - **Sidebar:** DEVICES / FAVORITES / SERVERS on the portable
   `sidebar_kit.dart`, which Séance adopted (docs/PORTS.md). Live dots,
   filter at 8+ servers, bottom bar with "+", sync status and Settings.
+  (Amended by D33 below: two densities, remote favorites back under
+  FAVORITES, PINNED, and the filter at five.)
 - **Sync:** the Transmit-style Sync Files sheet with a plain-language
   plan sentence (`sync_policy_sentence.dart`), Simulate / Synchronize,
   auto-run only for create-only plans, and a review grouped by action.
@@ -7893,6 +7895,69 @@ ObjC guard, VoiceOver) or an Android device.
 Deferred: drag-out to Finder (file promises, D14), column resizing and
 per-location sort persistence, free space in the pane header, and the
 Android slices listed under item 33.
+
+## D33 — sidebar density and restored row detail (2026-09-25)
+
+The owner reported that aligning both apps' sidebars on the shared kit
+lost features, "like the two different views". An inventory of both
+apps (old against current, with file and line evidence) and the
+owner's decisions became D33 in
+[plan/00](plan/00-OVERVIEW.md), with 10 §2, §5, §8, §9 and §10
+amended. The kit change landed in both repos first; this is the
+Poltergeist host.
+
+- **Two densities.** `SidebarController` owns a device-local
+  `SidebarDensity` (`sidebar.density`, comfortable by default, an
+  unknown value falls back to it). The rail's bottom bar carries the
+  kit's switch, a phone Home's app bar a `SidebarDensityControl`, and
+  View ▸ Use Compact/Comfortable Sidebar Rows
+  (`view.toggleSidebarDensity`, one item whose label names the other
+  density, since `PlatformMenuItem` carries no check) flips it from
+  the menus, the palette and Home's ⋮. Comfortable Home is the
+  Material list; compact Home the rail's touch rows.
+- **Rows.** Every row hands the kit its second line (free space or the
+  place, a home-relative path, a sync's two sides, "Workspace", a
+  server's state words then `user@host`, and a remote favorite's
+  landing path), which the kit draws only when comfortable. Comfortable
+  marks are 32 px: a server's badge (the neutral tile when uncoloured)
+  and a same-shaped tile for places. A coloured server leads with the
+  4 px line, a connected one wears the green ring, a blocked host key
+  has the no-entry dot and an unreachable host a red ring. The "⋮"
+  follows the kit (comfortable or touch). Server rows announce their
+  endpoint in either density.
+- **Sections.** Remote favorites list under FAVORITES again, in one
+  order with the other kinds and in mixed groups; SERVERS is the
+  account's list plus live Quick Connect sessions, and "Save to
+  Servers…" became "Save to Favorites…" (the command id stays
+  `connect.saveToServers`). PINNED holds the account's servers the user
+  pinned (`sidebar.pinnedServers`, device-local), above SERVERS. The
+  account's rows carry a cloud mark and "From your Séance account". A
+  header that folds or filters away a live server shows its dot. The
+  ssh_config offer moved to the empty FAVORITES state, where the hosts
+  it imports land.
+- **Filter.** Threshold five, "N of M · ↵ opens the first" on the rail
+  (Home keeps "N of M"), Clear filter under "No matches", and a query
+  that drops itself once the rail it filtered is empty.
+- **Kept:** ungrouped rows first with no "Ungrouped" header (owner
+  call); drag-to-reorder stays desktop-only.
+
+Fixed on the way: PINNED was built after SERVERS, so the filter counted
+and opened SERVERS' matches first and dropped PINNED whenever SERVERS
+had no match (regression test in `sidebar_catalog_test.dart`).
+
+Validation: the full app suite (2362 tests) and `flutter analyze`
+pass locally, and the protocol guard exits 0. The sidebar capture test
+(`POLTERGEIST_CAPTURE=1`) draws both densities at 300 px and at the
+180 px minimum in both themes, a tablet rail in both densities, a
+folded group's live dot and a row menu; none overflows. Not verified
+here: anything needing macOS (the native View menu item), a device
+(TalkBack, a real tablet), or a real engine's probe states on the
+rail (unit tests cover the unreachable ring).
+
+Left for later: pinning remote favorites (only the account's servers
+pin, so without the shared account PINNED never appears), and Enter's
+first match still follows rail order rather than preferring server
+rows (inventory M8).
 
 ## D32 — adversarial review fixes (2026-09-25)
 

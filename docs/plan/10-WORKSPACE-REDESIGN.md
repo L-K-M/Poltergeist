@@ -1,7 +1,8 @@
 # 10 — The inspector workspace (UI redesign, D32)
 
 **Status:** Accepted with its PR · **Date:** 2026-09-24 · **Decision:** D32 in
-[00-OVERVIEW.md](00-OVERVIEW.md)
+[00-OVERVIEW.md](00-OVERVIEW.md), amended 2026-09-25 by D33 (sidebar density
+and restored row detail: §2, §5, §8, §9, §10)
 
 This chapter replaces the shipped v1.0 window chrome with a ForkLift- and
 Transmit-grade workspace. Where it conflicts with [02-UX.md](02-UX.md) it
@@ -44,9 +45,10 @@ changes how it is presented.
    actions a file manager is used for every minute. Everything else lives in
    menus, context menus, and the palette (D21 still holds: every control is a
    registered command).
-2. **Density without clutter.** 13 px text, 22 px rows, one-line sidebar
-   rows, no per-row icon rows. Secondary facts (paths, addresses) go in
-   tooltips and the inspector, not in second lines.
+2. **Density without clutter.** 13 px text, 22 px pane rows, no per-row
+   icon rows. The sidebar has two densities (D33): compact keeps one-line
+   rows with secondary facts (paths, addresses) in tooltips; comfortable,
+   the default, spells them on a second line.
 3. **One place for each kind of truth.**
    - Location facts live in the pane header.
    - Item facts live in Info.
@@ -173,38 +175,71 @@ The header is registry-driven. A command appears only if it declares a
   - Removable volumes get an eject glyph on hover.
 - **FAVORITES:**
   - Every bookmark kind: local folder, remote location, workspace, and saved
-    sync.
-  - Named groups become nested disclosure rows.
+    sync, in one user order. A remote location is a server's row there: its
+    live dot, its endpoint, and its connection verbs (D33 puts back what the
+    first D32 build had moved under SERVERS).
+  - Named groups become nested disclosure rows, and a group holds any mix of
+    kinds.
   - When the list is empty the section offers "Add Desktop, Documents and
-    Downloads" as one click. It is never seeded silently, because favorites
-    sync to other devices.
+    Downloads" as one click, and the ssh_config import, whose hosts land
+    here. It is never seeded silently, because favorites sync to other
+    devices.
+- **PINNED** (D33): the account's servers the user pinned ("Pin to top",
+  "Unpin", device-local like Séance's pins), above SERVERS and drawn only
+  while one is pinned. A pinned server leaves its group.
 - **SERVERS:**
-  - The server list, the same one Séance shows under the shared account.
-  - Grouped, and pinned servers come first.
-  - Each row carries its live state: a connected, connecting, or failed dot.
-    This replaces the separate Connections section.
+  - The server list, the same one Séance shows under the shared account,
+    and the live Quick Connect sessions. Without the shared account it holds
+    the sessions only: a saved server is a remote favorite.
+  - Grouped, and pinned servers come first (PINNED above). Ungrouped rows
+    come before the groups, with no "Ungrouped" header.
+  - Each row carries its live state as one dot: connected solid green,
+    connecting amber, failed solid red, a blocked host key the red
+    no-entry dot, reachable-but-idle a green ring and unreachable a red
+    ring. A connected server's mark also wears a green ring (D33). This
+    replaces the separate Connections section.
+  - A folded group or section, or a filter, that hides a live server shows
+    a dot on the header (D33), green while one is connected, amber while
+    one is connecting.
+  - The account's rows carry a small cloud mark and "From your Séance
+    account" in the tooltip and the announced label.
   - Hovering a connected row shows a disconnect glyph.
   - Unsaved Quick Connect sessions appear at the top in italics, with "Save
-    to Servers…".
-- **Rows:**
-  - One line, 26 px.
-  - An 18 px mark with one composed 7 px status dot.
-  - A 13 px name that ellipsizes in the middle.
-  - Trailing 11 px tabular secondary text (free space, `×N` tabs).
-  - Hover fill at 6 %.
-  - A rounded selection pill marks the location the active pane is showing.
-  - A focus ring only in keyboard mode.
+    to Favorites…".
+- **Rows**, in two densities (D33; the bottom bar, View, and a phone Home's
+  app bar switch them, device-local, comfortable by default):
+  - **Compact:** one line, 26 px. An 18 px mark with one composed 7 px
+    status dot. A 13 px name that ellipsizes in the middle. Trailing 11 px
+    tabular secondary text (free space, `×N` tabs). Secondary facts in the
+    tooltip.
+  - **Comfortable:** 52 px (56 dp on a tablet's touch rail). A 32 px mark: a
+    server's badge (the neutral tile when it has no colour), a place's
+    rounded tile of the same shape. A 14 px name over a 12 px second line:
+    a device's free space (its path without it), a folder home-relative, a
+    saved sync's two sides, "Workspace", a server's state words first
+    (connecting, failed, blocked, unreachable) and then `user@host`, a
+    remote favorite adding ` · /landing/path`.
+  - Both: a server with a colour leads with the 4 px line in it
+    (`ServerAccentBar`'s width). Hover fill at 6 %. A rounded selection pill
+    marks the location the active pane is showing. A focus ring only in
+    keyboard mode. A "⋮" opens the row's verbs when comfortable and on touch.
+    The announced label always carries a server's endpoint.
 - **Section headers:**
   - 22 px, 11 px semibold, in the secondary text color.
-  - The chevron and the "+" appear on hover.
-  - The count shows only while collapsed.
-- **Filter:** one field at the top, shown at 8+ servers, while a query is
-  active, or via ⌥⌘F. It filters all sections.
+  - Compact on a desktop: the chevron and the "+" appear on hover, and the
+    count shows only while collapsed. Comfortable and on touch: all three
+    stay drawn.
+- **Filter:** one field at the top, shown at 5+ servers (the remote
+  favorites count), while a query is active, or via ⌥⌘F. It filters all
+  sections. Its count reads "3 of 12 · ↵ opens the first" while there is a
+  first match; "No matches" offers Clear filter; a query drops itself once
+  the rail it filtered holds no row.
 - **Bottom bar**, 30 px:
   - a "+" menu: New Server…, Quick Connect…, Add Current Folder to
     Favorites, New Group…, Import from ssh config…
   - the sync status: "Synced · 2 min", a spinner, or red "Sync failed" where
     a click retries
+  - the density switch (compact, comfortable), D33
   - a gear that opens Settings.
 - **Menus:**
   - Right-click opens at the pointer.
@@ -309,7 +344,7 @@ source.**
 | Poltergeist (macOS) | About, Check for Updates…, Settings… ⌘, · Services · Hide, Hide Others, Show All · Quit |
 | File | New Tab, New Folder, New File │ Open, Open With ▸, Edit in Poltergeist, Quick Look │ Get Info, Rename, Duplicate │ Copy to Other Pane, Move to Other Pane │ Move to Trash │ Reopen Closed Tab, Close Tab │ (Linux/Windows: Settings…, Quit) |
 | Edit | Undo, Redo │ Cut, Copy, Paste │ Select All, Invert Selection, Quick Select │ Copy Path │ Filter |
-| View | Show/Hide Sidebar, Inspector, Second Pane │ Info, Transfers, Alerts │ Show Hidden Files │ Refresh │ Enter Full Screen |
+| View | Show/Hide Sidebar, Use Compact/Comfortable Sidebar Rows (D33: one item naming the density it switches to, since the macOS menu cannot show a check), Inspector, Second Pane │ Info, Transfers, Alerts │ Show Hidden Files │ Refresh │ Enter Full Screen |
 | Go | Back, Forward, Enclosing Folder, Home │ Go to Folder…, Edit Path │ Focus Left/Right Pane, Sync Browsing │ Quick Open… |
 | Server | Connect… ⌘K, Disconnect │ Synchronize… ⌥⌘Y, New Saved Sync…, Copy as rsync Command │ Import from ssh config…, Back up and sync… │ Save Workspace…, Workspaces ▸ │ Pause/Resume Transfers |
 | Window | Minimize, Zoom │ Next/Previous Tab │ Bring All to Front |
@@ -325,7 +360,9 @@ source.**
 ## 9. Android and compact posture (< 600 dp)
 
 - **Home is the sidebar**, full screen: Devices, Favorites, and Servers, with
-  a search bar and a "+" FAB (New Server, Quick Connect).
+  a search bar and a "+" FAB (New Server, Quick Connect). Its app bar carries
+  the sidebar's density switch (D33): comfortable Home is the Material list,
+  compact Home the rail's one-line touch rows.
 - **The browser is a single pane:**
   - The app bar shows back, the folder name, `user@host`, and ⋮.
   - Breadcrumb chips scroll horizontally.
@@ -370,12 +407,15 @@ source.**
 
 Poltergeist and Séance are one product family. The contract:
 
-1. **Same sidebar anatomy** (§5): section headers, one-line rows, one status
-   dot, a bottom bar with "+" and sync status, and no app bar in the rail.
-   Séance shows SERVERS (and PINNED); Poltergeist adds DEVICES and FAVORITES.
+1. **Same sidebar anatomy** (§5, D33): section headers, compact and
+   comfortable rows over one shared kit (the kit, not the host, decides
+   whether a second line shows), one status dot plus the connected ring
+   and the colour line, a bottom bar with "+", sync status and the density
+   switch, and no app bar in the rail. Séance shows SERVERS (and PINNED);
+   Poltergeist adds DEVICES and FAVORITES, and pins the account's servers.
 2. **Same design tokens:**
    - 13 px body and 11 px captions
-   - 22 / 26 px rows
+   - 22 / 26 px rows; comfortable sidebar rows 52 px (56 dp on touch)
    - 8 px radii
    - the slate dark palette and the Finder-like light palette
    - one brand accent per app (Poltergeist teal, Séance violet)
@@ -391,7 +431,8 @@ Poltergeist and Séance are one product family. The contract:
      larger language table.
    Fixes land in both, recorded in `docs/PORTS.md` and Séance's changelog.
 5. **Same menu and command conventions.** Settings goes in the app menu on
-   macOS, the Edit menu is standard, and Help exists. ⌘K means Connect in
+   macOS, the Edit menu is standard, Help exists, and View carries the same
+   "Use Compact/Comfortable Sidebar Rows" item. ⌘K means Connect in
    Poltergeist and Generate Command in Séance: each is the app's primary
    "start something" chord, so the two do not collide.
 6. **Same Android navigation model:** the list is home, a pushed detail
