@@ -917,6 +917,7 @@ void main() {
           of: find.byKey(const ValueKey('f')),
           matching: find.byWidgetPredicate(
             (widget) => widget.runtimeType.toString() == '_BorderContainer',
+            description: "InputDecorator's fill-painting _BorderContainer",
           ),
         );
         expect(tester.getSize(fill).height, extent);
