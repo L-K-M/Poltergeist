@@ -142,7 +142,7 @@ final class SidebarController extends ChangeNotifier {
   final void Function(SidebarDensity density)? onDensityChanged;
 
   /// The persist sink for the pinned-server set (device-local, like
-  /// Séance's pins, which never sync). Called after every toggle with
+  /// Séance's pins, which never sync). Called after every change with
   /// the full set; null keeps pins in-process.
   final void Function(Set<String> pinned)? onPinnedChanged;
 
@@ -231,7 +231,8 @@ final class SidebarController extends ChangeNotifier {
   /// share this one set, as they share one id space (both apps mint
   /// UUIDs for both). An id whose server is no longer listed keeps its
   /// pin: it draws nothing, and comes back pinned if the server does (a
-  /// sync round that restores it, the shared account back on).
+  /// sync round that restores it, the shared account back on). Only a
+  /// favorite deleted here drops its pin, in [remove].
   Set<String> get pinnedServers => _pinned;
 
   bool isPinned(String serverId) => _pinned.contains(serverId);
@@ -243,6 +244,10 @@ final class SidebarController extends ChangeNotifier {
     if (_disposed) return;
     final next = Set<String>.of(_pinned);
     if (!next.add(serverId)) next.remove(serverId);
+    _setPinned(next);
+  }
+
+  void _setPinned(Set<String> next) {
     _pinned = Set.unmodifiable(next);
     notifyListeners();
     final sink = onPinnedChanged;
@@ -394,10 +399,15 @@ final class SidebarController extends ChangeNotifier {
   /// The row's delete: removes the record, then forwards the id to the
   /// removal cascade seam (engine teardown, probe-facts cleanup) in the
   /// store's own order — delete first, cascade second, never a half state
-  /// where the engine still serves a bookmark the store forgot.
+  /// where the engine still serves a bookmark the store forgot. A pinned
+  /// remote favorite's pin goes with it: the user deleted it here, and
+  /// its minted id never names another record.
   Future<bool> remove(String id) async {
     _assertLive();
     final removed = await _store.remove(id);
+    if (removed && !_disposed && _pinned.contains(id)) {
+      _setPinned(Set.of(_pinned)..remove(id));
+    }
     if (removed) {
       // The store delete is already committed — a cascade throw must
       // not surface here as a failed delete (the caller would retry,
