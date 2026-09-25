@@ -3920,8 +3920,9 @@ const sidebarMinWidth = 180.0;
 const sidebarMaxWidth = 360.0;
 
 /// The header's title block (10 §4): the active pane's location — the
-/// folder or server name, and a secondary line with the full path
-/// (remote: `user@host:path`).
+/// folder or server name with the server dot, and `user@host` under it
+/// for remotes only. The full path is a tooltip (remote:
+/// `user@host:path`), never a second line (10 §2).
 class _HeaderTitle extends StatelessWidget {
   const _HeaderTitle({required this.workspace});
 
@@ -3938,25 +3939,41 @@ class _HeaderTitle extends StatelessWidget {
     final location = controller?.location;
     final bookmark = controller?.remoteBookmark;
     final identity = bookmark?.server?.identity;
-    final subtitle = switch (location) {
-      null => bookmark?.label,
+    final subtitle = bookmark == null
+        ? null
+        : identity != null
+        ? '${identity.username}@${identity.host}'
+        : bookmark.label;
+    final path = switch (location) {
+      null => null,
       final loc when identity != null =>
         '${identity.username}@${identity.host}:${loc.path}',
       final loc when bookmark != null => '${bookmark.label}:${loc.path}',
       final loc => loc.path,
     };
-    return Semantics(
+    final block = Semantics(
       header: true,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            key: const ValueKey('header.title'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleSmall,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  title,
+                  key: const ValueKey('header.title'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall,
+                ),
+              ),
+              if (bookmark != null && controller != null) ...[
+                const SizedBox(width: 4),
+                PaneConnectionDot(controller: controller),
+              ],
+            ],
           ),
           if (subtitle != null)
             Text(
@@ -3970,6 +3987,7 @@ class _HeaderTitle extends StatelessWidget {
         ],
       ),
     );
+    return path == null ? block : Tooltip(message: path, child: block);
   }
 }
 

@@ -964,8 +964,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'header.title'",
     "'header.filter'",
     r"'revealInPane: no bookmark for $serverId'",
-    // The header subtitle's address grammar (10 §4): `user@host:path`
-    // and `label:path` — machine data like the sidebar's addresses.
+    // The header title's address grammar (10 §4): the `user@host`
+    // subtitle and the `user@host:path` / `label:path` tooltip —
+    // machine data like the sidebar's addresses.
+    r"'${identity.username}@${identity.host}'",
     r"'${identity.username}@${identity.host}:${loc.path}'",
     r"'${bookmark.label}:${loc.path}'",
     // The confirm dialog's bullet list marker — typographic, not copy.

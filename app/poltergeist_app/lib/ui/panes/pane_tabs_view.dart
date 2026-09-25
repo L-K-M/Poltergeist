@@ -754,7 +754,7 @@ class _TabChipState extends State<_TabChip> {
               size: 14,
             ),
             const SizedBox(width: 4),
-            _ConnectionDot(controller: controller),
+            PaneConnectionDot(controller: controller),
             const SizedBox(width: 2),
           ],
           Flexible(
@@ -1106,9 +1106,10 @@ class _TabEntryDropState extends State<_TabEntryDrop> {
 
 /// The remote tab's connection dot (02 §3): the shared server-truth
 /// glyph, mapped through the pane's own status lane — reconnecting and
-/// mid-connect states read as pending, a dropped binding as failed.
-class _ConnectionDot extends StatelessWidget {
-  const _ConnectionDot({required this.controller});
+/// mid-connect states read as pending, a dropped binding as failed. The
+/// header title shows the same dot for the active tab (10 §4).
+class PaneConnectionDot extends StatelessWidget {
+  const PaneConnectionDot({super.key, required this.controller});
 
   final PaneController controller;
 
