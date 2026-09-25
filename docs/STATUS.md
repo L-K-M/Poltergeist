@@ -8507,6 +8507,61 @@ packages/poltergeist_core` is clean, and `poltergeist_core` ran 1542
 passed, 37 skipped, and 2 failed, the root-only chmod checkout tests
 (2 of the passing tests are new). The protocol guard exits 0.
 
+## D34: Settings in its own window (2026-09-25)
+
+The owner asked for Settings to open in a window of its own on the
+desktops (D34 records the decision; it amends D13 and D25's parked
+multi-window item, and more than one workspace window stays parked).
+
+- **What changed for the user.** On macOS, Linux and Windows the
+  Settings command, Back up and sync… and Configure Editors… open one
+  Settings window, on General, Sync and Editing respectively, and bring
+  it forward on that tab when it is already open. Phones, tablets and a
+  desktop runner without the window host keep the dialogs, which the
+  commands fall back to.
+- **Shape.** The window is a second Flutter engine, started on `main`
+  with `--poltergeist-settings-window`
+  (`lib/settings_window_app.dart`). Nothing is shared between the two
+  isolates, so the app's isolate keeps every model and a
+  `SettingsWindowHost` answers the window over a link channel that each
+  runner relays byte for byte; the window holds `RemoteSettings`
+  proxies that forward calls and receive snapshots
+  (`lib/services/settings_window/`). The sections take seams now
+  (`BackupSettingsModel`, `EditorRegistryModel`, and
+  `PreviewDownloadsSettings.available` in place of the cache itself),
+  so the dialogs and the window render the same widgets. Link errors
+  carry the two typed failures the Sync forms read
+  (`KdfDowngradeException`, `RegistrationClosedException`); anything
+  else reaches the window as its message.
+- **Closing hides.** Disposing a second engine on Linux terminates the
+  EGL display the engines share, and the main window then dies with a
+  GLX BadAccess (measured on Séance under Xvfb). Each runner therefore
+  keeps the window and its engine until the app's window goes, and the
+  window drops its screen while hidden, so nothing typed survives a
+  close. The Linux window has its own delete-event handler, connected
+  before the view's, which would otherwise ask Dart to quit the app.
+- **Quitting.** On macOS every engine makes itself the termination
+  handler, so the window forwards exit requests to the app's isolate,
+  where the quit guard and the exit flushes decide them.
+- **Ported runners.** The three native hosts come from Séance's
+  matching change ([Séance #126](https://github.com/L-K-M/Seance/pull/126));
+  PORTS.md records the entry and its divergences.
+
+Verified on Linux under Xvfb: all three tabs render; a General toggle
+persisted `updates.checkEnabled: false` to the app's settings file; a
+close and a reopen through the sidebar's sync chip opened on Sync; the
+main window kept drawing throughout. macOS and Windows are compiled by
+CI only: the window's first run on each, the macOS termination
+forwarding, and Windows' owner window staying above the workspace are
+added to the release checklist's needs-a-machine items.
+
+Known limits: the window's size and position are not remembered, and
+with Settings key on macOS the menu's workspace commands still act on
+the workspace window.
+
+Validation: `flutter analyze` is clean; the new link, host and window
+suites (13 tests) and the settings routing tests pass.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

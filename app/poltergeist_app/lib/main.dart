@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'app.dart';
+import 'settings_window_app.dart';
 import 'services/app_preferences.dart';
 import 'services/application_error_reporter.dart';
 import 'services/bookmark_backup_service.dart';
@@ -39,12 +40,21 @@ import 'services/sync_queue_facade.dart';
 import 'services/sync_transport.dart';
 import 'services/sync_verdict_stores.dart';
 import 'services/transfer_queue_session.dart';
+import 'services/settings_window/settings_window_host.dart';
+import 'services/settings_window/settings_window_link.dart';
 import 'services/update_check_controller.dart';
 import 'services/workspace_library.dart';
 import 'services/workspace_list_store.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // The Settings window's engine runs this same entrypoint, and gets the
+  // Settings sections over the app's models — never a second copy of the
+  // stores, the engine session or the window lifecycle below.
+  if (args.contains(settingsWindowArgument)) {
+    await runSettingsWindow();
+    return;
+  }
 
   final supportDirectory = await getApplicationSupportDirectory();
   final settingsPath =
@@ -475,6 +485,10 @@ Future<void> main() async {
       syncEnvironment: syncEnvironment,
       syncTasks: syncTasks,
       updateCheck: updateCheck,
+      // Desktop only: the runners there host the Settings window.
+      settingsWindow: Platform.isMacOS || Platform.isLinux || Platform.isWindows
+          ? SettingsWindowHost()
+          : null,
       onContentSizeChanged: (size) {
         errorReporter.observe(windowLifecycle.calibrateMinimumSize(size));
       },

@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../services/bookmark_backup_service.dart';
+import '../../services/settings_models.dart';
 import '../../services/sync_account_gate.dart';
 import 'backup_switch_dialog.dart';
 
@@ -22,7 +22,7 @@ final class BackupEnrolledView extends StatelessWidget {
     this.gate = const SyncAccountGate.production(),
   });
 
-  final BookmarkBackupService service;
+  final BackupSettingsModel service;
   final SyncAccountGate gate;
 
   /// §3.3's manual round. A failure is already the surface's own
@@ -282,7 +282,7 @@ final class BackupEnrolledView extends StatelessWidget {
 final class _BackupStatusLine extends StatelessWidget {
   const _BackupStatusLine({required this.service});
 
-  final BookmarkBackupService service;
+  final BackupSettingsModel service;
 
   @override
   Widget build(BuildContext context) {
@@ -350,7 +350,7 @@ final class _DeleteBackupAccountDialog extends StatefulWidget {
     required this.server,
   });
 
-  final BookmarkBackupService service;
+  final BackupSettingsModel service;
   final String username;
   final String server;
 
@@ -443,7 +443,7 @@ class _DeleteBackupAccountDialogState
 final class _DeleteRetainedAccountDialog extends StatefulWidget {
   const _DeleteRetainedAccountDialog({required this.service});
 
-  final BookmarkBackupService service;
+  final BackupSettingsModel service;
 
   @override
   State<_DeleteRetainedAccountDialog> createState() =>

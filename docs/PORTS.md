@@ -1329,6 +1329,28 @@ and Séance's root Unlicense.
   docs/macos-accessibility-crash.md). Remove when the engine fixes the
   destruction order.
 
+## Settings window runners (D34)
+
+Files: `app/poltergeist_app/macos/Runner/SettingsWindow.swift`,
+`app/poltergeist_app/linux/runner/settings_window.{h,cc}`,
+`app/poltergeist_app/windows/runner/settings_window.{h,cpp}`
+
+- Source: the same paths under `app/seance_app/`, from
+  [Séance #126](https://github.com/L-K-M/Seance/pull/126)
+- Séance commit: 38b7a42 (the PR's head at port time, before it
+  merged; re-diff against its merge commit at the next pin bump)
+- Ported: 2026-09-25 (D34)
+- Divergences: channel names, the entrypoint argument, window titles
+  and the view controller class (`PoltergeistFlutterViewController`)
+  only. The Linux view is given a transparent background like the app's
+  own. The Dart side is not a port: Séance's `SettingsBackend` fronts one
+  screen over `AppState`, while Poltergeist's host and proxies front the
+  existing sections' seams (`BackupSettingsModel`,
+  `EditorRegistryModel`, `GeneralSettings`, `PreviewDownloadsSettings`).
+  `window_title.{h,cc}` is Poltergeist's own title code moved out of
+  `my_application.cc` so both windows share it, not a copy.
+- Port-back candidates: none yet; the two sets were written together.
+
 <!-- SEANCE_PIN_AUDIT_V1:START -->
 ## Séance pin audit
 

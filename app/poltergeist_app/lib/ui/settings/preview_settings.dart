@@ -9,7 +9,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/application_error_reporter.dart';
@@ -20,7 +19,7 @@ import '../top_toast.dart';
 /// stale controller.
 final class PreviewDownloadsSettings {
   const PreviewDownloadsSettings({
-    required this.cache,
+    required this.available,
     required this.capacityBytes,
     required this.thresholdBytes,
     required this.onCapacityChanged,
@@ -28,9 +27,11 @@ final class PreviewDownloadsSettings {
     required this.onClearCache,
   });
 
-  /// The §5.3 cache — null leaves the section rendered-disabled (a
-  /// cache-less boot has nothing to size or clear).
-  final PreviewCache? cache;
+  /// Whether the §5.3 cache exists — false leaves the section
+  /// rendered-disabled (a cache-less boot has nothing to size or clear).
+  /// A flag rather than the cache itself: the Settings window renders
+  /// this section in an isolate the cache does not live in.
+  final bool available;
 
   /// Live cache cap in bytes.
   final int capacityBytes;
@@ -148,7 +149,7 @@ class _PreviewDownloadsSectionState extends State<PreviewDownloadsSection> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final enabled = widget.settings.cache != null;
+    final enabled = widget.settings.available;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,

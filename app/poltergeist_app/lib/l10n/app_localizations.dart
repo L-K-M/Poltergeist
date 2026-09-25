@@ -2479,6 +2479,36 @@ abstract class AppLocalizations {
   /// **'General'**
   String get settingsGeneralSection;
 
+  /// Tab label for the General rows in the desktop Settings window (02 §10).
+  ///
+  /// In en, this message translates to:
+  /// **'General'**
+  String get settingsGeneralTab;
+
+  /// Tab label for the Editing rows (external editors, preview and downloads) in the desktop Settings window (02 §10).
+  ///
+  /// In en, this message translates to:
+  /// **'Editing'**
+  String get settingsEditingTab;
+
+  /// Tab label for the Bookmark backup rows in the desktop Settings window (02 §10's Sync tab; 10 §10 says Sync in both sibling apps).
+  ///
+  /// In en, this message translates to:
+  /// **'Sync'**
+  String get settingsSyncTab;
+
+  /// Shown in the desktop Settings window when the app's side of it does not answer.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings could not reach Poltergeist. Close this window and open Settings again.'**
+  String get settingsWindowUnreachable;
+
+  /// Shown in the desktop Settings window when the app has none of its sections wired.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to set here yet.'**
+  String get settingsWindowEmpty;
+
   /// Settings toggle for the D19 link-only update check (opt-out).
   ///
   /// In en, this message translates to:

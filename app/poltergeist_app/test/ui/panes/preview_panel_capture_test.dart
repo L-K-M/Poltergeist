@@ -399,7 +399,7 @@ void main() {
         tester.element(find.byType(Scaffold)),
         controller: registry,
         previewSettings: PreviewDownloadsSettings(
-          cache: h.cache,
+          available: true,
           capacityBytes: 512 << 20,
           thresholdBytes: 100 << 20,
           onCapacityChanged: (_) async {},

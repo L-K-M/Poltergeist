@@ -10,6 +10,8 @@ add_executable(${BINARY_NAME}
   "main.cc"
   "my_application.cc"
   "drag_out_channel.cc"
+  "settings_window.cc"
+  "window_title.cc"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
 )
 

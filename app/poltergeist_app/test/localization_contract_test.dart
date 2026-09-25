@@ -332,6 +332,27 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The Settings command id (D21 plumbing) — registered, never rendered.
   'lib/ui/settings/app_settings_command.dart': {"'app.settings'"},
+  // The Settings window's wire (D34): channel names, the argument its
+  // engine starts with, and the diagnostics of a malformed or orphaned
+  // call — plumbing between two isolates, never rendered. A window that
+  // loses the app renders ARB copy instead (settingsWindowUnreachable).
+  'lib/services/settings_window/settings_window_link.dart': {
+    "'poltergeist/settings_window'",
+    "'poltergeist/settings_link'",
+    "'--poltergeist-settings-window'",
+    // What the failed call printed, carried to the window verbatim, as
+    // the dialog shows it.
+    r"'$error'",
+  },
+  'lib/services/settings_window/settings_window_host.dart': {
+    r"'No Settings window method ${call.method}'",
+    r"'${method.name} goes to the window'",
+    "'This section is not available.'",
+  },
+  'lib/services/settings_window/remote_settings.dart': {
+    r"'No Settings window method ${call.method}'",
+    "'Settings link closed'",
+  },
   // 10 §8's platform-row command ids (D21 plumbing), never rendered.
   'lib/ui/menus/app_menu_commands.dart': {
     "'app.checkForUpdates'",
