@@ -1654,5 +1654,53 @@ void main() {
       expect(spec.rootPaths, ['/srv/report.pdf']);
       expect(spec.operation, TransferOperation.copy);
     });
+
+    testWidgets('local pane rows dropped on a device copy too; only the '
+        'move modifier moves them', (tester) async {
+      final queue = FakeAppTransferQueue();
+      final volumes = _FakeVolumes()..volumes = const [_home, _usb];
+      final drag = PaneEntryDrag(
+        source: const LocalFsLocation(),
+        rootPaths: ['/home/deploy/Documents/report.pdf'],
+      );
+      await pumpSidebar(
+        tester,
+        volumes: volumes,
+        dropDelegate: PaneDropDelegate(queue: queue),
+        dragSource: Center(
+          child: Draggable<Object>(
+            data: drag,
+            feedback: const SizedBox(width: 4, height: 4),
+            child: const Text('drag-me'),
+          ),
+        ),
+      );
+      final stick = find.byKey(const ValueKey('sidebar.device./Volumes/STICK'));
+
+      Future<void> dropOnStick() async {
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.text('drag-me')),
+        );
+        await tester.pump();
+        await gesture.moveTo(tester.getCenter(stick));
+        await tester.pump();
+        await gesture.up();
+        await tester.pumpAndSettle();
+      }
+
+      // A local source is one POSIX namespace to the gesture, but the
+      // stick is another disk: a plain drop must not delete the source.
+      await dropOnStick();
+      expect(queue.enqueuedSpecs.single.operation, TransferOperation.copy);
+      expect(queue.enqueuedSpecs.single.destinationDir, '/Volumes/STICK');
+
+      // The move modifier (Shift off macOS, Cmd on it) still moves.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await dropOnStick();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      expect(queue.enqueuedSpecs.last.operation, TransferOperation.move);
+    });
   });
 }

@@ -216,8 +216,13 @@ class _DeviceRow extends StatelessWidget {
     // A device takes pane rows dropped on it: copy (or, with the move
     // modifier, move) into its folder.
     return _SidebarDropZone(
-      planner: (data, _) =>
-          _transferPlan(context, view, data, destinationDir: volume.path),
+      planner: (data, _) => _transferPlan(
+        context,
+        view,
+        data,
+        destinationDir: volume.path,
+        copyByDefault: true,
+      ),
       builder: row,
     );
   }

@@ -89,11 +89,18 @@ class _SidebarDropZoneState extends State<_SidebarDropZone> {
 /// A pane-row drop INTO a local folder (a device, a folder favorite): the
 /// pane's own verb rules (02 §5.1 — modifiers, cross-filesystem copy, the
 /// containment refusals) through the shell's queue delegate.
+///
+/// [copyByDefault] is for a device: its row is a volume, usually another
+/// disk than the source, but POSIX paths are one namespace to
+/// [paneDropVerb], which would call a drop from `~/Documents` onto
+/// `/Volumes/STICK` a same-filesystem move and delete the source. So a
+/// device drop copies unless the move modifier is held.
 _DropPlan? _transferPlan(
   BuildContext context,
   SidebarView view,
   Object data, {
   required String destinationDir,
+  bool copyByDefault = false,
 }) {
   final delegate = view.dropDelegate;
   if (delegate == null || data is! PaneEntryDrag) return null;
@@ -104,7 +111,7 @@ _DropPlan? _transferPlan(
     sourceRoots: data.rootPaths,
     destination: destination,
     destinationDir: destinationDir,
-    copyModifier: modifiers.copy,
+    copyModifier: modifiers.copy || copyByDefault,
     moveModifier: modifiers.move,
   );
   final allowed = paneDropAllowed(
