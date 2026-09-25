@@ -169,7 +169,11 @@ List<RegisteredCommand> buildShellCommands({
         if (confirmation == null) return;
         if (confirmation.effectiveDisposition == DeleteDisposition.trash &&
             !confirmation.trashUnavailable) {
-          await ops.deleteSelection(confirmation, pane: pane);
+          await ops.deleteSelection(
+            confirmation,
+            disposition: DeleteDisposition.trash,
+            pane: pane,
+          );
           return;
         }
       }
@@ -191,7 +195,7 @@ List<RegisteredCommand> buildShellCommands({
       if (decision is! DeleteConfirmed || confirmation == null) return;
       await ops.deleteSelection(
         confirmation,
-        permanent: decision.permanent,
+        disposition: decision.disposition,
         pane: pane,
       );
     } on Object catch (error) {

@@ -109,6 +109,40 @@ void main() {
     expect(find.text('Delete “a.txt” from prod-web?'), findsOneWidget);
   });
 
+  testWidgets('after a permanent gesture, checking the server trash box '
+      'confirms a move to the trash', (tester) async {
+    DeleteDecision? decision;
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              decision = await showDeleteConfirmDialog(
+                context,
+                locationLabel: 'prod-web',
+                prepare: (_) async => _confirmation(remoteTrashOptIn: true),
+              );
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete “a.txt” from prod-web?'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('delete.serverTrash')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('delete.confirm')));
+    await tester.pumpAndSettle();
+    expect(
+      (decision! as DeleteConfirmed).disposition,
+      DeleteDisposition.trash,
+    );
+  });
+
   testWidgets('confirming reports whether the final wording was permanent', (
     tester,
   ) async {
@@ -136,7 +170,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('delete.confirm')));
     await tester.pumpAndSettle();
     expect(decision, isA<DeleteConfirmed>());
-    expect((decision! as DeleteConfirmed).permanent, isTrue);
+    expect(
+      (decision! as DeleteConfirmed).disposition,
+      DeleteDisposition.permanent,
+    );
   });
 
   testWidgets('trash unavailable carries D15 notice', (tester) async {
