@@ -1051,12 +1051,16 @@ class _TabEntryDropState extends State<_TabEntryDrop> {
     )) {
       return;
     }
-    delegate.enqueue(
-      source: drag.source,
-      rootPaths: drag.rootPaths,
-      destination: destination.fs,
-      destinationDir: destination.dir,
-      operation: verb,
+    // An OS drag-out hand-off in flight holds the enqueue until it knows
+    // whether this release was its own.
+    drag.landInApp(
+      () => delegate.enqueue(
+        source: drag.source,
+        rootPaths: drag.rootPaths,
+        destination: destination.fs,
+        destinationDir: destination.dir,
+        operation: verb,
+      ),
     );
   }
 

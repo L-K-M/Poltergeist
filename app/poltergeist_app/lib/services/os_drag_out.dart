@@ -69,8 +69,11 @@
 /// synthetic `leftMouseUp` at the current location. Windows: send
 /// `WM_LBUTTONUP` to the Flutter view's HWND before `DoDragDrop`. The
 /// Dart side also cancels the framework's gesture itself (a synthetic
-/// `PointerCancelEvent` for the row's pointer) once `started` arrives,
-/// so the in-app drag can never land a drop.
+/// `PointerCancelEvent` for the row's pointer) once `started` arrives.
+/// Until the reply arrives it holds every in-app drop of the payload,
+/// since the release may be the native side's own: discarded if the
+/// session started, landed if it did not. So the in-app drag never
+/// lands a drop alongside a native session.
 ///
 /// **`promiseProgress`** (arguments: a map; fire-and-forget, reply
 /// ignored): `{sessionId: String, promiseId: String,

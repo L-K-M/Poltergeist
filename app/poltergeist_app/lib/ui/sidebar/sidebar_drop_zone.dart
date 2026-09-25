@@ -79,7 +79,17 @@ class _SidebarDropZoneState extends State<_SidebarDropZone> {
         // An accepted drop never fires onLeave — clear here or the row
         // stays armed-looking until the next drag.
         _clear(details.data);
-        plan?.accept();
+        if (plan == null) return;
+        final data = details.data;
+        if (data is! PaneEntryDrag) {
+          plan.accept();
+          return;
+        }
+        // An OS drag-out hand-off in flight holds a pane-row drop until
+        // it knows whether this release was its own.
+        data.landInApp(() {
+          if (mounted) plan.accept();
+        });
       },
       builder: (context, candidates, rejected) => widget.builder(_indicator),
     );

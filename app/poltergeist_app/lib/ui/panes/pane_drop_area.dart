@@ -291,17 +291,18 @@ class _PaneDropAreaState extends State<PaneDropArea> {
     _setHover(label: null, folderRow: null);
   }
 
-  /// The drop lands: resolve once more at release time — the pointer
-  /// may have moved past the last `onMove` — then enqueue through the
-  /// shared seam. The verb reads the modifiers held AT RELEASE.
-  void _acceptInApp(PaneEntryDrag drag, Offset global) {
+  /// The drop lands: resolve once more at release time (the pointer may
+  /// have moved past the last `onMove`) into the enqueue through the
+  /// shared seam, which the caller runs; null when the drop lands
+  /// nothing. The verb reads the modifiers held AT RELEASE.
+  VoidCallback? _resolveInAppDrop(PaneEntryDrag drag, Offset global) {
     final delegate = widget.delegate;
     final resolved = _resolveDrop(global);
     final destination = _destinationFs;
     drag.verb.value = null;
     _clearHover();
     if (resolved == null || delegate == null || destination == null) {
-      return;
+      return null;
     }
     final modifiers = paneDropModifiers(context);
     final verb = paneDropVerb(
@@ -319,9 +320,9 @@ class _PaneDropAreaState extends State<PaneDropArea> {
       destinationDir: resolved.dir,
       operation: verb,
     )) {
-      return;
+      return null;
     }
-    delegate.enqueue(
+    return () => delegate.enqueue(
       source: drag.source,
       rootPaths: drag.rootPaths,
       destination: destination,
@@ -422,8 +423,12 @@ class _PaneDropAreaState extends State<PaneDropArea> {
         data?.verb.value = null;
         _clearHover();
       },
-      onAcceptWithDetails: (details) =>
-          _acceptInApp(details.data, details.offset),
+      onAcceptWithDetails: (details) {
+        // Resolved at release; an OS drag-out hand-off in flight holds
+        // the enqueue until it knows whether this release was its own.
+        final drop = _resolveInAppDrop(details.data, details.offset);
+        if (drop != null) details.data.landInApp(drop);
+      },
       builder: (context, candidateData, rejectedData) => widget.child,
     );
     if (widget.supportsOsDrop) {
@@ -440,7 +445,8 @@ class _PaneDropAreaState extends State<PaneDropArea> {
             for (final item in details.files) item.path,
           ]);
           if (echo != null) {
-            _acceptInApp(echo, details.globalPosition);
+            // The native session's own drop: nothing to hold for.
+            _resolveInAppDrop(echo, details.globalPosition)?.call();
             return;
           }
           _acceptOsDrop(details);

@@ -826,7 +826,9 @@ class _PaneViewState extends State<PaneView> {
     final bounds = Offset.zero & (view.physicalSize / view.devicePixelRatio);
     if (bounds.contains(details.globalPosition)) return;
     _dragOutDecided = true;
-    unawaited(
+    // Until the native side answers, an in-app drop cannot tell its
+    // synthetic release from the user's own, so drops wait for it.
+    drag.holdDropsUntil(
       _handOffRowDrag(
         dragOut,
         drag,
@@ -836,7 +838,8 @@ class _PaneViewState extends State<PaneView> {
     );
   }
 
-  Future<void> _handOffRowDrag(
+  /// Resolves to whether a native session took the drag.
+  Future<bool> _handOffRowDrag(
     DragOutController dragOut,
     PaneEntryDrag drag,
     Offset position,
@@ -859,7 +862,8 @@ class _PaneViewState extends State<PaneView> {
         itemCountLabel: l10n.dropItemCount,
       ),
     );
-    if (!mounted) return;
+    final started = result == DragOutHandOff.started;
+    if (!mounted) return started;
     switch (result) {
       case DragOutHandOff.started:
         // The native session owns the drag now. Cancel the framework's
@@ -882,6 +886,7 @@ class _PaneViewState extends State<PaneView> {
       case DragOutHandOff.unavailable || DragOutHandOff.notStarted:
       // The in-app drag simply continues.
     }
+    return started;
   }
 
   /// D32 §6: selection happens on pointer-DOWN. A primary press selects

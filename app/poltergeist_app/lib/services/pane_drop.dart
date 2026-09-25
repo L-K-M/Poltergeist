@@ -7,7 +7,9 @@
 /// widget tree.
 library;
 
-import 'package:flutter/foundation.dart' show ValueNotifier;
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show ValueNotifier, VoidCallback;
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'app_transfer_queue.dart';
@@ -56,6 +58,51 @@ class PaneEntryDrag {
   /// unsubscribes when the overlay unmounts.
   final ValueNotifier<TransferOperation?> verb =
       ValueNotifier<TransferOperation?>(null);
+
+  /// The OS drag-out hand-off in flight for this payload (D14's
+  /// amendment), resolving to whether a native session took the drag.
+  Future<bool>? _handOff;
+
+  /// Holds this payload's in-app drops until [started] answers whether
+  /// a native session took the drag. The pane calls it when the row drag
+  /// crosses the window edge: while the native side starts its session,
+  /// it ends the embedder's press with a synthetic release, and until
+  /// the answer arrives a drop cannot tell that release from the user's
+  /// own. A hand-off that fails started no session, so its drops land;
+  /// the failure still reaches the zone, as an unawaited one would.
+  void holdDropsUntil(Future<bool> started) {
+    final pending = started.then<bool>(
+      (value) => value,
+      onError: (Object error, StackTrace stackTrace) {
+        Zone.current.handleUncaughtError(error, stackTrace);
+        return false;
+      },
+    );
+    _handOff = pending;
+    unawaited(
+      pending.whenComplete(() {
+        if (identical(_handOff, pending)) _handOff = null;
+      }),
+    );
+  }
+
+  /// Lands an in-app drop of this payload: runs [drop] now, or, while a
+  /// hand-off is in flight, once it answered that no native session
+  /// started. A drop made while a native session took over is
+  /// discarded: that session carries the items, and landing both would
+  /// transfer them twice.
+  void landInApp(VoidCallback drop) {
+    final pending = _handOff;
+    if (pending == null) {
+      drop();
+      return;
+    }
+    unawaited(
+      pending.then((started) {
+        if (!started) drop();
+      }),
+    );
+  }
 }
 
 /// The pane location's transfer endpoint (03 §4.1): a local pane is the

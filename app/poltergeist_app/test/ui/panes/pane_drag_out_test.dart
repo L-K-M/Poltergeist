@@ -392,6 +392,56 @@ void main() {
     );
   });
 
+  dndWidgets('a native release that arrives before the started reply lands '
+      'no in-app drop', (tester) async {
+    await bindLocals();
+    backend.startGate = Completer<void>();
+    await pumpShell(tester);
+
+    final gesture = await dragOutOfWindow(tester, find.text('report.txt'));
+    expect(backend.requests, hasLength(1));
+    // Back over the other pane while the hand-off is in flight, then the
+    // native side ends the embedder's press (macOS and Linux do that
+    // before they reply) and only then answers `started`.
+    await gesture.moveTo(paneBackground(tester, right));
+    await tester.pump();
+    await endDrag(tester, gesture);
+    backend.startGate!.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+
+    // The native session carries the items; nothing moves in-app too.
+    expect(queue.enqueuedSpecs, isEmpty);
+    expect(dragOut.activeEchoPayload, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  dndWidgets('a release before a refused start still lands in-app', (
+    tester,
+  ) async {
+    await bindLocals();
+    backend
+      ..startGate = Completer<void>()
+      ..nextResult = const DragOutNotStarted(DragOutRefusal.buttonReleased);
+    await pumpShell(tester);
+
+    final gesture = await dragOutOfWindow(tester, find.text('report.txt'));
+    await gesture.moveTo(paneBackground(tester, right));
+    await tester.pump();
+    // The user let go before the native side looked: it refuses, and the
+    // drop the release made is the one that counts.
+    await endDrag(tester, gesture);
+    expect(queue.enqueuedSpecs, isEmpty);
+    backend.startGate!.complete();
+    await tester.pump();
+
+    final spec = queue.enqueuedSpecs.single;
+    expect(spec.operation, TransferOperation.move);
+    expect(spec.rootPaths, ['/home/tester/report.txt']);
+    expect(spec.destinationDir, '/srv/other');
+    expect(dragOut.activeEchoPayload, isNull);
+  });
+
   dndWidgets('without a drag-out controller the edge changes nothing', (
     tester,
   ) async {
