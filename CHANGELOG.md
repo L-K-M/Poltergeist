@@ -38,7 +38,9 @@
     too ("Pin to top" in their menu), so it works without a Séance
     account.
   - A folded group or a filter never hides a live connection: the
-    header shows its dot. The filter appears at five servers again,
+    header shows its dot, and a screen reader hears it with the header
+    ("Connected server hidden", or "Connecting server hidden"). The
+    filter appears at five servers again,
     says "↵ opens the first", and offers Clear filter.
 - **New verbs.** Connect (⌘K), New Folder, New File, Duplicate, Move to
   Trash with a clear confirmation, Copy and Move to Other Pane (F5, F6),
@@ -55,15 +57,19 @@
   selection, sheets, folders and home.
 - **Drag files out of Poltergeist.** Dragging rows past the window's
   edge hands them to the system, so they can land in a file manager or
-  another app; several selected items travel together, and the
-  destination decides whether to copy or move. On Linux this carries
-  local files today, and so does Windows (built, awaiting its first run
-  on Windows). On macOS local files travel as file URLs, and
-  remote files and folders as file promises that download straight to
-  where you drop them (built, awaiting its first run on a Mac); on
-  Linux and Windows a remote drag shows a hint and stays inside the
-  window. A drag that comes back into Poltergeist lands like any
-  in-app drag.
+  another app; several selected items travel together, and they arrive
+  as copies (or links). A drag out never moves or deletes the
+  originals, so the Trash and the Recycle Bin refuse it; drags between
+  the two panes still move. On Linux this carries local files today,
+  and so does Windows (built, awaiting its first run on Windows). On
+  macOS local files travel as file URLs, and remote files and folders
+  as file promises that download straight to where you drop them
+  (built, awaiting its first run on a Mac); on Linux and Windows a
+  remote drag shows a hint and stays inside the window. A drag that
+  comes back into Poltergeist lands like any in-app drag. Pausing a
+  dragged remote item's download in Transfers stops the drop and says
+  so under Alerts, and a drag that has to leave links or names that
+  aren't valid UTF-8 behind says how many.
 - **Download To….** File ▸ Download To… and the row menu download the
   selected remote items into a folder you pick.
 - **Shares an account with Séance.** Bookmark sync now preselects the
@@ -99,6 +105,10 @@
     Sync control, and hear the alert and transfer counts.
   - On a Mac, Control-click opens a sidebar row's menu. The app menu
     gains Check for Updates…, and Linux and Windows gain File ▸ Quit.
+  - Pinned servers and folded sidebar sections survive a launch that
+    could not read the settings file. Pinning or folding afterwards
+    used to replace all of them with just that one change; now the
+    sidebar keeps them and shows them again.
 - Pre-1.0 history lives in the commit log and the GitHub pre-releases
   (v0.1.0, v0.2.0).
 

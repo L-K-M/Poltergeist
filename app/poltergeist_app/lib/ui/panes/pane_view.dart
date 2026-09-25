@@ -35,6 +35,7 @@ import '../../services/workspace_controller.dart';
 import '../../theme/app_theme.dart';
 import '../local_edits_review.dart';
 import '../server_appearance.dart';
+import 'drag_out_notice.dart';
 import 'pane_column_header.dart';
 import 'pane_context_menu.dart';
 import 'pane_drop_area.dart';
@@ -862,9 +863,13 @@ class _PaneViewState extends State<PaneView> {
         itemCountLabel: l10n.dropItemCount,
       ),
     );
-    final started = result == DragOutHandOff.started;
+    final started = result.outcome == DragOutHandOff.started;
     if (!mounted) return started;
-    switch (result) {
+    // Rows the OS was not offered are never left out silently: the
+    // session went without them, or, with none to offer, the drag
+    // stays in-app.
+    widget.controller.noteDragOutLeftOut(result.leftOut);
+    switch (result.outcome) {
       case DragOutHandOff.started:
         // The native session owns the drag now. Cancel the framework's
         // gesture so the in-app drag ends without landing a drop; the
@@ -3484,6 +3489,10 @@ class _NoticeStrip extends StatelessWidget {
                       l10n.paneNoticeSaveFavoriteLater,
                     PaneNotice.pathCopied => l10n.paneNoticePathCopied,
                     PaneNotice.dragOutRemote => l10n.paneNoticeDragOutRemote,
+                    PaneNotice.dragOutLeftOut => dragOutLeftOutText(
+                      l10n,
+                      controller.dragOutLeftOut,
+                    ),
                     PaneNotice.watchStopped => l10n.paneNoticeWatchStopped,
                     null => '',
                   },

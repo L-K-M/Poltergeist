@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
@@ -6,8 +7,9 @@ import 'package:path/path.dart' as p;
 import 'package:poltergeist_app/services/app_preferences.dart';
 import 'package:poltergeist_app/services/double_click_action.dart';
 import 'package:poltergeist_app/services/settings_store.dart';
-import 'package:poltergeist_app/services/sidebar_controller.dart'
-    show SidebarDensity;
+import 'package:poltergeist_app/services/sidebar_controller.dart';
+
+import 'support/fake_bookmark_store.dart';
 
 void main() {
   late Directory temporaryDirectory;
@@ -157,8 +159,17 @@ void main() {
     );
 
     expect(await preferences.loadSidebarPinnedServers(), isEmpty);
-    await preferences.saveSidebarPinnedServers({'s1', 's2'});
+    expect(await preferences.setSidebarServerPinned('s1', pinned: true), {
+      's1',
+    });
+    await preferences.setSidebarServerPinned('s2', pinned: true);
     expect(await preferences.loadSidebarPinnedServers(), {'s1', 's2'});
+    expect(await preferences.setSidebarServerPinned('s1', pinned: false), {
+      's2',
+    });
+    expect(jsonDecode(await settingsFile.readAsString()), {
+      'sidebar.pinnedServers': ['s2'],
+    });
 
     for (final stored in ['"s1"', '{"s1":true}', '[1, "s3"]']) {
       await settingsFile.writeAsString('{"sidebar.pinnedServers":$stored}');
@@ -171,6 +182,139 @@ void main() {
         reason: 'stored $stored',
       );
     }
+
+    // A malformed value is corrupt data, not a failed read: a pin change
+    // replaces it with a well-formed list.
+    await settingsFile.writeAsString('{"sidebar.pinnedServers":"s1"}');
+    final malformed = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+    expect(await malformed.setSidebarServerPinned('s4', pinned: true), {'s4'});
+  });
+
+  group('a startup read that failed', () {
+    // The file is unreadable at launch (invalid UTF-8 here, an IO error
+    // in the field) and readable again by the user's first edit: the
+    // store resets its failed load, so that edit's access retries it.
+    late SettingsStore store;
+    late AppPreferences preferences;
+
+    setUp(() async {
+      await settingsFile.writeAsBytes([0xff]);
+      store = SettingsStore(path: settingsFile.path, onError: (_, _) {});
+      preferences = AppPreferences(store: store);
+    });
+
+    Future<Object?> stored(String key) async =>
+        (jsonDecode(await settingsFile.readAsString()) as Map)[key];
+
+    test('a pin change keeps the pins it could not read', () async {
+      final pinned = await preferences.loadSidebarPinnedServers();
+      expect(pinned, isEmpty);
+      await settingsFile.writeAsString('{"sidebar.pinnedServers":["a","b"]}');
+      final bookmarks = FakeBookmarkStore();
+      addTearDown(bookmarks.close);
+      // main.dart's wiring.
+      final controller = SidebarController(
+        store: bookmarks,
+        initiallyPinned: pinned,
+        onPinnedChanged: preferences.setSidebarServerPinned,
+      );
+      addTearDown(controller.dispose);
+
+      controller.togglePinned('c');
+      await store.flush();
+      await pumpEventQueue();
+
+      expect(await stored('sidebar.pinnedServers'), ['a', 'b', 'c']);
+      // The first edit brings the unread pins back on screen too.
+      expect(controller.pinnedServers, {'a', 'b', 'c'});
+    });
+
+    test('a fold keeps the folds it could not read', () async {
+      final collapsed = await preferences.loadSidebarCollapsedGroups();
+      expect(collapsed, isEmpty);
+      await settingsFile.writeAsString(
+        '{"sidebar.collapsedGroups":["sec:devices","fav:work"]}',
+      );
+      final bookmarks = FakeBookmarkStore();
+      addTearDown(bookmarks.close);
+      final controller = SidebarController(
+        store: bookmarks,
+        initiallyCollapsed: collapsed,
+        onCollapsedChanged: preferences.setSidebarGroupCollapsed,
+      );
+      addTearDown(controller.dispose);
+
+      controller.toggleCollapsed('srv:prod');
+      await store.flush();
+      await pumpEventQueue();
+
+      expect(await stored('sidebar.collapsedGroups'), [
+        'sec:devices',
+        'fav:work',
+        'srv:prod',
+      ]);
+      expect(controller.collapsedGroups, {
+        'sec:devices',
+        'fav:work',
+        'srv:prod',
+      });
+    });
+
+    test('a pin or a fold fails, writing nothing, while the store stays '
+        'unreadable', () async {
+      expect(await preferences.loadSidebarPinnedServers(), isEmpty);
+
+      await expectLater(
+        preferences.setSidebarServerPinned('c', pinned: true),
+        throwsA(isA<FileSystemException>()),
+      );
+      await expectLater(
+        preferences.setSidebarGroupCollapsed('srv:prod', collapsed: true),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(await settingsFile.readAsBytes(), [0xff]);
+    });
+  });
+
+  test('pin changes issued together all land', () async {
+    await settingsFile.writeAsString('{"sidebar.pinnedServers":["a"]}');
+    final preferences = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+
+    // Neither change waits for the other: each still starts from the
+    // value the one before it stored.
+    await Future.wait([
+      preferences.setSidebarServerPinned('b', pinned: true),
+      preferences.setSidebarServerPinned('a', pinned: false),
+      preferences.setSidebarServerPinned('c', pinned: true),
+    ]);
+
+    expect(await preferences.loadSidebarPinnedServers(), {'b', 'c'});
+  });
+
+  test('a fold migrates the legacy keys it writes back', () async {
+    await settingsFile.writeAsString(
+      '{"sidebar.collapsedGroups":["sidebar.catalog","work"]}',
+    );
+    final preferences = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+
+    // SERVERS was folded under its pre-D32 key; unfolding it must not
+    // leave that spelling behind to fold it again next launch.
+    expect(
+      await preferences.setSidebarGroupCollapsed(
+        SidebarCollapseKeys.section(SidebarSection.servers),
+        collapsed: false,
+      ),
+      {'fav:work'},
+    );
+    expect(jsonDecode(await settingsFile.readAsString()), {
+      'sidebar.collapsedGroups': ['fav:work'],
+    });
   });
 
   test('a non-finite persisted transfer limit decodes as unlimited',

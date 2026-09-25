@@ -115,7 +115,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
         continue;
       }
       final collapsed = data.collapsed(collapseKey);
-      final hiddenDot = _hiddenLiveDot(
+      final hidden = _hiddenLive(
         data,
         _favoriteStatuses(data, collapsed ? group.members : filtered),
       );
@@ -142,7 +142,8 @@ List<Widget> _favoritesSection(_SidebarData data) {
             title: group.name,
             count: group.members.length,
             collapsed: collapsed,
-            status: hiddenDot,
+            status: hidden?.dot,
+            statusLabel: hidden?.label,
             dropHighlight: indicator != SidebarDropIndicator.none,
             onToggle: () => controller.toggleCollapsed(collapseKey),
           ),
@@ -172,7 +173,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
   }
 
   final collapsed = data.collapsed(sectionKey);
-  final hiddenDot = _hiddenLiveDot(
+  final hidden = _hiddenLive(
     data,
     _favoriteStatuses(
       data,
@@ -186,7 +187,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
   );
   // A filter that hides every row drops the section, unless a live
   // server is among the hidden: its header stays to say so.
-  if (data.filtering && body.isEmpty && hiddenDot == null) return const [];
+  if (data.filtering && body.isEmpty && hidden == null) return const [];
 
   // Home shows no folder to add (D32 §9): its header keeps no "+".
   final addCurrent =
@@ -211,7 +212,8 @@ List<Widget> _favoritesSection(_SidebarData data) {
         title: l10n.sidebarFavoritesSection,
         count: count,
         collapsed: collapsed,
-        status: hiddenDot,
+        status: hidden?.dot,
+        statusLabel: hidden?.label,
         dropHighlight: indicator != SidebarDropIndicator.none,
         onToggle: () => controller.toggleCollapsed(sectionKey),
         onAdd: addCurrent,

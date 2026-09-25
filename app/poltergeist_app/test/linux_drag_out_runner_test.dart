@@ -17,7 +17,8 @@ String _function(String source, String signature) {
 /// amendment). The GTK side is verified for real under Xvfb (see
 /// docs/STATUS.md); these checks keep the load-bearing lines from
 /// quietly drifting: the channel name both sides agree on, the runner
-/// wiring, and D15's rule that the drag source never deletes.
+/// wiring, D15's rule that the drag source never deletes, and the
+/// owner's rule that it never offers a move.
 void main() {
   final channel = _read('linux/runner/drag_out_channel.cc');
 
@@ -51,6 +52,36 @@ void main() {
     expect(
       channel,
       isNot(matches(RegExp(r'\b(g_)?(unlink|remove|file_delete)\s*\('))),
+    );
+  });
+
+  test('offers copy and link only, whatever Dart sends', () {
+    // The owner's rule (00 D14's drag-out amendment): no trash may take
+    // the source, so no destination may move it. GTK is offered only
+    // the actions the copy and link names map to.
+    final start = _function(channel, 'void start_drag(');
+    expect(start, isNot(contains('GDK_ACTION_MOVE')));
+    expect(start, isNot(contains('"move"')));
+    final offered = _function(channel, 'GdkDragAction offered_actions(');
+    expect(offered, contains('"copy"'));
+    expect(offered, contains('"link"'));
+    for (final forbidden in ['"move"', 'GDK_ACTION_MOVE', 'GDK_ACTION_ASK']) {
+      expect(offered, isNot(contains(forbidden)));
+    }
+    expect(
+      start,
+      matches(
+        RegExp(
+          r'gtk_drag_begin_with_coordinates\(\s*self->view, targets, '
+          r'offered_actions\(args\),',
+        ),
+      ),
+    );
+    // A destination that reports a move anyway still reads as one: the
+    // session end maps it, and nothing acts on it.
+    expect(
+      _function(channel, 'void on_drag_end('),
+      contains('operation = "move";'),
     );
   });
 

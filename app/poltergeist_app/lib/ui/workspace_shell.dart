@@ -332,9 +332,10 @@ class WorkspaceShell extends StatefulWidget {
 
   /// The persisted collapsed-group keys the sidebar re-opens with
   /// (02 §4: collapse state is device-local, 04 §2.3) and their save
-  /// sink — null leaves collapse memory in-process.
+  /// sink, which writes one change at a time. Null leaves collapse
+  /// memory in-process.
   final Set<String> initialSidebarCollapsedGroups;
-  final void Function(Set<String> keys)? onSidebarCollapsedGroupsChanged;
+  final CollapsedSectionWriter? onSidebarCollapsedGroupsChanged;
 
   /// The persisted sidebar row density (D33: device-local, comfortable
   /// by default) and its save sink; null keeps the choice in-process.
@@ -342,9 +343,10 @@ class WorkspaceShell extends StatefulWidget {
   final void Function(SidebarDensity density)? onSidebarDensityChanged;
 
   /// The persisted PINNED shortlist (D33: device-local server ids) and
-  /// its save sink; null keeps pins in-process.
+  /// its save sink, which writes one change at a time; null keeps pins
+  /// in-process.
   final Set<String> initialSidebarPinnedServers;
-  final void Function(Set<String> ids)? onSidebarPinnedServersChanged;
+  final PinnedServerWriter? onSidebarPinnedServersChanged;
 
   /// 06 §5.3's preview cache — the seam the whole preview slice keys
   /// on. Null composes no [PreviewSession]: Space keeps its pre-preview

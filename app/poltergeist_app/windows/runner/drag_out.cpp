@@ -38,10 +38,16 @@
 // `started` reply, and over a pane Flutter would read it as an in-app
 // drop of the items the session carries.
 //
-// Deletes never happen here (D15). DROPEFFECT_MOVE only means the
-// target wants the source deleted; the shell's own file moves are
-// optimized moves it performs itself, and nothing here ever unlinks a
-// file on a target's behalf.
+// Moves are never offered, whatever Dart sends: the owner's rule (00
+// D14's drag-out amendment) is that no trash may take the source, and
+// the Recycle Bin takes a drop as DROPEFFECT_MOVE. So the loop is
+// offered copy and link at most (AllowedEffects): the Recycle Bin has
+// no move to take, and Explorer copies where it would have moved.
+//
+// Deletes never happen here either (D15). DROPEFFECT_MOVE would only
+// mean the target wants the source deleted; nothing here ever unlinks
+// a file on a target's behalf, even for a target that reports a move it
+// was never offered.
 
 using Microsoft::WRL::ComPtr;
 
@@ -98,7 +104,13 @@ constexpr UINT kMaxImageSide = 2048;
 // key.
 constexpr COLORREF kNoColorKey = 0xFFFFFFFF;
 
-constexpr DWORD kAllEffects =
+// What a drag loop is ever offered: never DROPEFFECT_MOVE (see the file
+// comment). There is no delete effect to leave out: Windows has none.
+constexpr DWORD kOfferedEffects = DROPEFFECT_COPY | DROPEFFECT_LINK;
+
+// What a target may report back, a move included: reading one is how a
+// misbehaving target is still understood, and nothing acts on it.
+constexpr DWORD kReportedEffects =
     DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK;
 
 bool PrimaryButtonDown() {
@@ -193,8 +205,9 @@ void Refuse(MethodResult& result,
   result.Success(EncodableValue(reply));
 }
 
-// Copy, move and link at most, never an empty mask. There is no delete
-// effect to leave out: Windows has none.
+// Copy and link at most (kOfferedEffects), never an empty mask: only
+// those two names map to an effect, so a move Dart never sends could
+// not be offered either.
 DWORD AllowedEffects(const EncodableMap& arguments) {
   DWORD effects = DROPEFFECT_NONE;
   const EncodableValue* value = ValueAt(arguments, kAllowedOperationsKey);
@@ -208,13 +221,12 @@ DWORD AllowedEffects(const EncodableMap& arguments) {
       }
       if (*name == kCopyOperation) {
         effects |= DROPEFFECT_COPY;
-      } else if (*name == kMoveOperation) {
-        effects |= DROPEFFECT_MOVE;
       } else if (*name == kLinkOperation) {
         effects |= DROPEFFECT_LINK;
       }
     }
   }
+  effects &= kOfferedEffects;
   return effects == DROPEFFECT_NONE ? DROPEFFECT_COPY : effects;
 }
 
@@ -222,7 +234,7 @@ DWORD AllowedEffects(const EncodableMap& arguments) {
 // coming back in) leaves the whole allowed mask in place, so a mask
 // reads as the least destructive effect in it.
 const char* OperationName(DWORD effect) {
-  effect &= kAllEffects;
+  effect &= kReportedEffects;
   if ((effect & DROPEFFECT_COPY) != 0) {
     return kCopyOperation;
   }
@@ -268,11 +280,11 @@ bool ReadEffect(IDataObject* data, const wchar_t* format_name, DWORD* effect) {
 DWORD PerformedEffect(IDataObject* data, DWORD returned) {
   DWORD effect = DROPEFFECT_NONE;
   if (ReadEffect(data, CFSTR_LOGICALPERFORMEDDROPEFFECT, &effect) &&
-      (effect & kAllEffects) != 0) {
+      (effect & kReportedEffects) != 0) {
     return effect;
   }
   if (ReadEffect(data, CFSTR_PERFORMEDDROPEFFECT, &effect) &&
-      (effect & kAllEffects) != 0) {
+      (effect & kReportedEffects) != 0) {
     return effect;
   }
   return returned;

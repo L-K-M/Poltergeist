@@ -1048,6 +1048,24 @@ abstract class AppLocalizations {
   /// **'Remote items can\'t be dragged out of Poltergeist here yet. Use Download To… instead.'**
   String get paneNoticeDragOutRemote;
 
+  /// Transient notice strip (02 §10): an OS drag-out of remote rows left out the symbolic links among them (links are never transferred); the other rows went out, or, when only links were dragged, the drag continues in-app.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 link was left out: links can\'t be dragged out of Poltergeist.} other{{count} links were left out: links can\'t be dragged out of Poltergeist.}}'**
+  String paneNoticeDragOutLinksLeftOut(int count);
+
+  /// Transient notice strip (02 §10): an OS drag-out of remote rows left out the rows whose names are undecodable (02 §13's flagged-name rule); the other rows went out, or, when only such rows were dragged, the drag continues in-app.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item was left out: its name isn\'t valid UTF-8, so it can\'t be dragged out.} other{{count} items were left out: their names aren\'t valid UTF-8, so they can\'t be dragged out.}}'**
+  String paneNoticeDragOutNamesLeftOut(int count);
+
+  /// Transient notice strip (02 §10): an OS drag-out of remote rows left out rows for more than one reason (symbolic links and undecodable names); the other rows went out, or, when none could go, the drag continues in-app.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item was left out: it can\'t be dragged out of Poltergeist.} other{{count} items were left out: links and names that aren\'t valid UTF-8 can\'t be dragged out of Poltergeist.}}'**
+  String paneNoticeDragOutItemsLeftOut(int count);
+
   /// Tooltip for the transient notice strip's close button (02 §10).
   ///
   /// In en, this message translates to:
@@ -4746,6 +4764,18 @@ abstract class AppLocalizations {
   /// **'{title}, {count}'**
   String sidebarSectionSemantics(String title, String count);
 
+  /// Spoken after a sidebar header's title and count while its green dot stands for a connected server the header keeps out of view (a folded group or section, or rows the filter hides). The dot is drawn only, so these words are all a screen reader hears of it. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected server hidden'**
+  String get sidebarHiddenConnected;
+
+  /// Spoken after a sidebar header's title and count while its amber dot stands for a server connecting or reconnecting out of view under it (a folded group or section, or rows the filter hides). Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting server hidden'**
+  String get sidebarHiddenConnecting;
+
   /// Tooltip of the button in the Séance servers section header that opens the server editor for a new server.
   ///
   /// In en, this message translates to:
@@ -5442,7 +5472,7 @@ abstract class AppLocalizations {
   /// **'Couldn\'t transfer “{name}”'**
   String alertTransferFailed(String name);
 
-  /// D32 alert row: an OS drag-out of a remote item was refused before any transfer started (00 D14's drag-out amendment).
+  /// D32 alert row: an OS drag-out of a remote item was refused before any transfer started, or its download was stopped midway by a pause (00 D14's drag-out amendment).
   ///
   /// In en, this message translates to:
   /// **'Couldn\'t drag “{name}” out'**
@@ -5454,10 +5484,10 @@ abstract class AppLocalizations {
   /// **'Transfers are paused. Resume them, then drag it to {folder} again.'**
   String alertDragOutPaused(String folder);
 
-  /// D32 alert row detail: the transfer queue was paused while a remote folder dragged to another app was downloading, so that download was cancelled.
+  /// D32 alert row detail: a remote item dragged to another app was downloading when its download was paused (the whole transfer queue, or the download's own Pause in Transfers), so that download was cancelled rather than keep the other app waiting.
   ///
   /// In en, this message translates to:
-  /// **'Transfers were paused, so the download to {folder} stopped.'**
+  /// **'The download to {folder} was paused, so it stopped.'**
   String alertDragOutPausedMidway(String folder);
 
   /// D32 alert row detail: the receiving app asked for a remote folder under another name, which a download cannot honor.

@@ -79,6 +79,18 @@ abstract final class SidebarCollapseKeys {
 /// enum, so this layer stays free of widget types.
 enum SidebarDensity { compact, comfortable }
 
+/// The persist seam for collapse state (02 §4: device-local): folds or
+/// unfolds the one section [key] in the set as stored when the write
+/// runs, and completes with the set now stored.
+typedef CollapsedSectionWriter =
+    Future<Set<String>> Function(String key, {required bool collapsed});
+
+/// The persist seam for the PINNED shortlist (D33: device-local): pins or
+/// unpins the one [serverId] in the set as stored when the write runs,
+/// and completes with the set now stored.
+typedef PinnedServerWriter =
+    Future<Set<String>> Function(String serverId, {required bool pinned});
+
 /// The favorites list's own load state — distinct from the connections
 /// truth the sidebar composes beside it (a ready list can hold no live
 /// connections, and a failed load has no sections to describe).
@@ -115,12 +127,14 @@ final class SidebarController extends ChangeNotifier {
   }) : // Keep the store seam private to the controller.
        // ignore: prefer_initializing_formals
        _store = store,
-       _collapsed = SidebarCollapseKeys.migrate(initiallyCollapsed),
+       _collapsed = _StoredIdSet(
+         SidebarCollapseKeys.migrate(initiallyCollapsed),
+       ),
        // A named parameter cannot be private; the field stays mutable
        // behind setDensity.
        // ignore: prefer_initializing_formals
        _density = density,
-       _pinned = Set.unmodifiable(initiallyPinned),
+       _pinned = _StoredIdSet(initiallyPinned),
        // Keep the reporter private while allowing test-only injection.
        // ignore: prefer_initializing_formals
        _errors = errors ?? ApplicationErrorReporter() {
@@ -132,9 +146,12 @@ final class SidebarController extends ChangeNotifier {
   late final StreamSubscription<BookmarkStoreChange> _changes;
 
   /// The persist sink for collapse state (02 §4: device-local). Called
-  /// after every user toggle with the full key set; null leaves collapse
-  /// memory in-process (tests, alternate boot paths).
-  final void Function(Set<String> collapsed)? onCollapsedChanged;
+  /// after every user toggle with the one key that changed, never the
+  /// full set: this set may be missing keys (a launch whose read failed
+  /// starts it empty), and writing it would drop them. The controller
+  /// then shows the set the sink stored. Null leaves collapse memory
+  /// in-process (tests, alternate boot paths).
+  final CollapsedSectionWriter? onCollapsedChanged;
 
   /// The persist sink for [density] (device-local, like collapse state).
   /// Called after every change the user makes; null keeps the choice
@@ -143,8 +160,10 @@ final class SidebarController extends ChangeNotifier {
 
   /// The persist sink for the pinned-server set (device-local, like
   /// Séance's pins, which never sync). Called after every change with
-  /// the full set; null keeps pins in-process.
-  final void Function(Set<String> pinned)? onPinnedChanged;
+  /// the one id that changed, for the reason [onCollapsedChanged] gives;
+  /// the controller then shows the pins the sink stored. Null keeps pins
+  /// in-process.
+  final PinnedServerWriter? onPinnedChanged;
 
   /// Fires after every store-driven reload — the shell reloads the
   /// connections list and re-syncs the probe owner here, so all three
@@ -159,9 +178,9 @@ final class SidebarController extends ChangeNotifier {
 
   List<BookmarkGroupSection> _sections = const [];
   SidebarLoad _load = SidebarLoad.idle;
-  Set<String> _collapsed;
+  final _StoredIdSet _collapsed;
   SidebarDensity _density;
-  Set<String> _pinned;
+  final _StoredIdSet _pinned;
   int _generation = 0;
   bool _disposed = false;
   String _filterQuery = '';
@@ -183,26 +202,21 @@ final class SidebarController extends ChangeNotifier {
   /// Collapse keys currently folded, in [SidebarCollapseKeys]' namespaced
   /// vocabulary. Group keys are the sections' normalized keys, so a
   /// re-sorted group keeps its state.
-  Set<String> get collapsedGroups => Set.unmodifiable(_collapsed);
+  Set<String> get collapsedGroups => _collapsed.ids;
 
-  bool isCollapsed(String sectionKey) => _collapsed.contains(sectionKey);
+  bool isCollapsed(String sectionKey) => _collapsed.ids.contains(sectionKey);
 
-  /// Toggles one section's collapse and reports the new set to the
+  /// Toggles one section's collapse and reports the change to the
   /// persist seam. A failed write does not roll the toggle back — the
   /// state is cosmetic and the next launch's re-read is honest.
   void toggleCollapsed(String sectionKey) {
     if (_disposed) return;
-    final next = Set<String>.of(_collapsed);
-    if (!next.add(sectionKey)) next.remove(sectionKey);
-    _collapsed = next;
+    final collapsed = !isCollapsed(sectionKey);
+    final change = _collapsed.apply(sectionKey, member: collapsed);
     notifyListeners();
     final sink = onCollapsedChanged;
     if (sink == null) return;
-    try {
-      sink(Set.unmodifiable(next));
-    } on Object catch (error, stackTrace) {
-      _errors.report(error, stackTrace);
-    }
+    _persist(_collapsed, change, () => sink(sectionKey, collapsed: collapsed));
   }
 
   /// The rows' density (D33): the bottom bar's switch, Home's app bar
@@ -233,30 +247,47 @@ final class SidebarController extends ChangeNotifier {
   /// pin: it draws nothing, and comes back pinned if the server does (a
   /// sync round that restores it, the shared account back on). Only a
   /// favorite deleted here drops its pin, in [remove].
-  Set<String> get pinnedServers => _pinned;
+  Set<String> get pinnedServers => _pinned.ids;
 
-  bool isPinned(String serverId) => _pinned.contains(serverId);
+  bool isPinned(String serverId) => _pinned.ids.contains(serverId);
 
-  /// Pin to top / Unpin: toggles [serverId] and reports the full set to
-  /// the persist seam. Like a collapse toggle, a failed write keeps the
+  /// Pin to top / Unpin: toggles [serverId] and reports the change to the
+  /// persist seam. Like a collapse toggle, a failed write keeps the
   /// change.
   void togglePinned(String serverId) {
     if (_disposed) return;
-    final next = Set<String>.of(_pinned);
-    if (!next.add(serverId)) next.remove(serverId);
-    _setPinned(next);
+    _setPinned(serverId, pinned: !isPinned(serverId));
   }
 
-  void _setPinned(Set<String> next) {
-    _pinned = Set.unmodifiable(next);
+  void _setPinned(String serverId, {required bool pinned}) {
+    final change = _pinned.apply(serverId, member: pinned);
     notifyListeners();
     final sink = onPinnedChanged;
     if (sink == null) return;
+    _persist(_pinned, change, () => sink(serverId, pinned: pinned));
+  }
+
+  /// Runs one persist [write] for [change] and shows the set it stored:
+  /// after a launch whose read failed, that is what brings back every id
+  /// the store still held. A failed write reports and keeps the local
+  /// change until a later write lands.
+  void _persist(
+    _StoredIdSet target,
+    int change,
+    Future<Set<String>> Function() write,
+  ) {
+    final Future<Set<String>> stored;
     try {
-      sink(_pinned);
+      stored = write();
     } on Object catch (error, stackTrace) {
       _errors.report(error, stackTrace);
+      return;
     }
+    unawaited(
+      stored.then<void>((ids) {
+        if (!_disposed && target.adopt(change, ids)) notifyListeners();
+      }, onError: _errors.report),
+    );
   }
 
   /// The sidebar filter's query (10 §5: one field, every section). Held
@@ -405,8 +436,8 @@ final class SidebarController extends ChangeNotifier {
   Future<bool> remove(String id) async {
     _assertLive();
     final removed = await _store.remove(id);
-    if (removed && !_disposed && _pinned.contains(id)) {
-      _setPinned(Set.of(_pinned)..remove(id));
+    if (removed && !_disposed && isPinned(id)) {
+      _setPinned(id, pinned: false);
     }
     if (removed) {
       // The store delete is already committed — a cascade throw must
@@ -535,6 +566,42 @@ final class SidebarController extends ChangeNotifier {
     _generation++;
     unawaited(_changes.cancel());
     super.dispose();
+  }
+}
+
+/// A device-local id set the sidebar edits optimistically (the folded
+/// sections, the PINNED shortlist): [apply] shows a change at once, and
+/// [adopt] then takes the set that change's write stored, unless a later
+/// change is already on its way. That write runs after this one (the
+/// settings store serializes them), so its answer covers both, and
+/// adopting this one first would briefly undo the later change on screen.
+final class _StoredIdSet {
+  _StoredIdSet(Iterable<String> initial) : _ids = Set.unmodifiable(initial);
+
+  Set<String> _ids;
+  int _changes = 0;
+
+  Set<String> get ids => _ids;
+
+  /// Adds ([member]) or removes [id] locally; returns the change's number
+  /// for [adopt].
+  int apply(String id, {required bool member}) {
+    final next = Set<String>.of(_ids);
+    if (member) {
+      next.add(id);
+    } else {
+      next.remove(id);
+    }
+    _ids = Set.unmodifiable(next);
+    return ++_changes;
+  }
+
+  /// Takes [stored] as the answer to [change]. False when a later change
+  /// superseded it, or when [stored] matches what already shows.
+  bool adopt(int change, Set<String> stored) {
+    if (change != _changes || setEquals(stored, _ids)) return false;
+    _ids = Set.unmodifiable(stored);
+    return true;
   }
 }
 

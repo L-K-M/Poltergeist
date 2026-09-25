@@ -145,7 +145,7 @@ void main() {
           sessionId: 'dragout-1',
           items: items,
           position: const Offset(1500, 40),
-          allowedOperations: DragOutOperation.values.toSet(),
+          allowedOperations: DragOutOffer.values.toSet(),
           image: DragOutImage(
             png: Uint8List.fromList([1, 2, 3]),
             size: const Size(120, 36),
@@ -161,7 +161,7 @@ void main() {
           LocalDragOutItem(path: '/tmp/a', name: 'a', isDirectory: false),
         ],
         position: Offset(-4, 10),
-        allowedOperations: {DragOutOperation.copy},
+        allowedOperations: {DragOutOffer.copy},
       ),
     );
     backend
@@ -288,13 +288,18 @@ void main() {
       },
     );
 
-    test('allowed operations: Swift knows every name Dart can send and '
-        'never maps one to delete', () {
+    test('allowed operations: Swift maps copy and link only, never move, '
+        'delete, or generic', () {
+      // The owner's rule (00 D14's drag-out amendment): no trash may
+      // take the source (the Dock Trash accepts a move), so no
+      // destination may move it, whatever Dart sends.
       final body = _body(swift, 'private static func dragOperations(');
       final names = _matches(RegExp(r'case "(\w+)": operations\.insert'), body);
-      expect(names, {for (final op in DragOutOperation.values) op.name});
-      expect(body, isNot(contains('.delete')));
-      expect(body, isNot(contains('.generic')));
+      expect(names, {for (final offer in DragOutOffer.values) offer.name});
+      expect(names, isNot(contains(DragOutOperation.move.name)));
+      for (final forbidden in ['.move', '.delete', '.generic', '.every']) {
+        expect(body, isNot(contains(forbidden)));
+      }
     });
 
     test('promiseProgress: every key Swift reads arrives with a type its '
@@ -425,7 +430,7 @@ void main() {
           LocalDragOutItem(path: '/tmp/a', name: 'a', isDirectory: false),
         ],
         position: Offset(-4, 10),
-        allowedOperations: {DragOutOperation.copy},
+        allowedOperations: {DragOutOffer.copy},
       );
       messenger.setMockMethodCallHandler(
         channel,
@@ -500,19 +505,35 @@ void main() {
       expect(window, contains('private var dragOutChannel: DragOutChannel?'));
     });
 
-    test('never offers or performs a delete', () {
+    test('never offers a move or a delete, outside the app or inside it, '
+        'and never performs one', () {
       expect(swift, isNot(contains('.delete')));
       expect(
         swift,
         isNot(matches(RegExp(r'\b(removeItem|trashItem|unlink|rmdir)\b'))),
       );
+      // One mask for both dragging contexts: the session's own, which
+      // only `.copy` (promises) or dragOperations (local files) builds.
+      final mask = _body(
+        swift,
+        'func draggingSession(\n    _ session: NSDraggingSession,\n'
+        '    sourceOperationMaskFor',
+      );
+      expect(mask, contains('activeSession?.operations ?? []'));
+      for (final forbidden in [
+        '.move',
+        '.generic',
+        '.every',
+        '.withinApplication',
+        '.outsideApplication',
+      ]) {
+        expect(mask, isNot(contains(forbidden)));
+      }
       expect(
-        _body(
-          swift,
-          'func draggingSession(\n    _ session: NSDraggingSession,\n'
-          '    sourceOperationMaskFor',
-        ),
-        contains('activeSession?.operations ?? []'),
+        RegExp(
+          r'ActiveSession\(id: sessionId, operations: operations\)',
+        ).allMatches(swift),
+        hasLength(1),
       );
       expect(swift, contains('? .copy\n      : Self.dragOperations('));
     });

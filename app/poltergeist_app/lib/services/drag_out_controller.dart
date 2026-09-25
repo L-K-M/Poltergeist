@@ -23,7 +23,8 @@ enum DragOutHandOff {
   remoteUnsupported,
 
   /// Nothing the OS could carry (no backend, only flagged or linked
-  /// remote names): the drag continues in-app.
+  /// remote names): the drag continues in-app. When rows were left out,
+  /// the result's [DragOutHandOffResult.leftOut] says which kinds.
   unavailable,
 
   /// The native side refused (button already up, no recorded press):
@@ -31,15 +32,67 @@ enum DragOutHandOff {
   notStarted,
 }
 
-/// A drag-out refusal that no queue task reports, shown in the Alerts
-/// tab. A failed produce or folder download needs none: its failed
-/// Transfers row already raises `TransferFailedAlert`.
+/// The dragged rows a hand-off could not offer the OS, by reason. The
+/// pane's notice says how many stayed behind and why, so no row is left
+/// out silently (00 D14's drag-out amendment).
+@immutable
+final class DragOutLeftOut {
+  const DragOutLeftOut({
+    this.links = 0,
+    this.flaggedNames = 0,
+    this.unlisted = 0,
+  });
+
+  static const none = DragOutLeftOut();
+
+  /// Symbolic links: never transferred (the queue's own rule).
+  final int links;
+
+  /// Names flagged unsafe (02 §13): no local file name can be built
+  /// from them.
+  final int flaggedNames;
+
+  /// Roots the payload holds no listing entry for, so neither name nor
+  /// type is known. A pane row drag always snapshots its entries; this
+  /// only keeps the count honest.
+  final int unlisted;
+
+  int get count => links + flaggedNames + unlisted;
+
+  bool get isEmpty => count == 0;
+}
+
+/// [DragOutController.handOff]'s answer.
+@immutable
+final class DragOutHandOffResult {
+  const DragOutHandOffResult(
+    this.outcome, {
+    this.leftOut = DragOutLeftOut.none,
+  });
+
+  /// What the pane does next.
+  final DragOutHandOff outcome;
+
+  /// The rows the OS was not offered: for [DragOutHandOff.started], the
+  /// ones the session does not carry; for [DragOutHandOff.unavailable],
+  /// why nothing could go. Empty otherwise, since the in-app drag still
+  /// carries every row.
+  final DragOutLeftOut leftOut;
+}
+
+/// A drag-out stop that no queue task reports as a failure, shown in
+/// the Alerts tab: a refusal before any transfer ran, or a pause that
+/// cancelled the download midway. A failed produce or folder download
+/// needs none: its failed Transfers row already raises
+/// `TransferFailedAlert`.
 enum DragOutNoticeKind {
   /// A folder promise arrived while the transfer queue was paused.
   paused,
 
-  /// The queue was paused while a folder promise was downloading; the
-  /// task was cancelled so nothing lands after the drop gave up.
+  /// A pause stopped a promise's download midway: the queue pause
+  /// (folder downloads; file hops are exempt from it) or a Pause on the
+  /// task's own Transfers row (either kind). The task was cancelled so
+  /// nothing lands after the drop gave up.
   pausedMidway,
 
   /// The drop asked for a different folder name than the folder's own.
@@ -137,15 +190,18 @@ typedef DragOutImageRenderer =
 /// * A remote **file** is one exclusive produce hop into the path the
 ///   OS gave ([DragOutProducer]): a Transfers row with progress and
 ///   Cancel, exempt from the queue pause like every produce, never
-///   replacing a file already there (`exists`).
+///   replacing a file already there (`exists`). A Pause on that row
+///   cancels the hop and fails the promise with an Alert: a paused hop
+///   would park until a resume, and the OS would wait on it.
 /// * A remote **folder** is an ordinary recursive download task into the
 ///   promised path's parent, conflict-aware and journaled, awaited to
 ///   its terminal state. It does NOT bypass the queue pause: a paused
 ///   queue fails the promise at once (and a pause mid-download cancels
 ///   the task) with an Alert, so the OS never waits on a pause nobody
-///   may lift. It also needs the promised name to be the folder's own
-///   (the queue lands each root under its basename); a receiver that
-///   renames fails with an Alert rather than landing elsewhere.
+///   may lift. A Pause on the task's own row does the same. It also
+///   needs the promised name to be the folder's own (the queue lands
+///   each root under its basename); a receiver that renames fails with
+///   an Alert rather than landing elsewhere.
 /// * A promise whose destination is `desktop_drop`'s staging folder is
 ///   the drag coming back into Poltergeist: it fails fast (`ownDrop`)
 ///   and the pane routes the drop in-app from the stored payload.
@@ -241,16 +297,16 @@ class DragOutController extends ChangeNotifier
   /// Hands [drag] to a native session at [position] (the pointer,
   /// already outside the window). Resolves once the native side
   /// answered; see [DragOutHandOff] for what the pane does next.
-  Future<DragOutHandOff> handOff(
+  Future<DragOutHandOffResult> handOff(
     PaneEntryDrag drag, {
     required Offset position,
     required DragOutImageStyle style,
   }) async {
-    if (_disposed || support == DragOutSupport.none) {
-      return DragOutHandOff.unavailable;
-    }
+    const unavailable = DragOutHandOffResult(DragOutHandOff.unavailable);
+    if (_disposed || support == DragOutSupport.none) return unavailable;
     final items = <DragOutItem>[];
     final promises = <String, _Promise>{};
+    var leftOut = DragOutLeftOut.none;
     switch (drag.source) {
       case LocalFsLocation():
         for (final path in drag.rootPaths) {
@@ -265,16 +321,27 @@ class DragOutController extends ChangeNotifier
         }
       case ServerFsLocation(:final serverId):
         if (support != DragOutSupport.localFilesAndPromises) {
-          return DragOutHandOff.remoteUnsupported;
+          return const DragOutHandOffResult(DragOutHandOff.remoteUnsupported);
         }
+        var links = 0;
+        var flaggedNames = 0;
+        var unlisted = 0;
         for (final path in drag.rootPaths) {
           final entry = drag.entryFor(path);
-          // A promise needs the listing's name and type. Flagged names
-          // cannot become local names, and links are never transferred
-          // (the queue's own rule), so neither is offered.
-          if (entry == null ||
-              nameIsFlagged(entry.name) ||
-              entry.type == RemoteFileType.symbolicLink) {
+          // A promise needs the listing's name and type. Links are never
+          // transferred (the queue's own rule), and flagged names cannot
+          // become local names, so neither is offered; the result counts
+          // them for the pane's notice.
+          if (entry == null) {
+            unlisted++;
+            continue;
+          }
+          if (entry.type == RemoteFileType.symbolicLink) {
+            links++;
+            continue;
+          }
+          if (nameIsFlagged(entry.name)) {
+            flaggedNames++;
             continue;
           }
           final promise = _Promise(
@@ -295,8 +362,15 @@ class DragOutController extends ChangeNotifier
             ),
           );
         }
+        leftOut = DragOutLeftOut(
+          links: links,
+          flaggedNames: flaggedNames,
+          unlisted: unlisted,
+        );
     }
-    if (items.isEmpty) return DragOutHandOff.unavailable;
+    if (items.isEmpty) {
+      return DragOutHandOffResult(DragOutHandOff.unavailable, leftOut: leftOut);
+    }
 
     // The OS runs one drag at a time: a session still marked running
     // lost its end report, and must not keep claiming hovers and drops.
@@ -333,32 +407,29 @@ class DragOutController extends ChangeNotifier
       // A drag image is decoration; the session still starts without.
       image = null;
     }
-    if (_disposed) return DragOutHandOff.unavailable;
+    if (_disposed) return unavailable;
 
     final result = await _backend.startDrag(
       DragOutRequest(
         sessionId: session.id,
         items: items,
         position: position,
-        // Local items: the destination decides (Finder's rules). Remote
+        // Local items: the destination picks copy or link, never move
+        // (no trash may take the source; see DragOutOffer). Remote
         // promises can only ever be copies.
         allowedOperations: promises.isEmpty
-            ? const {
-                DragOutOperation.copy,
-                DragOutOperation.move,
-                DragOutOperation.link,
-              }
-            : const {DragOutOperation.copy},
+            ? const {DragOutOffer.copy, DragOutOffer.link}
+            : const {DragOutOffer.copy},
         image: image,
       ),
     );
     if (result is! DragOutStarted || _disposed) {
       _sessions.remove(session.id);
-      return DragOutHandOff.notStarted;
+      return const DragOutHandOffResult(DragOutHandOff.notStarted);
     }
     session.running = true;
     notifyListeners();
-    return DragOutHandOff.started;
+    return DragOutHandOffResult(DragOutHandOff.started, leftOut: leftOut);
   }
 
   /// A drop that reached a pane through `desktop_drop` while (or just
@@ -418,6 +489,9 @@ class DragOutController extends ChangeNotifier
   // DragOutBackendDelegate
   // -------------------------------------------------------------------
 
+  /// [operation] changes nothing here: a copy or a link needs no
+  /// follow-up, and a reported move (never offered) is not acted on, so
+  /// nothing on the source side ever deletes.
   @override
   void sessionEnded(String sessionId, DragOutOperation? operation) {
     final session = _sessions[sessionId];
@@ -501,9 +575,23 @@ class DragOutController extends ChangeNotifier
     promise.cancel = () => files.cancel(ticket.taskId);
     // A cancel that raced the start still lands.
     if (promise.cancelled) files.cancel(ticket.taskId);
+    // The hop is a row on the same queue (main.dart composes both seams
+    // over one queue session), so its row's Pause arrives on [_queue].
+    var paused = false;
+    final pauseWatch = _onTaskPaused(_queue, ticket.taskId, () {
+      paused = true;
+      files.cancel(ticket.taskId);
+    });
     try {
       await ticket.result;
     } on RemoteFileException catch (error) {
+      if (paused && error.kind == RemoteFileErrorKind.cancelled) {
+        _notice(DragOutNoticeKind.pausedMidway, promise, destinationPath);
+        throw const DragOutPromiseException(
+          DragOutPromiseFailure.paused,
+          _pausedMidwayMessage,
+        );
+      }
       throw DragOutPromiseException(switch (error.kind) {
         RemoteFileErrorKind.cancelled => DragOutPromiseFailure.cancelled,
         RemoteFileErrorKind.conflict => DragOutPromiseFailure.exists,
@@ -514,6 +602,8 @@ class DragOutController extends ChangeNotifier
         DragOutPromiseFailure.failed,
         error.toString(),
       );
+    } finally {
+      if (pauseWatch != null) unawaited(pauseWatch.cancel());
     }
     final size = promise.size;
     if (size != null) {
@@ -563,17 +653,23 @@ class DragOutController extends ChangeNotifier
     );
     promise.cancel = () => queue.cancelTask(task.id);
     if (promise.cancelled) queue.cancelTask(task.id);
+    // The OS would otherwise wait on a pause that may never lift;
+    // cancelling means nothing lands after the drop gave up.
     var pausedMidway = false;
+    void giveUpOnPause() {
+      if (pausedMidway) return;
+      pausedMidway = true;
+      queue.cancelTask(task.id);
+    }
+
     final poll = Timer.periodic(pausePollInterval, (_) {
       if (task.isTerminal) return;
       _reportProgress(session, promise, task.transferredBytes, task.totalBytes);
-      if (queue.isPaused && !pausedMidway) {
-        // The OS would otherwise wait on a pause that may never lift;
-        // cancelling means nothing lands after the drop gave up.
-        pausedMidway = true;
-        queue.cancelTask(task.id);
-      }
+      // The queue pause carries no event, so it is polled here; the
+      // task's own Pause arrives on the event stream below.
+      if (queue.isPaused) giveUpOnPause();
     });
+    final pauseWatch = _onTaskPaused(queue, task.id, giveUpOnPause);
     final TransferTask? settled;
     try {
       settled = await awaitTransferTaskTerminal(
@@ -583,6 +679,7 @@ class DragOutController extends ChangeNotifier
       );
     } finally {
       poll.cancel();
+      if (pauseWatch != null) unawaited(pauseWatch.cancel());
     }
     if (settled?.state == TransferTaskState.completed) {
       _reportProgress(
@@ -598,7 +695,7 @@ class DragOutController extends ChangeNotifier
       _notice(DragOutNoticeKind.pausedMidway, promise, destinationPath);
       throw const DragOutPromiseException(
         DragOutPromiseFailure.paused,
-        'transfers were paused during the download',
+        _pausedMidwayMessage,
       );
     }
     if (settled == null || settled.state == TransferTaskState.cancelled) {
@@ -612,6 +709,26 @@ class DragOutController extends ChangeNotifier
       settled.error ?? settled.state.name,
     );
   }
+
+  /// The English diagnostic a promise stopped by a pause hands the
+  /// native completion (the user-facing report is the Alert).
+  static const _pausedMidwayMessage = 'the download was paused';
+
+  /// Calls [onPaused] when [taskId] is paused on its own (its Transfers
+  /// row's Pause), which the queue announces as the task's `paused`
+  /// event. A paused task parks until a resume, so a promise waiting on
+  /// it gives up instead. Null without a queue to listen to.
+  static StreamSubscription<TransferQueueEvent>? _onTaskPaused(
+    AppTransferQueue? queue,
+    String taskId,
+    void Function() onPaused,
+  ) => queue?.events.listen((event) {
+    if (event is TransferQueueTaskEvent &&
+        event.taskId == taskId &&
+        event.state == TransferTaskState.paused) {
+      onPaused();
+    }
+  });
 
   void _reportProgress(
     _Session session,

@@ -320,7 +320,11 @@ class _CompactListingState extends State<CompactListing> {
       banner = _CompactBanner(
         icon: Icons.info_outline,
         tone: _BannerTone.neutral,
-        text: compactNoticeText(l10n, notice),
+        text: compactNoticeText(
+          l10n,
+          notice,
+          dragOutLeftOut: controller.dragOutLeftOut,
+        ),
         actions: [
           IconButton(
             key: const ValueKey(CompactKey.noticeDismiss),

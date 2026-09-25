@@ -152,8 +152,9 @@ void main() {
     await right.openLocalAt('/srv/other');
   }
 
-  /// Left: local '/home/tester'; right: remote srv-1 at '/srv/home'.
-  Future<void> bindLocalAndRemote() async {
+  /// Left: local '/home/tester'; right: remote srv-1 at '/srv/home'
+  /// (sub/ and index.html unless [remote] says otherwise).
+  Future<void> bindLocalAndRemote({List<RemoteFileEntry>? remote}) async {
     final leftChannel = controller_test.FakePaneChannel('/home/tester');
     leftChannel.listings['/home/tester'] = [
       _entryAt('/home/tester', 'report.txt', size: 2048),
@@ -162,10 +163,12 @@ void main() {
     await left.openLocalHome();
 
     final rightChannel = controller_test.FakePaneChannel('/srv/home');
-    rightChannel.listings['/srv/home'] = [
-      _entryAt('/srv/home', 'sub', type: RemoteFileType.directory),
-      _entryAt('/srv/home', 'index.html', size: 512),
-    ];
+    rightChannel.listings['/srv/home'] =
+        remote ??
+        [
+          _entryAt('/srv/home', 'sub', type: RemoteFileType.directory),
+          _entryAt('/srv/home', 'index.html', size: 512),
+        ];
     lanes.nextRemoteChannel = rightChannel;
     await right.connectRemote(_bookmark('srv-1'));
   }
@@ -330,6 +333,81 @@ void main() {
     expect(spec.source, const ServerFsLocation('srv-1'));
     expect(spec.destinationDir, '/home/tester');
     await tester.pump(right.noticeLifetime);
+  });
+
+  group('rows a drag-out leaves behind', () {
+    const linksLeftOut =
+        "1 link was left out: links can't be dragged out of Poltergeist.";
+
+    dndWidgets('a multi-item remote drag that starts without its link says '
+        'how many stayed behind and why', (tester) async {
+      backend.support = DragOutSupport.localFilesAndPromises;
+      await bindLocalAndRemote(
+        remote: [
+          _entryAt('/srv/home', 'index.html', size: 512),
+          _entryAt('/srv/home', 'latest', type: RemoteFileType.symbolicLink),
+        ],
+      );
+      await pumpShell(tester);
+      right.selectAll();
+      await tester.pump();
+
+      final gesture = await dragOutOfWindow(tester, find.text('index.html'));
+      final request = backend.requests.single;
+      expect(request.items.map((item) => item.name), ['index.html']);
+      await tester.pump();
+      expect(find.text(linksLeftOut), findsOneWidget);
+      // The native session carries the rest; the Flutter drag ended.
+      expect(find.byType(PaneEntryDragAvatar), findsNothing);
+      await endDrag(tester, gesture);
+      await tester.pump(right.noticeLifetime);
+    });
+
+    dndWidgets('a drag with nothing that can go out stays in-app and says '
+        'why', (tester) async {
+      backend.support = DragOutSupport.localFilesAndPromises;
+      await bindLocalAndRemote(
+        remote: [
+          _entryAt('/srv/home', 'bad\uFFFD.txt', size: 3),
+          _entryAt('/srv/home', 'latest', type: RemoteFileType.symbolicLink),
+        ],
+      );
+      await pumpShell(tester);
+      right.selectAll();
+      await tester.pump();
+
+      final gesture = await dragOutOfWindow(tester, find.text('latest'));
+      expect(backend.requests, isEmpty);
+      await tester.pump();
+      expect(
+        find.text(
+          '2 items were left out: links and names that aren\'t valid '
+          "UTF-8 can't be dragged out of Poltergeist.",
+        ),
+        findsOneWidget,
+      );
+      // Still an in-app drag, carrying both rows.
+      expect(find.byType(PaneEntryDragAvatar), findsOneWidget);
+      await gesture.moveTo(paneBackground(tester, left));
+      await tester.pump();
+      await endDrag(tester, gesture);
+      expect(queue.enqueuedSpecs.single.rootPaths, hasLength(2));
+      await tester.pump(right.noticeLifetime);
+    });
+
+    dndWidgets('a remote drag that leaves nothing behind posts no notice', (
+      tester,
+    ) async {
+      backend.support = DragOutSupport.localFilesAndPromises;
+      await bindLocalAndRemote();
+      await pumpShell(tester);
+
+      final gesture = await dragOutOfWindow(tester, find.text('index.html'));
+      expect(backend.requests, hasLength(1));
+      await tester.pump();
+      expect(right.notice, isNull);
+      await endDrag(tester, gesture);
+    });
   });
 
   dndWidgets('a refused native start leaves the in-app drag running', (

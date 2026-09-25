@@ -685,8 +685,10 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
           !_disposed) {
         await runtime.notPaused.future;
       }
-      _throwIfTaskCancelled(task);
-      if (_disposed) throw _cancelledException();
+      // A cancel that ended the wait (dispose cancels every task) has
+      // already settled the item and the task; throwing here would only
+      // reach the unawaited runner as an unhandled error.
+      if (task.cancellation.isCancelled || _disposed) break;
       if (item.isTerminal || task.isTerminal) break;
 
       var attempt = RemoteTransferCancellation();
@@ -1247,8 +1249,9 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
         // this await can neither spin on a completed future nor hang.
         await runtime.notPaused.future;
       }
-      _throwIfTaskCancelled(task);
-      if (_disposed) throw _cancelledException();
+      // As in _runProduce: a cancel that ended the wait already settled
+      // the item and the task, so the hop unwinds instead of throwing.
+      if (task.cancellation.isCancelled || _disposed) break;
       if (item.isTerminal || task.isTerminal) break;
 
       var attempt = RemoteTransferCancellation();

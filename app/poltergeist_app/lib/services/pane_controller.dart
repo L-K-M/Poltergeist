@@ -6,6 +6,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../l10n/app_localizations.dart';
 import 'double_click_action.dart';
+import 'drag_out_controller.dart' show DragOutLeftOut;
 import 'engine_session.dart';
 import 'folder_size.dart';
 import 'listing_filter.dart';
@@ -321,6 +322,13 @@ enum PaneNotice {
   /// continues in-app, and the notice points at Download To… (00 D14's
   /// drag-out amendment).
   dragOutRemote,
+
+  /// A drag-out went ahead without some of the dragged rows, or had
+  /// none it could offer and stayed in-app: symbolic links and flagged
+  /// names cannot go out (00 D14's drag-out amendment). The strip says
+  /// how many stayed behind and why, from
+  /// [PaneController.dragOutLeftOut].
+  dragOutLeftOut,
 
   /// The shown local directory's watch kept failing, so the listing no
   /// longer refreshes on its own (03 §7.5: watcher failure is never
@@ -833,6 +841,20 @@ class PaneController extends ChangeNotifier {
   void noteDragOutRemoteUnavailable() {
     if (_disposed) return;
     _postNotice(PaneNotice.dragOutRemote);
+  }
+
+  /// The rows behind [PaneNotice.dragOutLeftOut]: what the last
+  /// drag-out hand-off left behind, [DragOutLeftOut.none] before any.
+  DragOutLeftOut get dragOutLeftOut => _dragOutLeftOut;
+  DragOutLeftOut _dragOutLeftOut = DragOutLeftOut.none;
+
+  /// Posts how many dragged rows a drag-out hand-off left behind, and
+  /// why; the pane's row hand-off calls it once per gesture. A no-op
+  /// when nothing was left out.
+  void noteDragOutLeftOut(DragOutLeftOut leftOut) {
+    if (_disposed || leftOut.isEmpty) return;
+    _dragOutLeftOut = leftOut;
+    _postNotice(PaneNotice.dragOutLeftOut);
   }
 
   /// Posts the transient copy confirmation for the inspector's path

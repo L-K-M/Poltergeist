@@ -24,6 +24,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import '../../services/pane_controller_test.dart' as controller_test;
 import '../../support/fake_app_transfer_queue.dart';
 import '../../support/fake_bookmark_store.dart';
+import '../../support/fake_stored_id_set.dart';
 import '../../support/test_panes.dart';
 
 final _now = DateTime.utc(2026, 10, 1);
@@ -155,6 +156,7 @@ void main() {
   late List<Bookmark> workspaceUpdates;
   late List<ConnectionServer> disconnected;
   late List<ConnectionServer> reviewed;
+  late FakeStoredIdSet collapseStore;
   late List<Set<String>> collapsedWrites;
   late List<SidebarDensity> densityWrites;
   late List<String> removedIds;
@@ -185,7 +187,7 @@ void main() {
     // controller's own default (comfortable) in force.
     SidebarDensity? density = SidebarDensity.compact,
     Set<String> pinned = const {},
-    void Function(Set<String> pinned)? onPinnedChanged,
+    PinnedServerWriter? onPinnedChanged,
   }) async {
     // Wider than the rail: the drop tests park a drag source beside it,
     // and a context menu needs room to open where it was asked.
@@ -197,7 +199,7 @@ void main() {
         ? SidebarController(
             store: store,
             initiallyPinned: pinned,
-            onCollapsedChanged: collapsedWrites.add,
+            onCollapsedChanged: collapseStore.collapse,
             onDensityChanged: densityWrites.add,
             onPinnedChanged: onPinnedChanged,
             onBookmarkRemoved: removedIds.add,
@@ -207,7 +209,7 @@ void main() {
             store: store,
             density: density,
             initiallyPinned: pinned,
-            onCollapsedChanged: collapsedWrites.add,
+            onCollapsedChanged: collapseStore.collapse,
             onDensityChanged: densityWrites.add,
             onPinnedChanged: onPinnedChanged,
             onBookmarkRemoved: removedIds.add,
@@ -296,7 +298,8 @@ void main() {
     workspaceUpdates = [];
     disconnected = [];
     reviewed = [];
-    collapsedWrites = [];
+    collapseStore = FakeStoredIdSet();
+    collapsedWrites = collapseStore.writes;
     densityWrites = [];
     removedIds = [];
     lanes = _ConnectionLanes();
@@ -1070,6 +1073,40 @@ void main() {
       );
     });
 
+    testWidgets('a folded group says what its dot means to a screen reader', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        store.bookmarks = [
+          _remote('r1', group: 'work'),
+          _local('l1', group: 'work', sortKey: 'mn'),
+        ];
+        final controller = await pumpSidebar(tester, withConnections: true);
+        await connect(tester, 'r1');
+        String label() => tester
+            .getSemantics(
+              find.byKey(const ValueKey('sidebar.section.fav:work')),
+            )
+            .getSemanticsData()
+            .label;
+        expect(label(), 'work, 2 items');
+
+        controller.toggleCollapsed('fav:work');
+        await tester.pumpAndSettle();
+        expect(label(), 'work, 2 items\nConnected server hidden');
+
+        // Amber has words of its own.
+        lanes.watches['r1']!.add(
+          const ServerStatus(ServerConnectionState.reconnecting),
+        );
+        await tester.pumpAndSettle();
+        expect(label(), 'work, 2 items\nConnecting server hidden');
+      } finally {
+        semantics.dispose();
+      }
+    });
+
     testWidgets('a folded section shows the live server it hides', (
       tester,
     ) async {
@@ -1328,12 +1365,13 @@ void main() {
         _remote('r2', group: 'prod', sortKey: 'mb'),
         _local('l1', sortKey: 'mc'),
       ];
-      final writes = <Set<String>>[];
+      final pins = FakeStoredIdSet();
+      final writes = pins.writes;
       final volumes = _FakeVolumes()..volumes = const [_home, _root];
       final controller = await pumpSidebar(
         tester,
         volumes: volumes,
-        onPinnedChanged: writes.add,
+        onPinnedChanged: pins.pin,
       );
       expect(header('sec:pinned'), findsNothing);
       expect(headerOf(tester, 'sec:favorites').count, 3);

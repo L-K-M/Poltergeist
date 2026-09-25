@@ -16,6 +16,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/pane_controller_test.dart' as controller_test;
 import '../../support/fake_bookmark_store.dart';
+import '../../support/fake_stored_id_set.dart';
 import '../../support/test_panes.dart';
 
 const _nowMs = 1780000000000;
@@ -72,7 +73,7 @@ void main() {
     // The one-line rail these tests describe (D33's compact density).
     SidebarDensity density = SidebarDensity.compact,
     Set<String> pinned = const {},
-    void Function(Set<String> pinned)? onPinnedChanged,
+    PinnedServerWriter? onPinnedChanged,
   }) async {
     tester.view.physicalSize = const Size(600, 1000);
     tester.view.devicePixelRatio = 1;
@@ -83,7 +84,7 @@ void main() {
       density: density,
       initiallyPinned: pinned,
       onPinnedChanged: onPinnedChanged,
-      onCollapsedChanged: (_) {},
+      onCollapsedChanged: FakeStoredIdSet().collapse,
     );
     addTearDown(controller.dispose);
     unawaited(controller.reload());
@@ -260,8 +261,9 @@ void main() {
         _server('b1', label: 'beta', group: 'Prod'),
         _server('c1', label: 'gamma'),
       ]);
-      final writes = <Set<String>>[];
-      final controller = await pump(tester, onPinnedChanged: writes.add);
+      final pins = FakeStoredIdSet();
+      final writes = pins.writes;
+      final controller = await pump(tester, onPinnedChanged: pins.pin);
 
       await tester.tap(row('a1'), buttons: kSecondaryButton);
       await tester.pumpAndSettle();

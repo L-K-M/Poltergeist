@@ -484,6 +484,39 @@ void main() {
       expect(s2.fileBytes['/dst/src/rest/f2.bin'], List.filled(4, 2));
     });
 
+    test('cancelling a paused managed checkout settles it without an '
+        'unhandled error', () async {
+      // The hop parks on its per-task pause outside any attempt, so the
+      // cancel that ends the wait has already settled the item and the
+      // task: the hop must unwind, not throw into the unawaited runner.
+      s1.addFile('/r/edit.txt', List.filled(16, 3));
+      final gate = Completer<void>();
+      s1.downloadGate = (_) => gate;
+      final task = queue.enqueueManagedCheckout(
+        ManagedCheckoutSpec(
+          checkoutId: 'edit-1',
+          serverId: 's1',
+          remotePath: '/r/edit.txt',
+          localPath: '${tempDir.path}/edit.txt',
+          direction: ManagedCheckoutDirection.download,
+          expectedSize: 16,
+        ),
+      );
+      await pumpUntil(() => s1.activeDownloads == 1);
+      queue.pauseTask(task.id);
+      await pumpUntil(() => task.state == TransferTaskState.paused);
+      // Let the parked fake read return so the dead attempt unwinds and
+      // the hop reaches its pause wait.
+      gate.complete();
+      final item = task.items.single;
+      await pumpUntil(() => item.state == TransferItemState.pending);
+      queue.cancelTask(task.id);
+      await awaitTaskDone(task);
+      await pump();
+      expect(task.state, TransferTaskState.cancelled);
+      expect(item.state, TransferItemState.cancelled);
+    });
+
     test('task pause cancels the attempt; resume restarts the item', () async {
       s1.addFile('/src/big.bin', List.filled(64, 7));
       s1.downloadChunkSize = 8;
