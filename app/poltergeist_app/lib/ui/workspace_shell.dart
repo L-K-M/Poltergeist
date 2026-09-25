@@ -64,6 +64,7 @@ import 'compact/compact_workspace.dart';
 import 'import/ssh_config_import_command.dart';
 import 'layout/pane_allocation.dart';
 import 'local_edits_review.dart';
+import 'menus/app_menu_commands.dart';
 import 'menus/app_menu_host.dart';
 import 'panes/open_with_commands.dart';
 import 'panes/pane_commands.dart';
@@ -1358,6 +1359,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           settings: _generalSettings,
           enabled: () => !_commandSessionActive,
         ),
+      // 10 §8's platform rows: Check for Updates… in the macOS app menu,
+      // Quit in the Linux/Windows File menu (macOS has AppKit's own).
+      if (widget.updateCheck != null &&
+          Theme.of(context).platform == TargetPlatform.macOS)
+        buildCheckForUpdatesCommand(
+          updates: widget.updateCheck!,
+          openUrl: (url) async {
+            await launchUrl(url);
+          },
+        ),
+      if (Theme.of(context).platform
+          case TargetPlatform.linux || TargetPlatform.windows)
+        buildQuitCommand(),
       if (workspace != null && widget.workspaces != null)
         ...buildWorkspaceCommands(
           workspace: workspace,

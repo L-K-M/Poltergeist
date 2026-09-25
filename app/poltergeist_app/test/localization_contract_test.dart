@@ -329,6 +329,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The Settings command id (D21 plumbing) — registered, never rendered.
   'lib/ui/settings/app_settings_command.dart': {"'app.settings'"},
+  // 10 §8's platform-row command ids (D21 plumbing), never rendered.
+  'lib/ui/menus/app_menu_commands.dart': {
+    "'app.checkForUpdates'",
+    "'app.quit'",
+  },
   // The workspace command ids (D21 plumbing) — the open commands key
   // per-record to the persisted workspace id.
   'lib/ui/workspace/workspace_commands.dart': {

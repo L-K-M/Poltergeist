@@ -119,8 +119,10 @@ List<AppMenuModel> buildAppMenus({
 }
 
 /// The macOS application menu (10 §8): About, then the commands that
-/// declare [CommandMenuPlacement.appMenuOnMac] (Settings…, Check for
-/// Updates…), then Services, the hide trio, and Quit — AppKit's order.
+/// declare [CommandMenuPlacement.appMenuOnMac] (Check for Updates…,
+/// Settings…), then Services, the hide trio, and Quit — AppKit's order.
+/// Quit is AppKit's own row here; Linux and Windows get a registered
+/// Quit command at the end of File instead (`app_menu_commands.dart`).
 AppMenuModel _macAppMenu(
   AppLocalizations l10n,
   List<List<AppMenuRow>> commandGroups,
