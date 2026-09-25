@@ -72,8 +72,32 @@ known-divergent surface.
   `trash_roundtrip_linux_test.dart` in CI — the restore-UX row still
   wants a human pass.)
 - [ ] OWNER MANUAL QA: drop-in from Finder/Explorer/Nautilus into each
-  pane; in-app pane↔pane drag; confirm drag-out is absent (v1) and the
-  "Download to…" path covers it.
+  pane; in-app pane↔pane drag; File ▸ Download To… and the row menu's
+  Download To… land a remote selection in the picked folder.
+- [ ] OWNER MANUAL QA: OS drag-out (D14 amendment 2026-09-25). On each
+  desktop platform, drag a local file, a local folder, and a
+  three-item selection from a pane past the window edge into the file
+  manager: the items arrive, the destination's default verb applies
+  (Finder/Explorer move within a volume, copy across), a move away
+  refreshes the source pane, and nothing is ever moved to the Trash. Esc
+  mid-drag cancels, and the next click in the pane still selects. The
+  drag image shows the name, or "N items" with a count badge. Drag out
+  and back into the other pane: it lands like an in-app drag (a
+  same-volume move stays a move).
+- [ ] OWNER MANUAL QA (macOS): drag a remote file and a remote folder
+  from a server pane onto the Desktop and into a Finder window: each
+  arrives complete, Transfers shows the download, and Finder shows
+  progress. Repeat onto a folder that already holds a same-named file:
+  the existing file is never replaced (the Transfers row fails with a
+  clear message). Cancel from Finder mid-download: the Transfers row
+  cancels and no partial file remains under the name. Pause the queue,
+  then drag a remote folder: the drop fails at once with an Alert. Drag
+  a remote file into Mail and Messages and record whether they accept
+  promises. Record whether Finder ever offers "Keep Both" and what name
+  it hands back (the folder path refuses a renamed URL today).
+- [ ] OWNER MANUAL QA (Linux, Windows): drag a remote row past the window
+  edge: no OS drag starts, the pane shows the "use Download To…" hint,
+  and the drag keeps working inside the window.
 - [ ] OWNER MANUAL QA: theme flip (light/dark) live-restyles listing,
   plan view, and editor; HiDPI scaling at 100 %/150 %/200 % shows no
   clipped chrome.

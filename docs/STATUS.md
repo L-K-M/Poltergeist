@@ -8023,6 +8023,72 @@ verified here: a device or emulator run (no Android SDK in the
 container), real predictive-back animation, IME behavior, and
 TalkBack.
 
+## D14 amendment: OS drag-out, stage 1, the Dart seam and Linux (2026-09-25)
+
+A row drag that leaves the window now hands off to a native drag
+session (00 D14's 2026-09-25 amendment). This stage is everything that
+can be built and checked on Linux; the macOS and Windows backends follow
+against the same channel.
+
+- **Core.** `PreviewProduceSpec` gained `writeMode` (`exclusive` fails
+  with a conflict instead of replacing a same-named file) and `slotPool`
+  (drag-out hops get two slots of their own, so Quick Look keeps its
+  two). `awaitTransferTaskTerminal` waits for an ordinary task, the
+  shape a folder promise needs.
+- **Seam.** `lib/services/os_drag_out.dart` holds the backend interface,
+  the `poltergeist/dragout` MethodChannel backend, the no-op backend, and
+  the channel protocol the native sides implement. `DragOutController`
+  (composed by the shell over `QueueDragOutProducer` from `main.dart`
+  and the shell's queue) starts sessions, fulfils promises (a file is an
+  exclusive produce hop into the OS's path; a folder is a normal
+  download task that fails fast on a paused queue), and reports
+  refusals to the Alerts tab. Failed produce and download rows keep
+  their own Transfers rows and alerts.
+- **Pane.** The row `Draggable` hands off once per gesture when its
+  pointer leaves the view, carrying every selected item, then cancels
+  its own pointer. Remote rows where only local files travel (Linux,
+  Windows) show "use Download To…" and keep dragging in-app. A drag of
+  ours that comes back through `desktop_drop` lands with the in-app verb
+  rules from the stored payload.
+- **Linux.** `linux/runner/drag_out_channel.cc`: a GTK drag source for
+  local items (`text/uri-list`; copy, move, link; never deletes). It
+  keeps the last primary press through an emission hook and synthesizes
+  the release GTK's grab would swallow.
+- **Download To….** File ▸ Download To… and the row context menu pick a
+  local folder (`file_picker`) and enqueue a normal download of the
+  remote selection.
+
+Verified here:
+- Unit and widget tests: the channel codec both ways, the controller's
+  promise paths (file, folder, pause at start and mid-download, rename,
+  cancel, failure, staging echo), the pane hand-off (fires once at the
+  edge with the selection, ends the Flutter drag, in-app drags never
+  reach the backend, the remote hint), the echo routing, the shell
+  composition and its Alerts row, the drag image, and Download To….
+- For real under Xvfb with the debug Linux build and a GTK drop target
+  in another process (transcript and screenshots in the session's
+  `dragout-evidence/`): a local file dragged past the window edge
+  arrives as its `file://` URI with copy/move/link offered; a two-item
+  selection arrives as two URIs under a "2 items" image; Esc cancels;
+  the next click still selects; in-app pane-to-pane drags still move;
+  a drag out and back in lands through `desktop_drop` as the in-app
+  move.
+
+Needs a Mac (macOS backend not written yet): the `NSFilePromiseProvider`
+side, whether Finder ever hands back a renamed promise URL (the folder
+path refuses one today), Finder's progress pie from `promiseProgress`,
+Mail and Messages accepting promises, the synthesized mouse-up, and the
+echo through `desktop_drop`'s overlay. Needs Windows: the `CF_HDROP`
+backend and the pointer reset after `DoDragDrop`. Not covered anywhere
+yet: Wayland, remote rows on Linux against a real server (the hint is
+widget-tested), and a file manager that performs the move itself.
+
+Validation: `flutter analyze` is clean; the full app suite passes (2357
+tests, 59 of them new); `poltergeist_core` passes 1577 tests (9 new)
+with the two root-only chmod checkout tests failing as they always do
+as root (CI runs unprivileged); the protocol guard exits 0. Not verified
+here: anything on macOS or Windows.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

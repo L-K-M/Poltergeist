@@ -491,6 +491,47 @@ D32 inspector workspace
   OS drop-IN uses `desktop_drop`; OS drag-OUT (promised files) is
   deliberately v1.x — the transfer queue exposes a produce-on-demand hook
   from day one so any promised-file backend can attach later.
+  - **Amendment (2026-09-25): OS drag-out ships, first-party.** No
+    `super_drag_and_drop` / `super_native_extensions`: on macOS it cannot
+    see a press under `desktop_drop`'s overlay, cannot promise folders,
+    writes every remote file twice, and brings CocoaPods and a Rust build
+    into an SPM-only project. Instead one Dart seam
+    (`lib/services/os_drag_out.dart`: `DragOutBackend`, the
+    `poltergeist/dragout` channel whose protocol that file documents, and
+    a no-op backend on mobile, web, and in tests) with small native
+    backends per platform. The rules:
+    - *Hand-off, not replacement.* In-app drags stay Flutter `Draggable`s
+      with every existing target, verb rule, spring-load, and test. Only
+      when a row drag's pointer leaves the window does the pane hand the
+      payload (every selected item) to a native session, once per
+      gesture; the pane then cancels its own pointer, and the native side
+      ends the embedder's view of the press so no click stays stuck.
+    - *Local items* travel as plain file URLs; the destination picks copy,
+      move, or link. Delete is never offered (a Dock-Trash drop would be
+      an unguarded delete, D15), and no backend deletes on a move.
+    - *Remote items* are file promises on macOS (`NSFilePromiseProvider`,
+      `public.folder` for directories). A file is produced straight into
+      the path the OS gave: an exclusive produce hop (never replacing a
+      same-named file) on a two-slot drag-out budget separate from Quick
+      Look's. A folder is an ordinary recursive download task, awaited to
+      its end. It does not bypass the queue pause: a paused queue fails
+      the promise at once, and a pause mid-download cancels the task,
+      each with an Alert, so the OS never waits on a pause. Both show in
+      Transfers; the OS-side cancel cancels the task; a failure fails the
+      promise and keeps its failed row and Alert. A receiver that asks
+      for a different folder name fails with an Alert (the queue lands a
+      root under its own name; whether Finder ever renames is open).
+    - *Linux and Windows* carry local items only for now (GTK
+      `text/uri-list`, built and verified under Xvfb; Windows
+      `CF_HDROP`, next). Remote rows there show a
+      "use Download To…" hint and keep dragging in-app; File ▸ Download
+      To… is the fallback everywhere. Windows virtual files are the
+      follow-up.
+    - *Own-drag echo.* A drag of ours that comes back into the window
+      lands on `desktop_drop`; the controller recognizes its session (the
+      dropped paths, or a promise called into `desktop_drop`'s staging
+      folder, which fails fast) and the pane applies the in-app verb
+      rules from the stored payload.
 - **D17 — Editor.** Séance's editor stack (document I/O with BOM/CRLF
   fidelity, syntax engine, find bar, conflict-aware save-and-upload) is
   ported per D2 and kept behaviorally identical; external editors reuse the

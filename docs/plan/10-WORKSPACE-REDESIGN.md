@@ -408,10 +408,14 @@ Poltergeist and Séance are one product family. The contract:
   - Reveal via `org.freedesktop.FileManager1.ShowItems`, falling back to
     `xdg-open` on the parent folder
   - the ☰ main menu
-- **Drag and drop:** drop-in from other apps works today (`desktop_drop`).
-  Drag-out to Finder (file promises) stays a v1.x item under D14. It needs a
-  native `NSFilePromiseProvider` channel and a Mac to verify. The queue's
-  `enqueueProduce` hook is already in place for it.
+- **Drag and drop:** drop-in from other apps works through `desktop_drop`.
+  Drag-out follows D14's 2026-09-25 amendment: a row drag that leaves the
+  window becomes a native drag carrying local items as file URLs (Linux
+  GTK today, verified under Xvfb) and remote items as file promises
+  (macOS `NSFilePromiseProvider`, on the `poltergeist/dragout` channel,
+  still to be built and verified on a Mac). Remote rows on Linux and
+  Windows show a "use Download To…" hint, and File ▸ Download To… is the
+  fallback everywhere.
 
 ## 12. What is intentionally not in this chapter
 
