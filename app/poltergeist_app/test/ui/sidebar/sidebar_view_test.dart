@@ -658,6 +658,42 @@ void main() {
       expect(opens.single.$1.id, 'a');
     });
 
+    testWidgets('the arrows and Tab get past the SERVERS header and its +', (
+      tester,
+    ) async {
+      store.bookmarks = [
+        _remote('a', sortKey: 'ma'),
+        _remote('b', sortKey: 'mb'),
+      ];
+      var added = 0;
+      await pumpSidebar(tester, onAddServer: () => added++);
+      Future<void> press(LogicalKeyboardKey key) async {
+        await tester.sendKeyEvent(key);
+        await tester.pumpAndSettle();
+      }
+
+      await tester.tap(find.byKey(const ValueKey('sidebar.favorite.a')));
+      await tester.pumpAndSettle();
+      opens.clear();
+
+      // Up lands on the header (its "+" drawn for the keyboard); Down
+      // comes straight back to the row rather than bouncing off the "+".
+      await press(LogicalKeyboardKey.arrowUp);
+      await press(LogicalKeyboardKey.arrowDown);
+      await press(LogicalKeyboardKey.enter);
+      expect(opens.single.$1.id, 'a');
+      opens.clear();
+
+      // Tab takes the header's "+" as a stop of its own, then the row.
+      await press(LogicalKeyboardKey.arrowUp);
+      await press(LogicalKeyboardKey.tab);
+      await press(LogicalKeyboardKey.enter);
+      expect(added, 1);
+      await press(LogicalKeyboardKey.tab);
+      await press(LogicalKeyboardKey.enter);
+      expect(opens.single.$1.id, 'a');
+    });
+
     testWidgets('Shift+F10 raises the focused row\'s context menu', (
       tester,
     ) async {
