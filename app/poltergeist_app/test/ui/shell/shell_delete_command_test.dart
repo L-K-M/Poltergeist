@@ -12,6 +12,7 @@ import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_file_ops.dart';
 import 'package:poltergeist_app/services/registered_command.dart';
+import 'package:poltergeist_app/services/selection_state.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/ui/shell/shell_commands.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -196,6 +197,32 @@ void main() {
         queue.enqueuedDeletes.single.disposition,
         DeleteDisposition.permanent,
       );
+    });
+  });
+
+  group('a cursor row alone is not a selection', () {
+    testWidgets('Delete, Delete Permanently and Duplicate are disabled once '
+        'the only selected row is toggled off', (tester) async {
+      await tester.runAsync(bindRemote);
+      left.setCursorIndex(0);
+      expect(command(kFileDeleteCommandId).enabled(), isTrue);
+      expect(command(kFileDuplicateCommandId).enabled(), isTrue);
+
+      // Ctrl-click the selected row: the cursor stays on it, but
+      // nothing is selected, and that is what the verbs act on.
+      left.setCursorIndex(0, update: SelectionUpdate.toggle);
+      expect(left.selectedEntries, isEmpty);
+      expect(left.cursorIndex, 0);
+
+      for (final id in [
+        kFileDeleteCommandId,
+        kFileDeletePermanentlyCommandId,
+        kFileDuplicateCommandId,
+      ]) {
+        expect(command(id).enabled(), isFalse, reason: id);
+      }
+      expect(queue.prepareDeleteCalls, isEmpty);
+      expect(queue.enqueuedSpecs, isEmpty);
     });
   });
 }

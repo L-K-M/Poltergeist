@@ -140,9 +140,16 @@ List<RegisteredCommand> buildShellCommands({
   FileManagerRevealer revealer = const FileManagerRevealer(),
 }) {
   bool browsing() => workspace.activeTabController?.verbsEnabled ?? false;
+  // Delete and Duplicate act on the selected rows only (PaneFileOps),
+  // never on a bare cursor row: after a Ctrl-click deselect or an
+  // invert, the cursor can rest on a row the user just deselected, and
+  // a destructive verb must not pick it up. Enablement follows the same
+  // rule, so the verbs are never enabled while having nothing to do.
   bool hasSelection() {
     final pane = workspace.activeTabController;
-    return pane != null && pane.verbsEnabled && _selectionRoots(pane).isNotEmpty;
+    return pane != null &&
+        pane.verbsEnabled &&
+        pane.selectedEntries.isNotEmpty;
   }
 
   Future<void> create(Future<String?> Function(PaneController) verb) async {
