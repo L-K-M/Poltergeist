@@ -19,6 +19,7 @@ class MainFlutterWindow: NSWindow {
   private var trashChannel: FlutterMethodChannel?
   private var filesChannel: FlutterMethodChannel?
   private var quickLookChannel: FlutterMethodChannel?
+  private var dragOutChannel: DragOutChannel?
 
   /// The panel's current item set — only ever produced LOCAL paths
   /// (remote previews are materialized into the §5.3 cache first).
@@ -226,6 +227,14 @@ class MainFlutterWindow: NSWindow {
         result(FlutterMethodNotImplemented)
       }
     }
+
+    // OS drag-out (00 D14's 2026-09-25 amendment): `poltergeist/dragout`
+    // hands a pane row drag that left the window to an AppKit dragging
+    // session (local file URLs, remote file promises). See
+    // DragOutChannel.swift.
+    dragOutChannel = DragOutChannel(
+      flutterViewController: macOSWindowUtilsViewController.flutterViewController
+    )
 
     super.awakeFromNib()
   }

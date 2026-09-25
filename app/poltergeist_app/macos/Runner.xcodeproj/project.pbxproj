@@ -27,6 +27,7 @@
 		33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F22044A3C60003C045 /* Assets.xcassets */; };
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
+		A9D32A0000000000000000B1 /* DragOutChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D32A0000000000000000B2 /* DragOutChannel.swift */; };
 		A9D32A0000000000000000A1 /* PoltergeistFlutterViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A9D32A0000000000000000A2 /* PoltergeistFlutterViewController.m */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 /* End PBXBuildFile section */
@@ -72,6 +73,7 @@
 		33CC10F52044A3C60003C045 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
 		33CC10F72044A3C60003C045 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Runner/Info.plist; sourceTree = "<group>"; };
 		33CC11122044BFA00003C045 /* MainFlutterWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainFlutterWindow.swift; sourceTree = "<group>"; };
+		A9D32A0000000000000000B2 /* DragOutChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOutChannel.swift; sourceTree = "<group>"; };
 		A9D32A0000000000000000A2 /* PoltergeistFlutterViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PoltergeistFlutterViewController.m; sourceTree = "<group>"; };
 		A9D32A0000000000000000A3 /* PoltergeistFlutterViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PoltergeistFlutterViewController.h; sourceTree = "<group>"; };
 		A9D32A0000000000000000A4 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -172,6 +174,7 @@
 			children = (
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
+				A9D32A0000000000000000B2 /* DragOutChannel.swift */,
 				A9D32A0000000000000000A2 /* PoltergeistFlutterViewController.m */,
 				A9D32A0000000000000000A3 /* PoltergeistFlutterViewController.h */,
 				A9D32A0000000000000000A4 /* Runner-Bridging-Header.h */,
@@ -362,6 +365,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
+				A9D32A0000000000000000B1 /* DragOutChannel.swift in Sources */,
 				A9D32A0000000000000000A1 /* PoltergeistFlutterViewController.m in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
