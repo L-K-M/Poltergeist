@@ -179,13 +179,16 @@ known-divergent surface.
   one window on General, Sync and Editing; choosing another while it is
   open brings it forward on that tab. A change made there (the update
   check switch, an editor added, a preview limit) shows in the workspace
-  at once and survives a restart. Closing it leaves the app running and
-  its main window drawing; reopening opens a fresh screen. Quitting with
-  Settings key and the quit guard armed (a transfer running) still
-  asks first, on macOS with ⌘Q (the window forwards the request to the
-  app). On Windows the window stays above the workspace and goes with
-  it. Linux was run under Xvfb (STATUS D34 section); macOS and Windows
-  are compiled by CI only.
+  at once and survives a restart, and a change made in the workspace
+  (an editor added from Open With) shows in the open window without
+  reopening it. Closing it leaves the app running and its main window
+  drawing; reopening opens a fresh screen. Quitting while the Settings
+  window is focused and the quit guard is armed (a transfer running)
+  still asks first, on macOS with ⌘Q (the window forwards the request
+  to the app). Closing the workspace window takes the Settings window
+  with it. On Windows the window stays above the workspace. Linux was
+  run under Xvfb (STATUS D34 section); macOS and Windows are compiled
+  by CI only, so this row is their first run.
 - [ ] OWNER MANUAL QA: theme flip (light/dark) live-restyles listing,
   plan view, and editor; HiDPI scaling at 100 %/150 %/200 % shows no
   clipped chrome.

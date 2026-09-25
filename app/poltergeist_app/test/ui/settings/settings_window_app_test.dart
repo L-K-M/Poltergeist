@@ -101,6 +101,17 @@ void main() {
     expect(find.byKey(const ValueKey('updates.checkEnabled')), findsOneWidget);
   });
 
+  testWidgets('a window with no sections says so and closes cleanly', (
+    tester,
+  ) async {
+    host.attach(const SettingsWindowSources());
+    await pumpWindow(tester, SettingsWindowTab.general);
+    expect(find.text('Nothing to set here yet.'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a window that loses the app says so', (tester) async {
     final remote = await pumpWindow(tester, SettingsWindowTab.general);
 

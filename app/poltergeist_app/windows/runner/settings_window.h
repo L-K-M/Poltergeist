@@ -36,7 +36,8 @@ class SettingsWindowHost {
   SettingsWindowHost& operator=(const SettingsWindowHost&) = delete;
 
  private:
-  void Open();
+  // False when the window could not be created.
+  bool Open();
   void OnWindowHidden();
 
   HWND main_window_;

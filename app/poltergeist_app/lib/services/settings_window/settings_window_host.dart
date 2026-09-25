@@ -153,10 +153,17 @@ class SettingsWindowHost {
       await _control.invokeMethod<void>(SettingsWindowControl.open.name);
     } on MissingPluginException {
       return false;
+    } on PlatformException {
+      // The runner could not create the window: the dialog instead.
+      return false;
     }
     // A first window becomes visible when it says hello, which may already
     // have happened; one being shown again, here.
     if (_connected) _visible = true;
+    // A change made while `show` was in flight was not sent, since the
+    // window did not count as showing yet; the dedupe makes this a no-op
+    // when nothing changed.
+    _scheduleSnapshot();
     return true;
   }
 
@@ -203,6 +210,11 @@ class SettingsWindowHost {
       await _link.invokeMethod<void>(SettingsLinkMethod.snapshot.name, encoded);
     } on MissingPluginException {
       _connected = false;
+      _lastSnapshot = null;
+    } on PlatformException {
+      // The window failed to apply it. Forgotten, so the next change sends
+      // it again rather than the dedupe skipping what never arrived; and
+      // caught, since nothing awaits this.
       _lastSnapshot = null;
     }
   }
@@ -266,9 +278,6 @@ class SettingsWindowHost {
   }
 
   Future<Object?> _handleLink(MethodCall call) async {
-    final Object? argument = call.arguments is String
-        ? jsonDecode(call.arguments as String)
-        : null;
     final method = SettingsLinkMethod.values
         .where((value) => value.name == call.method)
         .firstOrNull;
@@ -276,6 +285,9 @@ class SettingsWindowHost {
       throw MissingPluginException('No Settings window method ${call.method}');
     }
     try {
+      final Object? argument = call.arguments is String
+          ? jsonDecode(call.arguments as String)
+          : null;
       final result = await _dispatch(method, argument);
       return result == null ? null : jsonEncode(result);
     } on MissingPluginException {
@@ -297,10 +309,11 @@ class SettingsWindowHost {
     final editors = _sources.editors;
     switch (method) {
       case SettingsLinkMethod.hello:
-        _connected = true;
-        _visible = true;
+        // Built first: a window whose hello failed is not connected.
         final snapshot = _snapshot();
         _lastSnapshot = jsonEncode(snapshot);
+        _connected = true;
+        _visible = true;
         return {
           SettingsLinkKey.snapshot.name: snapshot,
           SettingsLinkKey.tab.name: _tab.name,

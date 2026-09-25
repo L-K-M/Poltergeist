@@ -97,18 +97,24 @@ class RemoteSettings extends ChangeNotifier {
   }) async {
     final remote = RemoteSettings._(link);
     link.setMethodCallHandler(remote._handle);
-    final hello = (await remote._link.call(SettingsLinkMethod.hello))! as Map;
-    remote._apply(
-      (hello[SettingsLinkKey.snapshot.name]! as Map).cast<String, Object?>(),
-    );
-    remote.page = ValueNotifier(
-      SettingsWindowPage(
-        tab: SettingsWindowTab.values.byName(
-          hello[SettingsLinkKey.tab.name]! as String,
+    try {
+      final hello = (await remote._link.call(SettingsLinkMethod.hello))! as Map;
+      remote._apply(
+        (hello[SettingsLinkKey.snapshot.name]! as Map).cast<String, Object?>(),
+      );
+      remote.page = ValueNotifier(
+        SettingsWindowPage(
+          tab: SettingsWindowTab.values.byName(
+            hello[SettingsLinkKey.tab.name]! as String,
+          ),
+          generation: 0,
         ),
-        generation: 0,
-      ),
-    );
+      );
+    } catch (_) {
+      // Nothing may reach a window that never got its page.
+      link.setMethodCallHandler(null);
+      rethrow;
+    }
     return remote;
   }
 

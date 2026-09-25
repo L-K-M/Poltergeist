@@ -8559,8 +8559,9 @@ Known limits: the window's size and position are not remembered, and
 with Settings key on macOS the menu's workspace commands still act on
 the workspace window.
 
-Validation: `flutter analyze` is clean; the new link, host and window
-suites (13 tests) and the settings routing tests pass.
+Validation: `flutter analyze` is clean; the full app suite passes (2521
+tests, 18 of them new: the link and host suite, the window app, and the
+settings routing tests).
 
 ## Open items
 

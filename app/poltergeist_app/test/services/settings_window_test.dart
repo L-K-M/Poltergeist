@@ -462,4 +462,28 @@ void main() {
       expect(await host.open(SettingsWindowTab.general), isFalse);
     },
   );
+
+  test(
+    'a runner that could not create the window reports it, for the dialog',
+    () async {
+      messenger.setMockMethodCallHandler(_control, (call) async {
+        throw PlatformException(code: 'open_failed');
+      });
+
+      expect(await host.open(SettingsWindowTab.general), isFalse);
+    },
+  );
+
+  test('a write after the app stops answering fails, and says so', () async {
+    final remote = await openWindow();
+
+    messenger.setMockMessageHandler(_windowLink.name, (_) async => null);
+
+    await expectLater(
+      remote.general!.onCheckForUpdatesChanged(false),
+      throwsA(isA<SettingsLinkException>()),
+    );
+    expect(remote.lost, isTrue);
+    expect(checkForUpdates, isTrue);
+  });
 }

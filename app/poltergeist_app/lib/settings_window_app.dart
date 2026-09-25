@@ -21,8 +21,12 @@ Future<void> runSettingsWindow() async {
   RemoteSettings? remote;
   try {
     remote = await RemoteSettings.connect();
-  } on Object {
-    // Started without the app to answer; the window says so.
+  } on Object catch (error, stackTrace) {
+    // Started without the app to answer; the window says so. Reported too,
+    // so a broken handshake is told apart from a window started by hand.
+    FlutterError.reportError(
+      FlutterErrorDetails(exception: error, stack: stackTrace),
+    );
   }
   runApp(SettingsWindowApp(remote: remote));
 }

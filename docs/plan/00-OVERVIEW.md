@@ -725,6 +725,9 @@ window
     and its engine therefore live as long as the app's window, on every
     desktop, and the window's screen is dropped while hidden so nothing
     typed into it outlives the close.
+  - **Windows:** the runner makes the workspace window the Settings
+    window's owner, so it stays above the workspace and is destroyed
+    with it.
   - **Quitting stays the app's call.** On macOS each engine makes itself
     the termination handler, so the window forwards exit requests to the
     app's isolate, whose quit guard and exit flush decide them.
