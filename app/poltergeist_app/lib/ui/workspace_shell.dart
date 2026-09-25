@@ -1732,6 +1732,18 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                   focusNode: _inspectorSplitterFocus,
                   label: strings.resizeInspector,
                   value: strings.splitterWidthPx(inspectorWidth.round()),
+                  increasedValue: strings.splitterWidthPx(
+                    _clampInspector(
+                      inspectorWidth + shellSplitterKeyStep,
+                      width,
+                    ).round(),
+                  ),
+                  decreasedValue: strings.splitterWidthPx(
+                    _clampInspector(
+                      inspectorWidth - shellSplitterKeyStep,
+                      width,
+                    ).round(),
+                  ),
                   grow: -1,
                   onResizeStart: () => _inspectorDragWidth = null,
                   onResize: (delta) => _resizeInspector(delta, width),
@@ -1779,6 +1791,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
             focusNode: _sidebarSplitterFocus,
             label: strings.resizeSidebar,
             value: strings.splitterWidthPx(sidebarWidth.round()),
+            increasedValue: strings.splitterWidthPx(
+              _clampSidebar(sidebarWidth + shellSplitterKeyStep, width).round(),
+            ),
+            decreasedValue: strings.splitterWidthPx(
+              _clampSidebar(sidebarWidth - shellSplitterKeyStep, width).round(),
+            ),
             onResizeStart: () => _sidebarDragWidth = null,
             onResize: (delta) => _resizeSidebar(delta, width),
             onResizeEnd: _commitSidebarWidth,
@@ -1888,15 +1906,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       setState(() => _sidebarWidth = sidebarMinWidth);
       return;
     }
-    setState(() {
-      _sidebarWidth = next.clamp(
-        sidebarMinWidth,
-        _inlineRoom(
-          windowWidth,
-          otherRegion: _inspectorInline ? _inspectorWidth : null,
-        ).clamp(sidebarMinWidth, sidebarMaxWidth),
-      );
-    });
+    setState(() => _sidebarWidth = _clampSidebar(next, windowWidth));
   }
 
   void _resizeInspector(double delta, double windowWidth) {
@@ -1908,16 +1918,26 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       setState(() => _inspectorWidth = inspectorMinWidth);
       return;
     }
-    setState(() {
-      _inspectorWidth = next.clamp(
-        inspectorMinWidth,
-        _inlineRoom(
-          windowWidth,
-          otherRegion: _sidebarInline ? _sidebarWidth : null,
-        ).clamp(inspectorMinWidth, inspectorMaxWidth),
-      );
-    });
+    setState(() => _inspectorWidth = _clampInspector(next, windowWidth));
   }
+
+  /// [width] held to the sidebar's bounds and its inline room.
+  double _clampSidebar(double width, double windowWidth) => width.clamp(
+    sidebarMinWidth,
+    _inlineRoom(
+      windowWidth,
+      otherRegion: _inspectorInline ? _inspectorWidth : null,
+    ).clamp(sidebarMinWidth, sidebarMaxWidth),
+  );
+
+  /// [width] held to the inspector's bounds and its inline room.
+  double _clampInspector(double width, double windowWidth) => width.clamp(
+    inspectorMinWidth,
+    _inlineRoom(
+      windowWidth,
+      otherRegion: _sidebarInline ? _sidebarWidth : null,
+    ).clamp(inspectorMinWidth, inspectorMaxWidth),
+  );
 
   /// The widest a region can grow and stay inline (10 §3.2): the window
   /// less the [otherRegion] still inline beside it, both splitters, and

@@ -32,6 +32,8 @@ class ShellSplitter extends StatefulWidget {
     required this.value,
     required this.onResize,
     required this.onResizeEnd,
+    this.increasedValue,
+    this.decreasedValue,
     this.onResizeStart,
     this.onReset,
     this.grow = 1,
@@ -43,6 +45,12 @@ class ShellSplitter extends StatefulWidget {
 
   /// Announced value ("232 pixels").
   final String value;
+
+  /// The values one assistive-tech increase (wider) or decrease
+  /// (narrower) lands on, clamped by the owner — 02 §13's announced
+  /// splitter values, like the A|B splitter's.
+  final String? increasedValue;
+  final String? decreasedValue;
 
   /// Width delta in logical pixels, already signed for the owned region.
   final ValueChanged<double> onResize;
@@ -75,10 +83,16 @@ class _ShellSplitterState extends State<ShellSplitter> {
       delta = -shellSplitterKeyStep;
     }
     if (delta == null) return KeyEventResult.ignored;
-    widget.onResizeStart?.call();
-    widget.onResize(delta * widget.grow * (rtl ? -1 : 1));
-    widget.onResizeEnd();
+    _step(delta * widget.grow * (rtl ? -1 : 1));
     return KeyEventResult.handled;
+  }
+
+  /// One discrete resize — an arrow key or an assistive-tech adjust —
+  /// persisted at once. [delta] is signed for the owned region.
+  void _step(double delta) {
+    widget.onResizeStart?.call();
+    widget.onResize(delta);
+    widget.onResizeEnd();
   }
 
   @override
@@ -90,6 +104,12 @@ class _ShellSplitterState extends State<ShellSplitter> {
     return Semantics(
       label: widget.label,
       value: widget.value,
+      increasedValue: widget.increasedValue,
+      decreasedValue: widget.decreasedValue,
+      // The value is the owned region's width, so increase always
+      // widens it, whichever side of the splitter it sits on.
+      onIncrease: () => _step(shellSplitterKeyStep),
+      onDecrease: () => _step(-shellSplitterKeyStep),
       slider: true,
       child: Focus(
         focusNode: widget.focusNode,
