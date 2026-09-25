@@ -2380,6 +2380,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The recents document's schema keys, format diagnostics, dedupe-key
   // prefixes, and the settings.json document key — wire format, never
   // rendered UI copy.
+  // Bookmark JSON keys and the home landing path ("/").
+  'lib/services/bookmark_landing_path.dart': {
+    "'kind'",
+    "'remotePath'",
+    "'/'",
+  },
   'lib/services/recent_locations.dart': {
     "'quickOpen.recentLocations'",
     "'version'",
