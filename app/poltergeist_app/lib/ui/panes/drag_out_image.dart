@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../../services/drag_out_controller.dart';
 import '../../services/os_drag_out.dart';
 
-/// The pill's height, padding, glyph, and label bounds — the in-app
+/// The pill's height, padding, glyph, and label bounds: the in-app
 /// avatar's proportions (`PaneEntryDragAvatar`), so the drag looks the
 /// same on both sides of the window edge.
 const double _pillHeight = 30;

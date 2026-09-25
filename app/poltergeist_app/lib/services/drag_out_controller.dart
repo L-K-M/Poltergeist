@@ -675,7 +675,7 @@ class DragOutController extends ChangeNotifier
 /// `desktop_drop` 0.7.1's promise staging root on macOS:
 /// `FileManager.default.temporaryDirectory/Drops` (its
 /// `uniqueDropDestination`), which for Poltergeist's unsandboxed build
-/// is `$TMPDIR/Drops` — the same root `Directory.systemTemp` reads.
+/// is `$TMPDIR/Drops`, the same root `Directory.systemTemp` reads.
 String desktopDropStagingDirectory() =>
     p.join(Directory.systemTemp.path, 'Drops');
 

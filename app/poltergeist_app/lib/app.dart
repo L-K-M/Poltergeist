@@ -243,12 +243,12 @@ class PoltergeistApp extends StatefulWidget {
   /// previews promptless-disabled while local ones still render.
   final PreviewProducer? previewProducer;
 
-  /// OS drag-out's remote-file seam (00 D14's drag-out amendment) — a
+  /// OS drag-out's remote-file seam (00 D14's drag-out amendment): a
   /// `QueueDragOutProducer` over the same produce hook in production;
   /// null leaves remote rows without file promises.
   final DragOutProducer? dragOutProducer;
 
-  /// The native drag-out session (`poltergeist/dragout`) — null
+  /// The native drag-out session (`poltergeist/dragout`); null
   /// composes none, so a row drag that leaves the window just ends.
   final DragOutBackend? dragOutBackend;
 

@@ -137,7 +137,7 @@ class PaneTabsView extends StatelessWidget {
   /// drop and leaves rows undraggable.
   final PaneDropDelegate? dropDelegate;
 
-  /// OS drag-out (D14's amendment) — see [PaneView.dragOut].
+  /// OS drag-out (D14's amendment); see [PaneView.dragOut].
   final DragOutController? dragOut;
 
   /// Whether the OS drop-in `DropTarget` mounts — see

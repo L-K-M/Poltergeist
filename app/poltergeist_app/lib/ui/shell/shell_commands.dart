@@ -130,7 +130,7 @@ void _transfer(
 typedef DirectoryPicker = Future<String?> Function(String dialogTitle);
 
 /// Download To…'s source: the active tab's server and the selection
-/// roots, while that tab is a live remote listing — null otherwise.
+/// roots, while that tab is a live remote listing; null otherwise.
 ({String serverId, List<String> roots})? _downloadSource(
   WorkspaceController workspace,
 ) {

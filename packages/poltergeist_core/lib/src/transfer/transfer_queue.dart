@@ -709,7 +709,7 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
               destinationPath: produce.destinationPath,
               length: produce.expectedSize,
               maximumBytes: produce.maximumBytes,
-              // A preview's temp is the cache's exclusive sibling —
+              // A preview's temp is the cache's exclusive sibling, so
               // overwrite is the expected shape; the commit rename
               // serializes it. A drag-out lands in a user folder, where
               // an existing file must win (a conflict failure).

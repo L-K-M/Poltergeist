@@ -2610,7 +2610,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // OS drag-out's channel protocol (00 D14's amendment): method names,
   // argument keys, item kinds, the channel name, and the English
-  // diagnostics a refused call carries to the native side — wire data,
+  // diagnostics a refused call carries to the native side: wire data,
   // never rendered UI copy (the Alerts tab localizes drag-out failures).
   'lib/services/os_drag_out.dart': {
     "'poltergeist/dragout'",
@@ -2671,7 +2671,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'the download was cancelled'",
     "'Drops'",
   },
-  // The drag image's ellipsis glyph — typography, not copy.
+  // The drag image's ellipsis glyph: typography, not copy.
   'lib/ui/panes/drag_out_image.dart': {"'\u2026'"},
 };
 

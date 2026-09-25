@@ -105,7 +105,7 @@ final class PreviewProduceSpec {
   /// ([ProduceWriteMode.exclusive]).
   final ProduceWriteMode writeMode;
 
-  /// The slot budget the hop waits on — see [ProduceSlotPool].
+  /// The slot budget the hop waits on; see [ProduceSlotPool].
   final ProduceSlotPool slotPool;
 }
 

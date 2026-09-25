@@ -800,7 +800,7 @@ class _PaneViewState extends State<PaneView> {
   /// (Finder's rule); movement past the touch slop cancels it.
   ({int pointer, int row, Offset position})? _deferredSelect;
 
-  /// The press that started the current row gesture — the pointer the
+  /// The press that started the current row gesture: the pointer the
   /// OS drag-out hand-off cancels once the native session runs.
   PointerDownEvent? _rowDown;
 
@@ -809,7 +809,7 @@ class _PaneViewState extends State<PaneView> {
   bool _dragOutDecided = false;
 
   /// D14's drag-out amendment: the row drag's pointer left the window.
-  /// Only a position outside the view counts — every in-app target sits
+  /// Only a position outside the view counts: every in-app target sits
   /// inside it, so in-app drags are untouched.
   void _onRowDragUpdate(PaneEntryDrag drag, DragUpdateDetails details) {
     final dragOut = widget.dragOut;
@@ -1242,7 +1242,7 @@ class _RowGestures {
 
   /// A row drag's moves, for the OS drag-out hand-off at the window
   /// edge (D14's amendment); null leaves the row `Draggable` exactly as
-  /// it was — in-app only.
+  /// it was, in-app only.
   final void Function(PaneEntryDrag drag, DragUpdateDetails details)?
   onDragUpdate;
 }
@@ -1302,7 +1302,7 @@ class _PaneSurface extends StatelessWidget {
   /// The drop enqueue seam (02 §5.1) — see [PaneView.dropDelegate].
   final PaneDropDelegate? dropDelegate;
 
-  /// See [PaneView.dragOut] — the drop zone's own-drag echo routing.
+  /// See [PaneView.dragOut]: the drop zone's own-drag echo routing.
   final DragOutController? dragOut;
 
   /// See [PaneView.supportsOsDrop].

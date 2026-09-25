@@ -3,7 +3,7 @@ import 'dart:async';
 import 'transfer_queue.dart' show TransferQueueEvent;
 import 'transfer_task.dart';
 
-/// Waits for an ordinary queue task to settle — the awaitable shape a
+/// Waits for an ordinary queue task to settle: the awaitable shape a
 /// caller outside the queue needs when a journaled task, not a produce
 /// hop, answers its request (00 D14's drag-out amendment: a folder
 /// promise is fulfilled by a normal recursive download, and the OS
@@ -15,7 +15,7 @@ import 'transfer_task.dart';
 /// terminal (completed, failed, or cancelled), or with null when the
 /// task is not listed when the wait starts (a queue removes only
 /// terminal rows, so a listed task always settles first), or when the
-/// event stream closes on an unsettled task — nothing else would ever
+/// event stream closes on an unsettled task: nothing else would ever
 /// complete the wait. A task that already settled before the call
 /// resolves on the first check, like `QueuePreviewProducer`'s re-check
 /// after registration.

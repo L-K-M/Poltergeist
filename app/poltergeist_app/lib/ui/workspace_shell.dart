@@ -355,7 +355,7 @@ class WorkspaceShell extends StatefulWidget {
   /// mount: the backend owns the channel's callback registration.
   final DragOutBackend? dragOutBackend;
 
-  /// Download To…'s folder picker — injectable for tests; null picks
+  /// Download To…'s folder picker, injectable for tests; null picks
   /// `file_picker`'s native dialog on the desktop platforms (none on
   /// mobile, where the verb does not register).
   final DirectoryPicker? pickDirectory;

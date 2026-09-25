@@ -829,7 +829,7 @@ class PaneController extends ChangeNotifier {
   }
 
   /// Posts the drag-out hint for remote rows on a platform without
-  /// file promises — the pane's row hand-off calls it once per gesture.
+  /// file promises; the pane's row hand-off calls it once per gesture.
   void noteDragOutRemoteUnavailable() {
     if (_disposed) return;
     _postNotice(PaneNotice.dragOutRemote);
