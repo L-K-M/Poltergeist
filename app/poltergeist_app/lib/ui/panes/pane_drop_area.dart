@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../services/drag_out_controller.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
@@ -44,6 +45,7 @@ class PaneDropArea extends StatefulWidget {
     required this.onHoverFolderRow,
     required this.supportsOsDrop,
     required this.child,
+    this.dragOut,
   });
 
   /// The destination pane tab's controller — its `location` is the
@@ -76,6 +78,12 @@ class PaneDropArea extends StatefulWidget {
   /// Whether the OS drop-in `DropTarget` mounts at all — false on
   /// platforms `desktop_drop` does not serve (mobile).
   final bool supportsOsDrop;
+
+  /// OS drag-out (00 D14's amendment): while one of its sessions runs,
+  /// an OS drag over this zone is our own drag coming back, so hover and
+  /// drop follow the in-app verb rules with the stored payload instead
+  /// of the OS-drop copy. Null treats every OS drop as foreign.
+  final DragOutController? dragOut;
 
   final Widget child;
 
@@ -338,6 +346,13 @@ class _PaneDropAreaState extends State<PaneDropArea> {
   /// carries no move intent the app can honor), the position still
   /// deciding hovered-folder vs current directory.
   void _updateOsHover(Offset global) {
+    final echo = widget.dragOut?.activeEchoPayload;
+    if (echo != null) {
+      // Our own drag, back in the window: label it like the in-app drag
+      // it came from (a same-volume move stays a move).
+      _updateInAppHover(echo, global);
+      return;
+    }
     // Recorded so the spring-load timer can re-resolve under the
     // pointer at fire time, same as the in-app path.
     _activeHoverGlobal = global;
@@ -419,6 +434,15 @@ class _PaneDropAreaState extends State<PaneDropArea> {
         onDragExited: (_) => _clearHover(),
         onDragDone: (details) {
           _clearHover();
+          // A drag of ours that came back lands by the in-app rules from
+          // the stored payload; anything else is a foreign OS drop.
+          final echo = widget.dragOut?.claimEcho([
+            for (final item in details.files) item.path,
+          ]);
+          if (echo != null) {
+            _acceptInApp(echo, details.globalPosition);
+            return;
+          }
           _acceptOsDrop(details);
         },
         child: zone,

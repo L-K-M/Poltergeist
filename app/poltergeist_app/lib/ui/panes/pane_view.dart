@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/gestures.dart'
     show
+        GestureBinding,
+        PointerCancelEvent,
         kDoubleTapSlop,
         kDoubleTapTimeout,
         kPrimaryMouseButton,
@@ -16,6 +18,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/checkout_session.dart';
+import '../../services/drag_out_controller.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
@@ -113,6 +116,7 @@ class PaneView extends StatefulWidget {
     required this.onCancelRecovery,
     this.bookmarks,
     this.dropDelegate,
+    this.dragOut,
     this.supportsOsDrop,
     this.preview,
     this.checkoutSession,
@@ -154,6 +158,12 @@ class PaneView extends StatefulWidget {
   /// and both drop targets refusing — no queue means nowhere to land a
   /// task.
   final PaneDropDelegate? dropDelegate;
+
+  /// OS drag-out (00 D14's 2026-09-25 amendment): a row drag whose
+  /// pointer leaves the window is handed to this controller's native
+  /// session, and a drop of that session coming back into the pane is
+  /// routed with the in-app verb rules. Null keeps every drag in-app.
+  final DragOutController? dragOut;
 
   /// Whether the OS drop-in `DropTarget` mounts — null defers to the
   /// platform default (desktop_drop serves Linux/macOS/Windows only).
@@ -790,6 +800,82 @@ class _PaneViewState extends State<PaneView> {
   /// (Finder's rule); movement past the touch slop cancels it.
   ({int pointer, int row, Offset position})? _deferredSelect;
 
+  /// The press that started the current row gesture — the pointer the
+  /// OS drag-out hand-off cancels once the native session runs.
+  PointerDownEvent? _rowDown;
+
+  /// Whether this row gesture already reached the window edge: the
+  /// hand-off (or its hint) happens at most once per gesture.
+  bool _dragOutDecided = false;
+
+  /// D14's drag-out amendment: the row drag's pointer left the window.
+  /// Only a position outside the view counts — every in-app target sits
+  /// inside it, so in-app drags are untouched.
+  void _onRowDragUpdate(PaneEntryDrag drag, DragUpdateDetails details) {
+    final dragOut = widget.dragOut;
+    if (dragOut == null || _dragOutDecided) return;
+    final view = View.of(context);
+    final bounds = Offset.zero & (view.physicalSize / view.devicePixelRatio);
+    if (bounds.contains(details.globalPosition)) return;
+    _dragOutDecided = true;
+    unawaited(
+      _handOffRowDrag(
+        dragOut,
+        drag,
+        details.globalPosition,
+        view.devicePixelRatio,
+      ),
+    );
+  }
+
+  Future<void> _handOffRowDrag(
+    DragOutController dragOut,
+    PaneEntryDrag drag,
+    Offset position,
+    double devicePixelRatio,
+  ) async {
+    final down = _rowDown;
+    final colors = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context);
+    final result = await dragOut.handOff(
+      drag,
+      position: position,
+      style: DragOutImageStyle(
+        palette: DragOutImagePalette(
+          background: colors.surfaceContainerHighest,
+          foreground: colors.onSurface,
+          badge: colors.primary,
+          onBadge: colors.onPrimary,
+        ),
+        devicePixelRatio: devicePixelRatio,
+        itemCountLabel: l10n.dropItemCount,
+      ),
+    );
+    if (!mounted) return;
+    switch (result) {
+      case DragOutHandOff.started:
+        // The native session owns the drag now. Cancel the framework's
+        // gesture so the in-app drag ends without landing a drop; the
+        // native side resets the embedder's own button state.
+        if (down != null) {
+          GestureBinding.instance.handlePointerEvent(
+            PointerCancelEvent(
+              viewId: down.viewId,
+              timeStamp: down.timeStamp,
+              pointer: down.pointer,
+              kind: down.kind,
+              device: down.device,
+              position: position,
+            ),
+          );
+        }
+      case DragOutHandOff.remoteUnsupported:
+        widget.controller.noteDragOutRemoteUnavailable();
+      case DragOutHandOff.unavailable || DragOutHandOff.notStarted:
+      // The in-app drag simply continues.
+    }
+  }
+
   /// D32 §6: selection happens on pointer-DOWN. A primary press selects
   /// at once with its modifiers; a second plain press on the same row
   /// inside the double-click window opens it. A secondary press — or
@@ -800,6 +886,8 @@ class _PaneViewState extends State<PaneView> {
     final controller = widget.controller;
     if (index >= controller.entries.length) return;
     _rowClaimedPointer = event.pointer;
+    _rowDown = event;
+    _dragOutDecided = false;
     _deferredSelect = null;
     final platform = Theme.of(context).platform;
     final keyboard = HardwareKeyboard.instance;
@@ -1071,6 +1159,7 @@ class _PaneViewState extends State<PaneView> {
                     clock: widget.clock,
                     bookmarks: widget.bookmarks,
                     dropDelegate: widget.dropDelegate,
+                    dragOut: widget.dragOut,
                     supportsOsDrop: widget.supportsOsDrop,
                     checkoutSession: widget.checkoutSession,
                     onReviewLocalEdits: widget.onReviewLocalEdits,
@@ -1100,6 +1189,9 @@ class _PaneViewState extends State<PaneView> {
                         widget.controller.startRename();
                       },
                       onListingPointerDown: _onListingPointerDown,
+                      onDragUpdate: widget.dragOut == null
+                          ? null
+                          : _onRowDragUpdate,
                     ),
                   ),
                 ),
@@ -1127,6 +1219,7 @@ class _RowGestures {
     required this.onOpen,
     required this.onRename,
     required this.onListingPointerDown,
+    this.onDragUpdate,
   });
 
   /// Touch rows (D32 §9) take tap/long-press; desktop rows take raw
@@ -1146,6 +1239,12 @@ class _RowGestures {
 
   /// Presses on the listing no row claimed (the empty-area menu).
   final void Function(PointerDownEvent event) onListingPointerDown;
+
+  /// A row drag's moves, for the OS drag-out hand-off at the window
+  /// edge (D14's amendment); null leaves the row `Draggable` exactly as
+  /// it was — in-app only.
+  final void Function(PaneEntryDrag drag, DragUpdateDetails details)?
+  onDragUpdate;
 }
 
 class _PaneSurface extends StatelessWidget {
@@ -1160,6 +1259,7 @@ class _PaneSurface extends StatelessWidget {
     required this.clock,
     required this.bookmarks,
     required this.dropDelegate,
+    required this.dragOut,
     required this.supportsOsDrop,
     required this.checkoutSession,
     required this.onReviewLocalEdits,
@@ -1201,6 +1301,9 @@ class _PaneSurface extends StatelessWidget {
 
   /// The drop enqueue seam (02 §5.1) — see [PaneView.dropDelegate].
   final PaneDropDelegate? dropDelegate;
+
+  /// See [PaneView.dragOut] — the drop zone's own-drag echo routing.
+  final DragOutController? dragOut;
 
   /// See [PaneView.supportsOsDrop].
   final bool? supportsOsDrop;
@@ -1334,6 +1437,7 @@ class _PaneSurface extends StatelessWidget {
             listAreaKey: listAreaKey,
             rowExtent: scaledPaneRowExtent(context),
             onHoverFolderRow: onDropHoverRow,
+            dragOut: dragOut,
             supportsOsDrop: supportsOsDrop ?? _isDesktopPlatform(),
             child: _body(context, l10n),
           ),
@@ -1767,22 +1871,26 @@ class _PaneSurface extends StatelessWidget {
     // can outlive it; rows without one stay undraggable.
     final location = controller.location;
     if (location == null) return row;
+    final grabbed =
+        controller.isRowSelected(index) && controller.selectedCount > 1
+        ? controller.selectedEntries
+        : [entry];
     final drag = PaneEntryDrag(
       source: fsLocationForLocation(location),
-      rootPaths:
-          controller.isRowSelected(index) && controller.selectedCount > 1
-          ? [
-              for (final selected in controller.selectedEntries)
-                selected.path,
-            ]
-          : [entry.path],
+      rootPaths: [for (final selected in grabbed) selected.path],
+      entries: grabbed,
     );
+    final onDragUpdate = gestures.onDragUpdate;
     return Draggable<PaneEntryDrag>(
       data: drag,
       // The pointer anchor keeps DragTargetDetails.offset equal to the
       // pointer — the drop zone's row math works on the pointer itself.
       dragAnchorStrategy: pointerDragAnchorStrategy,
       maxSimultaneousDrags: 1,
+      // D14's drag-out amendment: the pane watches for the window edge.
+      onDragUpdate: onDragUpdate == null
+          ? null
+          : (details) => onDragUpdate(drag, details),
       feedback: PaneEntryDragAvatar(drag: drag),
       childWhenDragging: Opacity(opacity: 0.4, child: row),
       child: row,
@@ -3353,6 +3461,7 @@ class _NoticeStrip extends StatelessWidget {
                     PaneNotice.saveFavoriteLater =>
                       l10n.paneNoticeSaveFavoriteLater,
                     PaneNotice.pathCopied => l10n.paneNoticePathCopied,
+                    PaneNotice.dragOutRemote => l10n.paneNoticeDragOutRemote,
                     PaneNotice.watchStopped => l10n.paneNoticeWatchStopped,
                     null => '',
                   },

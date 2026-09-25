@@ -583,6 +583,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Transferring to the other pane isn\'t available yet — the transfer queue arrives in a later milestone.';
 
   @override
+  String get paneNoticeDragOutRemote =>
+      'Remote items can\'t be dragged out of Poltergeist here yet. Use Download To… instead.';
+
+  @override
   String get paneNoticeDismiss => 'Dismiss';
 
   @override

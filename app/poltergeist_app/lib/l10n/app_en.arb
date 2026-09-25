@@ -794,6 +794,10 @@
   "@paneNoticeTransferLater": {
     "description": "Transient notice strip (02 §10): the Double-click action preference resolved to Transfer to other pane, whose queue arrives in a later milestone."
   },
+  "paneNoticeDragOutRemote": "Remote items can't be dragged out of Poltergeist here yet. Use Download To… instead.",
+  "@paneNoticeDragOutRemote": {
+    "description": "Transient notice strip (02 §10): a drag of remote rows left the window on a platform without file promises (Linux, Windows); the drag continues in-app."
+  },
   "paneNoticeDismiss": "Dismiss",
   "@paneNoticeDismiss": {
     "description": "Tooltip for the transient notice strip's close button (02 §10)."

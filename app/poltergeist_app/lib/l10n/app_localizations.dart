@@ -1042,6 +1042,12 @@ abstract class AppLocalizations {
   /// **'Transferring to the other pane isn\'t available yet — the transfer queue arrives in a later milestone.'**
   String get paneNoticeTransferLater;
 
+  /// Transient notice strip (02 §10): a drag of remote rows left the window on a platform without file promises (Linux, Windows); the drag continues in-app.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote items can\'t be dragged out of Poltergeist here yet. Use Download To… instead.'**
+  String get paneNoticeDragOutRemote;
+
   /// Tooltip for the transient notice strip's close button (02 §10).
   ///
   /// In en, this message translates to:

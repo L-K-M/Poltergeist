@@ -1696,6 +1696,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               _cancelPaneRecovery(workspace, tabs.activeTabController),
           bookmarks: widget.bookmarks,
           dropDelegate: dropDelegate,
+          dragOut: _dragOut,
           checkoutSession: widget.checkoutSession,
           onReviewLocalEdits: onReviewLocalEdits,
           onSyncSaveAsFavorite: _saveSyncAsFavorite,
