@@ -4533,6 +4533,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sidebarRowMenu => 'More actions';
 
   @override
+  String get sidebarCompactRows => 'Compact rows';
+
+  @override
+  String get sidebarComfortableRows => 'Comfortable rows';
+
+  @override
   String get compactHomeThisDeviceSubtitle => 'App storage';
 
   @override

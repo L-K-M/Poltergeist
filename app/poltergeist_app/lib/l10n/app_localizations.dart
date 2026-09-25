@@ -6916,6 +6916,18 @@ abstract class AppLocalizations {
   /// **'More actions'**
   String get sidebarRowMenu;
 
+  /// Tooltip (and screen-reader name) of the compact half of the sidebar's density switch in the bottom bar: one-line rows with details in tooltips. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Compact rows'**
+  String get sidebarCompactRows;
+
+  /// Tooltip (and screen-reader name) of the comfortable half of the sidebar's density switch in the bottom bar: two-line rows with the path or address spelled out. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Comfortable rows'**
+  String get sidebarComfortableRows;
+
   /// D32 §9: second line of the compact Home's "This device" row. The local pane on a phone is the app's own storage, not the whole device.
   ///
   /// In en, this message translates to:

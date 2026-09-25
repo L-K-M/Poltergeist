@@ -352,6 +352,8 @@ class _SidebarViewState extends State<SidebarView> {
       addMenu: l10n.sidebarAddMenu,
       settings: l10n.sidebarSettings,
       rowMenu: l10n.sidebarRowMenu,
+      compactRows: l10n.sidebarCompactRows,
+      comfortableRows: l10n.sidebarComfortableRows,
     );
   }
 
@@ -365,6 +367,8 @@ class _SidebarViewState extends State<SidebarView> {
       // Home is a phone's list screen, drawn like the browser it opens:
       // Material's list rows on the page surface.
       layout: home ? SidebarKitLayout.list : SidebarKitLayout.rail,
+      // The rail keeps its one-line rows; Home's list is comfortable.
+      density: home ? SidebarKitDensity.comfortable : SidebarKitDensity.compact,
       background: home ? _homeBackground(context) : null,
       child: ListenableBuilder(
         listenable: Listenable.merge([

@@ -5935,6 +5935,14 @@
   "@sidebarRowMenu": {
     "description": "Tooltip of a sidebar row's visible ⋮ button, which opens the row's verbs (the shared sidebar kit's showMenuButton; Séance uses the same words)."
   },
+  "sidebarCompactRows": "Compact rows",
+  "@sidebarCompactRows": {
+    "description": "Tooltip (and screen-reader name) of the compact half of the sidebar's density switch in the bottom bar: one-line rows with details in tooltips. Séance uses the same words."
+  },
+  "sidebarComfortableRows": "Comfortable rows",
+  "@sidebarComfortableRows": {
+    "description": "Tooltip (and screen-reader name) of the comfortable half of the sidebar's density switch in the bottom bar: two-line rows with the path or address spelled out. Séance uses the same words."
+  },
   "compactHomeThisDeviceSubtitle": "App storage",
   "@compactHomeThisDeviceSubtitle": {
     "description": "D32 §9: second line of the compact Home's \"This device\" row. The local pane on a phone is the app's own storage, not the whole device."
