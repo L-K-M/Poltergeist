@@ -83,6 +83,7 @@ class PoltergeistApp extends StatefulWidget {
     this.autoClearCompletedTransfers = true,
     this.probeSettings,
     this.initialSidebarHidden = false,
+    this.initialInspectorHidden = false,
     this.onSidebarHiddenChanged,
     this.onSidebarHiddenSaveError,
     this.initialSidebarCollapsedGroups = const {},
@@ -233,6 +234,10 @@ class PoltergeistApp extends StatefulWidget {
   /// The persisted sidebar-visibility intent and its save sinks
   /// (02 §1; see [WorkspaceShell.initialSidebarHidden]).
   final bool initialSidebarHidden;
+
+  /// The inspector's seed with no restored session (see
+  /// [WorkspaceShell.initialInspectorHidden]).
+  final bool initialInspectorHidden;
   final FutureOr<void> Function(bool hidden)? onSidebarHiddenChanged;
   final void Function(Object error, StackTrace stackTrace)?
   onSidebarHiddenSaveError;
@@ -511,6 +516,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       autoClearCompletedTransfers: widget.autoClearCompletedTransfers,
       probeSettings: widget.probeSettings,
       initialSidebarHidden: widget.initialSidebarHidden,
+      initialInspectorHidden: widget.initialInspectorHidden,
       onSidebarHiddenChanged: widget.onSidebarHiddenChanged,
       onSidebarHiddenSaveError: widget.onSidebarHiddenSaveError,
       initialSidebarCollapsedGroups: widget.initialSidebarCollapsedGroups,

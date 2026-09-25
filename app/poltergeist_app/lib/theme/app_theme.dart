@@ -353,7 +353,7 @@ PoltergeistChrome _chromeFor(Brightness brightness, TargetPlatform platform) {
     // macOS: the unified toolbar band is 52 pt (D32 §3).
     headerHeight: platform == TargetPlatform.macOS ? 52 : (desktop ? 44 : 56),
     rowExtent: desktop ? 22 : 48,
-    sidebarRowExtent: desktop ? 26 : 48,
+    sidebarRowExtent: desktop ? 26 : 40,
   );
 }
 
