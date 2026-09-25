@@ -635,9 +635,13 @@ final class EngineSession {
 /// [pinStore] and [incidentStore] default to the app-support file stores;
 /// widget tests inject the in-memory pair, whose reads complete without
 /// real IO inside the test zone's fake async.
+///
+/// [fallbackHome] is where local panes open `~` when the environment
+/// names no home ([EngineConfig.fallbackHome]).
 Future<EngineSession?> startEngineSession({
   required String supportDirectoryPath,
   required BookmarkRepository bookmarks,
+  String? fallbackHome,
   required GlobalKey<NavigatorState> navigatorKey,
   GlobalKey<ScaffoldMessengerState>? scaffoldMessengerKey,
   AppEngineSpawner spawn = spawnAppEngine,
@@ -695,6 +699,7 @@ Future<EngineSession?> startEngineSession({
         hostKeyPins: pins,
         incidents: incidents,
         trashRequests: trashServer?.requests,
+        fallbackHome: fallbackHome,
       ),
     );
   } on Object catch (error, stackTrace) {

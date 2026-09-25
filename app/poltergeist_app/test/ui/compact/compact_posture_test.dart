@@ -121,7 +121,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       // Compact: the rail's one-line touch rows.
-      expect(tester.getSize(demo).height, 48);
+      expect(tester.getSize(demo).height, 40);
 
       await tester.tap(
         find.descendant(

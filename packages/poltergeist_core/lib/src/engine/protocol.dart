@@ -1232,10 +1232,18 @@ final class EngineConfig {
   /// confirm-then-permanent fallback, never a silent unlink.
   final SendPort? trashRequests;
 
+  /// The directory local panes open for `~` when the process environment
+  /// names no home (neither `HOME` nor `USERPROFILE`). An Android app
+  /// process has none, so without it `~` stayed literal and resolved to
+  /// `/~`; the app passes a directory it can always list. A home the
+  /// environment does name always wins.
+  final String? fallbackHome;
+
   const EngineConfig({
     this.policy = const PoolPolicy(),
     this.hostKeyPins = const [],
     this.incidents = const [],
     this.trashRequests,
+    this.fallbackHome,
   });
 }
