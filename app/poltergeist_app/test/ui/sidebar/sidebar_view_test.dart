@@ -1073,6 +1073,40 @@ void main() {
       );
     });
 
+    testWidgets('a folded group says what its dot means to a screen reader', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        store.bookmarks = [
+          _remote('r1', group: 'work'),
+          _local('l1', group: 'work', sortKey: 'mn'),
+        ];
+        final controller = await pumpSidebar(tester, withConnections: true);
+        await connect(tester, 'r1');
+        String label() => tester
+            .getSemantics(
+              find.byKey(const ValueKey('sidebar.section.fav:work')),
+            )
+            .getSemanticsData()
+            .label;
+        expect(label(), 'work, 2 items');
+
+        controller.toggleCollapsed('fav:work');
+        await tester.pumpAndSettle();
+        expect(label(), 'work, 2 items\nConnected server hidden');
+
+        // Amber has words of its own.
+        lanes.watches['r1']!.add(
+          const ServerStatus(ServerConnectionState.reconnecting),
+        );
+        await tester.pumpAndSettle();
+        expect(label(), 'work, 2 items\nConnecting server hidden');
+      } finally {
+        semantics.dispose();
+      }
+    });
+
     testWidgets('a folded section shows the live server it hides', (
       tester,
     ) async {

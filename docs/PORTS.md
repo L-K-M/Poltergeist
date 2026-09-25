@@ -629,6 +629,12 @@ counterpart is ported here.
   - `SidebarDensitySwitch`, `SidebarBottomBar.onDensityChanged`, and
     the `compactRows` / `comfortableRows` strings. The filter's count
     reads on a line under the field.
+- Header dot words, 2026-09-25: `SidebarSectionHeader.statusLabel`,
+  given with `status` (asserted together), which the header's merged
+  label carries on a line after its title and count, so a screen
+  reader hears the dot. Written once and committed to both repos the
+  same day; the files still differ only in the header comment, the
+  chrome import and `_chrome()`.
 
 ## app/poltergeist_app/lib/services/badge_image.dart
 

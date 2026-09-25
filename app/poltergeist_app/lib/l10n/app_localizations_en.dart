@@ -3087,6 +3087,12 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get sidebarHiddenConnected => 'Connected server hidden';
+
+  @override
+  String get sidebarHiddenConnecting => 'Connecting server hidden';
+
+  @override
   String get sidebarCatalogAddServer => 'Add server';
 
   @override

@@ -7995,6 +7995,21 @@ the fix: the stored list became the one new id),
 `settings_store_test.dart` and `sidebar_controller_test.dart`; the full
 app suite (2486 tests) and `flutter analyze` pass locally.
 
+## D33 follow-up: the header dot is announced (2026-09-25)
+
+A header's hidden-live dot was drawn only: a folded group hiding a
+connected server was silent to a screen reader, where its rows would
+have said "Connected". The shared kit's `SidebarSectionHeader` now
+takes `statusLabel` with `status` (asserted together) and appends it
+to its merged label on a line of its own; the host passes
+`sidebarHiddenConnected` ("Connected server hidden") or
+`sidebarHiddenConnecting` ("Connecting server hidden") from the same
+helper that picks the dot. Séance's kit copy changed identically.
+Tests: the kit test (header semantics with and without a dot) and
+`sidebar_view_test.dart` (a folded group announces connected, then
+connecting), both observed failing first. Not verified here:
+VoiceOver or TalkBack on a device.
+
 ## D32 — adversarial review fixes (2026-09-25)
 
 Before merge, a ten-agent review read the whole redesign along five

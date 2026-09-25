@@ -4746,6 +4746,18 @@ abstract class AppLocalizations {
   /// **'{title}, {count}'**
   String sidebarSectionSemantics(String title, String count);
 
+  /// Spoken after a sidebar header's title and count while its green dot stands for a connected server the header keeps out of view (a folded group or section, or rows the filter hides). The dot is drawn only, so these words are all a screen reader hears of it. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected server hidden'**
+  String get sidebarHiddenConnected;
+
+  /// Spoken after a sidebar header's title and count while its amber dot stands for a server connecting or reconnecting out of view under it (a folded group or section, or rows the filter hides). Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting server hidden'**
+  String get sidebarHiddenConnecting;
+
   /// Tooltip of the button in the Séance servers section header that opens the server editor for a new server.
   ///
   /// In en, this message translates to:

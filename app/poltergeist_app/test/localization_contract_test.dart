@@ -1606,6 +1606,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'SidebarRow action'",
     "'SidebarRow menu button'",
     "'SidebarSectionHeader add'",
+    // A header dot's words join its title and count on a line of their
+    // own, as a merged semantics node joins its parts: a separator, not
+    // copy (the words are the host's).
+    r"'\n'",
   },
   // The sidebar filter's term split and the path-separator trimming of
   // the selection match — machinery, never rendered.
