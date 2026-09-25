@@ -7974,6 +7974,27 @@ app suite (2381 tests) and `flutter analyze` pass locally.
 Left for later: Enter's first match still follows rail order rather
 than preferring server rows (inventory M8).
 
+Fixed after D33: a pin or a fold after a launch whose settings read
+failed no longer wipes the stored ones. `SettingsStore` resets a failed
+load so the next access retries it, but the pin and collapse loaders
+read an unreadable store as empty, and the sidebar's next change wrote
+its whole in-memory set, which had started empty, over the stored
+list. Each change now reaches `AppPreferences` as one id
+(`setSidebarServerPinned`, `setSidebarGroupCollapsed`) and is applied
+to the value stored at write time through the new
+`SettingsStore.update`, which runs inside the write queue, so two
+quick changes cannot both start from the same value. The sidebar then
+shows the set that write stored, so the unread pins come back with the
+first change. A change while the store is still unreadable fails and
+writes nothing. Keys and format are unchanged, a malformed value still
+reads as none, and a fold still rewrites legacy collapse keys. The
+other preferences are scalars saved as a fresh choice (or live window
+geometry), so a failed read cannot make them overwrite anything else.
+Regression tests in `app_preferences_test.dart` (both failed before
+the fix: the stored list became the one new id),
+`settings_store_test.dart` and `sidebar_controller_test.dart`; the full
+app suite (2486 tests) and `flutter analyze` pass locally.
+
 ## D32 — adversarial review fixes (2026-09-25)
 
 Before merge, a ten-agent review read the whole redesign along five

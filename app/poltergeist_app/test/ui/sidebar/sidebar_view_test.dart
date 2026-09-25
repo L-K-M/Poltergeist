@@ -24,6 +24,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import '../../services/pane_controller_test.dart' as controller_test;
 import '../../support/fake_app_transfer_queue.dart';
 import '../../support/fake_bookmark_store.dart';
+import '../../support/fake_stored_id_set.dart';
 import '../../support/test_panes.dart';
 
 final _now = DateTime.utc(2026, 10, 1);
@@ -155,6 +156,7 @@ void main() {
   late List<Bookmark> workspaceUpdates;
   late List<ConnectionServer> disconnected;
   late List<ConnectionServer> reviewed;
+  late FakeStoredIdSet collapseStore;
   late List<Set<String>> collapsedWrites;
   late List<SidebarDensity> densityWrites;
   late List<String> removedIds;
@@ -185,7 +187,7 @@ void main() {
     // controller's own default (comfortable) in force.
     SidebarDensity? density = SidebarDensity.compact,
     Set<String> pinned = const {},
-    void Function(Set<String> pinned)? onPinnedChanged,
+    PinnedServerWriter? onPinnedChanged,
   }) async {
     // Wider than the rail: the drop tests park a drag source beside it,
     // and a context menu needs room to open where it was asked.
@@ -197,7 +199,7 @@ void main() {
         ? SidebarController(
             store: store,
             initiallyPinned: pinned,
-            onCollapsedChanged: collapsedWrites.add,
+            onCollapsedChanged: collapseStore.collapse,
             onDensityChanged: densityWrites.add,
             onPinnedChanged: onPinnedChanged,
             onBookmarkRemoved: removedIds.add,
@@ -207,7 +209,7 @@ void main() {
             store: store,
             density: density,
             initiallyPinned: pinned,
-            onCollapsedChanged: collapsedWrites.add,
+            onCollapsedChanged: collapseStore.collapse,
             onDensityChanged: densityWrites.add,
             onPinnedChanged: onPinnedChanged,
             onBookmarkRemoved: removedIds.add,
@@ -296,7 +298,8 @@ void main() {
     workspaceUpdates = [];
     disconnected = [];
     reviewed = [];
-    collapsedWrites = [];
+    collapseStore = FakeStoredIdSet();
+    collapsedWrites = collapseStore.writes;
     densityWrites = [];
     removedIds = [];
     lanes = _ConnectionLanes();
@@ -1328,12 +1331,13 @@ void main() {
         _remote('r2', group: 'prod', sortKey: 'mb'),
         _local('l1', sortKey: 'mc'),
       ];
-      final writes = <Set<String>>[];
+      final pins = FakeStoredIdSet();
+      final writes = pins.writes;
       final volumes = _FakeVolumes()..volumes = const [_home, _root];
       final controller = await pumpSidebar(
         tester,
         volumes: volumes,
-        onPinnedChanged: writes.add,
+        onPinnedChanged: pins.pin,
       );
       expect(header('sec:pinned'), findsNothing);
       expect(headerOf(tester, 'sec:favorites').count, 3);

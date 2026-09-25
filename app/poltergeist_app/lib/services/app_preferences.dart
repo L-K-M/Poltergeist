@@ -8,7 +8,7 @@ import 'package:poltergeist_core/poltergeist_core.dart'
 import 'double_click_action.dart';
 import 'pane_tabs_controller.dart' show NewTabTarget;
 import 'settings_store.dart';
-import 'sidebar_controller.dart' show SidebarDensity;
+import 'sidebar_controller.dart' show SidebarCollapseKeys, SidebarDensity;
 
 const _defaultPaneRatio = 0.5;
 const _paneRatioKey = 'layout.paneRatio';
@@ -218,7 +218,9 @@ class AppPreferences {
   /// The sidebar's collapsed favorite-group keys (02 §4: collapse state
   /// persisted device-locally, 04 §2.3). A malformed stored value decodes
   /// to an empty set rather than failing startup — losing collapse
-  /// memory is recoverable, losing the window is not.
+  /// memory is recoverable, losing the window is not. An unreadable
+  /// store also reads as none, which is safe because no fold writes this
+  /// set back: see [setSidebarGroupCollapsed].
   Future<Set<String>> loadSidebarCollapsedGroups() async {
     Object? stored;
     try {
@@ -226,15 +228,27 @@ class AppPreferences {
     } catch (_) {
       return const {};
     }
-    if (stored is! List) return const {};
-    return {
-      for (final entry in stored)
-        if (entry is String) entry,
-    };
+    return _decodeIdSet(stored);
   }
 
-  Future<void> saveSidebarCollapsedGroups(Set<String> keys) =>
-      _store.set(_sidebarCollapsedGroupsKey, List<String>.of(keys));
+  /// Folds or unfolds the section [key] in the set as stored when the
+  /// write runs, and completes with the set now stored. Legacy keys are
+  /// rewritten in the same write ([SidebarCollapseKeys.migrate]), so a
+  /// section unfolded here cannot fold again from its old spelling on
+  /// the next launch. Fails, writing nothing, while the store cannot be
+  /// read.
+  Future<Set<String>> setSidebarGroupCollapsed(
+    String key, {
+    required bool collapsed,
+  }) => _updateIdSet(_sidebarCollapsedGroupsKey, (stored) {
+    final keys = SidebarCollapseKeys.migrate(stored);
+    if (collapsed) {
+      keys.add(key);
+    } else {
+      keys.remove(key);
+    }
+    return keys;
+  });
 
   /// The sidebar's row density (D33): device-local, comfortable by
   /// default on every platform. An unreadable or unknown stored value
@@ -260,7 +274,9 @@ class AppPreferences {
   /// like Séance's pins. The key keeps its `pinnedServers` spelling from
   /// the build where only the account's servers pinned, so those pins
   /// survive. A malformed stored value decodes to no pins (non-string
-  /// entries are dropped) rather than failing startup.
+  /// entries are dropped) rather than failing startup. An unreadable
+  /// store also reads as no pins for this launch, which is safe because
+  /// no pin change writes this set back: see [setSidebarServerPinned].
   Future<Set<String>> loadSidebarPinnedServers() async {
     Object? stored;
     try {
@@ -268,15 +284,48 @@ class AppPreferences {
     } catch (_) {
       return const {};
     }
-    if (stored is! List) return const {};
-    return {
-      for (final entry in stored)
-        if (entry is String) entry,
-    };
+    return _decodeIdSet(stored);
   }
 
-  Future<void> saveSidebarPinnedServers(Set<String> ids) =>
-      _store.set(_sidebarPinnedServersKey, List<String>.of(ids));
+  /// Pin to top / Unpin: adds or removes [serverId] in the pins as stored
+  /// when the write runs, and completes with the pins now stored. The
+  /// sidebar's own set can be missing pins (it starts empty after a
+  /// launch whose read failed), so writing that set would drop every
+  /// pin it never saw; this change touches only [serverId]. Fails,
+  /// writing nothing, while the store cannot be read.
+  Future<Set<String>> setSidebarServerPinned(
+    String serverId, {
+    required bool pinned,
+  }) => _updateIdSet(_sidebarPinnedServersKey, (stored) {
+    if (pinned) {
+      stored.add(serverId);
+    } else {
+      stored.remove(serverId);
+    }
+    return stored;
+  });
+
+  /// Rewrites the id set under [key] as [edit] of its value at write
+  /// time (the store serializes it behind every queued write), keeping
+  /// the stored shape: a JSON list of strings.
+  Future<Set<String>> _updateIdSet(
+    String key,
+    Set<String> Function(Set<String> stored) edit,
+  ) async {
+    final written = await _store.update(
+      key,
+      (stored) => List<String>.unmodifiable(edit(_decodeIdSet(stored))),
+    );
+    return Set.unmodifiable(written);
+  }
+
+  /// A stored id set: anything but a list reads as empty, and non-string
+  /// entries are dropped.
+  static Set<String> _decodeIdSet(Object? stored) => {
+    if (stored is List)
+      for (final entry in stored)
+        if (entry is String) entry,
+  };
 
   /// The D19 update check's opt-out (00 D19/D23, 01 §6): ON by default
   /// — the check is a plain GET of a static URL carrying nothing — and

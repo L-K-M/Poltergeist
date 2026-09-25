@@ -29,7 +29,8 @@ import 'services/quit_guard.dart';
 import 'services/recent_locations.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
-import 'services/sidebar_controller.dart' show SidebarDensity;
+import 'services/sidebar_controller.dart'
+    show CollapsedSectionWriter, PinnedServerWriter, SidebarDensity;
 import 'services/ssh_config_import_setup.dart';
 import 'services/sync_environment.dart';
 import 'services/sync_queue_facade.dart';
@@ -235,7 +236,7 @@ class PoltergeistApp extends StatefulWidget {
   /// The persisted collapsed-group keys and their save sink (02 §4's
   /// device-local expansion state).
   final Set<String> initialSidebarCollapsedGroups;
-  final void Function(Set<String> keys)? onSidebarCollapsedGroupsChanged;
+  final CollapsedSectionWriter? onSidebarCollapsedGroupsChanged;
 
   /// The persisted sidebar row density and its save sink (D33).
   final SidebarDensity initialSidebarDensity;
@@ -243,7 +244,7 @@ class PoltergeistApp extends StatefulWidget {
 
   /// The persisted PINNED shortlist and its save sink (D33).
   final Set<String> initialSidebarPinnedServers;
-  final void Function(Set<String> ids)? onSidebarPinnedServersChanged;
+  final PinnedServerWriter? onSidebarPinnedServersChanged;
 
   /// 06 §5.3's preview cache behind the whole preview slice — null
   /// composes no preview session (Space falls through, the preview

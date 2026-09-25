@@ -6,6 +6,7 @@ import 'package:poltergeist_app/services/sidebar_controller.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../support/fake_bookmark_store.dart';
+import '../support/fake_stored_id_set.dart';
 
 final _now = DateTime.utc(2026, 10, 1);
 
@@ -39,6 +40,7 @@ void main() {
   late List<Object> errors;
   late List<String> changed;
   late List<String> removed;
+  late FakeStoredIdSet collapseStore;
   late List<Set<String>> collapsedWrites;
 
   SidebarController buildController({Set<String> collapsed = const {}}) =>
@@ -48,7 +50,7 @@ void main() {
         errors: ApplicationErrorReporter(sink: (error, _) => errors.add(error)),
         onBookmarksChanged: () => changed.add('change'),
         onBookmarkRemoved: removed.add,
-        onCollapsedChanged: collapsedWrites.add,
+        onCollapsedChanged: collapseStore.collapse,
       );
 
   setUp(() {
@@ -56,7 +58,8 @@ void main() {
     errors = [];
     changed = [];
     removed = [];
-    collapsedWrites = [];
+    collapseStore = FakeStoredIdSet();
+    collapsedWrites = collapseStore.writes;
   });
 
   test('reload publishes the store sections in group order', () async {
@@ -99,8 +102,7 @@ void main() {
     expect(controller.sections.map((section) => section.name), ['new', null]);
   });
 
-  test('toggleCollapsed reports the full key set through the seam',
-      () async {
+  test('toggleCollapsed persists each toggle through the seam', () async {
     store.bookmarks = [_remote('a', group: 'alpha')];
     final controller = buildController();
     addTearDown(controller.dispose);
@@ -137,7 +139,8 @@ void main() {
     // toggle already landed.
     final throwing = SidebarController(
       store: store,
-      onCollapsedChanged: (_) => throw StateError('disk full'),
+      onCollapsedChanged: (_, {required collapsed}) =>
+          throw StateError('disk full'),
       errors: ApplicationErrorReporter(sink: (error, _) => errors.add(error)),
     );
     addTearDown(throwing.dispose);
@@ -342,12 +345,13 @@ void main() {
   });
 
   group('pins', () {
-    test('a pin toggles on and off and reports the full set', () {
-      final writes = <Set<String>>[];
+    test('a pin toggles on and off and persists each change', () {
+      final pins = FakeStoredIdSet({'seeded'});
+      final writes = pins.writes;
       final controller = SidebarController(
         store: store,
         initiallyPinned: {'seeded'},
-        onPinnedChanged: writes.add,
+        onPinnedChanged: pins.pin,
       );
       addTearDown(controller.dispose);
       var notified = 0;
@@ -367,10 +371,12 @@ void main() {
       expect(notified, 2);
     });
 
-    test('a failed save reports and keeps the pin', () {
+    test('a failed save reports and keeps the pin', () async {
       final controller = SidebarController(
         store: store,
-        onPinnedChanged: (_) => throw StateError('disk full'),
+        onPinnedChanged: (serverId, {required pinned}) => serverId == 's1'
+            ? throw StateError('disk full')
+            : Future.error(StateError('unreadable')),
         errors: ApplicationErrorReporter(sink: (error, _) => errors.add(error)),
       );
       addTearDown(controller.dispose);
@@ -378,18 +384,85 @@ void main() {
       controller.togglePinned('s1');
       expect(errors, hasLength(1));
       expect(controller.isPinned('s1'), isTrue);
+
+      // A write that fails later (the store still unreadable) reports
+      // the same way and keeps the pin too.
+      controller.togglePinned('s2');
+      await pumpEventQueue();
+      expect(errors, hasLength(2));
+      expect(controller.pinnedServers, {'s1', 's2'});
+    });
+
+    test('the pins a write stored replace the ones on screen', () async {
+      // A launch whose read failed: the sidebar starts with no pins while
+      // the store still holds two.
+      final pins = FakeStoredIdSet({'a', 'b'});
+      final controller = SidebarController(
+        store: store,
+        onPinnedChanged: pins.pin,
+      );
+      addTearDown(controller.dispose);
+      var notified = 0;
+      controller.addListener(() => notified++);
+
+      controller.togglePinned('c');
+      expect(controller.pinnedServers, {'c'});
+
+      await pumpEventQueue();
+      expect(controller.pinnedServers, {'a', 'b', 'c'});
+      expect(notified, 2);
+    });
+
+    test('a write a later change superseded is not shown', () async {
+      final answers = <Completer<Set<String>>>[];
+      final controller = SidebarController(
+        store: store,
+        onPinnedChanged: (_, {required pinned}) {
+          answers.add(Completer());
+          return answers.last.future;
+        },
+      );
+      addTearDown(controller.dispose);
+
+      controller.togglePinned('a');
+      controller.togglePinned('b');
+      // The first answer predates `b`: showing it would drop `b` until
+      // the second one lands.
+      answers[0].complete({'x', 'a'});
+      await pumpEventQueue();
+      expect(controller.pinnedServers, {'a', 'b'});
+
+      answers[1].complete({'x', 'a', 'b'});
+      await pumpEventQueue();
+      expect(controller.pinnedServers, {'x', 'a', 'b'});
+    });
+
+    test('the folds a write stored replace the ones on screen', () async {
+      final folds = FakeStoredIdSet({'sec:devices'});
+      final controller = SidebarController(
+        store: store,
+        onCollapsedChanged: folds.collapse,
+      );
+      addTearDown(controller.dispose);
+
+      controller.toggleCollapsed('fav:work');
+      await pumpEventQueue();
+
+      expect(controller.collapsedGroups, {'sec:devices', 'fav:work'});
+      expect(controller.isCollapsed('sec:devices'), isTrue);
     });
 
     test('deleting a pinned favorite drops its pin; other deletes and '
         'unlisted pins leave the set alone', () async {
       store.bookmarks = [_remote('a'), _remote('b')];
-      final writes = <Set<String>>[];
+      final pins = FakeStoredIdSet({'a', 'server'});
+      final writes = pins.writes;
       final controller = SidebarController(
         store: store,
         // `server` is an account server's pin: not a bookmark, so no
         // delete here speaks for it.
         initiallyPinned: {'a', 'server'},
-        onPinnedChanged: writes.add,
+        onPinnedChanged: pins.pin,
       );
       addTearDown(controller.dispose);
       await controller.reload();

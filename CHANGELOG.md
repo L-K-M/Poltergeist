@@ -99,6 +99,10 @@
     Sync control, and hear the alert and transfer counts.
   - On a Mac, Control-click opens a sidebar row's menu. The app menu
     gains Check for Updates…, and Linux and Windows gain File ▸ Quit.
+  - Pinned servers and folded sidebar sections survive a launch that
+    could not read the settings file. Pinning or folding afterwards
+    used to replace all of them with just that one change; now the
+    sidebar keeps them and shows them again.
 - Pre-1.0 history lives in the commit log and the GitHub pre-releases
   (v0.1.0, v0.2.0).
 

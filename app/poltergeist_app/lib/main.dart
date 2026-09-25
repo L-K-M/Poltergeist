@@ -455,15 +455,15 @@ Future<void> main() async {
       onSidebarHiddenChanged: preferences.saveSidebarHidden,
       onSidebarHiddenSaveError: errorReporter.report,
       initialSidebarCollapsedGroups: sidebarCollapsedGroups,
-      onSidebarCollapsedGroupsChanged: (keys) => errorReporter.observe(
-        preferences.saveSidebarCollapsedGroups(keys),
-      ),
+      // Both sinks write one change against the stored set, never the
+      // sidebar's own set, which a failed launch read starts empty. The
+      // sidebar reports their failures.
+      onSidebarCollapsedGroupsChanged: preferences.setSidebarGroupCollapsed,
       initialSidebarDensity: sidebarDensity,
       onSidebarDensityChanged: (density) =>
           errorReporter.observe(preferences.saveSidebarDensity(density)),
       initialSidebarPinnedServers: sidebarPinnedServers,
-      onSidebarPinnedServersChanged: (ids) =>
-          errorReporter.observe(preferences.saveSidebarPinnedServers(ids)),
+      onSidebarPinnedServersChanged: preferences.setSidebarServerPinned,
       previewCache: previewCache,
       previewProducer: previewProducer,
       dragOutProducer: dragOutProducer,
