@@ -4589,4 +4589,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String compactSavedToServers(String label) {
     return 'Saved “$label” to Servers.';
   }
+
+  @override
+  String fileRevealFailed(String name) {
+    return '“$name” could not be shown in the file manager.';
+  }
 }

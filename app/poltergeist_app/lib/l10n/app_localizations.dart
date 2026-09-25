@@ -6987,6 +6987,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Saved “{label}” to Servers.'**
   String compactSavedToServers(String label);
+
+  /// D32 §11: toast when file.reveal (Show in Finder / File Manager / Explorer) could not start any file manager for the local item; a failed reveal is never silent.
+  ///
+  /// In en, this message translates to:
+  /// **'“{name}” could not be shown in the file manager.'**
+  String fileRevealFailed(String name);
 }
 
 class _AppLocalizationsDelegate

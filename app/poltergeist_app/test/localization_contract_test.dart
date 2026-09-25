@@ -2571,8 +2571,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'linux'",
     "'open'",
     "'-R'",
-    "'explorer'",
-    "'/select,'",
+    r"""'explorer.exe /select,"$path"'""",
     "'dbus-send'",
     "'--session'",
     "'--print-reply'",
@@ -2582,7 +2581,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'org.freedesktop.FileManager1.ShowItems'",
     r"'array:string:$uri'",
     "'string:'",
+    "','",
+    "'%2C'",
     "'xdg-open'",
+    "'gio'",
   },
 };
 

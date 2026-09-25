@@ -6029,5 +6029,14 @@
         "type": "String"
       }
     }
+  },
+  "fileRevealFailed": "“{name}” could not be shown in the file manager.",
+  "@fileRevealFailed": {
+    "description": "D32 §11: toast when file.reveal (Show in Finder / File Manager / Explorer) could not start any file manager for the local item; a failed reveal is never silent.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
   }
 }
