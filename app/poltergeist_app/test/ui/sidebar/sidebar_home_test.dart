@@ -74,6 +74,9 @@ final class _Volumes implements LocalVolumeSource {
   Future<List<LocalVolume>> list() async => volumes;
 
   @override
+  Future<int?> freeBytes(LocalVolume volume) async => volume.freeBytes;
+
+  @override
   Future<List<String>> standardFolders() async => standard;
 
   @override

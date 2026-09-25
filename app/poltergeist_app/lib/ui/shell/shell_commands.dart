@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../services/file_manager_reveal.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_location.dart';
@@ -14,6 +16,7 @@ import '../../services/window_full_screen.dart';
 import '../../services/workspace_controller.dart';
 import 'delete_confirm_dialog.dart';
 import 'keyboard_shortcuts_dialog.dart';
+import '../top_toast.dart';
 
 const kViewToggleInspectorCommandId = 'view.toggleInspector';
 const kViewShowAlertsCommandId = 'view.showAlerts';
@@ -568,9 +571,17 @@ List<RegisteredCommand> buildShellCommands({
         icon: Icons.folder_open_outlined,
         enabled: () => _revealTarget(workspace) != null,
         disabledReason: (l10n) => l10n.commandDisabledRevealLocalOnly,
-        run: (_) async {
+        run: (context) async {
           final path = _revealTarget(workspace);
-          if (path != null) await revealer.reveal(path);
+          if (path == null) return;
+          final l10n = AppLocalizations.of(context);
+          if (await revealer.reveal(path) || !context.mounted) return;
+          // Every route failed (no file manager, no dbus-send/xdg-open/
+          // gio, Explorer would not start): say so, never do nothing.
+          showTopToastIn(
+            context,
+            message: l10n.fileRevealFailed(p.basename(path)),
+          );
         },
         menuPlacement: const CommandMenuPlacement(
           menu: AppMenuId.file,

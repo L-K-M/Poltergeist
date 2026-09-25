@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -6,22 +7,34 @@ import 'package:poltergeist_app/services/local_volumes.dart';
 /// A scripted directory tree: child listings, symbolic links, and the
 /// folder set — the enumeration never touches the host's mounts here.
 final class _Tree implements VolumeDirectoryReader {
-  _Tree({this.children = const {}, this.links = const {}, Set<String>? dirs})
-    : dirs = dirs ?? {};
+  _Tree({
+    this.children = const {},
+    this.links = const {},
+    Set<String>? dirs,
+    this.hung = const {},
+  }) : dirs = dirs ?? {};
 
   final Map<String, List<String>> children;
   final Map<String, String> links;
   final Set<String> dirs;
 
-  @override
-  List<String> childDirectories(String path) => children[path] ?? const [];
+  /// Paths whose every probe never answers: a dead hard-mounted NFS
+  /// share or a disconnected mapped drive.
+  final Set<String> hung;
+
+  Future<T> _answer<T>(String path, T value) =>
+      hung.contains(path) ? Completer<T>().future : Future.value(value);
 
   @override
-  String? resolveLink(String path) => links[path];
+  Future<List<String>> childDirectories(String path) =>
+      _answer(path, children[path] ?? const []);
 
   @override
-  bool isDirectory(String path) =>
-      dirs.contains(path) || children.containsKey(path);
+  Future<String?> resolveLink(String path) => _answer(path, links[path]);
+
+  @override
+  Future<bool> isDirectory(String path) =>
+      _answer(path, dirs.contains(path) || children.containsKey(path));
 }
 
 /// Answers `df -kP <path>` with a fixed free count per path and records
@@ -31,8 +44,14 @@ final class _Runner {
   final free = <String, int>{};
   final exitCodes = <String, int>{};
 
+  /// Paths whose `df` never exits (it blocks on the dead mount).
+  final hung = <String>{};
+
   Future<ProcessResult> call(String executable, List<String> arguments) async {
     calls.add([executable, ...arguments]);
+    if (executable == 'df' && hung.contains(arguments.last)) {
+      return Completer<ProcessResult>().future;
+    }
     if (executable == 'df') {
       final kib = free[arguments.last];
       if (kib == null) return ProcessResult(0, 1, '', 'no such file');
@@ -90,10 +109,13 @@ void main() {
         );
         // The boot link never lists as a volume of its own.
         expect(listed.where((v) => v.path == '/Volumes/Macintosh HD'), isEmpty);
-        expect(listed.first.freeBytes, 1000 * 1024);
-        expect(listed.last.freeBytes, 20 * 1024);
+        // Rows come back before any df runs; each number is its own ask.
+        expect(listed.every((v) => v.freeBytes == null), isTrue);
+        expect(runner.calls, isEmpty);
+        expect(await volumes.freeBytes(listed.first), 1000 * 1024);
+        expect(await volumes.freeBytes(listed.last), 20 * 1024);
         // A failing df leaves only that row's number absent.
-        expect(listed[2].freeBytes, isNull);
+        expect(await volumes.freeBytes(listed[2]), isNull);
       },
     );
 
@@ -230,6 +252,79 @@ void main() {
       );
       // No df on Windows: free space stays absent rather than guessed.
       expect(listed.every((v) => v.freeBytes == null), isTrue);
+      expect(await volumes.freeBytes(listed.first), isNull);
+    });
+
+    test('a disconnected mapped drive never holds the list', () async {
+      final volumes = SystemLocalVolumes(
+        operatingSystem: 'windows',
+        environment: const {
+          'USERPROFILE': r'C:\Users\me',
+          'USERNAME': 'me',
+          'SystemDrive': 'C:',
+        },
+        directories: _Tree(dirs: {r'C:\', r'D:\'}, hung: {r'Z:\'}),
+        run: _Runner().call,
+        probeTimeout: const Duration(milliseconds: 50),
+      );
+
+      final listed = await volumes.list().timeout(const Duration(seconds: 2));
+      expect([for (final v in listed) v.name], ['me', 'C:', 'D:']);
+    });
+  });
+
+  group('dead mounts', () {
+    // A hard-mounted NFS share whose server is gone blocks every stat()
+    // of its mount point and every df over it, indefinitely.
+    SystemLocalVolumes linux({required _Tree tree, required _Runner runner}) =>
+        SystemLocalVolumes(
+          operatingSystem: 'linux',
+          environment: const {'HOME': '/home/me', 'USER': 'me'},
+          hostName: 'workstation',
+          directories: tree,
+          run: runner.call,
+          probeTimeout: const Duration(milliseconds: 50),
+        );
+
+    test('a hung df never holds the list or the other rows', () async {
+      final runner = _Runner()
+        ..free['/home/me'] = 10
+        ..free['/'] = 10
+        ..hung.add('/mnt/nas');
+      final volumes = linux(
+        tree: _Tree(
+          children: {
+            '/mnt': ['/mnt/nas'],
+          },
+        ),
+        runner: runner,
+      );
+
+      final listed = await volumes.list().timeout(const Duration(seconds: 2));
+      expect([for (final v in listed) v.path], ['/home/me', '/', '/mnt/nas']);
+
+      final free = await Future.wait([
+        for (final volume in listed) volumes.freeBytes(volume),
+      ]).timeout(const Duration(seconds: 2));
+      expect(free, [10 * 1024, 10 * 1024, isNull]);
+    });
+
+    test('a hung mount probe never holds the list', () async {
+      final volumes = linux(
+        tree: _Tree(
+          children: {
+            '/media/me': ['/media/me/CAMERA'],
+          },
+          hung: {'/mnt'},
+        ),
+        runner: _Runner(),
+      );
+
+      final listed = await volumes.list().timeout(const Duration(seconds: 2));
+      expect(
+        [for (final v in listed) v.path],
+        ['/home/me', '/', '/media/me/CAMERA'],
+      );
     });
   });
 

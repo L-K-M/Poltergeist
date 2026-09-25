@@ -64,6 +64,7 @@ import 'compact/compact_workspace.dart';
 import 'import/ssh_config_import_command.dart';
 import 'layout/pane_allocation.dart';
 import 'local_edits_review.dart';
+import 'menus/app_menu_commands.dart';
 import 'menus/app_menu_host.dart';
 import 'panes/open_with_commands.dart';
 import 'panes/pane_commands.dart';
@@ -82,6 +83,7 @@ import 'server_label_scope.dart';
 import 'shell/connect_dialog.dart';
 import 'shell/header_activity_button.dart';
 import 'shell/header_toolbar.dart';
+import 'shell/macos_toolbar_band.dart';
 import 'shell/shell_commands.dart';
 import 'shell/shell_splitter.dart';
 import 'sidebar/sidebar_view.dart';
@@ -1357,6 +1359,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           settings: _generalSettings,
           enabled: () => !_commandSessionActive,
         ),
+      // 10 §8's platform rows: Check for Updates… in the macOS app menu,
+      // Quit in the Linux/Windows File menu (macOS has AppKit's own).
+      if (widget.updateCheck != null &&
+          Theme.of(context).platform == TargetPlatform.macOS)
+        buildCheckForUpdatesCommand(
+          updates: widget.updateCheck!,
+          openUrl: (url) async {
+            await launchUrl(url);
+          },
+        ),
+      if (Theme.of(context).platform
+          case TargetPlatform.linux || TargetPlatform.windows)
+        buildQuitCommand(),
       if (workspace != null && widget.workspaces != null)
         ...buildWorkspaceCommands(
           workspace: workspace,
@@ -1488,7 +1503,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           ? null
           : Drawer(
               backgroundColor: chrome.sidebarBackground,
-              child: SafeArea(child: _buildSidebarView(sshImportCommand)),
+              // macOS: clear the toolbar band the inline column's
+              // spacer clears, or the filter and first rows sit under it.
+              child: ReserveMacosToolbarBand(
+                child: SafeArea(child: _buildSidebarView(sshImportCommand)),
+              ),
             ),
       body: SafeArea(
         left: !compact,
@@ -1803,6 +1822,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           ShellSplitter(
             key: const ValueKey('sidebar.splitter'),
             focusNode: _sidebarSplitterFocus,
+            nativeTitlebar: mac,
             label: strings.resizeSidebar,
             value: strings.splitterWidthPx(sidebarWidth.round()),
             increasedValue: strings.splitterWidthPx(

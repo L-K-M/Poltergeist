@@ -36,6 +36,7 @@ import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
 import 'ui/inspector/inspector_view.dart' show inspectorDefaultWidth;
 import 'ui/server_editor.dart' show ServerEditorDelegate;
+import 'ui/shell/macos_toolbar_band.dart';
 import 'ui/workspace_shell.dart';
 
 class PoltergeistApp extends StatefulWidget {
@@ -413,10 +414,15 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.supportedLocales,
-      // D32: the shell draws under the transparent macOS titlebar (the
-      // full-size content view) and insets itself for the traffic
-      // lights — no blank titlebar band above the header.
-      home: _buildWorkspace(),
+      // macOS: every route, dialog, and root-overlay toast keeps its
+      // controls below the unified toolbar band, which claims clicks
+      // for window drag...
+      builder: (context, child) => ReserveMacosToolbarBand(child: child!),
+      // ...except the shell, which draws under the transparent titlebar
+      // (the full-size content view), passes its header controls
+      // through, and insets itself for the traffic lights, leaving no
+      // blank titlebar band above the header (D32).
+      home: ClaimMacosToolbarBand(child: _buildWorkspace()),
     );
   }
 

@@ -6083,5 +6083,26 @@
         "type": "int"
       }
     }
+  },
+  "fileRevealFailed": "“{name}” could not be shown in the file manager.",
+  "@fileRevealFailed": {
+    "description": "D32 §11: toast when file.reveal (Show in Finder / File Manager / Explorer) could not start any file manager for the local item; a failed reveal is never silent.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "appCheckForUpdatesLabel": "Check for Updates…",
+  "@appCheckForUpdatesLabel": {
+    "description": "10 §8: the macOS application menu's manual update check (D19's link-only checker, run on demand even when the launch check is turned off)."
+  },
+  "appUpdateNoneFound": "No newer version was found. If you’re offline, try again later.",
+  "@appUpdateNoneFound": {
+    "description": "Toast after Check for Updates… found no newer release. The checker cannot tell “up to date” from “could not reach GitHub”, so the copy claims neither."
+  },
+  "appQuitLabel": "Quit",
+  "@appQuitLabel": {
+    "description": "10 §8: the Linux/Windows File menu's Quit row, which closes the window through the same quit guard as the titlebar's close button."
   }
 }

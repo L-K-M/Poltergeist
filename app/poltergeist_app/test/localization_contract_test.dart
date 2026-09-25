@@ -329,6 +329,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The Settings command id (D21 plumbing) — registered, never rendered.
   'lib/ui/settings/app_settings_command.dart': {"'app.settings'"},
+  // 10 §8's platform-row command ids (D21 plumbing), never rendered.
+  'lib/ui/menus/app_menu_commands.dart': {
+    "'app.checkForUpdates'",
+    "'app.quit'",
+  },
   // The workspace command ids (D21 plumbing) — the open commands key
   // per-record to the persisted workspace id.
   'lib/ui/workspace/workspace_commands.dart': {
@@ -2570,8 +2575,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // D32 §11's platform integration: Dock progress diagnostics and the
   // file-manager reveal's process arguments (never user-facing copy).
   'lib/services/dock_progress.dart': {
-    "''",
     r"'$live'",
+    r"'Dock progress disabled: $error\n$stack'",
     r"'Dock progress unavailable: $error\n$stack'",
   },
   'lib/services/file_manager_reveal.dart': {
@@ -2580,8 +2585,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'linux'",
     "'open'",
     "'-R'",
-    "'explorer'",
-    "'/select,'",
+    r"""'explorer.exe /select,"$path"'""",
     "'dbus-send'",
     "'--session'",
     "'--print-reply'",
@@ -2591,7 +2595,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'org.freedesktop.FileManager1.ShowItems'",
     r"'array:string:$uri'",
     "'string:'",
+    "','",
+    "'%2C'",
     "'xdg-open'",
+    "'gio'",
   },
 };
 

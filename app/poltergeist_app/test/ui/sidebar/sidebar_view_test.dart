@@ -101,6 +101,14 @@ final class _FakeVolumes implements LocalVolumeSource {
     return volumes;
   }
 
+  /// Free-space answers the test holds back; unlisted rows answer the
+  /// number they were scripted with.
+  final pendingFree = <String, Completer<int?>>{};
+
+  @override
+  Future<int?> freeBytes(LocalVolume volume) =>
+      pendingFree[volume.path]?.future ?? Future.value(volume.freeBytes);
+
   @override
   Future<List<String>> standardFolders() async => standard;
 
@@ -1138,6 +1146,32 @@ void main() {
       );
       expect(home.title, 'deploy');
       expect(home.trailingText, '69 GB');
+    });
+
+    testWidgets('rows list before free space answers, then fill in', (
+      tester,
+    ) async {
+      // A hung df over a dead network mount answers late or never: the
+      // section still appears, and only that row lacks its number.
+      volumes
+        ..volumes = [
+          for (final volume in const [_home, _root, _usb])
+            volume.withFreeBytes(null),
+        ]
+        ..pendingFree['/home/deploy'] = Completer<int?>()
+        ..pendingFree['/Volumes/STICK'] = Completer<int?>();
+      await pumpSidebar(tester, volumes: volumes);
+
+      SidebarRow row(String path) =>
+          rowOf(tester, find.byKey(ValueKey('sidebar.device.$path')));
+      expect(find.text('DEVICES'), findsOneWidget);
+      expect(row('/home/deploy').trailingText, isNull);
+      expect(row('/Volumes/STICK').trailingText, isNull);
+
+      volumes.pendingFree['/home/deploy']!.complete(69000000000);
+      await tester.pumpAndSettle();
+      expect(row('/home/deploy').trailingText, '69 GB');
+      expect(row('/Volumes/STICK').trailingText, isNull);
     });
 
     testWidgets('no source renders no DEVICES section', (tester) async {

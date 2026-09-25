@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:macos_window_utils/widgets/macos_toolbar_passthrough.dart';
 
 import '../../theme/app_theme.dart';
 
@@ -38,7 +39,14 @@ class ShellSplitter extends StatefulWidget {
     this.onReset,
     this.grow = 1,
     this.focusNode,
+    this.nativeTitlebar = false,
   });
+
+  /// macOS: a full-height splitter crosses the unified toolbar band,
+  /// which claims clicks for window drag/zoom. True wraps it in a
+  /// [MacosToolbarPassthrough] so a drag or double-click on its top
+  /// segment still resizes or resets instead of moving the window.
+  final bool nativeTitlebar;
 
   /// Announced name ("Resize sidebar").
   final String label;
@@ -101,7 +109,7 @@ class _ShellSplitterState extends State<ShellSplitter> {
     final colors = Theme.of(context).colorScheme;
     final rtl = Directionality.of(context) == TextDirection.rtl;
     final active = _hovered || _dragging || _focused;
-    return Semantics(
+    final splitter = Semantics(
       label: widget.label,
       value: widget.value,
       increasedValue: widget.increasedValue,
@@ -154,5 +162,8 @@ class _ShellSplitterState extends State<ShellSplitter> {
         ),
       ),
     );
+    return widget.nativeTitlebar
+        ? MacosToolbarPassthrough(child: splitter)
+        : splitter;
   }
 }

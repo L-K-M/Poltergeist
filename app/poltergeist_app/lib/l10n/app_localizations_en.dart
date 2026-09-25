@@ -4637,4 +4637,19 @@ class AppLocalizationsEn extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String fileRevealFailed(String name) {
+    return '“$name” could not be shown in the file manager.';
+  }
+
+  @override
+  String get appCheckForUpdatesLabel => 'Check for Updates…';
+
+  @override
+  String get appUpdateNoneFound =>
+      'No newer version was found. If you’re offline, try again later.';
+
+  @override
+  String get appQuitLabel => 'Quit';
 }

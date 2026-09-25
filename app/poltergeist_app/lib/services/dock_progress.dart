@@ -21,10 +21,19 @@ abstract interface class DockProgressSurface {
 /// live task count — the Finder/Transmit habit of checking a long copy
 /// without bringing the window forward. Idle clears both. Updates are
 /// coalesced to one per [interval]: queue events arrive per chunk.
+///
+/// Nothing reaches the surface before [surfaceReady] resolves, and an
+/// idle queue never touches it at all. On Windows this is what keeps
+/// the app alive: window_manager's `setProgressBar` dereferences a
+/// taskbar list that only its `waitUntilReadyToShow` creates, so an
+/// early call is a native access violation no Dart `catch` can stop.
+/// A window that never became ready (prepare or show failed) therefore
+/// gets no progress at all rather than a crash.
 final class DockProgressReporter {
   DockProgressReporter({
     required AppTransferQueue queue,
     required DockProgressSurface surface,
+    required Future<void> surfaceReady,
     Duration interval = const Duration(milliseconds: 500),
   }) : _queue = queue,
        // Keep the seams private; named parameters cannot be private.
@@ -33,7 +42,17 @@ final class DockProgressReporter {
        // ignore: prefer_initializing_formals
        _interval = interval {
     _subscription = queue.events.listen((_) => _schedule());
-    _schedule();
+    unawaited(
+      surfaceReady.then(
+        (_) {
+          _ready = true;
+          _schedule();
+        },
+        onError: (Object error, StackTrace stack) {
+          debugPrint('Dock progress disabled: $error\n$stack');
+        },
+      ),
+    );
   }
 
   final AppTransferQueue _queue;
@@ -41,10 +60,16 @@ final class DockProgressReporter {
   final Duration _interval;
   late final StreamSubscription<TransferQueueEvent> _subscription;
   Timer? _pending;
-  double? _lastFraction = -1;
-  String? _lastBadge = '';
+  var _ready = false;
+  var _disposed = false;
+
+  // The surface starts clear (a fresh process has no Dock progress and a
+  // fresh window no taskbar progress), so an idle start sends nothing.
+  double? _lastFraction;
+  String? _lastBadge;
 
   void _schedule() {
+    if (!_ready || _disposed) return;
     _pending ??= Timer(_interval, () {
       _pending = null;
       unawaited(_publish());
@@ -84,6 +109,7 @@ final class DockProgressReporter {
   }
 
   Future<void> dispose() async {
+    _disposed = true;
     _pending?.cancel();
     await _subscription.cancel();
   }

@@ -254,11 +254,14 @@ Future<void> main() async {
   );
   final transferQueue = transferQueueSession?.queue;
   // D32 §11: Dock/taskbar progress while transfers run (macOS/Windows —
-  // window_manager has no Linux progress surface).
+  // window_manager has no Linux progress surface). It stays silent until
+  // the window is ready: on Windows an earlier setProgressBar crashes
+  // the process natively (see DockProgressReporter).
   if (transferQueue != null && (Platform.isMacOS || Platform.isWindows)) {
     DockProgressReporter(
       queue: transferQueue,
       surface: const WindowManagerDockSurface(),
+      surfaceReady: windowLifecycle.windowReady,
     );
   }
   final composedQueue = transferQueue == null

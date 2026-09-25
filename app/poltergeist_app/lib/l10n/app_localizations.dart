@@ -7041,6 +7041,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count, plural, =1{1 unfinished transfer} other{{count} unfinished transfers}}'**
   String transferCountSemantics(int count);
+
+  /// D32 §11: toast when file.reveal (Show in Finder / File Manager / Explorer) could not start any file manager for the local item; a failed reveal is never silent.
+  ///
+  /// In en, this message translates to:
+  /// **'“{name}” could not be shown in the file manager.'**
+  String fileRevealFailed(String name);
+
+  /// 10 §8: the macOS application menu's manual update check (D19's link-only checker, run on demand even when the launch check is turned off).
+  ///
+  /// In en, this message translates to:
+  /// **'Check for Updates…'**
+  String get appCheckForUpdatesLabel;
+
+  /// Toast after Check for Updates… found no newer release. The checker cannot tell “up to date” from “could not reach GitHub”, so the copy claims neither.
+  ///
+  /// In en, this message translates to:
+  /// **'No newer version was found. If you’re offline, try again later.'**
+  String get appUpdateNoneFound;
+
+  /// 10 §8: the Linux/Windows File menu's Quit row, which closes the window through the same quit guard as the titlebar's close button.
+  ///
+  /// In en, this message translates to:
+  /// **'Quit'**
+  String get appQuitLabel;
 }
 
 class _AppLocalizationsDelegate

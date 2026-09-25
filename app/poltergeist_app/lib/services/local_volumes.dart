@@ -58,7 +58,15 @@ final class LocalVolume {
 /// a test lists a scripted set instead of whatever the host has mounted.
 abstract interface class LocalVolumeSource {
   /// Home first, then the root volume, then the mounted volumes by name.
+  /// Rows come back without free space, and the enumeration is bounded:
+  /// a dead mount can delay it by a probe timeout, never hold it.
   Future<List<LocalVolume>> list();
+
+  /// Free bytes on [volume], or null when the platform cannot say (no
+  /// `df`, a failure, or a volume that did not answer in time). Asked
+  /// per row after [list] so a hung network mount costs only its own
+  /// number, never the list.
+  Future<int?> freeBytes(LocalVolume volume);
 
   /// The Desktop, Documents, and Downloads folders that actually exist —
   /// the empty-favorites offer adds only these (10 §5).
@@ -88,46 +96,78 @@ typedef LocalProcessRunner =
 
 /// The directory reads the enumeration needs, injectable so the platform
 /// rules are testable without the host's mounts.
+///
+/// Every read is asynchronous on purpose: a `stat()` of a dead hard NFS
+/// mount point, or of a disconnected mapped drive, blocks for as long as
+/// the network stack keeps retrying. dart:io's async calls block one of
+/// its I/O worker threads instead of the UI isolate, and
+/// [SystemLocalVolumes] stops waiting after its probe timeout.
 abstract interface class VolumeDirectoryReader {
   /// The child directories of [path] as absolute paths (empty when [path]
   /// is missing or unreadable). Symbolic links count when they resolve to
   /// a directory — macOS's boot-volume entry is one.
-  List<String> childDirectories(String path);
+  Future<List<String>> childDirectories(String path);
 
   /// Where the symbolic link at [path] resolves, or null when [path] is
   /// not a link.
-  String? resolveLink(String path);
+  Future<String?> resolveLink(String path);
 
-  bool isDirectory(String path);
+  Future<bool> isDirectory(String path);
 }
 
 final class _IoDirectoryReader implements VolumeDirectoryReader {
   const _IoDirectoryReader();
 
+  /// One link's resolution; a link into a dead mount answers "not a
+  /// directory" rather than taking its siblings down with it.
+  static const _linkProbeTimeout = Duration(seconds: 2);
+
   @override
-  List<String> childDirectories(String path) {
+  Future<List<String>> childDirectories(String path) async {
+    final List<FileSystemEntity> entries;
     try {
-      return [
-        for (final entity in Directory(path).listSync(followLinks: false))
-          if (FileSystemEntity.isDirectorySync(entity.path)) entity.path,
-      ];
+      entries = await Directory(path).list(followLinks: false).toList();
     } on FileSystemException {
       return const [];
     }
+    // readdir already says what a plain entry is, so only links need a
+    // stat(); the mount points themselves are never touched here.
+    final links = [for (final entry in entries) entry is Link];
+    final linkTargetsAreDirectories = await Future.wait([
+      for (final entry in entries)
+        if (entry is Link)
+          _withinWallClock(
+            FileSystemEntity.isDirectory(entry.path),
+            _linkProbeTimeout,
+            false,
+          ),
+    ]);
+    final directories = <String>[];
+    var linkIndex = 0;
+    for (var i = 0; i < entries.length; i++) {
+      if (links[i]) {
+        if (linkTargetsAreDirectories[linkIndex++]) {
+          directories.add(entries[i].path);
+        }
+      } else if (entries[i] is Directory) {
+        directories.add(entries[i].path);
+      }
+    }
+    return directories;
   }
 
   @override
-  String? resolveLink(String path) {
+  Future<String?> resolveLink(String path) async {
     try {
-      if (!FileSystemEntity.isLinkSync(path)) return null;
-      return Link(path).resolveSymbolicLinksSync();
+      if (!await FileSystemEntity.isLink(path)) return null;
+      return await Link(path).resolveSymbolicLinks();
     } on FileSystemException {
       return null;
     }
   }
 
   @override
-  bool isDirectory(String path) => FileSystemEntity.isDirectorySync(path);
+  Future<bool> isDirectory(String path) => FileSystemEntity.isDirectory(path);
 }
 
 /// The host's volumes (10 §5's DEVICES rules):
@@ -144,6 +184,12 @@ final class _IoDirectoryReader implements VolumeDirectoryReader {
 ///   a volume the user mounts.
 ///
 /// Free space comes from `df -kP` on POSIX and is omitted on Windows.
+///
+/// Every probe (a directory read, a link resolution, a drive letter, a
+/// `df`) is abandoned after [probeTimeout]: the probe's answer is then
+/// "absent" (no entries, not a directory, no number). Probes run
+/// concurrently, so a dead network mount can delay the section by a
+/// timeout or two but can never hold it.
 final class SystemLocalVolumes implements LocalVolumeSource {
   SystemLocalVolumes({
     String? operatingSystem,
@@ -151,13 +197,17 @@ final class SystemLocalVolumes implements LocalVolumeSource {
     String? hostName,
     VolumeDirectoryReader? directories,
     LocalProcessRunner? run,
+    Duration probeTimeout = const Duration(seconds: 3),
   }) : _os = operatingSystem ?? Platform.operatingSystem,
        _env = environment ?? Platform.environment,
        // Keep the host-name override private while allowing injection.
        // ignore: prefer_initializing_formals
        _hostName = hostName,
        _dirs = directories ?? const _IoDirectoryReader(),
-       _run = run ?? Process.run;
+       _run = run ?? Process.run,
+       // Keep the timeout private; named parameters cannot be private.
+       // ignore: prefer_initializing_formals
+       _probeTimeout = probeTimeout;
 
   /// The running host's volumes — one instance, so a rebuilt sidebar
   /// never re-binds (and re-lists) because its source changed identity.
@@ -168,6 +218,7 @@ final class SystemLocalVolumes implements LocalVolumeSource {
   final String? _hostName;
   final VolumeDirectoryReader _dirs;
   final LocalProcessRunner _run;
+  final Duration _probeTimeout;
 
   static const _macVolumes = '/Volumes';
   static const _linuxMedia = '/media';
@@ -195,15 +246,24 @@ final class SystemLocalVolumes implements LocalVolumeSource {
   @override
   Future<List<LocalVolume>> list() async {
     if (!_windows && !_mac && !_linux) return const [];
-    final volumes = [...?_homeVolume(), ..._mountedVolumes()];
-    if (_windows) return volumes;
-    // One `df` per row, concurrently: a hung network mount delays only
-    // its own row's number, never the list.
-    return Future.wait([
-      for (final volume in volumes)
-        dfFreeSpaceBytes(volume.path, run: _run).then(volume.withFreeBytes),
-    ]);
+    return [...?_homeVolume(), ...await _mountedVolumes()];
   }
+
+  @override
+  Future<int?> freeBytes(LocalVolume volume) async {
+    if (_windows) return null;
+    return dfFreeSpaceBytes(volume.path, run: _run, timeout: _probeTimeout);
+  }
+
+  /// [probe]'s answer, or [absent] once it has taken [_probeTimeout].
+  Future<T> _bounded<T>(Future<T> probe, T absent) =>
+      _withinWallClock(probe, _probeTimeout, absent);
+
+  Future<List<String>> _children(String path) =>
+      _bounded(_dirs.childDirectories(path), const <String>[]);
+
+  Future<bool> _isDirectory(String path) =>
+      _bounded(_dirs.isDirectory(path), false);
 
   List<LocalVolume>? _homeVolume() {
     final home = _home;
@@ -217,31 +277,37 @@ final class SystemLocalVolumes implements LocalVolumeSource {
     ];
   }
 
-  List<LocalVolume> _mountedVolumes() {
+  Future<List<LocalVolume>> _mountedVolumes() async {
     if (_windows) return _windowsDrives();
     final mounted = <LocalVolume>[];
     String? rootName;
     if (_mac) {
-      for (final path in _dirs.childDirectories(_macVolumes)) {
-        if (_dirs.resolveLink(path) == _posixRoot) {
-          rootName = p.basename(path);
+      final paths = await _children(_macVolumes);
+      final targets = await Future.wait([
+        for (final path in paths) _bounded(_dirs.resolveLink(path), null),
+      ]);
+      for (var i = 0; i < paths.length; i++) {
+        if (targets[i] == _posixRoot) {
+          rootName = p.basename(paths[i]);
           continue;
         }
-        mounted.add(_volume(path, LocalVolumeKind.removable));
+        mounted.add(_volume(paths[i], LocalVolumeKind.removable));
       }
     } else {
       final user = _userName;
-      if (user != null) {
-        for (final parent in [
-          p.join(_linuxMedia, user),
-          p.join(_linuxRunMedia, user),
-        ]) {
-          for (final path in _dirs.childDirectories(parent)) {
-            mounted.add(_volume(path, LocalVolumeKind.removable));
-          }
-        }
+      final [media, runMedia, mnt] = await Future.wait([
+        user == null
+            ? Future.value(const <String>[])
+            : _children(p.join(_linuxMedia, user)),
+        user == null
+            ? Future.value(const <String>[])
+            : _children(p.join(_linuxRunMedia, user)),
+        _children(_linuxMnt),
+      ]);
+      for (final path in [...media, ...runMedia]) {
+        mounted.add(_volume(path, LocalVolumeKind.removable));
       }
-      for (final path in _dirs.childDirectories(_linuxMnt)) {
+      for (final path in mnt) {
         mounted.add(_volume(path, LocalVolumeKind.fixed));
       }
     }
@@ -256,14 +322,23 @@ final class SystemLocalVolumes implements LocalVolumeSource {
     ];
   }
 
-  List<LocalVolume> _windowsDrives() {
+  Future<List<LocalVolume>> _windowsDrives() async {
     final systemDrive = (_env['SystemDrive'] ?? 'C:').toUpperCase();
     final drives = <LocalVolume>[];
-    // C..Z — see the class doc for why A: and B: are never probed.
-    for (var code = 0x43; code <= 0x5A; code++) {
-      final letter = '${String.fromCharCode(code)}:';
+    // C..Z — see the class doc for why A: and B: are never probed. All
+    // at once: a disconnected mapped drive stalls for the SMB timeout,
+    // and each letter waits on nobody else's.
+    final letters = [
+      for (var code = 0x43; code <= 0x5A; code++)
+        '${String.fromCharCode(code)}:',
+    ];
+    final present = await Future.wait([
+      for (final letter in letters) _isDirectory('$letter\\'),
+    ]);
+    for (var i = 0; i < letters.length; i++) {
+      if (!present[i]) continue;
+      final letter = letters[i];
       final root = '$letter\\';
-      if (!_dirs.isDirectory(root)) continue;
       drives.add(
         LocalVolume(
           path: root,
@@ -304,12 +379,15 @@ final class SystemLocalVolumes implements LocalVolumeSource {
   Future<List<String>> standardFolders() async {
     final home = _home;
     if (home == null) return const [];
-    final xdg = _linux ? _xdgUserDirs(home) : const <String, String>{};
-    return [
+    final xdg = _linux ? await _xdgUserDirs(home) : const <String, String>{};
+    final candidates = [
       for (final (xdgKey, fallback) in _standardFolderNames)
-        if (xdg[xdgKey] ?? p.join(home, fallback) case final path
-            when _dirs.isDirectory(path))
-          path,
+        xdg[xdgKey] ?? p.join(home, fallback),
+    ];
+    final present = await Future.wait(candidates.map(_isDirectory));
+    return [
+      for (var i = 0; i < candidates.length; i++)
+        if (present[i]) candidates[i],
     ];
   }
 
@@ -323,13 +401,13 @@ final class SystemLocalVolumes implements LocalVolumeSource {
 
   /// `~/.config/user-dirs.dirs`: `KEY="$HOME/Folder"` lines. A missing or
   /// unreadable file answers nothing, and the English names stand.
-  Map<String, String> _xdgUserDirs(String home) {
+  Future<Map<String, String>> _xdgUserDirs(String home) async {
     final configHome = _env['XDG_CONFIG_HOME'] ?? p.join(home, '.config');
     final file = File(p.join(configHome, 'user-dirs.dirs'));
     final String text;
     try {
-      if (!file.existsSync()) return const {};
-      text = file.readAsStringSync();
+      if (!await file.exists()) return const {};
+      text = await file.readAsString();
     } on FileSystemException {
       return const {};
     }
@@ -337,32 +415,40 @@ final class SystemLocalVolumes implements LocalVolumeSource {
   }
 
   @override
-  Future<bool> isDirectory(String path) async => _dirs.isDirectory(path);
+  Future<bool> isDirectory(String path) => _isDirectory(path);
 
   @override
   Stream<void> get changes {
-    final parents = _watchedParents();
-    if (parents.isEmpty) return const Stream.empty();
+    if (!_mac && !_linux) return const Stream.empty();
     late final StreamController<void> controller;
     final subscriptions = <StreamSubscription<FileSystemEvent>>[];
+    // Bumped by every listen and cancel, so a parent probe that resolves
+    // after its listener left never installs a watch.
+    var generation = 0;
     controller = StreamController<void>.broadcast(
       onListen: () {
-        for (final parent in parents) {
-          try {
-            subscriptions.add(
-              Directory(parent).watch().listen(
-                (_) => controller.add(null),
-                // A watch the platform refuses (no inotify slots, a
-                // parent unmounted underneath) just stops reporting.
-                onError: (Object _) {},
-              ),
-            );
-          } on Object {
-            // Same posture: an unwatchable parent is simply not watched.
+        final listen = ++generation;
+        unawaited(() async {
+          final parents = await _watchedParents();
+          if (listen != generation) return;
+          for (final parent in parents) {
+            try {
+              subscriptions.add(
+                Directory(parent).watch().listen(
+                  (_) => controller.add(null),
+                  // A watch the platform refuses (no inotify slots, a
+                  // parent unmounted underneath) just stops reporting.
+                  onError: (Object _) {},
+                ),
+              );
+            } on Object {
+              // Same posture: an unwatchable parent is simply not watched.
+            }
           }
-        }
+        }());
       },
       onCancel: () {
+        generation++;
         for (final subscription in subscriptions) {
           unawaited(subscription.cancel());
         }
@@ -372,7 +458,7 @@ final class SystemLocalVolumes implements LocalVolumeSource {
     return controller.stream;
   }
 
-  List<String> _watchedParents() {
+  Future<List<String>> _watchedParents() async {
     final candidates = <String>[
       if (_mac) _macVolumes,
       if (_linux) ...[
@@ -383,9 +469,10 @@ final class SystemLocalVolumes implements LocalVolumeSource {
         _linuxMnt,
       ],
     ];
+    final present = await Future.wait(candidates.map(_isDirectory));
     return [
-      for (final path in candidates)
-        if (_dirs.isDirectory(path)) path,
+      for (var i = 0; i < candidates.length; i++)
+        if (present[i]) candidates[i],
     ];
   }
 
@@ -433,20 +520,56 @@ Map<String, String> parseXdgUserDirs(String text, {required String home}) {
 }
 
 /// Free bytes on the volume holding [path] from `df -kP`'s Available
-/// column, or null where there is no `df` (Windows) or it fails — every
-/// caller treats the number as optional.
-Future<int?> dfFreeSpaceBytes(String path, {LocalProcessRunner? run}) async {
+/// column, or null where there is no `df` (Windows), it fails, or it has
+/// not answered within [timeout]: `df` over a dead hard NFS mount never
+/// exits. Every caller treats the number as optional.
+Future<int?> dfFreeSpaceBytes(
+  String path, {
+  LocalProcessRunner? run,
+  Duration timeout = const Duration(seconds: 5),
+}) async {
   if (Platform.isWindows) return null;
   try {
     // -P forces one line per filesystem: without it a long device name
     // wraps and shifts every column the parser counts.
-    final result = await (run ?? Process.run)('df', ['-kP', path]);
-    if (result.exitCode != 0) return null;
+    final result = await _withinWallClock<ProcessResult?>(
+      (run ?? Process.run)('df', ['-kP', path]),
+      timeout,
+      null,
+    );
+    if (result == null || result.exitCode != 0) return null;
     final kibibytes = parseDfAvailableKibibytes(result.stdout as String);
     return kibibytes == null ? null : kibibytes * 1024;
   } on Object {
     return null;
   }
+}
+
+/// [probe]'s answer, or [absent] once [limit] has passed or the probe
+/// failed: a probe that cannot answer reads as "absent", never as an
+/// error the enumeration has to survive.
+///
+/// The limit bounds how long a syscall blocked on a dead mount may hold
+/// the caller, which is wall-clock time by definition, so its timer runs
+/// on the root zone: a fake clock (the widget-test binding drives one)
+/// neither advances it nor holds it as pending work, while the real I/O
+/// it guards runs on the real clock either way.
+Future<T> _withinWallClock<T>(Future<T> probe, Duration limit, T absent) {
+  final answer = Completer<T>();
+  final timer = Zone.root.createTimer(limit, () {
+    if (!answer.isCompleted) answer.complete(absent);
+  });
+  probe.then(
+    (value) {
+      timer.cancel();
+      if (!answer.isCompleted) answer.complete(value);
+    },
+    onError: (Object _) {
+      timer.cancel();
+      if (!answer.isCompleted) answer.complete(absent);
+    },
+  );
+  return answer.future;
 }
 
 /// The Available column of `df -k`'s output. The header is dropped and the
