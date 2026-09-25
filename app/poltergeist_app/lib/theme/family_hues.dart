@@ -80,7 +80,7 @@ class FamilyPalette extends ThemeExtension<FamilyPalette> {
     Color(0xFF1F6FD1), // blue
     Color(0xFF00838F), // cyan
     Color(0xFF00796B), // teal
-    Color(0xFF1E8E3E), // green
+    Color(0xFF1B873A), // green
     Color(0xFF9A6700), // yellow
     Color(0xFFC2410C), // orange
     Color(0xFFC62828), // red
