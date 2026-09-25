@@ -529,6 +529,37 @@ void main() {
       expect(s1.maxActiveDownloads, 1);
     });
 
+    test('a copy within one server counts once against its cap', () async {
+      queue = newQueue(
+        serverTransferLimits: const ServerTransferLimits(
+          perServer: TransferConcurrency.fixed(2),
+        ),
+      );
+      for (var i = 0; i < 4; i++) {
+        s1.addFile('/src/f$i.bin', List.filled(4, i));
+      }
+      final gate = Completer<void>();
+      s1.downloadGate = (_) => gate;
+
+      // Counted once per side, a cap of 2 would admit only one of these.
+      final task = enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s1'),
+          rootPaths: ['/src'],
+          destinationDir: '/dst',
+        ),
+      );
+      await pumpUntil(() => task.scanComplete && s1.activeDownloads == 2);
+      await pump();
+      expect(s1.activeDownloads, 2);
+
+      gate.complete();
+      await awaitTaskDone(task);
+      expect(task.state, TransferTaskState.completed);
+      expect(s1.maxActiveDownloads, 2);
+    });
+
     test(
       'a raised cap dispatches at once; a lowered one stops nothing',
       () async {

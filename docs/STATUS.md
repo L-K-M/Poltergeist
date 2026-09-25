@@ -8658,10 +8658,10 @@ the decision and amends 03 §4.3.
   `ServerConfig` (D2), which has no field for it, so the override does
   not sync; the editor says so.
 
-Verification: seven new queue tests cover a cap binding, a capped server
-being passed over, both sides of a server-to-server copy counting, a
-raised cap dispatching at once and a lowered one cancelling nothing, and
-editing and previews staying exempt. The four enforcement tests fail
+Verification: eight new queue tests cover a cap binding, a capped server
+being passed over, both sides of a server-to-server copy counting, a copy
+within one server counting once, a raised cap dispatching at once and a
+lowered one cancelling nothing, and editing and previews staying exempt. The four enforcement tests fail
 with the dispatch check disabled. App tests cover persistence and its
 tolerance of hand-edited values, the controller's ordering (the default
 applies before its write, an override only after its write lands), the

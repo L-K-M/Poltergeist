@@ -380,7 +380,7 @@ void main() {
     await settingsFile.writeAsString(
       '{"transfer.perServerConcurrency":1e999,'
       '"transfer.serverConcurrency":{"a":2.5,"b":-1,"c":"fast","d":3,'
-      '"e":"automatic","f":null,"g":0,"h":1e999}}',
+      '"e":"automatic","f":null,"g":0,"h":1e999,"i":6,"j":1e300}}',
     );
     final preferences = AppPreferences(
       store: SettingsStore(path: settingsFile.path),
@@ -389,9 +389,13 @@ void main() {
       await preferences.loadTransferConcurrency(),
       const TransferConcurrency.automatic(),
     );
+    // A cap at or above the app-wide total never binds, so it reads as the
+    // Automatic it behaves as rather than a number no chip offers.
     expect(await preferences.loadServerTransferConcurrency(), {
       'd': const TransferConcurrency.fixed(3),
       'e': const TransferConcurrency.automatic(),
+      'i': const TransferConcurrency.automatic(),
+      'j': const TransferConcurrency.automatic(),
     });
 
     // A change rewrites only what decodes; the rest is not carried along.

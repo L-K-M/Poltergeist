@@ -257,7 +257,8 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
   /// Files in flight per server, counted against [serverTransferLimits]
   /// the way [_inFlightFiles] counts against the global cap: taken at
   /// dispatch, returned when the file's run settles. A server-to-server
-  /// file counts once on each side.
+  /// file counts once on each side; a copy within one server counts once,
+  /// since it is one file in flight there.
   final Map<String, int> _inFlightByServer = {};
   ServerTransferLimits _serverTransferLimits;
   bool _paused = false;

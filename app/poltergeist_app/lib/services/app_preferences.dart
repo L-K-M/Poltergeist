@@ -4,7 +4,8 @@ import 'package:poltergeist_core/poltergeist_core.dart'
     show
         TransferConcurrency,
         defaultLargeDownloadThresholdBytes,
-        defaultPreviewCacheCapacityBytes;
+        defaultPreviewCacheCapacityBytes,
+        maxGlobalInFlightTransfers;
 
 import 'double_click_action.dart';
 import 'pane_tabs_controller.dart' show NewTabTarget;
@@ -265,10 +266,15 @@ class AppPreferences {
             key: ?_decodeConcurrency(value),
   };
 
-  /// A positive whole number as a fixed cap, null for anything else.
+  /// A positive whole number as a cap, null for anything else. One at or
+  /// above the app-wide total never binds, so it decodes as Automatic: the
+  /// choice it behaves as, and one the popover and the editor can show.
   static TransferConcurrency? _decodeConcurrency(Object? stored) {
     if (stored is! num || !stored.isFinite) return null;
-    if (stored != stored.truncate() || stored < 1) return null;
+    if (stored.truncateToDouble() != stored || stored < 1) return null;
+    if (stored >= maxGlobalInFlightTransfers) {
+      return const TransferConcurrency.automatic();
+    }
     return TransferConcurrency.fixed(stored.toInt());
   }
 
