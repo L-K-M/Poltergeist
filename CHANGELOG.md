@@ -8,6 +8,12 @@
   editor can give it its own number. Browsing, editing, previews and sync
   runs are never held back by it, and while one server is at its limit,
   transfers to other servers go ahead instead of waiting behind it.
+- **Better on phones and tablets.** Local panes on Android open in the
+  app's own documents folder instead of failing on "/~". The inspector
+  starts hidden on touch screens so the panes get the width; the header
+  toggle brings it back. The sidebar's filter field is full height, and
+  compact rows on touch are 40 dp instead of 48.
+
 - **Colour that means something.** Icons get their colour back, and
   each colour means one thing in both Poltergeist and Séance, so you can
   find things by colour before you read them:

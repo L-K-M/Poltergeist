@@ -40,6 +40,7 @@ void main() {
     WidgetTester tester, {
     Size size = const Size(1400, 900),
     SessionState? restored,
+    bool initialInspectorHidden = false,
     double initialInspectorWidth = inspectorDefaultWidth,
     Future<void> Function(double width)? onInspectorWidthChanged,
   }) async {
@@ -54,6 +55,7 @@ void main() {
         home: WorkspaceShell(
           transferQueue: queue,
           restoredSession: restored,
+          initialInspectorHidden: initialInspectorHidden,
           initialInspectorWidth: initialInspectorWidth,
           onInspectorWidthChanged: onInspectorWidthChanged,
         ),
@@ -194,6 +196,29 @@ void main() {
     } finally {
       semantics.dispose();
     }
+  });
+
+  // main.dart seeds this on touch platforms: a tablet starts with the
+  // room for its two panes, and the header toggle brings the inspector.
+  testWidgets('a hidden seed starts without the inspector; the toggle '
+      'brings it', (tester) async {
+    await pumpShell(tester, initialInspectorHidden: true);
+    expect(inspector, findsNothing);
+    expect(inspectorChecked(tester), isFalse);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(inspector, findsOneWidget);
+  });
+
+  testWidgets('a restored session\'s shown inspector wins over a hidden '
+      'seed', (tester) async {
+    await pumpShell(
+      tester,
+      initialInspectorHidden: true,
+      restored: session(inspectorHidden: false),
+    );
+    expect(inspector, findsOneWidget);
   });
 
   testWidgets('a restored session keeps the user\'s hide and tab', (
