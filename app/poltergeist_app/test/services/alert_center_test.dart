@@ -57,6 +57,39 @@ void main() {
     expect(notified, 1);
   });
 
+  test('a dismissed alert returns when its cause recurs', () async {
+    // D16: failures must never hide. Dismissing covers the failure the
+    // user saw; a retry that fails again is a new one.
+    final task = queue.addTask(state: TransferTaskState.failed);
+    await Future<void>.delayed(Duration.zero);
+    center.dismiss(center.alerts.single);
+    expect(center.attentionCount, 0);
+
+    task.state = TransferTaskState.running;
+    queue.emitRefresh();
+    await Future<void>.delayed(Duration.zero);
+    expect(center.alerts, isEmpty);
+
+    task.state = TransferTaskState.failed;
+    queue.emitRefresh();
+    await Future<void>.delayed(Duration.zero);
+    expect(center.alerts.single, isA<TransferFailedAlert>());
+    expect(center.attentionCount, 1);
+  });
+
+  test('a dismissal holds while its cause persists', () async {
+    final task = queue.addTask(state: TransferTaskState.failed);
+    await Future<void>.delayed(Duration.zero);
+    center.dismiss(center.alerts.single);
+
+    // Unrelated queue churn leaves the same failure dismissed.
+    queue.addTask(state: TransferTaskState.running);
+    queue.emitRefresh();
+    await Future<void>.delayed(Duration.zero);
+    expect(task.state, TransferTaskState.failed);
+    expect(center.alerts, isEmpty);
+  });
+
   test('errors sort ahead of info alerts', () async {
     queue.addTask(state: TransferTaskState.paused, wasRestored: true, id: 'r1');
     queue.pauseQueue();

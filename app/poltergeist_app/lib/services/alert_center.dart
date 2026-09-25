@@ -114,7 +114,10 @@ final class UpdateAvailableAlert extends AppAlert {
 /// status notifier, the checkout session, and the update check. It
 /// stores nothing but the session's dismissals, so an alert disappears
 /// the moment its cause resolves (a retried task, a clean upload, a
-/// reconnect) and can never go stale.
+/// reconnect) and can never go stale. A dismissal ends with its cause
+/// too: keys recur (a retried task keeps its id, a server fails
+/// again), and D16 never lets a new failure hide behind an old
+/// dismissal.
 class AlertCenter extends ChangeNotifier {
   AlertCenter({
     required ActivityPanelController activity,
@@ -142,6 +145,10 @@ class AlertCenter extends ChangeNotifier {
   List<AppAlert>? _cache;
 
   void _changed() {
+    if (_dismissed.isNotEmpty) {
+      final live = {for (final alert in _collect()) alert.key};
+      _dismissed.retainAll(live);
+    }
     _cache = null;
     notifyListeners();
   }
@@ -156,14 +163,30 @@ class AlertCenter extends ChangeNotifier {
   /// skipped it would bury it in a tab nobody opens.
   int get attentionCount => alerts.length;
 
-  /// Hides [alert] for this session. An update alert also dismisses the
-  /// check's own banner state so the two surfaces agree.
+  /// Hides [alert] until its cause resolves. An update alert also
+  /// dismisses the check's own banner state so the two surfaces agree.
   void dismiss(AppAlert alert) {
     if (alert is UpdateAvailableAlert) _updates?.dismiss();
     if (_dismissed.add(alert.key)) _changed();
   }
 
   List<AppAlert> _derive() {
+    final visible = [
+      for (final alert in _collect())
+        if (!_dismissed.contains(alert.key)) alert,
+    ];
+    // Stable sort by severity keeps source order inside each band.
+    final ordered = <AppAlert>[
+      for (final severity in AlertSeverity.values)
+        for (final alert in visible)
+          if (alert.severity == severity) alert,
+    ];
+    return List.unmodifiable(ordered);
+  }
+
+  /// Every alert the sources raise right now, dismissed or not, in
+  /// source order.
+  List<AppAlert> _collect() {
     final result = <AppAlert>[];
     for (final task in _activity.tasks) {
       if (task.state == TransferTaskState.failed) {
@@ -202,18 +225,7 @@ class AlertCenter extends ChangeNotifier {
     }
     final update = _updates?.update;
     if (update != null) result.add(UpdateAvailableAlert(update));
-
-    final visible = [
-      for (final alert in result)
-        if (!_dismissed.contains(alert.key)) alert,
-    ];
-    // Stable sort by severity keeps source order inside each band.
-    final ordered = <AppAlert>[
-      for (final severity in AlertSeverity.values)
-        for (final alert in visible)
-          if (alert.severity == severity) alert,
-    ];
-    return List.unmodifiable(ordered);
+    return result;
   }
 
   @override
