@@ -60,6 +60,9 @@ class CompactPaneSwitcher extends StatelessWidget {
         button: true,
         label: l10n.compactPaneSwitcherSemantics(shownName),
         hint: l10n.compactPaneSwitchTooltip(otherName),
+        // The InkWell below is excluded, so the node carries the tap:
+        // without one it is not clickable to TalkBack or Switch Access.
+        onTap: onSwitch,
         excludeSemantics: true,
         child: InkWell(
           key: const ValueKey(CompactKey.paneSwitcher),
