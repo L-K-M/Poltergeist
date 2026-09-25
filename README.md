@@ -1,8 +1,7 @@
 # Poltergeist
 
-A cross-platform two-pane file transfer client — SFTP first — for macOS,
-Windows, and Linux, designed so mobile stays possible. Patterned after the
-great macOS file-transfer apps (Transmit, ForkLift) and built as a sibling
+A cross-platform two-pane SFTP file transfer client for macOS,
+Windows, and Linux, designed so mobile stays possible. Built as a sibling
 of [Séance](https://github.com/L-K-M/Seance).
 
 > [!IMPORTANT]
@@ -12,51 +11,6 @@ of [Séance](https://github.com/L-K-M/Seance).
 
 **Current version:** v<!-- version -->1.0.0<!-- /version --> · [Downloads and first-launch steps](docs/INSTALL.md) · [Releases](https://github.com/L-K-M/Poltergeist/releases)
 
-## Your servers are your business
-
-Poltergeist is open source and free. It has no account to create, no
-telemetry, no analytics, no crash reporting, and no installer bundleware.
-Beyond the servers you deliberately connect or back up to, it phones home
-for exactly one thing: a link-only check that a newer release exists — on
-by default, and one setting away from off. It tells you; you decide;
-nothing auto-installs.
-
-Passwords and secrets Poltergeist saves for you are sealed at rest under a
-master key held in your operating system's keychain — never stored in
-plaintext. With no OS keychain available, it will not save secrets at all
-rather than fall back to something weaker. (Keys you already manage
-yourself — an imported `~/.ssh` identity file — stay yours, where they
-are.) Host keys are pinned on first use and a changed key is a hard stop,
-not a shrug. If you back up your bookmarks, they leave your machine only
-as end-to-end encrypted blobs to a Séance sync server — one you can
-self-host — and the server cannot read them.
-
-There is no paid tier, because there is nothing to gate. Transfer, sync,
-and security are not features you rent.
-
-## What Poltergeist is
-
-- **Two independent panes**, each browsing a local folder or a remote server,
-  with **tabs per pane** and drag-and-drop transfers between them.
-- A **bookmarks sidebar** (ForkLift-style): favorite servers and folders,
-  one click away, with **bookmark backup through Séance's E2E-encrypted sync
-  server**.
-- A **safe, fast, previewable sync feature**: see exactly what would be
-  copied, updated, or deleted before anything happens.
-- An **activity panel** showing live transfers and network operations.
-- A **built-in editor** (shared lineage with Séance's conflict-aware remote
-  editor) plus configurable external editors.
-- The **usability bar is the point**: keyboard-first, fast, predictable, and
-  polished — an app you'd happily use every day.
-
-## Relationship to Séance
-
-Séance is a personal SSH client with a session-scoped SFTP browser, an
-E2E-encrypted sync server, and a hardened remote-edit pipeline. Poltergeist
-inverts the emphasis — files first, terminal nowhere — while reusing Séance's
-proven foundations (SSH/SFTP transport, TOFU host keys, vault, sync protocol,
-editor). Improvements made here are ported back to Séance where they apply;
-the porting policy is part of the plan.
 
 ## Known issues
 

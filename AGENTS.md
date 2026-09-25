@@ -12,6 +12,15 @@ implementation plan live in [docs/plan/](docs/plan/) — start with
 status and the next-steps checklist live in
 [docs/STATUS.md](docs/STATUS.md).
 
+## Relationship to Séance
+
+Séance is a personal SSH client with a session-scoped SFTP browser, an
+E2E-encrypted sync server, and a hardened remote-edit pipeline. Poltergeist
+inverts the emphasis — files first, terminal nowhere — while reusing Séance's
+proven foundations (SSH/SFTP transport, TOFU host keys, vault, sync protocol,
+editor). Improvements made here are ported back to Séance where they apply;
+the porting policy is part of the plan.
+
 ## Repository layout
 
 ```
