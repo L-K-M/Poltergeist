@@ -314,6 +314,15 @@ void main() {
       expect(header('sec:pinned'), findsNothing);
     });
 
+    testWidgets('with every server pinned, SERVERS does not call the '
+        'account empty', (tester) async {
+      catalog.replace([_server('a1', label: 'alpha')]);
+      await pump(tester, pinned: {'a1'});
+      expect(header('sec:pinned'), findsOneWidget);
+      expect(row('a1'), findsOneWidget);
+      expect(find.byKey(const ValueKey('sidebar.servers.empty')), findsNothing);
+    });
+
     testWidgets('the filter reads PINNED first and keeps it on its own', (
       tester,
     ) async {

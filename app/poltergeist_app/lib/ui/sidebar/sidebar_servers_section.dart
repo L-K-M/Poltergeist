@@ -133,9 +133,14 @@ List<Widget> _serversSection(_SidebarData data) {
   }
 
   // Only a loaded store can say "none": mid-load or after a failed read
-  // (FAVORITES carries that error) the empty copy would be a claim.
+  // (FAVORITES carries that error) the empty copy would be a claim. A
+  // pinned server is still the account's, so all of them pinned is not
+  // "none" either.
   final empty =
-      total == 0 && !data.filtering && controller.load == SidebarLoad.ready;
+      sessions.isEmpty &&
+      catalog.isEmpty &&
+      !data.filtering &&
+      controller.load == SidebarLoad.ready;
   if (empty && data.home) {
     body.add(_homeEmptyServers(data));
   } else if (empty) {
