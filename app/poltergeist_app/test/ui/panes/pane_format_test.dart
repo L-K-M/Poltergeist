@@ -169,12 +169,15 @@ void main() {
 
     test('extensions map to their family, case-insensitively', () {
       expect(paneKindCategory(entry('IMG_0001.JPG')), PaneKindCategory.image);
-      expect(paneKindCategory(entry('main.dart')), PaneKindCategory.text);
-      expect(paneKindCategory(entry('notes.md')), PaneKindCategory.text);
+      expect(paneKindCategory(entry('main.dart')), PaneKindCategory.code);
+      expect(paneKindCategory(entry('deploy.sh')), PaneKindCategory.code);
+      expect(paneKindCategory(entry('compose.yml')), PaneKindCategory.code);
+      expect(paneKindCategory(entry('notes.md')), PaneKindCategory.document);
+      expect(paneKindCategory(entry('Report.DOCX')), PaneKindCategory.document);
       expect(paneKindCategory(entry('site.tar.gz')), PaneKindCategory.archive);
       expect(paneKindCategory(entry('manual.pdf')), PaneKindCategory.pdf);
-      expect(paneKindCategory(entry('talk.mp4')), PaneKindCategory.media);
-      expect(paneKindCategory(entry('song.flac')), PaneKindCategory.media);
+      expect(paneKindCategory(entry('talk.mp4')), PaneKindCategory.video);
+      expect(paneKindCategory(entry('song.flac')), PaneKindCategory.audio);
       expect(paneKindCategory(entry('data.bin')), PaneKindCategory.other);
     });
 
@@ -183,7 +186,7 @@ void main() {
       expect(paneKindCategory(entry('Makefile')), PaneKindCategory.other);
       expect(paneKindCategory(entry('trailing.')), PaneKindCategory.other);
       // A dotfile WITH an extension still classifies by it.
-      expect(paneKindCategory(entry('.config.json')), PaneKindCategory.text);
+      expect(paneKindCategory(entry('.config.json')), PaneKindCategory.code);
     });
   });
 }

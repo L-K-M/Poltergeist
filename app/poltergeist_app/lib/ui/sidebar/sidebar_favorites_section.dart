@@ -384,12 +384,13 @@ class _FavoriteRow extends StatelessWidget {
     final view = data.view;
     final open = view.onOpenFavorite;
     final accent = serverAccent(context, ServerTint(named: bookmark.color));
+    final place = favoriteGlyph(bookmark, home: data.localHome);
     final mark = data.list
         ? _HomeDisc(
-            glyph: _favoriteIcon(bookmark),
-            tint: accent?.line ?? _homeFavoriteTint(context, bookmark),
+            glyph: place.glyph,
+            tint: accent?.line ?? FamilyPalette.of(context).glyph(place.hue),
           )
-        : _placeMark(context, _favoriteIcon(bookmark), accent: accent);
+        : _placeMark(context, place, accent: accent);
     final localPath = bookmark.kind == BookmarkKind.localFolder
         ? bookmark.localPath
         : null;
@@ -462,17 +463,6 @@ class _FavoriteRow extends StatelessWidget {
   }
 }
 
-/// A favorite's Home disc tint by kind when it has no colour of its own:
-/// a folder in the browser's folder tint; a workspace or a saved sync —
-/// two places at once — in the secondary role, apart from the servers'.
-Color _homeFavoriteTint(BuildContext context, Bookmark bookmark) {
-  final colors = Theme.of(context).colorScheme;
-  return switch (bookmark.kind) {
-    BookmarkKind.localFolder || BookmarkKind.remotePath => colors.primary,
-    BookmarkKind.workspace || BookmarkKind.savedSync => colors.secondary,
-  };
-}
-
 /// A favorite's second line (D32 §9, D33): where it opens — a folder's
 /// path home-relative, a saved sync's two sides — or, for a workspace
 /// (two panes, no single place), its kind.
@@ -502,16 +492,6 @@ String? _favoriteLine(_SidebarData data, Bookmark bookmark) {
           : _locationLine(data, BookmarkLocation(server: server, path: path));
   }
 }
-
-IconData _favoriteIcon(Bookmark bookmark) => switch (bookmark.kind) {
-  BookmarkKind.localFolder =>
-    bookmark.icon != null
-        ? serverIconData(bookmark.icon)
-        : Icons.folder_outlined,
-  BookmarkKind.remotePath => serverIconData(bookmark.icon),
-  BookmarkKind.workspace => Icons.space_dashboard_outlined,
-  BookmarkKind.savedSync => Icons.sync_alt,
-};
 
 /// A favorite's verbs: open (a workspace replaces both panes, so it has
 /// no pane-target variants — its second verb is the re-capture), then

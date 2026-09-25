@@ -8,6 +8,7 @@ import '../../services/pane_controller.dart';
 import '../../services/preview_session.dart';
 import '../../services/workspace_controller.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/family_hues.dart';
 import '../activity/activity_panel.dart';
 import '../panes/info_panel.dart';
 import '../preview_panel.dart';
@@ -18,6 +19,11 @@ import 'alerts_view.dart';
 const inspectorDefaultWidth = 280.0;
 const inspectorMinWidth = 240.0;
 const inspectorMaxWidth = 440.0;
+
+/// The selected tab's wash: its own hue at this opacity over the
+/// inspector, light enough that the glyph keeps 3:1 on it (pinned by
+/// the family hues test).
+const inspectorTabWashAlpha = 0.16;
 
 /// The preview well's height as a share of the inspector's width,
 /// clamped — a square-ish well at the default width (Transmit's
@@ -140,22 +146,28 @@ class _TabSwitcher extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final chrome = PoltergeistChrome.of(context);
     final colors = Theme.of(context).colorScheme;
+    final palette = FamilyPalette.of(context);
+    // D34: each tab keeps its family hue (Info the places blue,
+    // Transfers the motion cyan, Alerts the attention yellow), and the
+    // selected one lights up in it, its glyph filled on a wash of its
+    // own colour.
     Widget tab(
       InspectorTab value,
       IconData icon,
       IconData selectedIcon,
       String label, {
+      required FamilyHue hue,
       int badge = 0,
       String Function(int count)? announce,
       bool errorBadge = false,
     }) {
       final isSelected = value == selected;
+      final tint = palette.glyph(hue);
       Widget glyph = Icon(
         isSelected ? selectedIcon : icon,
         size: 18,
-        color: isSelected ? colors.primary : chrome.secondaryText,
+        color: tint,
       );
       if (badge > 0) {
         glyph = CornerCountBadge(
@@ -186,7 +198,7 @@ class _TabSwitcher extends StatelessWidget {
               alignment: Alignment.center,
               decoration: isSelected
                   ? BoxDecoration(
-                      color: colors.primary.withValues(alpha: 0.14),
+                      color: tint.withValues(alpha: inspectorTabWashAlpha),
                       borderRadius: BorderRadius.circular(6),
                     )
                   : null,
@@ -207,6 +219,7 @@ class _TabSwitcher extends StatelessWidget {
             Icons.info_outline,
             Icons.info,
             l10n.inspectorTabInfo,
+            hue: FamilyHue.blue,
           ),
           const SizedBox(width: 6),
           tab(
@@ -214,6 +227,7 @@ class _TabSwitcher extends StatelessWidget {
             Icons.swap_vert,
             Icons.swap_vert,
             l10n.inspectorTabTransfers,
+            hue: FamilyHue.cyan,
             badge: liveTransfers,
             announce: l10n.transferCountSemantics,
           ),
@@ -223,6 +237,7 @@ class _TabSwitcher extends StatelessWidget {
             Icons.warning_amber_outlined,
             Icons.warning_amber,
             l10n.inspectorTabAlerts,
+            hue: FamilyHue.yellow,
             badge: alertCount,
             announce: l10n.alertCountSemantics,
             errorBadge: true,

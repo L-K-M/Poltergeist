@@ -12,6 +12,7 @@ import '../../services/preview_session.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
 import '../../theme/app_theme.dart' show isDesktopPlatform;
+import '../../theme/family_hues.dart';
 import '../layout/pane_allocation.dart' show desktopStageBoundary;
 import 'pane_view.dart' show PaneView;
 
@@ -192,7 +193,8 @@ List<RegisteredCommand> buildPaneCommands({
       id: kGoHomeCommandId,
       scope: CommandScope.pane,
       label: (l10n) => l10n.goHomeLabel,
-      icon: Icons.home_outlined,
+      icon: Icons.home,
+      hue: FamilyHue.blue,
       // ⇧⌘H on macOS, Ctrl+Shift+H elsewhere (02 §8.3's table).
       activators: _perPlatform(
         macOS: const [
@@ -213,7 +215,8 @@ List<RegisteredCommand> buildPaneCommands({
       id: kGoToFolderCommandId,
       scope: CommandScope.pane,
       label: (l10n) => l10n.goToFolderLabel,
-      icon: Icons.folder_open_outlined,
+      icon: Icons.folder_open,
+      hue: FamilyHue.blue,
       // ⇧⌘G on macOS, Ctrl+Shift+G elsewhere (02 §8.3's table): opens
       // the same in-bar path editor as `go.editPath`, seeded empty.
       activators: _perPlatform(
@@ -357,7 +360,8 @@ List<RegisteredCommand> buildPaneCommands({
       id: kFileGetInfoCommandId,
       scope: CommandScope.selection,
       label: (l10n) => l10n.fileGetInfoLabel,
-      icon: Icons.info_outline,
+      icon: Icons.info,
+      hue: FamilyHue.blue,
       // ⌘I on macOS, Alt+Enter elsewhere (02 §8.3's table).
       activators: _perPlatform(
         macOS: const [SingleActivator(LogicalKeyboardKey.keyI, meta: true)],
@@ -576,6 +580,7 @@ List<RegisteredCommand> buildPaneCommands({
       scope: CommandScope.app,
       label: (l10n) => l10n.viewToggleActivityPanelLabel,
       icon: Icons.swap_vert,
+      hue: FamilyHue.cyan,
       // ⌥⌘A on macOS, Ctrl+Alt+A elsewhere (02 §8.3's table). Hiding is
       // user intent — the panel un-hides on the first-task edge again
       // (02 §6: rows are the queue's only window, D16).
@@ -637,7 +642,8 @@ List<RegisteredCommand> buildPaneCommands({
       id: kViewToggleSyncBrowsingCommandId,
       scope: CommandScope.app,
       label: (l10n) => l10n.viewToggleSyncBrowsingLabel,
-      icon: Icons.link_outlined,
+      icon: Icons.link,
+      hue: FamilyHue.indigo,
       // ⌥⌘B on macOS, Ctrl+Alt+B elsewhere (02 §8.3's table).
       activators: _perPlatform(
         macOS: const [

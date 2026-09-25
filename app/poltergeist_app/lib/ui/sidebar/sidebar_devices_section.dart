@@ -91,10 +91,10 @@ List<Widget> _thisDeviceSection(_SidebarData data) {
         key: const ValueKey('sidebar.device.thisDevice'),
         mark: data.list
             ? _HomeDisc(
-                glyph: Icons.smartphone_outlined,
-                tint: Theme.of(context).colorScheme.primary,
+                glyph: thisDeviceGlyph.glyph,
+                tint: FamilyPalette.of(context).glyph(thisDeviceGlyph.hue),
               )
-            : _placeMark(context, Icons.smartphone_outlined),
+            : _placeMark(context, thisDeviceGlyph),
         title: label,
         subtitle: subtitle,
         semanticLabel: data.comfortable
@@ -149,6 +149,7 @@ class _DeviceRow extends StatelessWidget {
         : null;
 
     final free = freeSpace;
+    final place = volumeGlyph(volume.kind);
     // A comfortable row spells the free space (or, without it, the
     // place) on its second line; a compact one keeps free space trailing
     // and the path in the tooltip.
@@ -168,10 +169,10 @@ class _DeviceRow extends StatelessWidget {
       dropIndicator: indicator,
       mark: data.list
           ? _HomeDisc(
-              glyph: _iconFor(volume.kind),
-              tint: Theme.of(context).colorScheme.primary,
+              glyph: place.glyph,
+              tint: FamilyPalette.of(context).glyph(place.hue),
             )
-          : _placeMark(context, _iconFor(volume.kind)),
+          : _placeMark(context, place),
       title: volume.name,
       subtitle: subtitle,
       trailingText: comfortable ? null : freeSpace,
@@ -218,13 +219,6 @@ class _DeviceRow extends StatelessWidget {
       builder: row,
     );
   }
-
-  static IconData _iconFor(LocalVolumeKind kind) => switch (kind) {
-    LocalVolumeKind.home => Icons.home_outlined,
-    LocalVolumeKind.root => Icons.computer_outlined,
-    LocalVolumeKind.removable => Icons.usb_outlined,
-    LocalVolumeKind.fixed => Icons.storage_outlined,
-  };
 }
 
 /// Ejects through the source; a refusal says so (a volume in use is the

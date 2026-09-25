@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/registered_command.dart';
 import '../menus/menu_shortcut_hint.dart';
+import '../shell/command_icon.dart';
 import '../shell/shell_commands.dart'
     show
         kFileDeleteCommandId,
@@ -88,7 +89,9 @@ List<Widget> buildPaneContextMenuItems({
 
   Widget row(RegisteredCommand command) {
     final enabled = command.enabled();
-    final icon = command.icon == null ? null : Icon(command.icon, size: 16);
+    final icon = command.icon == null
+        ? null
+        : commandIcon(context, command, size: 16, enabled: enabled);
     final submenu = command.submenuItems;
     if (submenu != null) {
       return SubmenuButton(
@@ -167,7 +170,14 @@ Future<void> showPaneContextSheet(
             for (final command in sections[i])
               ListTile(
                 key: ValueKey('pane.context.${command.id}'),
-                leading: command.icon == null ? null : Icon(command.icon),
+                leading: command.icon == null
+                    ? null
+                    : commandIcon(
+                        sheetContext,
+                        command,
+                        size: 24,
+                        enabled: command.enabled(),
+                      ),
                 title: Text(command.label(l10n)),
                 trailing: command.checked == null
                     ? null

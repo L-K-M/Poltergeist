@@ -11,6 +11,7 @@ import '../services/pane_controller.dart';
 import '../services/preview_session.dart';
 import '../theme/app_theme.dart' show poltergeistMonoTextStyle;
 import 'editor_syntax.dart';
+import 'panes/kind_glyph.dart';
 import 'panes/pane_format.dart';
 
 /// The docked preview panel's width — a fixed-width rail like the Get
@@ -230,11 +231,7 @@ class _PreviewBody extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: ExcludeSemantics(
-                  child: Icon(
-                    _iconFor(session),
-                    size: 20,
-                    color: colors.onSurfaceVariant,
-                  ),
+                  child: kindIcon(context, _kindFor(session), size: 20),
                 ),
               ),
               const SizedBox(width: 8),
@@ -280,30 +277,19 @@ class _PreviewBody extends StatelessWidget {
     );
   }
 
-  /// The preview well's resting state (Transmit's inspector): a large
-  /// kind glyph for folders, unpreviewable kinds, and refusals — the
-  /// Info rows below carry every fact, so the well stays quiet.
-  Widget _kindGlyph(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Center(
-      child: ExcludeSemantics(
-        child: Icon(
-          _iconFor(session),
-          size: 88,
-          color: colors.onSurfaceVariant.withValues(alpha: 0.55),
-        ),
-      ),
-    );
-  }
+  /// The preview well's resting state (Transmit's inspector, the old
+  /// Get Info window's big icon): a large kind glyph in its family hue
+  /// (D34) for folders, unpreviewable kinds, and refusals; the Info
+  /// rows below carry every fact.
+  Widget _kindGlyph(BuildContext context) => Center(
+    child: ExcludeSemantics(
+      child: kindIcon(context, _kindFor(session), size: 88),
+    ),
+  );
 
-  IconData _iconFor(PreviewSession session) {
-    if (session.entry?.isDirectory ?? false) return Icons.folder_outlined;
-    return switch (session.kind) {
-      PreviewKind.text => Icons.description_outlined,
-      PreviewKind.image => Icons.image_outlined,
-      PreviewKind.pdf => Icons.picture_as_pdf_outlined,
-      _ => Icons.insert_drive_file_outlined,
-    };
+  PaneKindCategory _kindFor(PreviewSession session) {
+    final entry = session.entry;
+    return entry == null ? PaneKindCategory.other : paneKindCategory(entry);
   }
 
   Widget _empty(BuildContext context) {

@@ -9,6 +9,7 @@ import '../../services/folder_size.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_permissions.dart';
 import '../../theme/app_theme.dart';
+import 'kind_glyph.dart';
 import 'pane_format.dart';
 
 /// 02 §2.6's Get Info facts, rendered in D32's inspector Info tab (10
@@ -108,21 +109,18 @@ class InfoPanel extends StatelessWidget {
     AppLocalizations l10n,
     RemoteFileEntry? target,
   ) {
-    final colors = Theme.of(context).colorScheme;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 4),
           child: ExcludeSemantics(
-            child: Icon(
-              switch (target?.type) {
-                RemoteFileType.directory => Icons.folder_outlined,
-                RemoteFileType.symbolicLink => Icons.shortcut_outlined,
-                _ => Icons.insert_drive_file_outlined,
-              },
+            child: kindIcon(
+              context,
+              target == null
+                  ? PaneKindCategory.other
+                  : paneKindCategory(target),
               size: 20,
-              color: colors.onSurfaceVariant,
             ),
           ),
         ),

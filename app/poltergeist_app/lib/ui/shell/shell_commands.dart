@@ -14,6 +14,7 @@ import '../../services/pane_tabs_controller.dart';
 import '../../services/registered_command.dart';
 import '../../services/window_full_screen.dart';
 import '../../services/workspace_controller.dart';
+import '../../theme/family_hues.dart';
 import 'delete_confirm_dialog.dart';
 import 'keyboard_shortcuts_dialog.dart';
 import '../top_toast.dart';
@@ -272,7 +273,8 @@ List<RegisteredCommand> buildShellCommands({
       id: kFileNewFolderCommandId,
       scope: CommandScope.pane,
       label: (l10n) => l10n.fileNewFolderLabel,
-      icon: Icons.create_new_folder_outlined,
+      icon: Icons.create_new_folder,
+      hue: FamilyHue.blue,
       activators: _perPlatform(
         macOS: const [
           SingleActivator(LogicalKeyboardKey.keyN, meta: true, shift: true),
@@ -320,7 +322,8 @@ List<RegisteredCommand> buildShellCommands({
       id: kFileDuplicateCommandId,
       scope: CommandScope.selection,
       label: (l10n) => l10n.fileDuplicateLabel,
-      icon: Icons.control_point_duplicate_outlined,
+      icon: Icons.control_point_duplicate,
+      hue: FamilyHue.cyan,
       activators: _perPlatform(
         macOS: const [SingleActivator(LogicalKeyboardKey.keyD, meta: true)],
         other: const [SingleActivator(LogicalKeyboardKey.keyD, control: true)],
@@ -352,7 +355,8 @@ List<RegisteredCommand> buildShellCommands({
           : (defaultTargetPlatform == TargetPlatform.windows
                 ? l10n.fileMoveToRecycleBinLabel
                 : l10n.fileMoveToTrashLabel),
-      icon: Icons.delete_outline,
+      icon: Icons.delete,
+      hue: FamilyHue.red,
       activators: _perPlatform(
         macOS: const [
           SingleActivator(LogicalKeyboardKey.backspace, meta: true),
@@ -376,7 +380,8 @@ List<RegisteredCommand> buildShellCommands({
       id: kFileDeletePermanentlyCommandId,
       scope: CommandScope.selection,
       label: (l10n) => l10n.fileDeletePermanentlyLabel,
-      icon: Icons.delete_forever_outlined,
+      icon: Icons.delete_forever,
+      hue: FamilyHue.red,
       activators: _perPlatform(
         macOS: const [
           SingleActivator(
@@ -474,7 +479,8 @@ List<RegisteredCommand> buildShellCommands({
       id: kViewShowAlertsCommandId,
       scope: CommandScope.app,
       label: (l10n) => l10n.viewShowAlertsLabel,
-      icon: Icons.warning_amber_outlined,
+      icon: Icons.warning_amber,
+      hue: FamilyHue.yellow,
       run: (_) async => workspace.showInspector(InspectorTab.alerts),
       // 10 §8's View menu: Info (80), Transfers (85), Alerts.
       menuPlacement: const CommandMenuPlacement(
@@ -488,7 +494,8 @@ List<RegisteredCommand> buildShellCommands({
       scope: CommandScope.app,
       label: (l10n) => l10n.connectQuickConnectLabel,
       shortLabel: (l10n) => l10n.connectShortLabel,
-      icon: Icons.power_outlined,
+      icon: Icons.power,
+      hue: FamilyHue.green,
       activators: _perPlatform(
         macOS: const [SingleActivator(LogicalKeyboardKey.keyK, meta: true)],
         other: const [SingleActivator(LogicalKeyboardKey.keyK, control: true)],
@@ -536,7 +543,8 @@ List<RegisteredCommand> buildShellCommands({
       id: kSelectionTransferToOtherPaneCommandId,
       scope: CommandScope.selection,
       label: (l10n) => l10n.selectionCopyToOtherPaneLabel,
-      icon: Icons.content_copy_outlined,
+      icon: Icons.content_copy,
+      hue: FamilyHue.cyan,
       // F5 / ⇧⌘C (10 §4). A Mac laptop's F5 is a media key unless Fn is
       // held, so ⇧⌘C leads there: the first chord is the one the header
       // tooltip and the native key equivalent carry. Elsewhere F5 is
@@ -570,7 +578,8 @@ List<RegisteredCommand> buildShellCommands({
       id: kSelectionMoveToOtherPaneCommandId,
       scope: CommandScope.selection,
       label: (l10n) => l10n.selectionMoveToOtherPaneLabel,
-      icon: Icons.drive_file_move_outline,
+      icon: Icons.drive_file_move,
+      hue: FamilyHue.cyan,
       activators: (_) => const [SingleActivator(LogicalKeyboardKey.f6)],
       enabled: () =>
           _canTransfer(workspace, dropDelegate, TransferOperation.move),
@@ -592,7 +601,8 @@ List<RegisteredCommand> buildShellCommands({
         id: kFileDownloadToCommandId,
         scope: CommandScope.selection,
         label: (l10n) => l10n.fileDownloadToLabel,
-        icon: Icons.download_outlined,
+        icon: Icons.download,
+        hue: FamilyHue.cyan,
         enabled: () =>
             dropDelegate() != null && _downloadSource(workspace) != null,
         disabledReason: (l10n) => l10n.commandDisabledDownloadToRemoteOnly,
@@ -629,7 +639,8 @@ List<RegisteredCommand> buildShellCommands({
           TargetPlatform.windows => l10n.fileRevealWindowsLabel,
           _ => l10n.fileRevealLinuxLabel,
         },
-        icon: Icons.folder_open_outlined,
+        icon: Icons.folder_open,
+        hue: FamilyHue.blue,
         enabled: () => _revealTarget(workspace) != null,
         disabledReason: (l10n) => l10n.commandDisabledRevealLocalOnly,
         run: (context) async {
