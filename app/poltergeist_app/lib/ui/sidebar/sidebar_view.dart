@@ -888,11 +888,13 @@ List<SidebarMenuEntry> _openVerbs(
   ],
 ];
 
-/// A server row's one dot and the words for it (10 §5): connected is a
-/// solid green disc, connecting or reconnecting amber, a failure or a
-/// host-key block red, a server that answers the probe but holds no
-/// connection a hollow green ring, and an unknown or idle server paints
-/// nothing. An unreachable probe stays red. [appearance] carries the
+/// A server row's one dot and the words for it (10 §5, D33): connected
+/// is a solid green disc, connecting or reconnecting amber, a failure a
+/// solid red disc, a host-key block the red no-entry dot (a refusal to
+/// act on, never read as a plain failure), a server that answers the
+/// probe but holds no connection a hollow green ring and one that does
+/// not answer a hollow red ring (Séance's reachability marks), and an
+/// unknown or idle server paints nothing. [appearance] carries the
 /// state's words for the row's semantics and tooltip, dot or not.
 @visibleForTesting
 ({ServerIndicatorAppearance appearance, SidebarStatusDot? dot})
@@ -907,14 +909,20 @@ sidebarServerIndicator(
   final dot = switch (appearance.glyph) {
     ServerIndicatorGlyph.connected => SidebarStatusDot(chrome.statusConnected),
     ServerIndicatorGlyph.pending => SidebarStatusDot(chrome.statusConnecting),
-    ServerIndicatorGlyph.failed ||
-    ServerIndicatorGlyph.blocked => SidebarStatusDot(scheme.error),
+    ServerIndicatorGlyph.failed => SidebarStatusDot(scheme.error),
+    ServerIndicatorGlyph.blocked => SidebarStatusDot(
+      scheme.error,
+      style: SidebarDotStyle.blocked,
+    ),
     ServerIndicatorGlyph.probe => switch (probe) {
       ProbeStatus.online => SidebarStatusDot(
         chrome.statusConnected,
         style: SidebarDotStyle.ring,
       ),
-      ProbeStatus.offline => SidebarStatusDot(scheme.error),
+      ProbeStatus.offline => SidebarStatusDot(
+        scheme.error,
+        style: SidebarDotStyle.ring,
+      ),
       ProbeStatus.unknown || null => null,
     },
     ServerIndicatorGlyph.none || ServerIndicatorGlyph.idle => null,

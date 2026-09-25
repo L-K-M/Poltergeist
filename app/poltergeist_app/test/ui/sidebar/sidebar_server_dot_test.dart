@@ -7,9 +7,11 @@ import 'package:poltergeist_app/ui/sidebar/sidebar_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 /// 10 §5's server-row dot, one truth table: connected solid green,
-/// connecting amber, failed or blocked red, reachable-but-idle a green
-/// ring, and nothing at all for unknown or idle — with the state always
-/// in words for the row's semantics and tooltip.
+/// connecting amber, failed solid red, a blocked host key the red
+/// no-entry dot, reachable-but-idle a green ring and unreachable a red
+/// one (D33: three states no longer share one glyph), and nothing at all
+/// for unknown or idle — with the state always in words for the row's
+/// semantics and tooltip.
 void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
 
@@ -64,10 +66,18 @@ void main() {
         );
       });
 
-      test('a failure or a host-key block is red', () {
-        for (final status in [failed, blocked]) {
-          final r = resolve(status: status, probe: ProbeStatus.online);
-          expect(r.dot, SidebarStatusDot(scheme.error));
+      test('a failure is a solid red dot', () {
+        final r = resolve(status: failed, probe: ProbeStatus.online);
+        expect(r.dot, SidebarStatusDot(scheme.error));
+      });
+
+      test('a host-key block is the red no-entry dot, never a failure', () {
+        for (final probe in [null, ...ProbeStatus.values]) {
+          final r = resolve(status: blocked, probe: probe);
+          expect(
+            r.dot,
+            SidebarStatusDot(scheme.error, style: SidebarDotStyle.blocked),
+          );
         }
         expect(resolve(status: blocked).label, l10n.connectionBlockedTitle);
       });
@@ -98,10 +108,15 @@ void main() {
         expect(resolve().dot, isNull);
       });
 
-      test('an unreachable probe stays red', () {
-        final r = resolve(probe: ProbeStatus.offline);
-        expect(r.dot, SidebarStatusDot(scheme.error));
-        expect(r.label, l10n.probeStatusOffline);
+      test('an unreachable probe is a hollow red ring, as in Séance', () {
+        for (final status in [null, idle]) {
+          final r = resolve(status: status, probe: ProbeStatus.offline);
+          expect(
+            r.dot,
+            SidebarStatusDot(scheme.error, style: SidebarDotStyle.ring),
+          );
+          expect(r.label, l10n.probeStatusOffline);
+        }
       });
     });
   }
