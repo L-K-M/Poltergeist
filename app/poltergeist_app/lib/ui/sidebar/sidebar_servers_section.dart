@@ -852,10 +852,12 @@ class _AdhocRow extends StatelessWidget {
     return SidebarRow(
       mark: data.list
           ? _HomeDisc(
-              glyph: Icons.bolt,
-              tint: Theme.of(context).colorScheme.tertiary,
+              glyph: quickConnectSessionGlyph.glyph,
+              tint: FamilyPalette.of(
+                context,
+              ).glyph(quickConnectSessionGlyph.hue),
             )
-          : _placeMark(context, Icons.bolt),
+          : _placeMark(context, quickConnectSessionGlyph),
       status: dot,
       accent: serverAccent(context, ServerTint(named: bookmark.color))?.line,
       markRing: _connectedRing(context, status),

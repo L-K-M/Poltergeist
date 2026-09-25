@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// The height of the titlebar band the empty unified NSToolbar claims on
@@ -5,6 +6,28 @@ import 'package:flutter/material.dart';
 /// macOS `PoltergeistChrome.headerHeight` matches it, so the
 /// traffic lights sit centered on the shell header.
 const double macosToolbarBandHeight = 52;
+
+/// Publishes whether the band is showing to the widgets that lay out
+/// around it. It is gone in full screen, where the runner hides the
+/// toolbar (`MacosToolbarBandChannel`): nothing then claims the top
+/// 52 pt and no traffic lights sit in the window.
+///
+/// Without a scope the band counts as shown, the windowed layout.
+class MacosToolbarBandScope extends InheritedNotifier<ValueListenable<bool>> {
+  const MacosToolbarBandScope({
+    super.key,
+    required ValueListenable<bool> band,
+    required super.child,
+  }) : super(notifier: band);
+
+  /// Whether the band is showing; rebuilds [context] when that changes.
+  static bool visibleOf(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<MacosToolbarBandScope>()
+          ?.notifier
+          ?.value ??
+      true;
+}
 
 /// Reserves the macOS toolbar band for everything the root navigator
 /// shows: pushed routes (the built-in editor), dialogs, sheets, popup
@@ -22,7 +45,8 @@ const double macosToolbarBandHeight = 52;
 ///
 /// The shell takes the band back with [ClaimMacosToolbarBand]: its
 /// header is the one surface meant to draw under it. Other platforms
-/// have no band, so both widgets are no-ops there.
+/// have no band, so both widgets are no-ops there, and so are they on
+/// macOS while [MacosToolbarBandScope] reports the band gone.
 class ReserveMacosToolbarBand extends StatelessWidget {
   const ReserveMacosToolbarBand({super.key, required this.child});
 
@@ -30,8 +54,7 @@ class ReserveMacosToolbarBand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (Theme.of(context).platform != TargetPlatform.macOS) return child;
-    return _shiftTop(context, macosToolbarBandHeight, child);
+    return _shiftTop(context, _bandHeight(context), child);
   }
 }
 
@@ -53,10 +76,18 @@ class ClaimMacosToolbarBand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (Theme.of(context).platform != TargetPlatform.macOS) return child;
-    return _shiftTop(context, -macosToolbarBandHeight, child);
+    return _shiftTop(context, -_bandHeight(context), child);
   }
 }
+
+/// Zero off macOS and in full screen. The [MediaQuery] from [_shiftTop]
+/// stays in the tree either way: dropping it when the band goes would
+/// re-parent the whole app below it and lose its state.
+double _bandHeight(BuildContext context) =>
+    Theme.of(context).platform == TargetPlatform.macOS &&
+        MacosToolbarBandScope.visibleOf(context)
+    ? macosToolbarBandHeight
+    : 0;
 
 Widget _shiftTop(BuildContext context, double delta, Widget child) {
   final data = MediaQuery.of(context);

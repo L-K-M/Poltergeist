@@ -23,8 +23,8 @@ sums job. `v0.*` tags publish as pre-releases automatically.
 2. Once every leg is green, the sums job downloads the full asset set,
    enforces the rehearsal floor (07 §3.2: the APK and the Linux set must
    exist — their absence is a pipeline bug), attaches `SHA256SUMS`, writes
-   the same sums plus the unsupported-platform labels (Android APK and iOS
-   IPA are rehearsal artifacts of the desktop codebase; D29) into the
+   the same sums plus the platform labels (the Android APK's sideload
+   note, D35; the iOS IPA's unsigned, unsupported label, D29) into the
    notes.
 3. Re-downloads every asset and re-checks each digest against
    `SHA256SUMS`, then **publishes** the release — corruption introduced

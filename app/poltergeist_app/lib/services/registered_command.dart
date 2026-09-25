@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../l10n/app_localizations.dart';
+import '../theme/family_hues.dart';
 
 /// Which surface a command acts on (02 §8.1).
 enum CommandScope { app, pane, selection, editor }
@@ -113,6 +114,7 @@ class RegisteredCommand {
     required this.scope,
     required this.label,
     this.icon,
+    this.hue,
     this.enabled = _alwaysEnabled,
     this.disabledReason,
     required this.run,
@@ -140,6 +142,13 @@ class RegisteredCommand {
   /// The icon the toolbar, context menus, and palette render for this
   /// command. A command with a [toolbarPlacement] must carry one.
   final IconData? icon;
+
+  /// The verb's family hue (D34): the toolbar, the context menus, and
+  /// the palette paint [icon] in it while the command is enabled, so a
+  /// red Trash or a blue New Folder is found by colour first, and a
+  /// disabled command drains to grey, the old toolbars' tell. Null keeps
+  /// the neutral ink (navigation, toggles, window chrome).
+  final FamilyHue? hue;
 
   final bool Function() enabled;
 

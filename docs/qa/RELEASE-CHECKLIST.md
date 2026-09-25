@@ -24,7 +24,11 @@ with the QA machine's result and date, and attach the filled copy to the PR.
   Find, Save and Upload buttons, dialog tops, and top-toast actions take
   clicks, while empty band space still drags and double-click zooms
   (the band insets are pinned by `macos_toolbar_band_test.dart`; only
-  the native hit-testing needs a Mac).
+  the native hit-testing needs a Mac). Full screen (green button,
+  ⌃⌘F, and back out): no titlebar strip covers the header; the
+  titlebar only slides in with the menu bar; the header's traffic-light
+  gap closes with the sidebar hidden and returns on exit; the window
+  comes back with its 52 pt band intact.
 - [ ] **Windows** — OWNER MANUAL QA: native titlebar; snap layouts work;
   Flutter-drawn `MenuBar` complete; Alt+F4 quits cleanly with a running
   queue (prevent-close flush prompt).
@@ -32,6 +36,14 @@ with the QA machine's result and date, and attach the filled copy to the PR.
   AppImage both launch; `StartupWMClass` maps the window to the desktop
   entry (the `StartupWMClass=Com.lkm.poltergeist_app` contract itself is
   enforced by `scripts/package-linux.sh` + its test, not manual).
+- [ ] **Android** (D35) — OWNER MANUAL QA on a phone and a tablet: the
+  APK installs per `docs/INSTALL.md` and a later release's APK upgrades
+  it in place with data kept; connect, browse, upload, and download;
+  every back step (selection, sheet, field, folder history, Home, leave)
+  with the predictive-back animation on Android 13+; the keyboard never
+  covers a focused field (IME insets); TalkBack reads Home, rows, and
+  the selection bar. The compact posture's behavior itself is pinned by
+  `test/ui/compact/compact_posture_test.dart`.
 
 ## IME smoke
 
@@ -174,7 +186,7 @@ known-divergent surface.
   11. The console shows no assertion or error from the embedder or the
       runner during any of the above (in particular no "key up without
       key down" after Esc).
-- [ ] OWNER MANUAL QA: the Settings window (D34). On each desktop
+- [ ] OWNER MANUAL QA: the Settings window (D36). On each desktop
   platform: Settings, Back up and sync… and Configure Editors… each open
   one window on General, Sync and Editing; choosing another while it is
   open brings it forward on that tab. A change made there (the update
@@ -187,7 +199,7 @@ known-divergent surface.
   still asks first, on macOS with ⌘Q (the window forwards the request
   to the app). Closing the workspace window takes the Settings window
   with it. On Windows the window stays above the workspace. Linux was
-  run under Xvfb (STATUS D34 section); macOS and Windows are compiled
+  run under Xvfb (STATUS D36 section); macOS and Windows are compiled
   by CI only, so this row is their first run.
 - [ ] OWNER MANUAL QA: theme flip (light/dark) live-restyles listing,
   plan view, and editor; HiDPI scaling at 100 %/150 %/200 % shows no

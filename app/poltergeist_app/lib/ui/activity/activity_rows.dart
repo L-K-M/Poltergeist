@@ -6,6 +6,9 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/activity_panel_controller.dart';
+import '../../services/pane_location.dart';
+import '../../theme/family_hues.dart';
+import '../panes/kind_glyph.dart';
 import '../panes/pane_format.dart';
 import '../server_label_scope.dart';
 import 'activity_format.dart';
@@ -179,7 +182,7 @@ class _TaskRow extends StatelessWidget {
                   size: 18,
                   color: task.state == TransferTaskState.failed
                       ? colors.error
-                      : null,
+                      : FamilyPalette.of(context).glyph(_operationHue(task)),
                 ),
               ),
               Expanded(
@@ -263,6 +266,13 @@ class _TaskRow extends StatelessWidget {
       ],
     );
   }
+
+  /// D34: a delete is destructive red; every other operation moves
+  /// bytes, the motion cyan.
+  static FamilyHue _operationHue(TransferTask task) =>
+      task.operation == TransferOperation.delete
+      ? FamilyHue.red
+      : FamilyHue.cyan;
 
   static IconData _operationIcon(TransferTask task) {
     if (task.operation == TransferOperation.delete) {
@@ -518,10 +528,17 @@ class _ItemSubRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            item.isDirectory
-                ? Icons.folder_outlined
-                : Icons.insert_drive_file_outlined,
+          kindIcon(
+            context,
+            paneKindCategory(
+              RemoteFileEntry(
+                path: item.sourcePath,
+                name: paneLastSegment(item.sourcePath),
+                type: item.isDirectory
+                    ? RemoteFileType.directory
+                    : RemoteFileType.file,
+              ),
+            ),
             size: 16,
           ),
           const SizedBox(width: 6),

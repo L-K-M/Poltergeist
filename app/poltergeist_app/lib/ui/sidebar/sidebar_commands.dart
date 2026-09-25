@@ -8,6 +8,7 @@ import '../../services/quick_connect_address.dart'
 import '../../services/registered_command.dart';
 import '../../services/sidebar_controller.dart';
 import '../../services/workspace_controller.dart';
+import '../../theme/family_hues.dart';
 import '../save_to_servers.dart' show sessionEndpointKey;
 import 'sidebar_facts.dart';
 import 'sidebar_view.dart' show addLocationToFavorites, saveSessionToServers;
@@ -104,7 +105,8 @@ List<RegisteredCommand> buildSidebarVerbCommands({
       id: kFavoriteAddCommandId,
       scope: CommandScope.pane,
       label: (l10n) => l10n.sidebarAddCurrentFolder,
-      icon: Icons.star_outline,
+      icon: Icons.star,
+      hue: FamilyHue.yellow,
       enabled: () {
         final pane = workspace.activeTabController;
         return canAddLocationToFavorites(pane?.location, pane?.remoteBookmark);
@@ -134,7 +136,8 @@ List<RegisteredCommand> buildSidebarVerbCommands({
       id: kConnectSaveToServersCommandId,
       scope: CommandScope.pane,
       label: (l10n) => l10n.sidebarSaveToFavorites,
-      icon: Icons.bookmark_add_outlined,
+      icon: Icons.bookmark_add,
+      hue: FamilyHue.yellow,
       enabled: () => unsavedSession() != null,
       disabledReason: (l10n) => l10n.commandDisabledNoQuickConnect,
       run: (context) async {

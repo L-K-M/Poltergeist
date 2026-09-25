@@ -1329,7 +1329,7 @@ and Séance's root Unlicense.
   docs/macos-accessibility-crash.md). Remove when the engine fixes the
   destruction order.
 
-## Settings window runners (D34)
+## Settings window runners (D36)
 
 Files: `app/poltergeist_app/macos/Runner/SettingsWindow.swift`,
 `app/poltergeist_app/linux/runner/settings_window.{h,cc}`,
@@ -1339,7 +1339,7 @@ Files: `app/poltergeist_app/macos/Runner/SettingsWindow.swift`,
   [Séance #126](https://github.com/L-K-M/Seance/pull/126)
 - Séance commit: 38b7a42 (the PR's head at port time, before it
   merged; re-diff against its merge commit at the next pin bump)
-- Ported: 2026-09-25 (D34)
+- Ported: 2026-09-25 (D36)
 - Divergences: channel names, the entrypoint argument, window titles
   and the view controller class (`PoltergeistFlutterViewController`)
   only. The Linux view is given a transparent background like the app's

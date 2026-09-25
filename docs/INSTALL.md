@@ -3,7 +3,7 @@
 Download Poltergeist only from this repository's
 [Releases page](https://github.com/L-K-M/Poltergeist/releases). The desktop
 builds are unsigned (macOS: ad-hoc), so the first launch on each platform
-takes one extra step — below.
+takes one extra step — below. On Android you sideload the APK.
 
 ## Verify your download first
 
@@ -75,22 +75,39 @@ The `.deb` declares the library; AppImage and tarball users may need to
 install `libsecret-1-0` (Debian/Ubuntu), `libsecret` (Fedora/Arch), or
 equivalent themselves.
 
-## Android and iOS — rehearsal artifacts, not supported
+## Android
 
-Every release also attaches `poltergeist-android.apk` and
-`poltergeist-ios-unsigned.ipa`. These are rehearsal artifacts of the
-desktop codebase: mobile is not a supported v1 target.
+`poltergeist-android.apk` runs on Android 7.0 (API 24) or later. There
+is no Play Store listing; you install the APK yourself:
 
-- The APK is signed with a committed, deliberately public debug-grade
-  key — that is what lets each release's APK upgrade an installed one in
-  place. It also means a matching signature proves nothing about origin:
-  anyone can build a correctly-signed APK, which is why the checksum
-  verification above matters. If the key is ever replaced, existing
-  installs must uninstall and reinstall (Android rejects the signature
-  change) — the release notes will say so.
-- The IPA is unsigned and cannot be installed on any device without a
-  separate re-signing step (AltStore, Sideloadly, or an Xcode free
-  account).
+1. Download the APK and check it against `SHA256SUMS` (on a computer,
+   as above), then copy it to the phone.
+2. Open the APK on the phone. Android asks you to allow installs from
+   the app that opened it (your file manager or browser): allow it, then
+   install. Or, with USB debugging on, run
+   `adb install -r poltergeist-android.apk` from the computer (`-r`
+   replaces an installed copy, keeping its data).
+
+A later release's APK installs over the current one and keeps your
+servers, favorites, and settings.
+
+The APK is signed with a committed, deliberately public debug-grade key.
+That is what lets each release's APK upgrade an installed one in place.
+It also means a matching signature proves nothing about origin: anyone
+can build a correctly-signed APK, which is why the checksum verification
+above matters. If the key is ever replaced, existing installs must
+uninstall and reinstall (Android rejects the signature change), and the
+release notes will say so.
+
+The [README](../README.md#known-issues) lists what the Android build
+does not do yet.
+
+## iOS: unsigned, not supported
+
+Every release also attaches `poltergeist-ios-unsigned.ipa`. It is a
+rehearsal artifact of the codebase, not a supported build: it is
+unsigned and cannot be installed on any device without a separate
+re-signing step (AltStore, Sideloadly, or an Xcode free account).
 
 ## Getting help
 

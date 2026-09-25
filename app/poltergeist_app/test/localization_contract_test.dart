@@ -131,6 +131,16 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'index'",
     "'closed'",
   },
+  // The macOS toolbar band's `poltergeist/window` channel: method names
+  // and a wiring-fault diagnostic that only reaches the runner's reply,
+  // never a rendered surface.
+  'lib/services/macos_toolbar_band_channel.dart': {
+    "'poltergeist/window'",
+    "'isToolbarBandVisible'",
+    "'toolbarBandChanged'",
+    "'BAD_ARGS'",
+    "'toolbarBandChanged needs a bool argument'",
+  },
   // The D15 trash channel server (03 §7.1): Platform.operatingSystem ids
   // and wiring-fault diagnostics that only reach the error reporter,
   // never a rendered surface.
@@ -332,7 +342,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The Settings command id (D21 plumbing) — registered, never rendered.
   'lib/ui/settings/app_settings_command.dart': {"'app.settings'"},
-  // The Settings window's wire (D34): channel names, the argument its
+  // The Settings window's wire (D36): channel names, the argument its
   // engine starts with, and the diagnostics of a malformed or orphaned
   // call — plumbing between two isolates, never rendered. A window that
   // loses the app renders ARB copy instead (settingsWindowUnreachable).
@@ -1344,14 +1354,30 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // The kind-glyph classifier's extension tables, their separator,
     // and the extension dot — file-name machine data, never rendered.
     "'png jpg jpeg gif webp bmp tif tiff heic heif svg ico avif psd raw'",
-    "'txt md markdown rst log csv tsv json yaml yml toml xml html htm css'",
-    "'scss js mjs ts jsx tsx dart py rb go rs java kt swift c h cc cpp hpp'",
+    "'txt md markdown rst log csv tsv rtf doc docx odt pages xls xlsx ods '",
+    "'numbers ppt pptx odp epub'",
+    "'json yaml yml toml xml html htm css scss js mjs ts jsx tsx dart py rb '",
+    "'go rs java kt swift c h cc cpp hpp'",
     "'m mm cs php sh bash zsh fish ps1 bat sql ini conf cfg env lock'",
     "'zip tar gz tgz bz2 xz 7z rar zst lz4 dmg iso deb rpm pkg jar apk'",
-    "'mp3 wav flac aac ogg m4a opus mp4 mov mkv avi webm m4v wmv mpg'",
+    "'mp3 wav flac aac ogg m4a opus'",
+    "'mp4 mov mkv avi webm m4v wmv mpg'",
     "' '",
     "'pdf'",
     "'.'",
+  },
+  // D34's standard-folder table: lowercase folder names matched against
+  // a path's last segment: file-name machine data, never rendered.
+  'lib/ui/place_glyphs.dart': {
+    "'desktop'",
+    "'documents'",
+    "'downloads'",
+    "'pictures'",
+    "'photos'",
+    "'music'",
+    "'movies'",
+    "'videos'",
+    "'applications'",
   },
   // The inspector's widget keys — widget plumbing keyed for tests and
   // the pointer-bounce boundary, never authored copy. '' is the empty

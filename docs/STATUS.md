@@ -7896,6 +7896,37 @@ Deferred: drag-out to Finder (file promises, D14), column resizing and
 per-location sort persistence, free space in the pane header, and the
 Android slices listed under item 33.
 
+## D34 — colour that means something (2026-09-25)
+
+The owner found the glyphs too bland to tell apart and asked for the
+colour-coded buttons of iTunes, Postbox and the old Finder sidebar,
+in both apps. D34 in [plan/00](plan/00-OVERVIEW.md) records the
+vocabulary; 10 §4, §5, §6 and §10 are amended. This is the Poltergeist
+side; Séance carries the same table.
+
+- **The palette.** `lib/theme/family_hues.dart`: twelve `FamilyHue`s,
+  per-theme glyph tints in a `FamilyPalette` theme extension, and a
+  `FamilyHueTile` whose top-lit fill is the same in both themes.
+- **Listing.** `kindGlyph` (`ui/panes/kind_glyph.dart`) is the one
+  kind table for the desktop rows, the phone's kind badges, the info
+  panel, the preview well, Quick Look and the transfer rows (it replaces
+  two copies of the old scheme-role switch). `PaneKindCategory` splits
+  text into document and code, and media into audio and video.
+- **Commands.** `RegisteredCommand.hue`; `commandIcon`
+  (`ui/shell/command_icon.dart`) paints it in the toolbar, the overflow
+  and context menus and the palette while the command is enabled.
+- **Sidebar.** `place_glyphs.dart` holds the device, favorite and
+  standard-folder glyphs; `_placeMark` draws a tile in both densities.
+- **Inspector.** Tabs in blue, cyan and yellow, the selected one on a
+  wash of its hue; alert severities follow.
+- **Tests.** `family_hues_test.dart` (every hue on every chrome surface
+  and row state, on its own wash, and every tile glyph on its fill),
+  `place_glyphs_test.dart`, a toolbar hue test, and the sidebar's tile
+  marks. Captures before and after: `tasks/d34-colour/captures/`
+  (`family_hues_capture_test.dart`, `POLTERGEIST_CAPTURE=1`).
+- **Not verified here:** the running app on macOS, Windows or a phone;
+  the captures are real-font widget renders on Linux.
+
 ## D33 — sidebar density and restored row detail (2026-09-25)
 
 The owner reported that aligning both apps' sidebars on the shared kit
@@ -8507,10 +8538,45 @@ packages/poltergeist_core` is clean, and `poltergeist_core` ran 1542
 passed, 37 skipped, and 2 failed, the root-only chmod checkout tests
 (2 of the passing tests are new). The protocol guard exits 0.
 
-## D34: Settings in its own window (2026-09-25)
+## macOS full screen hides the toolbar band (2026-09-25)
+
+AppKit keeps a window's toolbar visible in full screen in an opaque strip
+of its own, so the empty unified toolbar behind D32 §3's 52 pt band
+covered the shell header. The runner now hides the toolbar on the
+will-enter edge and restores it on will-exit, and reports the switch on
+`poltergeist/window` (`MacosToolbarBandChannel`). While the band is gone
+the header drops its traffic-light inset, and routes, dialogs, and
+toasts drop the band reservation. The reservation's `MediaQuery` stays
+in the tree either way, so the switch keeps the navigator and shell
+state (an earlier draft that unwrapped it rebuilt the whole app).
+
+Verification: `flutter analyze` clean; `macos_toolbar_band_test.dart`
+covers the reservation and the inset in both states and across a live
+switch with a pushed route (both new cases fail with the band ignored);
+`macos_toolbar_band_channel_test.dart` covers the channel. Not verified
+here: the Swift half (no Mac in the container; CI's macOS client leg
+compiles it) and the look on a real display, which the release
+checklist's macOS row now covers.
+
+## D35 — Android is supported (2026-09-25)
+
+Owner-directed (00 D35), effective from the first release after
+v1.0.1, which was tagged before this change and still carries the old
+label. The release notes drop the APK's rehearsal
+label (the IPA keeps its unsigned, unsupported one), `docs/INSTALL.md`
+gains the sideload steps, the README's known issues list open item 33's
+gaps, 07's deferral table splits iOS from Android, and the release
+checklist gains an Android row for the on-device checks. No build or
+signing change: CI and `release.yml` already built and signed the APK.
+Verification: the release workflow test pins the new notes. Not
+verified here: a device or emulator run, and a local APK build (Maven
+Central answered Gradle's dependency fetches with HTTP 429 in this
+container), so CI's android client leg is the build evidence.
+
+## D36: Settings in its own window (2026-09-25)
 
 The owner asked for Settings to open in a window of its own on the
-desktops (D34 records the decision; it amends D13 and D25's parked
+desktops (D36 records the decision; it amends D13 and D25's parked
 multi-window item, and more than one workspace window stays parked).
 
 - **What changed for the user.** On macOS, Linux and Windows the
@@ -8556,7 +8622,7 @@ forwarding, and Windows' owner window staying above the workspace are
 added to the release checklist's needs-a-machine items.
 
 Known limits: the window's size and position are not remembered, and
-with Settings key on macOS the menu's workspace commands still act on
+while the Settings window is focused on macOS the menu's workspace commands still act on
 the workspace window.
 
 Validation: `flutter analyze` is clean; the full app suite passes (2521
@@ -9410,7 +9476,10 @@ settings routing tests).
     progress (transfers stop when Android freezes the backgrounded
     process); and a DocumentsProvider exposing servers to other apps.
     Also unverified until a device run: predictive-back animation, IME
-    insets, and TalkBack over the compact surfaces.
+    insets, and TalkBack over the compact surfaces. **2026-09-25:** D35
+    made Android supported with these slices still open; the README's
+    known issues name them and the release checklist's Android row
+    carries the device checks.
 
 ## Independent audit
 

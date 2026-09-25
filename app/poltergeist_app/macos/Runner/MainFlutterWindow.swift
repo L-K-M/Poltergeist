@@ -20,6 +20,19 @@ class MainFlutterWindow: NSWindow {
   private var filesChannel: FlutterMethodChannel?
   private var quickLookChannel: FlutterMethodChannel?
   private var dragOutChannel: DragOutChannel?
+  private var windowChannel: FlutterMethodChannel?
+
+  /// In full screen, or entering it: set on AppKit's will-enter and
+  /// will-exit edges, so the toolbar and the Flutter layout switch as a
+  /// transition starts rather than after its animation.
+  private var inFullScreen = false
+
+  /// The Dart side installs the unified toolbar after launch (D32 §3),
+  /// possibly after a restored window already entered full screen, so
+  /// every toolbar the window receives takes the current visibility.
+  override var toolbar: NSToolbar? {
+    didSet { toolbar?.isVisible = !inFullScreen }
+  }
 
   /// Settings in a window of its own (SettingsWindow.swift).
   private var settingsWindow: SettingsWindowHost?
@@ -245,6 +258,41 @@ class MainFlutterWindow: NSWindow {
       flutterViewController: macOSWindowUtilsViewController.flutterViewController
     )
 
+    // Full screen (D32 §3): AppKit keeps a window's toolbar permanently
+    // visible in full screen, in an opaque strip of its own above the
+    // content. The empty unified toolbar that gives the windowed titlebar
+    // its 52 pt band would cover the shell header drawn beneath it, so
+    // it hides for the duration and the titlebar only slides in with the
+    // menu bar. `poltergeist/window` tells the Dart side the band is gone
+    // (the header drops its traffic-light inset, routes their band
+    // reservation). Notifications rather than delegate methods, because
+    // window_manager owns the window's delegate. A failed entry is only
+    // reported to that delegate; the next full-screen round trip
+    // resynchronizes.
+    windowChannel = FlutterMethodChannel(
+      name: "poltergeist/window",
+      binaryMessenger: macOSWindowUtilsViewController.flutterViewController.engine.binaryMessenger
+    )
+    windowChannel?.setMethodCallHandler { [weak self] call, result in
+      guard let self, call.method == "isToolbarBandVisible" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      result(!self.inFullScreen)
+    }
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(hideToolbarBandForFullScreen(_:)),
+      name: NSWindow.willEnterFullScreenNotification,
+      object: self
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(showToolbarBandLeavingFullScreen(_:)),
+      name: NSWindow.willExitFullScreenNotification,
+      object: self
+    )
+
     super.awakeFromNib()
   }
 
@@ -254,6 +302,21 @@ class MainFlutterWindow: NSWindow {
   override func close() {
     settingsWindow?.close()
     super.close()
+  }
+
+  @objc private func hideToolbarBandForFullScreen(_ notification: Notification) {
+    setInFullScreen(true)
+  }
+
+  @objc private func showToolbarBandLeavingFullScreen(_ notification: Notification) {
+    setInFullScreen(false)
+  }
+
+  private func setInFullScreen(_ value: Bool) {
+    guard value != inFullScreen else { return }
+    inFullScreen = value
+    toolbar?.isVisible = !value
+    windowChannel?.invokeMethod("toolbarBandChanged", arguments: !value)
   }
 
   /// Orders the panel front over this window, or re-keys the visible

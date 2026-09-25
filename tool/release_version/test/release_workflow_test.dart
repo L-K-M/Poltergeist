@@ -624,8 +624,11 @@ void main() {
 
     expect(complete.uploadLog.readAsStringSync(), contains('SHA256SUMS'));
     final notes = complete.notes.readAsStringSync();
-    expect(notes, contains('rehearsal artifact'));
+    // D35: the APK is a supported build; only the IPA keeps a label.
+    expect(notes, contains('**Android APK**: sideload'));
+    expect(notes, isNot(contains('rehearsal artifact')));
     expect(notes, contains('unsigned'));
+    expect(notes, contains('iOS is not a supported'));
     expect(notes, contains('## SHA256 checksums'));
     expect(notes, contains('$apkHash  poltergeist-android.apk'));
     // The ceremony is gone; its template promises must not return.

@@ -65,14 +65,15 @@ D16 activity panel · D17 editor · D18 security model · D19 trust
 stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
 D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
 permissions · D29 mobile hooks · D30 Séance license · D31 no mounting ·
-D32 inspector workspace · D33 sidebar density · D34 settings
-window
+D32 inspector workspace · D33 sidebar density · D34 colour vocabulary ·
+D35 Android supported · D36 settings window
 
 ### Stack and shape
 
 - **D1 — Flutter/Dart monorepo mirroring Séance.** `packages/` (pure Dart) +
   `app/poltergeist_app` (Flutter). Desktop first — macOS leads the design,
-  Windows and Linux ship from v1.0. iOS/Android are post-v1 (D29). Single
+  Windows and Linux ship from v1.0. Android is supported after v1.0.1
+  (D35); iOS is post-v1 (D29). Single
   window, dual pane, tabs per pane in v1 (D13).
 - **D2 — Code sharing, one call per layer.**
   - `seance_protocol` and `seance_core`: **git dependencies pinned to a
@@ -702,7 +703,53 @@ window
     threshold), its count names "↵ opens the first", "No matches" offers
     Clear filter, and a query drops itself once the rail it filtered is
     empty.
-- **D34 — Settings in its own window (2026-09-25, owner-directed;
+- **D34 — Colour that means something (2026-09-25, owner-directed;
+  amends D11 and 10 §4, §5, §6, §10).** The owner found the chrome's
+  glyphs too bland to tell apart ("I used to like apps better when they
+  had colorful buttons that helped you identify things not just based
+  on location and shape, but also color"), citing iTunes' source list,
+  Postbox's toolbar and the old Finder sidebar. Hue is the one visual
+  channel the eye sorts before it reads, and those apps spent it on
+  *kinds*: every podcast purple, every playlist blue. Binding for both
+  apps:
+  - **One vocabulary, twelve hues.** Blue for places and folders, cyan
+    for motion (transfers, copies, links), teal for saved recipes
+    (workspaces, Séance's snippets), green for go (Connect), yellow for
+    attention (alerts, favorites), orange for code (source files, Git),
+    red for destruction and PDF, pink for images, purple for audio,
+    video and Séance's assistant, indigo for sync, brown for cargo
+    (archives, removable drives), graphite for the neutral rest
+    (documents, disks, navigation). The table lives in
+    `lib/theme/family_hues.dart` here and `lib/family_hues.dart` in
+    Séance, byte-identical, and a hue means the same thing in both.
+  - **Quiet chrome stays quiet.** D11 holds for the surfaces: the slate
+    and Finder-light neutrals, the one accent, the status dots. Colour
+    goes on glyphs that name a kind of thing, never on text, surfaces or
+    state; its only fills are the small ones that carry a glyph (a
+    place's tile, a disc's wash, the open inspector tab's wash). The
+    status dots keep green, amber and red to themselves, and selection
+    keeps the accent (the active selection repaints glyphs on-accent).
+  - **Verbs are coloured and filled; navigation is neither.** A
+    toolbar, context-menu or palette command that declares a hue
+    (`RegisteredCommand.hue`) paints its filled glyph in it while
+    enabled and drains to grey when disabled, so a live verb is told
+    from a dead one at a glance. Back, forward and the panel toggles
+    keep the neutral outline.
+  - **Places lead with a tile.** A sidebar place without a colour of
+    its own wears its hue's tile, lit from the top, in both densities,
+    the silhouette of a server's badge; standard folders directly under
+    home (Desktop, Documents, Downloads, Pictures, Music, Movies,
+    Applications) get their own glyphs. A favorite's own colour still
+    wins.
+  - **Kinds are coloured.** The listing's kind glyphs are the filled
+    faces in their hue, with text split into documents and code and
+    media into audio and video; the info panel, the preview well,
+    Quick Look and the transfer rows use the same table.
+  - **Contrast is pinned.** Every hue holds 3:1 on every chrome surface
+    it can sit on, at rest, hovered and on the neutral selection, and
+    on its own wash; every tile glyph holds 3:1 on both ends of its fill
+    (`family_hues_test.dart`).
+- **D36 — Settings in its own window (2026-09-25, owner-directed;
   amends D13 and D25's multi-window item).** The owner asked for
   Settings to open in a window of its own on the desktops rather than
   over the workspace. Binding for both apps:
@@ -759,8 +806,9 @@ window
     publish, from every `v*` tag: the unsigned/ad-hoc macOS bundle,
     Windows zip, Linux `.deb` + AppImage + bundle, Android APK, and
     unsigned iOS IPA (all already scripted); the mobile product remains
-    post-v1 (D29) — the artifacts merely exist, and the IPA's filename
-    and the release notes label it unsigned and unsupported so no one
+    post-v1 (D29; D35 has since made the APK a supported build, so this
+    now covers the IPA alone) — the artifacts merely exist, and the IPA's
+    filename and the release notes label it unsigned and unsupported so no one
     mistakes an artifact that cannot be installed on any device without
     a separate signing step for a usable build. No paid signing in v1
     (documented first-launch steps).
@@ -832,6 +880,26 @@ window
   `ScopedPathAccess`; the transfer queue is suspendable; no desktop-only
   assumption in `poltergeist_core`/`poltergeist_sync`. The mobile
   constraints memo (07) records what iOS/Android will demand.
+- **D35 — Android is a supported target (2026-09-25, owner-directed;
+  amends D1, D23, and D29 for Android only).** The APK every release
+  already builds becomes a supported build, beside macOS, Windows, and
+  Linux, from the first release after v1.0.1 (whose notes still carry
+  the rehearsal label). Its UI is D32's compact
+  posture (10 §9) below 600 dp and the desktop layout on tablets.
+  - **Distribution is unchanged:** the `poltergeist-android.apk`
+    release asset, sideloaded (no Play Store), signed with the
+    committed public key. That key gives upgrade continuity, not origin
+    assurance, and INSTALL.md says so. The release notes drop the
+    APK's rehearsal label; the IPA keeps its unsigned, unsupported
+    label, since iOS stays post-v1 under D29.
+  - **Supported means shipped with its gaps named.** The slices 10 §9
+    defers (STATUS open item 33) stay open and are listed in the
+    README's known issues until each lands: the local pane is the
+    app's own storage (no all-files access), transfers stop when
+    Android freezes the backgrounded app (no foreground service), and
+    there is no Share, share-to-Poltergeist intent, or DocumentsProvider.
+    The on-device checks automation cannot run (predictive back, IME
+    insets, TalkBack) join the release checklist.
 - **D25 — v2-and-beyond parking lot** (recorded so nobody "helpfully"
   builds them early): true two-way sync with baseline DB; resumable
   transfers (ranged read/write); rsync accelerator; S3/WebDAV behind a

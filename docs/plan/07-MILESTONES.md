@@ -1004,7 +1004,8 @@ Per-milestone invariant check (item 5 of §3.12):
 | FileZilla / WinSCP / Cyberduck importers | v1.x (§3.13, D22) |
 | Deep links between the apps | v1.x (04 §7.1) |
 | Signing, notarization, stores, Flatpak, auto-update | Post-v1, each requires amending D23/D19 (§4) |
-| iOS/Android apps | Post-v1 (D29); constraints memo §5 keeps the door open |
+| iOS app | Post-v1 (D29); constraints memo §5 keeps the door open |
+| Android app | Supported after v1.0.1 (D35); its deferred slices are STATUS open item 33 |
 | Two-way sync + baseline DB | v2+ (D25) |
 | Byte-level transfer resume beyond journal restart | v2+ (D25) |
 | rsync accelerator | v2+ (D25) |
