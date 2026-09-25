@@ -89,7 +89,10 @@ changes how it is presented.
   - pane B
   - the inspector
 - **The header** spans the three columns right of the sidebar. When the
-  sidebar is hidden on macOS it leaves room for the traffic lights.
+  sidebar is hidden on macOS it leaves room for the traffic lights. In
+  macOS full screen the toolbar band and the traffic lights leave the
+  window (the titlebar slides in with the menu bar), so that room and
+  the band's reservation above other surfaces go with them.
 - **No status bar** and **no bottom panel.** Their contents moved:
   - The selection summary moved to the pane's location header.
   - The transfer summary moved to the header activity button and the

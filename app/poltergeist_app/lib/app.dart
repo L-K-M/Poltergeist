@@ -1,6 +1,7 @@
 import 'dart:async' show FutureOr, unawaited;
 import 'dart:ui' show AppExitResponse;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:poltergeist_core/poltergeist_core.dart'
@@ -101,6 +102,7 @@ class PoltergeistApp extends StatefulWidget {
     this.syncEnvironment,
     this.syncTasks,
     this.updateCheck,
+    this.toolbarBand,
   });
 
   final double initialPaneRatio;
@@ -288,6 +290,12 @@ class PoltergeistApp extends StatefulWidget {
   /// `app.settings` for the opt-out toggle. Null leaves both unwired.
   final UpdateCheckController? updateCheck;
 
+  /// Whether the macOS toolbar band is showing (`MacosToolbarBandChannel`
+  /// in production): false in full screen, where the layout drops the
+  /// band's reservation and the traffic-light inset. Null keeps the
+  /// windowed layout.
+  final ValueListenable<bool>? toolbarBand;
+
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator. The session's coordinator and the
   /// [MaterialApp] must share one key: dialogs render on this navigator.
@@ -444,7 +452,12 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       // macOS: every route, dialog, and root-overlay toast keeps its
       // controls below the unified toolbar band, which claims clicks
       // for window drag...
-      builder: (context, child) => ReserveMacosToolbarBand(child: child!),
+      builder: (context, child) {
+        final reserved = ReserveMacosToolbarBand(child: child!);
+        final band = widget.toolbarBand;
+        if (band == null) return reserved;
+        return MacosToolbarBandScope(band: band, child: reserved);
+      },
       // ...except the shell, which draws under the transparent titlebar
       // (the full-size content view), passes its header controls
       // through, and insets itself for the traffic lights, leaving no

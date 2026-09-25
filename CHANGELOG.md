@@ -82,6 +82,9 @@
   asks you to approve its host key before it asks for a password. An
   unreachable server fails without asking for a password at all.
 - **Fixes:**
+  - On a Mac in full screen, the titlebar no longer covers the top of
+    the window. It slides in with the menu bar, as in other apps, and
+    the header uses the room the traffic lights left.
   - Remote panes refresh when a transfer, move or delete lands in the
     folder they show.
   - A file that fails to open no longer disables the rest of its pane.

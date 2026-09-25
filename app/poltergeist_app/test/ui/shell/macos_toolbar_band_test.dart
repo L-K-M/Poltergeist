@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart'
-    show debugDefaultTargetPlatformOverride;
+    show ValueListenable, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:macos_window_utils/widgets/macos_toolbar_passthrough.dart';
@@ -39,6 +39,8 @@ void main() {
     WidgetTester tester,
     TargetPlatform platform, {
     Size size = const Size(1400, 900),
+    ValueListenable<bool>? toolbarBand,
+    bool sidebarHidden = false,
   }) async {
     debugDefaultTargetPlatformOverride = platform;
     tester.view.physicalSize = size;
@@ -63,6 +65,8 @@ void main() {
         bookmarks: bookmarks,
         engineSession: session,
         navigatorKey: navigatorKey,
+        toolbarBand: toolbarBand,
+        initialSidebarHidden: sidebarHidden,
       ),
     );
     await tester.pumpAndSettle();
@@ -202,6 +206,85 @@ void main() {
         ),
         findsOneWidget,
       );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  // Full screen hides the toolbar (MainFlutterWindow.swift), so no band
+  // claims the top of the window and no traffic lights sit in it.
+  testWidgets('macOS full screen: routes and toasts use the top edge', (
+    tester,
+  ) async {
+    try {
+      final band = ValueNotifier(true);
+      addTearDown(band.dispose);
+      final navigator = await pumpApp(
+        tester,
+        TargetPlatform.macOS,
+        toolbarBand: band,
+      );
+      await pushEditorLikeRoute(tester, navigator);
+      expect(
+        tester.getRect(find.byType(BackButton)).top,
+        greaterThanOrEqualTo(macosToolbarBandHeight),
+      );
+
+      // The pushed route survives the switch (the band's MediaQuery
+      // stays in the tree) and moves up into the freed space.
+      band.value = false;
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.byType(BackButton)).top,
+        lessThan(macosToolbarBandHeight),
+      );
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+
+      final context = tester.element(find.byType(HeaderToolbar));
+      showTopToastIn(context, message: 'Moved to Trash');
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.text('Moved to Trash')).top,
+        lessThan(macosToolbarBandHeight),
+      );
+
+      // Leaving full screen brings the reservation back.
+      band.value = true;
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.text('Moved to Trash')).top,
+        greaterThanOrEqualTo(macosToolbarBandHeight),
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('macOS full screen: the header drops the traffic-light room', (
+    tester,
+  ) async {
+    try {
+      final band = ValueNotifier(true);
+      addTearDown(band.dispose);
+      await pumpApp(
+        tester,
+        TargetPlatform.macOS,
+        toolbarBand: band,
+        sidebarHidden: true,
+      );
+      double inset() =>
+          tester.widget<HeaderToolbar>(find.byType(HeaderToolbar)).leadingInset;
+      expect(inset(), greaterThan(0));
+
+      band.value = false;
+      await tester.pump();
+      expect(inset(), 0);
+      expect(tester.getRect(find.byType(HeaderToolbar)).top, 0);
+
+      band.value = true;
+      await tester.pump();
+      expect(inset(), greaterThan(0));
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }

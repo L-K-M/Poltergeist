@@ -8507,6 +8507,26 @@ packages/poltergeist_core` is clean, and `poltergeist_core` ran 1542
 passed, 37 skipped, and 2 failed, the root-only chmod checkout tests
 (2 of the passing tests are new). The protocol guard exits 0.
 
+## macOS full screen hides the toolbar band (2026-09-25)
+
+AppKit keeps a window's toolbar visible in full screen in an opaque strip
+of its own, so the empty unified toolbar behind D32 §3's 52 pt band
+covered the shell header. The runner now hides the toolbar on the
+will-enter edge and restores it on will-exit, and reports the switch on
+`poltergeist/window` (`MacosToolbarBandChannel`). While the band is gone
+the header drops its traffic-light inset, and routes, dialogs, and
+toasts drop the band reservation. The reservation's `MediaQuery` stays
+in the tree either way, so the switch keeps the navigator and shell
+state (an earlier draft that unwrapped it rebuilt the whole app).
+
+Verification: `flutter analyze` clean; `macos_toolbar_band_test.dart`
+covers the reservation and the inset in both states and across a live
+switch with a pushed route (both new cases fail with the band ignored);
+`macos_toolbar_band_channel_test.dart` covers the channel. Not verified
+here: the Swift half (no Mac in the container; CI's macOS client leg
+compiles it) and the look on a real display, which the release
+checklist's macOS row now covers.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
