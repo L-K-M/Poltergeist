@@ -8221,6 +8221,75 @@ timing test under load, a different one each run
 debounced local watch), and each passed when rerun alone. The protocol
 guard exits 0. Not verified here: anything on Windows.
 
+## D14 amendment: OS drag-out, review fixes (2026-09-25)
+
+Two review findings described one race. A row drag that left the
+window and came back over a pane, a tab chip or the sidebar while the
+hand-off was in flight landed an in-app drop and also started the
+native session, so the same items were transferred twice (possibly a
+move). macOS and Linux end the embedder's press with a synthetic
+release before they reply `started`, and it sat at the current
+pointer. A widget test reproduced it: the in-app move was queued and
+the session marked running.
+
+- **Release outside the view.** Every backend now puts that release at
+  the `position` Dart sent, which is outside the view. Linux maps it
+  through the root into the press's window, macOS through the
+  controller's view into window coordinates, and Windows scales it by
+  the view's DPI into client pixels. A request without a position is
+  refused before anything is released.
+- **Held drops.** While the hand-off is in flight, the listing, the tab
+  chips and the sidebar hold a drop of the handed-off payload. It is
+  discarded if the session started and lands if it did not, so a user
+  who let go before the native side looked still gets the drop.
+- **The dragged payload.** Found while fixing the above: the hand-off
+  used the payload of the row's latest build, and rows are built by
+  index, so a listing change mid-drag offered the OS another entry,
+  with move allowed for local items. The pane now keeps the payload
+  the `Draggable` reports when the drag starts.
+- **Lost macOS sessions.** When a press retires a session whose end
+  never came, the Swift side now sends `sessionEnded` (none), so Dart
+  stops labelling OS drags with that payload and claiming same-path
+  foreign drops as its echo.
+
+Verified here:
+- Widget tests: the release-before-reply order lands no in-app drop; a
+  release followed by a refusal still lands in-app; the tab chip and
+  the sidebar hold and release their drops; the hand-off carries what
+  the drag picked up after a listing change. Each failed before its
+  fix. Source contract tests pin the release position on all three
+  backends and the macOS retirement call.
+- Under Xvfb, with a scratch build that delays `startDrag` by 1.5 s:
+  an out-and-back drag over the other pane's folder. With the old
+  Linux release the pane received an in-app drop (held, then
+  discarded); with the new one it received none. Both times the file
+  moved exactly once, through the echo. A drag released outside the
+  window leaves the next click selecting, and an in-app pane-to-pane
+  drag still lands at once.
+- Windows: `drag_out.cpp` passes mingw-w64 g++ 13 and clang syntax
+  checks with no new warnings.
+
+Not verified: the Swift changes are not compiled here, and nothing ran
+on macOS or Windows.
+
+Left open from the same review, as follow-ups: skipping the PNG render
+on macOS (the release no longer depends on the render's timing, and the
+anchor macOS uses comes from it); a per-task Pause on a promise-backed
+Transfers row, which leaves the OS promise waiting; symbolic links and
+flagged names dropped from a multi-item remote drag without a notice;
+folder promises following the download conflict policy while file
+promises never replace; Dart's English diagnostics reaching receivers
+as `NSLocalizedDescriptionKey`; a Linux `gtk_drag_begin` refusal after
+the release, which now ends the in-app drag with no drop rather than
+continuing it; and an explicit Recycle Bin decision for Windows'
+`DROPEFFECT_MOVE`.
+
+Validation, on `eb1226b` (this batch's last code commit): `flutter
+analyze` is clean; the full app suite passes (2393 tests, 13 of them
+new). Core is untouched here: `poltergeist_core` ran 1540 passed, 37
+skipped, and 2 failed, the root-only chmod checkout tests. The protocol
+guard exits 0.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
