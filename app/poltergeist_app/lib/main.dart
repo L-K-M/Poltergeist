@@ -14,12 +14,14 @@ import 'services/bookmark_backup_service.dart';
 import 'services/checkout_session.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/dock_progress.dart';
+import 'services/drag_out_producer.dart';
 import 'services/dynamic_secret_vault.dart';
 import 'services/editor_registry_controller.dart';
 import 'services/engine_session.dart';
 import 'services/file_stores.dart';
 import 'services/identity_audit_log.dart';
 import 'services/identity_file_reader.dart';
+import 'services/os_drag_out.dart' show platformDragOutBackend;
 import 'services/probe_settings_store.dart';
 import 'services/quit_guard.dart';
 import 'services/recent_locations.dart';
@@ -128,12 +130,16 @@ Future<void> main() async {
   final uploadLimit = await preferences.loadUploadLimit();
   final autoClearCompleted =
       await preferences.loadAutoClearCompletedTransfers();
-  // The sidebar's persisted chrome state (02 §1/§4): visibility intent
-  // and the device-local collapsed-group keys. The stage-1 drawer never
-  // lands here — it is recomputed from the window size per launch.
+  // The sidebar's persisted chrome state (02 §1/§4, D33): visibility
+  // intent, the device-local collapsed-group keys, the row density, and
+  // the PINNED shortlist.
+  // The stage-1 drawer never lands here — it is recomputed from the
+  // window size per launch.
   final sidebarHidden = await preferences.loadSidebarHidden();
   final sidebarCollapsedGroups =
       await preferences.loadSidebarCollapsedGroups();
+  final sidebarDensity = await preferences.loadSidebarDensity();
+  final sidebarPinnedServers = await preferences.loadSidebarPinnedServers();
   // 02 §4's reachability probes read and write device-local facts through
   // the same settings.json — one instance shared with the preferences
   // facade so their serialized tails cannot interleave clobbering writes.
@@ -286,6 +292,14 @@ Future<void> main() async {
   final previewProducer = transferQueueSession == null
       ? null
       : QueuePreviewProducer(transferQueueSession.concreteQueue);
+  // OS drag-out (00 D14's 2026-09-25 amendment): a remote file dropped
+  // on Finder is produced straight into the folder the OS gave, over the
+  // same produce hook, as an exclusive hop on its own slot budget (a
+  // many-file drop cannot starve Quick Look). The backend is the
+  // `poltergeist/dragout` channel on the desktop platforms.
+  final dragOutProducer = previewProducer == null
+      ? null
+      : QueueDragOutProducer(previewProducer);
 
   // The managed-checkout pipeline (06 §3, M7): one CheckoutManager over
   // the app-support store, driving every byte through the queue session
@@ -444,8 +458,16 @@ Future<void> main() async {
       onSidebarCollapsedGroupsChanged: (keys) => errorReporter.observe(
         preferences.saveSidebarCollapsedGroups(keys),
       ),
+      initialSidebarDensity: sidebarDensity,
+      onSidebarDensityChanged: (density) =>
+          errorReporter.observe(preferences.saveSidebarDensity(density)),
+      initialSidebarPinnedServers: sidebarPinnedServers,
+      onSidebarPinnedServersChanged: (ids) =>
+          errorReporter.observe(preferences.saveSidebarPinnedServers(ids)),
       previewCache: previewCache,
       previewProducer: previewProducer,
+      dragOutProducer: dragOutProducer,
+      dragOutBackend: platformDragOutBackend(),
       initialPreviewThresholdBytes: previewThreshold,
       onPreviewCacheCapacityChanged:
           preferences.savePreviewCacheCapacityBytes,

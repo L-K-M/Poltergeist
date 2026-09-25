@@ -4,6 +4,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'activity_panel_controller.dart';
 import 'checkout_session.dart';
 import 'connection_status_controller.dart';
+import 'drag_out_controller.dart';
 import 'update_check_controller.dart';
 
 /// How loudly an alert asks for attention (D32 §3's Alerts tab).
@@ -109,6 +110,27 @@ final class UpdateAvailableAlert extends AppAlert {
   AlertSeverity get severity => AlertSeverity.info;
 }
 
+/// A drag-out of a remote item that stopped before any transfer ran
+/// (00 D14's drag-out amendment). A drag-out whose download ran and
+/// failed needs none: its failed Transfers row raises
+/// [TransferFailedAlert].
+final class DragOutAlert extends AppAlert {
+  const DragOutAlert(this.notice);
+
+  final DragOutNotice notice;
+
+  @override
+  String get key => 'dragout:${notice.id}';
+
+  @override
+  AlertSeverity get severity => switch (notice.kind) {
+    DragOutNoticeKind.paused ||
+    DragOutNoticeKind.pausedMidway => AlertSeverity.warning,
+    DragOutNoticeKind.renamed ||
+    DragOutNoticeKind.unavailable => AlertSeverity.error,
+  };
+}
+
 /// D32's alert inbox: a derived, always-current view over the sources
 /// that already own each truth — the queue mirror, the connection
 /// status notifier, the checkout session, and the update check. It
@@ -124,15 +146,18 @@ class AlertCenter extends ChangeNotifier {
     ConnectionStatusController? connections,
     CheckoutSession? checkouts,
     UpdateCheckController? updates,
+    DragOutController? dragOut,
   }) : _activity = activity,
        _connections = connections,
        _checkouts = checkouts,
-       _updates = updates {
+       _updates = updates,
+       _dragOut = dragOut {
     _sources = Listenable.merge([
       activity,
       ?connections,
       ?checkouts,
       ?updates,
+      ?dragOut,
     ])..addListener(_changed);
   }
 
@@ -140,6 +165,7 @@ class AlertCenter extends ChangeNotifier {
   final ConnectionStatusController? _connections;
   final CheckoutSession? _checkouts;
   final UpdateCheckController? _updates;
+  final DragOutController? _dragOut;
   late final Listenable _sources;
   final _dismissed = <String>{};
   List<AppAlert>? _cache;
@@ -221,6 +247,12 @@ class AlertCenter extends ChangeNotifier {
       }
       for (final MapEntry(:key, :value) in counts.entries) {
         result.add(LocalEditsAlert(serverId: key, count: value));
+      }
+    }
+    final dragOut = _dragOut;
+    if (dragOut != null) {
+      for (final notice in dragOut.notices) {
+        result.add(DragOutAlert(notice));
       }
     }
     final update = _updates?.update;

@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:file_picker/file_picker.dart' show FilePicker;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -21,10 +22,13 @@ import '../services/checkout_session.dart';
 import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
 import '../services/double_click_action.dart';
+import '../services/drag_out_controller.dart';
+import '../services/drag_out_producer.dart' show DragOutProducer;
 import '../services/editor_registry_controller.dart';
 import '../services/engine_session.dart';
 import '../services/external_file_opener.dart';
 import '../services/in_app_quick_look.dart';
+import '../services/os_drag_out.dart' show DragOutBackend, NoDragOutBackend;
 import '../services/local_volumes.dart' show LocalVolumeSource;
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
@@ -66,6 +70,7 @@ import 'layout/pane_allocation.dart';
 import 'local_edits_review.dart';
 import 'menus/app_menu_commands.dart';
 import 'menus/app_menu_host.dart';
+import 'panes/drag_out_image.dart';
 import 'panes/open_with_commands.dart';
 import 'panes/pane_commands.dart';
 import 'panes/pane_tabs_view.dart';
@@ -142,8 +147,15 @@ class WorkspaceShell extends StatefulWidget {
     this.onSidebarHiddenSaveError,
     this.initialSidebarCollapsedGroups = const {},
     this.onSidebarCollapsedGroupsChanged,
+    this.initialSidebarDensity = SidebarDensity.comfortable,
+    this.onSidebarDensityChanged,
+    this.initialSidebarPinnedServers = const {},
+    this.onSidebarPinnedServersChanged,
     this.previewCache,
     this.previewProducer,
+    this.dragOutProducer,
+    this.dragOutBackend,
+    this.pickDirectory,
     this.quickLook,
     this.initialPreviewThresholdBytes =
         defaultLargeDownloadThresholdBytes,
@@ -324,6 +336,16 @@ class WorkspaceShell extends StatefulWidget {
   final Set<String> initialSidebarCollapsedGroups;
   final void Function(Set<String> keys)? onSidebarCollapsedGroupsChanged;
 
+  /// The persisted sidebar row density (D33: device-local, comfortable
+  /// by default) and its save sink; null keeps the choice in-process.
+  final SidebarDensity initialSidebarDensity;
+  final void Function(SidebarDensity density)? onSidebarDensityChanged;
+
+  /// The persisted PINNED shortlist (D33: device-local server ids) and
+  /// its save sink; null keeps pins in-process.
+  final Set<String> initialSidebarPinnedServers;
+  final void Function(Set<String> ids)? onSidebarPinnedServersChanged;
+
   /// 06 §5.3's preview cache — the seam the whole preview slice keys
   /// on. Null composes no [PreviewSession]: Space keeps its pre-preview
   /// fallthrough, `file.preview`/`view.togglePreview` stay disabled,
@@ -336,6 +358,21 @@ class WorkspaceShell extends StatefulWidget {
   /// preview local files and cache hits but greying out every remote
   /// Download — honest absence, never a stub.
   final PreviewProducer? previewProducer;
+
+  /// OS drag-out's remote-file seam (00 D14's drag-out amendment):
+  /// null leaves remote rows without file promises (a Linux/Windows
+  /// drag of them shows the Download To… hint instead).
+  final DragOutProducer? dragOutProducer;
+
+  /// The native drag-out backend; null composes the no-op one, so a
+  /// row drag that leaves the window just ends there. Read once at
+  /// mount: the backend owns the channel's callback registration.
+  final DragOutBackend? dragOutBackend;
+
+  /// Download To…'s folder picker, injectable for tests; null picks
+  /// `file_picker`'s native dialog on the desktop platforms (none on
+  /// mobile, where the verb does not register).
+  final DirectoryPicker? pickDirectory;
 
   /// The macOS `QLPreviewPanel` channel (06 §5.1) — injectable for
   /// tests; null binds the real method channel, which answers
@@ -471,6 +508,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// and the update check (10 §3's Alerts tab).
   late final AlertCenter _alerts;
 
+  /// The native folder picker on the desktop platforms, none elsewhere.
+  static DirectoryPicker? _platformDirectoryPicker() {
+    if (kIsWeb) return null;
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.macOS || TargetPlatform.linux || TargetPlatform.windows =>
+        (title) => FilePicker.getDirectoryPath(dialogTitle: title),
+      _ => null,
+    };
+  }
+
+  /// OS drag-out's Dart half: hands pane row drags that leave the
+  /// window to the native session, fulfils remote promises through the
+  /// queue, and reports its refusals to [_alerts].
+  late final DragOutController _dragOut;
+
   /// The region widths (10 §3.1) and the splitter/header focus nodes.
   late double _sidebarWidth;
   late double _inspectorWidth;
@@ -532,11 +584,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
     _connections = _buildConnections();
     _bindFileOps(widget.transferQueue);
+    _dragOut = DragOutController(
+      backend: widget.dragOutBackend ?? const NoDragOutBackend(),
+      files: widget.dragOutProducer,
+      queue: widget.transferQueue,
+      conflictPolicy: () => widget.conflictPolicy ?? ConflictPolicy(),
+      renderImage: renderDragOutImage,
+    );
     _alerts = AlertCenter(
       activity: _activity,
       connections: _connections,
       checkouts: widget.checkoutSession,
       updates: widget.updateCheck,
+      dragOut: _dragOut,
     );
     _sidebar = _buildSidebar();
     _probes = _buildProbes();
@@ -614,6 +674,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         !identical(
           oldWidget.onSidebarCollapsedGroupsChanged,
           widget.onSidebarCollapsedGroupsChanged,
+        ) ||
+        oldWidget.initialSidebarDensity != widget.initialSidebarDensity ||
+        !identical(
+          oldWidget.onSidebarDensityChanged,
+          widget.onSidebarDensityChanged,
+        ) ||
+        !identical(
+          oldWidget.initialSidebarPinnedServers,
+          widget.initialSidebarPinnedServers,
+        ) ||
+        !identical(
+          oldWidget.onSidebarPinnedServersChanged,
+          widget.onSidebarPinnedServersChanged,
         )) {
       _sidebar?.dispose();
       _sidebar = _buildSidebar();
@@ -666,6 +739,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // limits re-apply inside the setter.
       _activity.queue = widget.transferQueue;
       _bindFileOps(widget.transferQueue);
+      _dragOut.queue = widget.transferQueue;
+    }
+    if (!identical(oldWidget.dragOutProducer, widget.dragOutProducer)) {
+      _dragOut.files = widget.dragOutProducer;
     }
     // The settings slice writes the strips' live newTabTarget directly;
     // this sync only covers a parent rebuild with a changed seed, which
@@ -709,6 +786,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _sidebar?.dispose();
     _activity.dispose();
     _alerts.dispose();
+    _dragOut.dispose();
     unawaited(_settledRefresh?.cancel());
     _sidebarSplitterFocus.dispose();
     _inspectorSplitterFocus.dispose();
@@ -750,6 +828,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       store: store,
       initiallyCollapsed: widget.initialSidebarCollapsedGroups,
       onCollapsedChanged: widget.onSidebarCollapsedGroupsChanged,
+      density: widget.initialSidebarDensity,
+      onDensityChanged: widget.onSidebarDensityChanged,
+      initiallyPinned: widget.initialSidebarPinnedServers,
+      onPinnedChanged: widget.onSidebarPinnedServersChanged,
       onBookmarksChanged: _onSidebarBookmarksChanged,
       onBookmarkRemoved: _forwardBookmarkRemoval,
     );
@@ -1398,8 +1480,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           sidebarIsDrawer: () => !_sidebarFits,
           toggleSidebarDrawer: _toggleSidebarDrawer,
         ),
+      // D33's View ▸ Use Compact/Comfortable Sidebar Rows.
+      if (sidebar != null) buildSidebarDensityCommand(sidebar: sidebar),
       // The rail's active-pane verbs (D21): Add Current Folder to
-      // Favorites and Save to Servers… run from the menus too.
+      // Favorites and Save to Favorites… run from the menus too.
       if (workspace != null && sidebar != null)
         ...buildSidebarVerbCommands(sidebar: sidebar, workspace: workspace),
       if (workspace != null)
@@ -1417,6 +1501,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           disconnectServer: widget.engineSession == null
               ? null
               : _disconnectServer,
+          pickDirectory: widget.pickDirectory ?? _platformDirectoryPicker(),
         ),
       // `open-with-external` registers whenever a workspace exists
       // (D21): the Open With ▸ submenu renders disabled rows while no
@@ -1476,7 +1561,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // file.preview's enablement keys off the live surface state too
       // (an open Quick Look / visible panel keeps the verb live).
       ?preview,
-      // Save to Servers… retires once the store carries the endpoint.
+      // Save to Favorites… retires once the store carries the endpoint.
       ?sidebar,
     ]);
 
@@ -1662,6 +1747,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               _cancelPaneRecovery(workspace, tabs.activeTabController),
           bookmarks: widget.bookmarks,
           dropDelegate: dropDelegate,
+          dragOut: _dragOut,
           checkoutSession: widget.checkoutSession,
           onReviewLocalEdits: onReviewLocalEdits,
           onSyncSaveAsFavorite: _saveSyncAsFavorite,
@@ -1867,6 +1953,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               sshImportCommand,
               presentation: SidebarPresentation.home,
             ),
+      homeDensitySwitch: _sidebar == null
+          ? null
+          : SidebarDensityControl(controller: _sidebar!),
       seams: CompactPaneSeams(
         onCancelRecovery: (pane) =>
             unawaited(_cancelPaneRecovery(workspace, pane)),
@@ -1902,9 +1991,6 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final l10n = AppLocalizations.of(context);
     final message = switch (result.outcome) {
       SidebarAddOutcome.favorite => l10n.compactAddedToFavorites(result.label),
-      SidebarAddOutcome.serverLocation => l10n.compactSavedToServers(
-        result.label,
-      ),
       // Already a favorite, or failed: the shared verb has said so.
       SidebarAddOutcome.alreadyFavorite || SidebarAddOutcome.failed => null,
     };
@@ -2130,8 +2216,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
   }
 
-  /// The Connect dialog's one-click servers (D32 §4): the SERVERS rows —
-  /// saved server locations and the shared-account catalog — used most
+  /// The Connect dialog's one-click servers (D32 §4): the rail's servers —
+  /// saved remote favorites and the shared-account catalog — used most
   /// recently first, each opening a new tab exactly as the sidebar's
   /// new-tab open does.
   List<ConnectServerChoice> _connectChoices() {

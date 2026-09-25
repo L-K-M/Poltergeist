@@ -69,6 +69,10 @@ void main() {
     bool withOpen = true,
     bool withManage = true,
     WorkspaceController? workspace,
+    // The one-line rail these tests describe (D33's compact density).
+    SidebarDensity density = SidebarDensity.compact,
+    Set<String> pinned = const {},
+    void Function(Set<String> pinned)? onPinnedChanged,
   }) async {
     tester.view.physicalSize = const Size(600, 1000);
     tester.view.devicePixelRatio = 1;
@@ -76,6 +80,9 @@ void main() {
 
     final controller = SidebarController(
       store: store,
+      density: density,
+      initiallyPinned: pinned,
+      onPinnedChanged: onPinnedChanged,
       onCollapsedChanged: (_) {},
     );
     addTearDown(controller.dispose);
@@ -136,14 +143,30 @@ void main() {
     deletes = [];
   });
 
-  testWidgets('no catalog and no saved server renders the empty SERVERS', (
+  testWidgets('no catalog renders SERVERS for live sessions only', (
     tester,
   ) async {
     await pump(tester, withCatalog: false);
     expect(find.text('SERVERS'), findsOneWidget);
-    expect(find.textContaining('No servers yet'), findsOneWidget);
+    expect(
+      find.textContaining('Quick Connect sessions show here'),
+      findsOneWidget,
+    );
     // The retired section title never renders.
     expect(find.text('Séance servers'), findsNothing);
+  });
+
+  testWidgets('an empty catalog says the account has no servers yet', (
+    tester,
+  ) async {
+    await pump(tester);
+    expect(
+      find.text(
+        'No servers on this account yet. Add one in Séance and sync to '
+        'see it here.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('catalog servers join SERVERS, grouped by the Séance rules', (
@@ -167,7 +190,10 @@ void main() {
     expect(find.text('beta'), findsOneWidget);
     // The endpoint is the tooltip now (one-line rows, 10 §5).
     expect(find.text('deploy@z1.example.com:22'), findsNothing);
-    expect(find.byTooltip('deploy@z1.example.com:22'), findsOneWidget);
+    expect(
+      find.byTooltip('deploy@z1.example.com:22\nFrom your Séance account'),
+      findsOneWidget,
+    );
     // A coloured or emoji server keeps its Séance badge.
     expect(
       find.descendant(of: row('m1'), matching: find.byType(ServerBadge)),
@@ -175,9 +201,8 @@ void main() {
     );
   });
 
-  testWidgets('a saved server and a catalog server share one group row', (
-    tester,
-  ) async {
+  testWidgets('a remote favorite files under FAVORITES, apart from the '
+      'catalog group of the same name', (tester) async {
     final now = DateTime.utc(2026, 10, 1);
     store.bookmarks = [
       Bookmark(
@@ -199,11 +224,193 @@ void main() {
       ),
     ];
     catalog.replace([_server('a1', label: 'alpha', group: 'prod')]);
-    await pump(tester);
+    final controller = await pump(tester);
 
+    // Two groups: the bookmark's under FAVORITES, the account's under
+    // SERVERS, each folding on its own namespaced key.
     expect(find.text('Prod'), findsOneWidget);
+    expect(find.text('prod'), findsOneWidget);
+    final servers = tester
+        .getTopLeft(find.byKey(const ValueKey('sidebar.section.sec:servers')))
+        .dy;
+    expect(tester.getTopLeft(find.text('saved-web')).dy, lessThan(servers));
+    expect(tester.getTopLeft(find.text('alpha')).dy, greaterThan(servers));
+
+    await tester.tap(find.byKey(const ValueKey('sidebar.section.srv:prod')));
+    await tester.pumpAndSettle();
+    expect(controller.isCollapsed('srv:prod'), isTrue);
+    expect(find.text('alpha'), findsNothing);
     expect(find.text('saved-web'), findsOneWidget);
-    expect(find.text('alpha'), findsOneWidget);
+  });
+
+  group('PINNED', () {
+    Finder header(String key) => find.byKey(ValueKey('sidebar.section.$key'));
+
+    testWidgets('nothing pinned draws no PINNED section', (tester) async {
+      catalog.replace([_server('a1', group: 'Prod')]);
+      await pump(tester);
+      expect(find.text('PINNED'), findsNothing);
+      expect(header('sec:pinned'), findsNothing);
+    });
+
+    testWidgets('Pin to top moves a server above SERVERS, out of its group; '
+        'Unpin files it back', (tester) async {
+      catalog.replace([
+        _server('a1', label: 'alpha', group: 'Prod'),
+        _server('b1', label: 'beta', group: 'Prod'),
+        _server('c1', label: 'gamma'),
+      ]);
+      final writes = <Set<String>>[];
+      final controller = await pump(tester, onPinnedChanged: writes.add);
+
+      await tester.tap(row('a1'), buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Pin to top'));
+      await tester.pumpAndSettle();
+
+      expect(writes, [
+        {'a1'},
+      ]);
+      expect(controller.isPinned('a1'), isTrue);
+      // PINNED leads the rail (D33), above SERVERS.
+      final pinnedY = tester.getTopLeft(header('sec:pinned')).dy;
+      final serversY = tester.getTopLeft(header('sec:servers')).dy;
+      final alphaY = tester.getTopLeft(row('a1')).dy;
+      expect(pinnedY, lessThan(alphaY));
+      expect(alphaY, lessThan(serversY));
+      // One row, not two: the pinned server leaves Prod, whose count
+      // follows; SERVERS counts what it still lists.
+      expect(row('a1'), findsOneWidget);
+      final prod = tester.widget<SidebarSectionHeader>(
+        find.ancestor(
+          of: header('srv:prod'),
+          matching: find.byType(SidebarSectionHeader),
+        ),
+      );
+      expect(prod.count, 1);
+      final servers = tester.widget<SidebarSectionHeader>(
+        find.ancestor(
+          of: header('sec:servers'),
+          matching: find.byType(SidebarSectionHeader),
+        ),
+      );
+      expect(servers.count, 2);
+
+      await tester.tap(row('a1'), buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Unpin'));
+      await tester.pumpAndSettle();
+
+      expect(writes.last, isEmpty);
+      expect(header('sec:pinned'), findsNothing);
+      expect(tester.getTopLeft(row('a1')).dy, greaterThan(serversY - 1));
+    });
+
+    testWidgets('a pin for a server no longer listed draws nothing', (
+      tester,
+    ) async {
+      catalog.replace([_server('a1')]);
+      await pump(tester, pinned: {'gone'});
+      expect(header('sec:pinned'), findsNothing);
+    });
+
+    testWidgets('with every server pinned, SERVERS does not call the '
+        'account empty', (tester) async {
+      catalog.replace([_server('a1', label: 'alpha')]);
+      await pump(tester, pinned: {'a1'});
+      expect(header('sec:pinned'), findsOneWidget);
+      expect(row('a1'), findsOneWidget);
+      expect(find.byKey(const ValueKey('sidebar.servers.empty')), findsNothing);
+    });
+
+    testWidgets('the filter reads PINNED first and keeps it on its own', (
+      tester,
+    ) async {
+      catalog.replace([
+        _server('a1', label: 'alpha one'),
+        _server('a2', label: 'alpha two'),
+        _server('b1', label: 'beta'),
+      ]);
+      final controller = await pump(tester, pinned: {'a2'});
+      controller.requestFilter();
+      await tester.pumpAndSettle();
+      final field = find.byKey(const ValueKey('sidebar.filter.field'));
+
+      // Rail order: the pinned match is the first one Enter opens.
+      await tester.enterText(field, 'alpha');
+      await tester.pumpAndSettle();
+      await tester.testTextInput.receiveAction(TextInputAction.go);
+      await tester.pumpAndSettle();
+      expect(opens.single.$1.id, 'a2');
+
+      // Only a pinned server matches: PINNED stays, SERVERS goes.
+      await tester.enterText(field, 'two');
+      await tester.pumpAndSettle();
+      expect(row('a2'), findsOneWidget);
+      expect(header('sec:pinned'), findsOneWidget);
+      expect(header('sec:servers'), findsNothing);
+    });
+
+    testWidgets('PINNED mixes account servers and remote favorites in one '
+        'order, by label whatever the case', (tester) async {
+      final now = DateTime.utc(2026, 10, 1);
+      Bookmark favorite(String id, String label) => Bookmark(
+        id: id,
+        kind: BookmarkKind.remotePath,
+        label: label,
+        server: BookmarkServerRef(
+          identity: EmbeddedHostIdentity(
+            host: '$id.example.com',
+            port: 22,
+            username: 'deploy',
+            authMethod: AuthMethod.agent,
+          ),
+        ),
+        sortKey: 'mm',
+        createdAt: now,
+        updatedAt: now,
+      );
+      store.bookmarks = [favorite('b1', 'bravo'), favorite('c1', 'Charlie')];
+      catalog.replace([
+        _server('a1', label: 'alpha'),
+        _server('d1', label: 'Delta'),
+        _server('e1', label: 'echo'),
+      ]);
+      await pump(tester, pinned: {'a1', 'b1', 'c1', 'd1'});
+
+      double y(Finder finder) => tester.getTopLeft(finder).dy;
+      Finder favoriteRow(String id) =>
+          find.byKey(ValueKey('sidebar.favorite.$id'));
+      final ys = [
+        y(header('sec:pinned')),
+        y(row('a1')),
+        y(favoriteRow('b1')),
+        y(favoriteRow('c1')),
+        y(row('d1')),
+        y(header('sec:favorites')),
+        y(header('sec:servers')),
+        y(row('e1')),
+      ];
+      expect(ys, orderedEquals([...ys]..sort()));
+      final pinned = tester.widget<SidebarSectionHeader>(
+        find.ancestor(
+          of: header('sec:pinned'),
+          matching: find.byType(SidebarSectionHeader),
+        ),
+      );
+      expect(pinned.count, 4);
+    });
+
+    testWidgets('PINNED folds under its own key', (tester) async {
+      catalog.replace([_server('a1'), _server('b1')]);
+      final controller = await pump(tester, pinned: {'a1'});
+
+      await tester.tap(header('sec:pinned'));
+      await tester.pumpAndSettle();
+      expect(controller.isCollapsed('sec:pinned'), isTrue);
+      expect(row('a1'), findsNothing);
+      expect(row('b1'), findsOneWidget);
+    });
   });
 
   testWidgets('the section and its groups collapse under srv: keys', (
@@ -261,16 +468,16 @@ void main() {
     expect(opens.single.$2, SidebarOpenAction.oppositePane);
   });
 
-  testWidgets('the filter field appears at eight servers and filters', (
+  testWidgets('the filter field appears at five servers and filters', (
     tester,
   ) async {
     catalog.replace([
       _server('a1', label: 'alpha'),
       _server('a2', label: 'alpine'),
-      for (final id in ['b1', 'c1', 'd1', 'e1', 'f1']) _server(id),
+      for (final id in ['b1', 'c1']) _server(id),
     ]);
     await pump(tester);
-    // Seven: still chrome (10 §5's threshold is eight).
+    // Four: still chrome (the threshold is five again, D33).
     expect(find.byType(TextField), findsNothing);
 
     catalog.replace([...catalog.servers, _server('g1')]);
@@ -283,7 +490,7 @@ void main() {
     expect(find.text('alpha'), findsOneWidget);
     expect(find.text('alpine'), findsOneWidget);
     expect(find.text('label-b1'), findsNothing);
-    expect(find.text('2 of 8'), findsOneWidget);
+    expect(find.text('2 of 5 · ↵ opens the first'), findsOneWidget);
 
     await tester.testTextInput.receiveAction(TextInputAction.go);
     await tester.pumpAndSettle();
@@ -344,6 +551,101 @@ void main() {
     expect(sidebarRow().selected, isTrue);
   });
 
+  testWidgets('a folded account group shows the live server it hides', (
+    tester,
+  ) async {
+    final lanes = controller_test.FakePaneLanes();
+    final left = PaneController(paneTabId: 'pane.left.tab1', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right.tab1', lanes: lanes);
+    final workspace = WorkspaceController(
+      left: testPaneStrip(left),
+      right: testPaneStrip(right),
+    );
+    addTearDown(workspace.dispose);
+    catalog.replace([_server('s1', group: 'Prod'), _server('s2')]);
+    final controller = await pump(tester, workspace: workspace);
+    final now = DateTime.utc(2026, 10, 1);
+    await left.connectRemote(
+      Bookmark(
+        id: 's1',
+        kind: BookmarkKind.remotePath,
+        label: 'label-s1',
+        server: const BookmarkServerRef(serverConfigId: 's1'),
+        sortKey: '',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      resolvedConfig: catalog.byId('s1'),
+    );
+    await tester.pumpAndSettle();
+    SidebarSectionHeader header(String key) =>
+        tester.widget<SidebarSectionHeader>(
+          find.ancestor(
+            of: find.byKey(ValueKey('sidebar.section.$key')),
+            matching: find.byType(SidebarSectionHeader),
+          ),
+        );
+    final row = tester.widget<SidebarRow>(
+      find.descendant(
+        of: find.byKey(const ValueKey('sidebar.catalog.row.s1')),
+        matching: find.byType(SidebarRow),
+      ),
+    );
+    expect(header('srv:prod').status, isNull);
+
+    controller.toggleCollapsed('srv:prod');
+    await tester.pumpAndSettle();
+    expect(header('srv:prod').status, row.status);
+    controller.toggleCollapsed('sec:servers');
+    await tester.pumpAndSettle();
+    expect(header('sec:servers').status, row.status);
+  });
+
+  testWidgets('an account server says it comes from the Séance account', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final now = DateTime.utc(2026, 10, 1);
+    store.bookmarks = [
+      Bookmark(
+        id: 'b1',
+        kind: BookmarkKind.remotePath,
+        label: 'saved-web',
+        server: BookmarkServerRef(
+          identity: EmbeddedHostIdentity(
+            host: 'web.example.com',
+            port: 22,
+            username: 'deploy',
+            authMethod: AuthMethod.agent,
+          ),
+        ),
+        sortKey: 'mm',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+    catalog.replace([_server('s1', label: 'alpha')]);
+    await pump(tester);
+    SidebarRow sidebarRow(Finder finder) => tester.widget<SidebarRow>(
+      find.descendant(of: finder, matching: find.byType(SidebarRow)),
+    );
+
+    final account = sidebarRow(row('s1'));
+    expect(account.trailingIcon, Icons.cloud_outlined);
+    expect(account.tooltip, contains('From your Séance account'));
+    expect(
+      find.bySemanticsLabel(
+        'alpha, deploy@s1.example.com, From your Séance account',
+      ),
+      findsOneWidget,
+    );
+    // A bookmark of this device's own carries no such mark.
+    final saved = sidebarRow(find.byKey(const ValueKey('sidebar.favorite.b1')));
+    expect(saved.trailingIcon, isNull);
+    expect(saved.tooltip, isNot(contains('Séance account')));
+    semantics.dispose();
+  });
+
   testWidgets('null open callback renders non-activatable rows', (
     tester,
   ) async {
@@ -375,6 +677,40 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(add);
     expect(addCalls, 1);
+  });
+
+  // Moved here with the account's servers (D33): SERVERS' "+" header now
+  // sits over catalog rows.
+  testWidgets('the arrows and Tab get past the SERVERS header and its +', (
+    tester,
+  ) async {
+    catalog.replace([_server('a1', label: 'a'), _server('b1', label: 'b')]);
+    await pump(tester);
+    Future<void> press(LogicalKeyboardKey key) async {
+      await tester.sendKeyEvent(key);
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(row('a1'));
+    await tester.pumpAndSettle();
+    opens.clear();
+
+    // Up lands on the header (its "+" drawn for the keyboard); Down
+    // comes straight back to the row rather than bouncing off the "+".
+    await press(LogicalKeyboardKey.arrowUp);
+    await press(LogicalKeyboardKey.arrowDown);
+    await press(LogicalKeyboardKey.enter);
+    expect(opens.single.$1.id, 'a1');
+    opens.clear();
+
+    // Tab takes the header's "+" as a stop of its own, then the row.
+    await press(LogicalKeyboardKey.arrowUp);
+    await press(LogicalKeyboardKey.tab);
+    await press(LogicalKeyboardKey.enter);
+    expect(addCalls, 1);
+    await press(LogicalKeyboardKey.tab);
+    await press(LogicalKeyboardKey.enter);
+    expect(opens.single.$1.id, 'a1');
   });
 
   testWidgets('the row menu offers and fires the management verbs', (

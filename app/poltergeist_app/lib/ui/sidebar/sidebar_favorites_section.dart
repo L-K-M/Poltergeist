@@ -1,13 +1,21 @@
 part of 'sidebar_view.dart';
 
-bool _isFavoriteKind(Bookmark bookmark) =>
-    bookmark.kind != BookmarkKind.remotePath;
+/// FAVORITES takes every bookmark kind (10 §5, D33), so a drop of any
+/// bookmark reorders or refiles there.
+bool _anyBookmark(Bookmark bookmark) => true;
 
-/// FAVORITES (10 §5): local folders, workspaces, and saved syncs. Loose
-/// favorites first, then each named group as a nested disclosure row
-/// with its members indented. The empty state offers Desktop, Documents,
-/// and Downloads as one click — never seeded silently, because favorites
-/// sync to other devices.
+/// FAVORITES (10 §5, D33): every bookmark kind (local folders, remote
+/// locations, workspaces, and saved syncs) in the store's one user
+/// order. Loose favorites first, then each named group as a nested
+/// disclosure row with its members indented, a group holding any mix of
+/// kinds. A pinned remote favorite lists in PINNED instead, and its
+/// group counts it no longer; a group left with nothing to show draws
+/// no header. Drops still resolve against the store by id, so a hidden
+/// pinned member between two rows only keeps its place. The empty
+/// state offers Desktop, Documents, and Downloads as one click (never
+/// seeded silently, because favorites sync to other devices) and the
+/// ssh_config import, whose hosts land here; it waits for a store that
+/// holds no favorite at all, pinned or not.
 List<Widget> _favoritesSection(_SidebarData data) {
   final l10n = data.l10n;
   final view = data.view;
@@ -17,7 +25,12 @@ List<Widget> _favoritesSection(_SidebarData data) {
 
   final body = <Widget>[];
   var count = 0;
+  var pinned = 0;
   final sections = controller.sections;
+  // Remote favorites out of view without a drawn group to speak for
+  // them (the filter hid them, or their whole group): the section's
+  // header shows their live state (D33).
+  final hiddenLoose = <Bookmark>[];
 
   final loading =
       (controller.load == SidebarLoad.idle ||
@@ -59,17 +72,22 @@ List<Widget> _favoritesSection(_SidebarData data) {
     // that hold nothing yet.
     final groups = <({String name, String key, List<Bookmark> members})>[];
     for (final section in sections) {
-      final members = section.bookmarks.where(_isFavoriteKind).toList();
+      final members = [
+        for (final bookmark in section.bookmarks)
+          if (!_pinnedFavorite(data, bookmark)) bookmark,
+      ];
+      pinned += section.bookmarks.length - members.length;
       if (section.name == null) {
         count += members.length;
         for (final bookmark in members) {
           if (_favoriteShows(data, bookmark)) {
             body.add(_favoriteRow(data, bookmark, group: null, depth: 0));
+          } else {
+            hiddenLoose.add(bookmark);
           }
         }
         continue;
       }
-      // A group that files only servers belongs to SERVERS.
       if (members.isEmpty) continue;
       groups.add((name: section.name!, key: section.key, members: members));
     }
@@ -83,13 +101,24 @@ List<Widget> _favoritesSection(_SidebarData data) {
     for (final group in groups) {
       count += group.members.length;
       final collapseKey = SidebarCollapseKeys.favoriteGroup(group.key);
-      final rows = [
-        for (final bookmark in group.members)
-          if (_favoriteShows(data, bookmark))
-            _favoriteRow(data, bookmark, group: group.name, depth: 1),
-      ];
-      if (data.filtering && rows.isEmpty) continue;
+      final rows = <Widget>[];
+      final filtered = <Bookmark>[];
+      for (final bookmark in group.members) {
+        if (_favoriteShows(data, bookmark)) {
+          rows.add(_favoriteRow(data, bookmark, group: group.name, depth: 1));
+        } else {
+          filtered.add(bookmark);
+        }
+      }
+      if (data.filtering && rows.isEmpty) {
+        hiddenLoose.addAll(filtered);
+        continue;
+      }
       final collapsed = data.collapsed(collapseKey);
+      final hiddenDot = _hiddenLiveDot(
+        data,
+        _favoriteStatuses(data, collapsed ? group.members : filtered),
+      );
       body.add(
         _SidebarDropZone(
           key: ValueKey('sidebar.group.$collapseKey'),
@@ -98,7 +127,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
                 view,
                 payload,
                 group: group.name,
-                accepts: _isFavoriteKind,
+                accepts: _anyBookmark,
               ) ??
               _addFavoritePlan(
                 context,
@@ -113,6 +142,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
             title: group.name,
             count: group.members.length,
             collapsed: collapsed,
+            status: hiddenDot,
             dropHighlight: indicator != SidebarDropIndicator.none,
             onToggle: () => controller.toggleCollapsed(collapseKey),
           ),
@@ -133,14 +163,31 @@ List<Widget> _favoritesSection(_SidebarData data) {
       }
     }
 
-    if (count == 0 && controller.pendingGroups.isEmpty && !data.filtering) {
+    if (count == 0 &&
+        pinned == 0 &&
+        controller.pendingGroups.isEmpty &&
+        !data.filtering) {
       body.add(data.home ? _homeEmptyFavorites(data) : _emptyFavorites(data));
     }
   }
 
-  if (data.filtering && body.isEmpty) return const [];
-
   final collapsed = data.collapsed(sectionKey);
+  final hiddenDot = _hiddenLiveDot(
+    data,
+    _favoriteStatuses(
+      data,
+      collapsed
+          ? [
+              for (final bookmark in controller.bookmarks)
+                if (!_pinnedFavorite(data, bookmark)) bookmark,
+            ]
+          : hiddenLoose,
+    ),
+  );
+  // A filter that hides every row drops the section, unless a live
+  // server is among the hidden: its header stays to say so.
+  if (data.filtering && body.isEmpty && hiddenDot == null) return const [];
+
   // Home shows no folder to add (D32 §9): its header keeps no "+".
   final addCurrent =
       !data.home &&
@@ -152,7 +199,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
     _SidebarDropZone(
       key: const ValueKey('sidebar.favorites.header'),
       planner: (payload, _) =>
-          _regroupPlan(view, payload, group: null, accepts: _isFavoriteKind) ??
+          _regroupPlan(view, payload, group: null, accepts: _anyBookmark) ??
           _addFavoritePlan(
             context,
             view,
@@ -164,6 +211,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
         title: l10n.sidebarFavoritesSection,
         count: count,
         collapsed: collapsed,
+        status: hiddenDot,
         dropHighlight: indicator != SidebarDropIndicator.none,
         onToggle: () => controller.toggleCollapsed(sectionKey),
         onAdd: addCurrent,
@@ -175,8 +223,19 @@ List<Widget> _favoritesSection(_SidebarData data) {
   ];
 }
 
+/// The live states of the remote favorites among [bookmarks].
+Iterable<ServerStatus?> _favoriteStatuses(
+  _SidebarData data,
+  Iterable<Bookmark> bookmarks,
+) => [
+  for (final bookmark in bookmarks)
+    if (_isServerKind(bookmark)) _savedLive(data, bookmark).status,
+];
+
 bool _favoriteShows(_SidebarData data, Bookmark bookmark) => data.countRow(
-  [bookmark.label, ?bookmark.localPath, ?bookmark.group].join(' '),
+  _isServerKind(bookmark)
+      ? _remoteHaystack(bookmark)
+      : [bookmark.label, ?bookmark.localPath, ?bookmark.group].join(' '),
   open: data.view.onOpenFavorite == null
       ? null
       : () => data.view.onOpenFavorite!(bookmark, SidebarOpenAction.plain),
@@ -184,9 +243,11 @@ bool _favoriteShows(_SidebarData data, Bookmark bookmark) => data.countRow(
 
 /// Home's empty state (D32 §9): what FAVORITES keeps and where a folder
 /// is added from, with the standard-folders offer when the platform has
-/// any of the three (a phone's app storage usually has none).
+/// any of the three (a phone's app storage usually has none), and D22's
+/// adoption beat, the ssh_config import.
 Widget _homeEmptyFavorites(_SidebarData data) {
   final l10n = data.l10n;
+  final view = data.view;
   final offered = data.standardFolders;
   return _HomeEmptyState(
     key: const ValueKey('sidebar.favorites.empty'),
@@ -202,12 +263,22 @@ Widget _homeEmptyFavorites(_SidebarData data) {
           icon: const Icon(Icons.add),
           label: Text(l10n.sidebarFavoritesAddStandard),
         ),
+      if (view.onImportSshConfig != null)
+        OutlinedButton.icon(
+          key: const ValueKey('sidebar.importSshConfig'),
+          onPressed: view.onImportSshConfig,
+          icon: const Icon(Icons.download_outlined),
+          label: Text(l10n.sidebarImportSshConfig),
+        ),
     ],
   );
 }
 
 /// The empty state: the one-click standard folders (only those that
-/// exist), else a hint — and either way a drop target for folders.
+/// exist), else a hint — and either way a drop target for folders. D22's
+/// adoption beat rides here too: an empty list is the moment the
+/// ssh_config import earns its keep, and the hosts it imports land in
+/// FAVORITES.
 Widget _emptyFavorites(_SidebarData data) {
   final l10n = data.l10n;
   final view = data.view;
@@ -230,35 +301,62 @@ Widget _emptyFavorites(_SidebarData data) {
       child: _SidebarHint(
         text: l10n.sidebarFavoritesEmpty,
         presentation: view.presentation,
-        action: offered.isEmpty
+        action: offered.isEmpty && view.onImportSshConfig == null
             ? null
-            : TextButton.icon(
-                key: const ValueKey('sidebar.favorites.addStandard'),
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                ),
-                onPressed: () => unawaited(_addFolders(context, view, offered)),
-                icon: const Icon(Icons.add, size: 14),
-                label: Text(l10n.sidebarFavoritesAddStandard),
+            : Wrap(
+                children: [
+                  if (offered.isNotEmpty)
+                    TextButton.icon(
+                      key: const ValueKey('sidebar.favorites.addStandard'),
+                      style: _hintButtonStyle,
+                      onPressed: () =>
+                          unawaited(_addFolders(context, view, offered)),
+                      icon: const Icon(Icons.add, size: 14),
+                      label: Text(l10n.sidebarFavoritesAddStandard),
+                    ),
+                  if (view.onImportSshConfig != null)
+                    TextButton.icon(
+                      key: const ValueKey('sidebar.importSshConfig'),
+                      style: _hintButtonStyle,
+                      onPressed: view.onImportSshConfig,
+                      icon: const Icon(Icons.download_outlined, size: 14),
+                      label: Text(l10n.sidebarImportSshConfig),
+                    ),
+                ],
               ),
       ),
     ),
   );
 }
 
+/// The compact buttons under a rail hint.
+final ButtonStyle _hintButtonStyle = TextButton.styleFrom(
+  visualDensity: VisualDensity.compact,
+  padding: const EdgeInsets.symmetric(horizontal: 6),
+);
+
+/// One FAVORITES row: a remote location is a server's row (its live dot
+/// and connection verbs), every other kind a place's.
 Widget _favoriteRow(
   _SidebarData data,
   Bookmark bookmark, {
   required String? group,
   required int depth,
-}) => _FavoriteRow(
-  key: ValueKey('sidebar.favorite.${bookmark.id}'),
-  data: data,
-  bookmark: bookmark,
-  group: group,
-  depth: depth,
-);
+}) => _isServerKind(bookmark)
+    ? _SavedServerRow(
+        key: ValueKey('sidebar.favorite.${bookmark.id}'),
+        data: data,
+        bookmark: bookmark,
+        group: group,
+        depth: depth,
+      )
+    : _FavoriteRow(
+        key: ValueKey('sidebar.favorite.${bookmark.id}'),
+        data: data,
+        bookmark: bookmark,
+        group: group,
+        depth: depth,
+      );
 
 /// One favorite: its kind glyph (tinted by the favorite's colour), the
 /// label, the path in the tooltip, and both halves of the drag contract
@@ -283,30 +381,25 @@ class _FavoriteRow extends StatelessWidget {
     final l10n = data.l10n;
     final view = data.view;
     final open = view.onOpenFavorite;
-    final chrome = PoltergeistChrome.of(context);
     final accent = serverAccent(context, ServerTint(named: bookmark.color));
-    final home = data.home;
-    final mark = home
+    final mark = data.list
         ? _HomeDisc(
             glyph: _favoriteIcon(bookmark),
             tint: accent?.line ?? _homeFavoriteTint(context, bookmark),
           )
-        : Icon(
-            _favoriteIcon(bookmark),
-            size: 16,
-            color: accent?.line ?? chrome.secondaryText,
-          );
+        : _placeMark(context, _favoriteIcon(bookmark), accent: accent);
     final localPath = bookmark.kind == BookmarkKind.localFolder
         ? bookmark.localPath
         : null;
-    final subtitle = home ? _homeFavoriteLine(data, bookmark) : null;
+    final subtitle = _favoriteLine(data, bookmark);
 
     Widget row(SidebarDropIndicator indicator) => SidebarRow(
       mark: mark,
       title: bookmark.label,
       subtitle: subtitle,
-      semanticLabel: home ? _homeSemantics([bookmark.label, subtitle]) : null,
-      showMenuButton: home,
+      semanticLabel: data.comfortable
+          ? _spokenLabel([bookmark.label, subtitle])
+          : null,
       depth: depth,
       dropIndicator: indicator,
       tooltip: switch (bookmark.kind) {
@@ -330,7 +423,7 @@ class _FavoriteRow extends StatelessWidget {
           fraction,
           target: bookmark,
           group: group,
-          accepts: _isFavoriteKind,
+          accepts: _anyBookmark,
         );
         if (reorder != null || payload is Bookmark) return reorder;
         // The middle half of a folder favorite is INTO it; its edges add
@@ -378,10 +471,10 @@ Color _homeFavoriteTint(BuildContext context, Bookmark bookmark) {
   };
 }
 
-/// A favorite's Home line (D32 §9): where it opens — a folder's path
-/// home-relative, a saved sync's two sides — or, for a workspace (two
-/// panes, no single place), its kind.
-String? _homeFavoriteLine(_SidebarData data, Bookmark bookmark) {
+/// A favorite's second line (D32 §9, D33): where it opens — a folder's
+/// path home-relative, a saved sync's two sides — or, for a workspace
+/// (two panes, no single place), its kind.
+String? _favoriteLine(_SidebarData data, Bookmark bookmark) {
   final l10n = data.l10n;
   switch (bookmark.kind) {
     case BookmarkKind.localFolder:
@@ -395,8 +488,8 @@ String? _homeFavoriteLine(_SidebarData data, Bookmark bookmark) {
       final sync = bookmark.sync;
       if (sync == null) return l10n.sidebarKindSavedSync;
       return l10n.compactHomeSyncRoute(
-        _homeLocation(data, sync.source),
-        _homeLocation(data, sync.destination),
+        _locationLine(data, sync.source),
+        _locationLine(data, sync.destination),
       );
     case BookmarkKind.remotePath:
       final path = bookmark.remotePath;
@@ -404,7 +497,7 @@ String? _homeFavoriteLine(_SidebarData data, Bookmark bookmark) {
       if (path == null) return null;
       return server == null
           ? path
-          : _homeLocation(data, BookmarkLocation(server: server, path: path));
+          : _locationLine(data, BookmarkLocation(server: server, path: path));
   }
 }
 

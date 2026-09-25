@@ -7,7 +7,9 @@
 /// widget tree.
 library;
 
-import 'package:flutter/foundation.dart' show ValueNotifier;
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show ValueNotifier, VoidCallback;
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'app_transfer_queue.dart';
@@ -19,14 +21,32 @@ import 'pane_location.dart';
 /// so a mid-drag listing change on the source pane (a spring-load, a
 /// refresh) cannot retroactively alter what the user picked up.
 class PaneEntryDrag {
-  PaneEntryDrag({required this.source, required List<String> rootPaths})
-    : rootPaths = List.unmodifiable(rootPaths);
+  PaneEntryDrag({
+    required this.source,
+    required List<String> rootPaths,
+    List<RemoteFileEntry> entries = const [],
+  }) : rootPaths = List.unmodifiable(rootPaths),
+       entries = List.unmodifiable(entries);
 
   /// The endpoint the dragged rows live on (03 §4.1's `FsLocation`).
   final FsLocation source;
 
   /// Absolute source paths — one gesture's roots, in listing order.
   final List<String> rootPaths;
+
+  /// The listing entries behind [rootPaths], snapshotted with them: the
+  /// OS drag-out hand-off (D14's amendment) reads each root's name,
+  /// type, and size here, since the source listing may change mid-drag
+  /// (a spring-load into a folder of the same pane). Empty when the
+  /// source had no entries to offer; in-app drops never read it.
+  final List<RemoteFileEntry> entries;
+
+  late final Map<String, RemoteFileEntry> _entriesByPath = {
+    for (final entry in entries) entry.path: entry,
+  };
+
+  /// The snapshotted entry for [path], when there is one.
+  RemoteFileEntry? entryFor(String path) => _entriesByPath[path];
 
   /// The verb the currently hovered target resolved, for the avatar's
   /// `+` badge; null while nothing claims the drag. Listenable so a
@@ -38,6 +58,51 @@ class PaneEntryDrag {
   /// unsubscribes when the overlay unmounts.
   final ValueNotifier<TransferOperation?> verb =
       ValueNotifier<TransferOperation?>(null);
+
+  /// The OS drag-out hand-off in flight for this payload (D14's
+  /// amendment), resolving to whether a native session took the drag.
+  Future<bool>? _handOff;
+
+  /// Holds this payload's in-app drops until [started] answers whether
+  /// a native session took the drag. The pane calls it when the row drag
+  /// crosses the window edge: while the native side starts its session,
+  /// it ends the embedder's press with a synthetic release, and until
+  /// the answer arrives a drop cannot tell that release from the user's
+  /// own. A hand-off that fails started no session, so its drops land;
+  /// the failure still reaches the zone, as an unawaited one would.
+  void holdDropsUntil(Future<bool> started) {
+    final pending = started.then<bool>(
+      (value) => value,
+      onError: (Object error, StackTrace stackTrace) {
+        Zone.current.handleUncaughtError(error, stackTrace);
+        return false;
+      },
+    );
+    _handOff = pending;
+    unawaited(
+      pending.whenComplete(() {
+        if (identical(_handOff, pending)) _handOff = null;
+      }),
+    );
+  }
+
+  /// Lands an in-app drop of this payload: runs [drop] now, or, while a
+  /// hand-off is in flight, once it answered that no native session
+  /// started. A drop made while a native session took over is
+  /// discarded: that session carries the items, and landing both would
+  /// transfer them twice.
+  void landInApp(VoidCallback drop) {
+    final pending = _handOff;
+    if (pending == null) {
+      drop();
+      return;
+    }
+    unawaited(
+      pending.then((started) {
+        if (!started) drop();
+      }),
+    );
+  }
 }
 
 /// The pane location's transfer endpoint (03 §4.1): a local pane is the

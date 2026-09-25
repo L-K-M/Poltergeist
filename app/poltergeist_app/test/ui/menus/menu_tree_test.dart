@@ -254,6 +254,7 @@ List<String> _desktopFile(TargetPlatform platform) {
     _divider,
     'Copy to Other Pane F5',
     'Move to Other Pane F6',
+    'Download To…',
     _divider,
     '${windows ? 'Move to Recycle Bin' : 'Move to Trash'} Del',
     'Delete Immediately… Shift+Del',
@@ -279,6 +280,7 @@ const _desktopMenus = <AppMenuId, List<String>>{
   ],
   AppMenuId.view: [
     'Show/Hide Sidebar Ctrl+Alt+S',
+    'Use Compact Sidebar Rows',
     'Hide Inspector Ctrl+Alt+I',
     'Show/Hide Second Pane Ctrl+Shift+D',
     _divider,
@@ -311,7 +313,7 @@ const _desktopMenus = <AppMenuId, List<String>>{
   AppMenuId.server: [
     'Connect… Ctrl+K',
     'Disconnect Ctrl+Shift+K',
-    'Save to Servers…',
+    'Save to Favorites…',
     _divider,
     'Synchronize… Ctrl+Alt+Y',
     'New Saved Sync…',
@@ -368,6 +370,7 @@ const _macMenus = <String, List<String>>{
     _divider,
     'Copy to Other Pane ⇧⌘C',
     'Move to Other Pane',
+    'Download To…',
     _divider,
     'Move to Trash ⌘⌫',
     'Delete Immediately… ⌥⌘⌫',
@@ -387,6 +390,7 @@ const _macMenus = <String, List<String>>{
   ],
   'View': [
     'Show/Hide Sidebar ⌃⌘S',
+    'Use Compact Sidebar Rows',
     'Hide Inspector ⌥⌘I',
     'Show/Hide Second Pane ⇧⌘D',
     _divider,
@@ -419,7 +423,7 @@ const _macMenus = <String, List<String>>{
   'Server': [
     'Connect… ⌘K',
     'Disconnect ⇧⌘K',
-    'Save to Servers…',
+    'Save to Favorites…',
     _divider,
     'Synchronize… ⌥⌘Y',
     'New Saved Sync…',

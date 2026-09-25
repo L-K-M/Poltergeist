@@ -7864,6 +7864,8 @@ always read "Ready".
 - **Sidebar:** DEVICES / FAVORITES / SERVERS on the portable
   `sidebar_kit.dart`, which Séance adopted (docs/PORTS.md). Live dots,
   filter at 8+ servers, bottom bar with "+", sync status and Settings.
+  (Amended by D33 below: two densities, remote favorites back under
+  FAVORITES, PINNED, and the filter at five.)
 - **Sync:** the Transmit-style Sync Files sheet with a plain-language
   plan sentence (`sync_policy_sentence.dart`), Simulate / Synchronize,
   auto-run only for create-only plans, and a review grouped by action.
@@ -7893,6 +7895,84 @@ ObjC guard, VoiceOver) or an Android device.
 Deferred: drag-out to Finder (file promises, D14), column resizing and
 per-location sort persistence, free space in the pane header, and the
 Android slices listed under item 33.
+
+## D33 — sidebar density and restored row detail (2026-09-25)
+
+The owner reported that aligning both apps' sidebars on the shared kit
+lost features, "like the two different views". An inventory of both
+apps (old against current, with file and line evidence) and the
+owner's decisions became D33 in
+[plan/00](plan/00-OVERVIEW.md), with 10 §2, §5, §8, §9 and §10
+amended. The kit change landed in both repos first; this is the
+Poltergeist host.
+
+- **Two densities.** `SidebarController` owns a device-local
+  `SidebarDensity` (`sidebar.density`, comfortable by default, an
+  unknown value falls back to it). The rail's bottom bar carries the
+  kit's switch, a phone Home's app bar a `SidebarDensityControl`, and
+  View ▸ Use Compact/Comfortable Sidebar Rows
+  (`view.toggleSidebarDensity`, one item whose label names the other
+  density, since `PlatformMenuItem` carries no check) flips it from
+  the menus, the palette and Home's ⋮. Comfortable Home is the
+  Material list; compact Home the rail's touch rows.
+- **Rows.** Every row hands the kit its second line (free space or the
+  place, a home-relative path, a sync's two sides, "Workspace", a
+  server's state words then `user@host`, and a remote favorite's
+  landing path), which the kit draws only when comfortable. Comfortable
+  marks are 32 px: a server's badge (the neutral tile when uncoloured)
+  and a same-shaped tile for places. A coloured server leads with the
+  4 px line, a connected one wears the green ring, a blocked host key
+  has the no-entry dot and an unreachable host a red ring. The "⋮"
+  follows the kit (comfortable or touch). Server rows announce their
+  endpoint in either density.
+- **Sections.** Remote favorites list under FAVORITES again, in one
+  order with the other kinds and in mixed groups; SERVERS is the
+  account's list plus live Quick Connect sessions, and "Save to
+  Servers…" became "Save to Favorites…" (the command id stays
+  `connect.saveToServers`). PINNED holds the servers the user pinned,
+  the account's and the remote favorites alike (`sidebar.pinnedServers`,
+  device-local), as the rail's first section. The account's rows carry
+  a cloud mark and "From your Séance account". A
+  header that folds or filters away a live server shows its dot. The
+  ssh_config offer moved to the empty FAVORITES state, where the hosts
+  it imports land.
+- **Filter.** Threshold five, "N of M · ↵ opens the first" on the rail
+  (Home keeps "N of M"), Clear filter under "No matches", and a query
+  that drops itself once the rail it filtered is empty.
+- **Kept:** ungrouped rows first with no "Ungrouped" header (owner
+  call); drag-to-reorder stays desktop-only.
+
+Fixed on the way: PINNED was built after SERVERS, so the filter counted
+and opened SERVERS' matches first and dropped PINNED whenever SERVERS
+had no match (regression test in `sidebar_catalog_test.dart`).
+
+Validation: the full app suite (2362 tests) and `flutter analyze`
+pass locally, and the protocol guard exits 0. The sidebar capture test
+(`POLTERGEIST_CAPTURE=1`) draws both densities at 300 px and at the
+180 px minimum in both themes, a tablet rail in both densities, a
+folded group's live dot and a row menu; none overflows. Not verified
+here: anything needing macOS (the native View menu item), a device
+(TalkBack, a real tablet), or a real engine's probe states on the
+rail (unit tests cover the unreachable ring).
+
+PINNED as the owner confirmed it (a follow-up to the first build,
+which pinned only the account's servers and drew PINNED above
+SERVERS): a remote favorite has "Pin to top" / "Unpin" in its menu,
+its long-press sheet and its screen-reader actions, leaves FAVORITES
+and its group while pinned, and draws its own row in PINNED, which
+now leads the rail and orders the mix by label (case folded, then id).
+PINNED builds first, so the filter counts and opens its rows first;
+each server still counts once toward the filter's threshold. A pinned
+row neither drags nor takes drops (PINNED has no user order), while
+FAVORITES' drops still resolve by id around a pinned member. A fully
+pinned FAVORITES keeps its header without the empty-state offer, and
+deleting a pinned favorite drops its pin. Tests in
+`sidebar_view_test.dart`, `sidebar_catalog_test.dart`,
+`sidebar_home_test.dart` and `sidebar_controller_test.dart`; the full
+app suite (2381 tests) and `flutter analyze` pass locally.
+
+Left for later: Enter's first match still follows rail order rather
+than preferring server rows (inventory M8).
 
 ## D32 — adversarial review fixes (2026-09-25)
 
@@ -8022,6 +8102,273 @@ Captures (`test/ui/compact/compact_capture_test.dart`, gated on
 verified here: a device or emulator run (no Android SDK in the
 container), real predictive-back animation, IME behavior, and
 TalkBack.
+
+## D14 amendment: OS drag-out, stage 1, the Dart seam and Linux (2026-09-25)
+
+A row drag that leaves the window now hands off to a native drag
+session (00 D14's 2026-09-25 amendment). This stage is everything that
+can be built and checked on Linux; the macOS and Windows backends follow
+against the same channel.
+
+- **Core.** `PreviewProduceSpec` gained `writeMode` (`exclusive` fails
+  with a conflict instead of replacing a same-named file) and `slotPool`
+  (drag-out hops get two slots of their own, so Quick Look keeps its
+  two). `awaitTransferTaskTerminal` waits for an ordinary task, the
+  shape a folder promise needs.
+- **Seam.** `lib/services/os_drag_out.dart` holds the backend interface,
+  the `poltergeist/dragout` MethodChannel backend, the no-op backend, and
+  the channel protocol the native sides implement. `DragOutController`
+  (composed by the shell over `QueueDragOutProducer` from `main.dart`
+  and the shell's queue) starts sessions, fulfils promises (a file is an
+  exclusive produce hop into the OS's path; a folder is a normal
+  download task that fails fast on a paused queue), and reports
+  refusals to the Alerts tab. Failed produce and download rows keep
+  their own Transfers rows and alerts.
+- **Pane.** The row `Draggable` hands off once per gesture when its
+  pointer leaves the view, carrying every selected item, then cancels
+  its own pointer. Remote rows where only local files travel (Linux,
+  Windows) show "use Download To…" and keep dragging in-app. A drag of
+  ours that comes back through `desktop_drop` lands with the in-app verb
+  rules from the stored payload.
+- **Linux.** `linux/runner/drag_out_channel.cc`: a GTK drag source for
+  local items (`text/uri-list`; copy, move, link; never deletes). It
+  keeps the last primary press through an emission hook and synthesizes
+  the release GTK's grab would swallow.
+- **Download To….** File ▸ Download To… and the row context menu pick a
+  local folder (`file_picker`) and enqueue a normal download of the
+  remote selection.
+
+Verified here:
+- Unit and widget tests: the channel codec both ways, the controller's
+  promise paths (file, folder, pause at start and mid-download, rename,
+  cancel, failure, staging echo), the pane hand-off (fires once at the
+  edge with the selection, ends the Flutter drag, in-app drags never
+  reach the backend, the remote hint), the echo routing, the shell
+  composition and its Alerts row, the drag image, and Download To….
+- For real under Xvfb with the debug Linux build and a GTK drop target
+  in another process (transcript and screenshots in the session's
+  `dragout-evidence/`): a local file dragged past the window edge
+  arrives as its `file://` URI with copy/move/link offered; a two-item
+  selection arrives as two URIs under a "2 items" image; Esc cancels;
+  the next click still selects; in-app pane-to-pane drags still move;
+  a drag out and back in lands through `desktop_drop` as the in-app
+  move.
+
+Needs a Mac (the backend is stage 2 below): the `NSFilePromiseProvider`
+side, whether Finder ever hands back a renamed promise URL (the folder
+path refuses one today), Finder's progress pie from `promiseProgress`,
+Mail and Messages accepting promises, the synthesized mouse-up, and the
+echo through `desktop_drop`'s overlay. Needs Windows: the `CF_HDROP`
+backend and the pointer reset after `DoDragDrop`. Not covered anywhere
+yet: Wayland, remote rows on Linux against a real server (the hint is
+widget-tested), and a file manager that performs the move itself.
+
+Validation: `flutter analyze` is clean; the full app suite passes (2357
+tests, 59 of them new); `poltergeist_core` passes 1577 tests (9 new)
+with the two root-only chmod checkout tests failing as they always do
+as root (CI runs unprivileged); the protocol guard exits 0. Not verified
+here: anything on macOS or Windows.
+
+## D14 amendment: OS drag-out, stage 2, the macOS backend (2026-09-25)
+
+`macos/Runner/DragOutChannel.swift` implements the `poltergeist/dragout`
+protocol on macOS. `MainFlutterWindow` creates it next to the other
+channels, and the file is in the Runner target.
+
+- **Press and release.** A local event monitor keeps the window's
+  latest primary press and drag, whichever view they hit
+  (`desktop_drop`'s overlay, `macos_window_utils`' passthrough views).
+  `startDrag` answers `busy`, `unsupportedItems`, `noPointerEvent`, or
+  `buttonReleased` where the protocol says. Otherwise it sends a
+  synthetic mouse-up straight to the FlutterViewController, replies
+  `started` (so Dart hears it before anything the session reports),
+  and begins the session from the newest drag event, so the image
+  keeps Dart's anchor offset from the pointer.
+- **Items.** Local items are file URLs offering copy, move, and link;
+  delete is never offered. Remote items are `NSFilePromiseProvider`s,
+  typed from the name's extension (`public.folder` for folders,
+  `public.data` when unknown), copy only. Each item shows its Finder
+  icon (the file's own for the first 16 local items, else its type's)
+  and its name on the selection highlight; several form a pile under
+  AppKit's count badge. The Dart-rendered PNG is not used on macOS.
+- **Promises.** AppKit calls the delegate on a private queue that only
+  hops to the main queue. There a cancellable `NSProgress` is published
+  on the promised URL, `fulfilPromise` goes to Dart, and Dart's reply
+  completes the promise. `cancelled` and `ownDrop` complete as a user
+  cancel, which receivers do not report; other failures carry Dart's
+  message. `promiseProgress` drives the progress, and its cancel
+  handler sends `cancelPromise`. Providers stay retained for five
+  minutes after the session ends.
+
+Verified here (no Mac):
+- The Swift parses (`swiftc -parse`, Swift 6.2 for Linux) and
+  type-checks in Swift 5 mode against hand-written stubs of the AppKit,
+  Foundation, and FlutterMacOS signatures it uses. That checks the
+  file's own logic; SDK names and labels are checked only against
+  those stubs.
+- `project.pbxproj` parses with every object id resolving, and the file
+  is in the Runner group and the Runner target's Sources phase.
+- `test/macos_drag_out_runner_test.dart` (17 tests) pins the contract.
+  Every key the Swift reads arrives from the Dart backend with a wire
+  type its cast accepts (a typed list would not). Every callback it
+  sends, every refusal reason, and every operation name parses on the
+  Dart side. The source keeps its rules: no delete, the press ends
+  before the session and `started` is replied before it begins,
+  nothing waits on the main thread, progress on the promised URL,
+  folders as `public.folder`. Nine deliberate drift mutations, on the
+  Swift side and on the Dart side, each failed it.
+
+Needs a Mac, since none of this has run there: the build itself, then
+the release checklist's macOS drag-out items. They cover image placement
+at the window edge, no stuck click, the count badge, Esc, the Dock
+Trash, Finder's progress pie and renames, Mail and Messages, the echo
+through `desktop_drop`, and quitting mid-promise.
+
+Validation, on an export of `31a79e1` (the last code commit of this
+stage): `flutter analyze` is clean; the full app suite passes (2374
+tests, the 17 new ones in `macos_drag_out_runner_test.dart`). Core is
+untouched here: `poltergeist_core` passes 1576 tests, with the two
+root-only chmod checkout tests failing as always and
+`linux_inotify_overflow_test.dart` timing out once under load, then
+passing when rerun alone. The protocol guard exits 0. Not verified
+here: anything on a Mac.
+
+## D14 amendment: OS drag-out, stage 3, the Windows backend (2026-09-25)
+
+`windows/runner/drag_out.{h,cpp}` implements the `poltergeist/dragout`
+protocol on Windows for local items. `FlutterWindow` creates it next to
+the trash channel, forwards it every top-level message first, and tears
+it down before the engine. Dart declares `localFiles` here, so remote
+rows keep the "use Download To…" hint and virtual files
+(`FILEGROUPDESCRIPTOR`/`FILECONTENTS`) stay the follow-up.
+
+- **Data object.** The items' folder's own
+  `IShellFolder::GetUIObjectOf`, the data object Explorer drags: it
+  renders `CF_HDROP` and the shell formats and keeps what the drag
+  image helper stores. `SHCreateDataObject` was not used: it only
+  promises the shell ID list, and `desktop_drop` and many other targets
+  read `CF_HDROP` alone. The items must share one folder, as a pane
+  selection does; otherwise the drag stays in-app (`unsupportedItems`).
+- **Image.** The Dart PNG, decoded through WIC into a straight-alpha
+  bottom-up DIB for `IDragSourceHelper::InitializeFromBitmap`, with the
+  anchor scaled to pixels. Without it `SHDoDragDrop` shows the shell's
+  generic image.
+- **Start.** `startDrag` answers `busy`, `unsupportedItems`,
+  `buttonReleased`, or `noPointerEvent` (the Flutter view no longer
+  holds the mouse capture, as in a pen or touch drag) where the protocol
+  says. Otherwise it builds the session, posts a registered window
+  message, and replies `started`. The message's handler sends the view
+  a synthetic `WM_LBUTTONUP` at the position Dart sent (outside the
+  view), which ends the embedder's press and capture, then runs
+  `SHDoDragDrop` with a small
+  `IDropSource` (Esc cancels, releasing the button drops).
+- **End.** `sessionEnded` carries the logical performed effect first,
+  then the performed one, then the loop's answer: the shell's optimized
+  move returns none so the source does not delete. Nothing here ever
+  deletes on a move (D15). A window closed under the loop is survived
+  (nothing is touched after it).
+
+Verified here (no Windows host):
+- Both runner files compile, as syntax and type checks, with mingw-w64
+  g++ 13 and clang 18 against the mingw-w64 headers and the engine's
+  C++ client wrapper headers, with `-Wall -Wextra -Wshadow -Wconversion`
+  and also with `STRICT_TYPED_ITEMIDS`. No warning from the runner's
+  own code. That is not MSVC: `/W4 /WX`, the Windows SDK headers, and
+  the link (`windowscodecs.lib`, new in the runner's CMake) are
+  checked only by a real build.
+- `test/windows_drag_out_runner_test.dart` (6 tests) pins the contract
+  from a marked block in `drag_out.cpp`. Every key the C++ parses
+  arrives from the Dart backend with the wire type its parser reads.
+  Every refusal reason and operation it sends parses on the Dart side.
+  The runner wiring, the reply before the loop, the embedder release
+  before `SHDoDragDrop`, and the no-delete rule hold. Renaming a key
+  or a reason on the C++ side fails it.
+
+Needs Windows, since none of this has run there: the MSVC build, then
+the release checklist's Windows drag-out item. It covers Explorer's
+move and copy, the image and its anchor at each scale, no stuck press or
+key after the drag, Dart running during the loop, the echo through
+`desktop_drop`, browser, Office, and Notepad targets, the Recycle Bin,
+and pen or touch drags.
+
+Validation, on `190be47` (this stage's last code commit): `flutter
+analyze` is clean; the full app suite passes (2380 tests, the 6 new
+ones in `windows_drag_out_runner_test.dart`). Core is untouched here:
+`poltergeist_core` ran 1539 passed, 37 skipped, and 3 failed, twice.
+Two failures are the root-only chmod checkout tests. The third was a
+timing test under load, a different one each run
+(`linux_inotify_overflow_test.dart`, then `engine_client_test.dart`'s
+debounced local watch), and each passed when rerun alone. The protocol
+guard exits 0. Not verified here: anything on Windows.
+
+## D14 amendment: OS drag-out, review fixes (2026-09-25)
+
+Two review findings described one race. A row drag that left the
+window and came back over a pane, a tab chip or the sidebar while the
+hand-off was in flight landed an in-app drop and also started the
+native session, so the same items were transferred twice (possibly a
+move). macOS and Linux end the embedder's press with a synthetic
+release before they reply `started`, and it sat at the current
+pointer. A widget test reproduced it: the in-app move was queued and
+the session marked running.
+
+- **Release outside the view.** Every backend now puts that release at
+  the `position` Dart sent, which is outside the view. Linux maps it
+  through the root into the press's window, macOS through the
+  controller's view into window coordinates, and Windows scales it by
+  the view's DPI into client pixels. A request without a position is
+  refused before anything is released.
+- **Held drops.** While the hand-off is in flight, the listing, the tab
+  chips and the sidebar hold a drop of the handed-off payload. It is
+  discarded if the session started and lands if it did not, so a user
+  who let go before the native side looked still gets the drop.
+- **The dragged payload.** Found while fixing the above: the hand-off
+  used the payload of the row's latest build, and rows are built by
+  index, so a listing change mid-drag offered the OS another entry,
+  with move allowed for local items. The pane now keeps the payload
+  the `Draggable` reports when the drag starts.
+- **Lost macOS sessions.** When a press retires a session whose end
+  never came, the Swift side now sends `sessionEnded` (none), so Dart
+  stops labelling OS drags with that payload and claiming same-path
+  foreign drops as its echo.
+
+Verified here:
+- Widget tests: the release-before-reply order lands no in-app drop; a
+  release followed by a refusal still lands in-app; the tab chip and
+  the sidebar hold and release their drops; the hand-off carries what
+  the drag picked up after a listing change. Each failed before its
+  fix. Source contract tests pin the release position on all three
+  backends and the macOS retirement call.
+- Under Xvfb, with a scratch build that delays `startDrag` by 1.5 s:
+  an out-and-back drag over the other pane's folder. With the old
+  Linux release the pane received an in-app drop (held, then
+  discarded); with the new one it received none. Both times the file
+  moved exactly once, through the echo. A drag released outside the
+  window leaves the next click selecting, and an in-app pane-to-pane
+  drag still lands at once.
+- Windows: `drag_out.cpp` passes mingw-w64 g++ 13 and clang syntax
+  checks with no new warnings.
+
+Not verified: the Swift changes are not compiled here, and nothing ran
+on macOS or Windows.
+
+Left open from the same review, as follow-ups: skipping the PNG render
+on macOS (the release no longer depends on the render's timing, and the
+anchor macOS uses comes from it); a per-task Pause on a promise-backed
+Transfers row, which leaves the OS promise waiting; symbolic links and
+flagged names dropped from a multi-item remote drag without a notice;
+folder promises following the download conflict policy while file
+promises never replace; Dart's English diagnostics reaching receivers
+as `NSLocalizedDescriptionKey`; a Linux `gtk_drag_begin` refusal after
+the release, which now ends the in-app drag with no drop rather than
+continuing it; and an explicit Recycle Bin decision for Windows'
+`DROPEFFECT_MOVE`.
+
+Validation, on `eb1226b` (this batch's last code commit): `flutter
+analyze` is clean; the full app suite passes (2393 tests, 13 of them
+new). Core is untouched here: `poltergeist_core` ran 1540 passed, 37
+skipped, and 2 failed, the root-only chmod checkout tests. The protocol
+guard exits 0.
 
 ## Open items
 

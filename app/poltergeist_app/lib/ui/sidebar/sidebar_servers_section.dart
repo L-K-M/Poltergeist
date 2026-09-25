@@ -1,25 +1,26 @@
 part of 'sidebar_view.dart';
 
+/// A remote location (a remotePath bookmark): a server's row, listed
+/// under FAVORITES with the other bookmark kinds (10 §5, D33).
 bool _isServerKind(Bookmark bookmark) =>
     bookmark.kind == BookmarkKind.remotePath;
 
-/// One SERVERS group: saved server rows (in the store's user order) and
-/// shared-account catalog servers (by label), under one disclosure row.
+/// One SERVERS group: the shared account's catalog servers (by label)
+/// under one disclosure row.
 final class _ServerGroup {
   _ServerGroup(this.name);
 
   final String name;
-  final stored = <Bookmark>[];
   final catalog = <ServerConfig>[];
 
-  int get length => stored.length + catalog.length;
+  int get length => catalog.length;
 }
 
-/// SERVERS (10 §5): live Quick Connect sessions (italic, top), then the
-/// saved server locations and the shared-account catalog merged into one
-/// grouped list — each row carrying its live state as its one dot. This
-/// replaces the separate Connections section: a connected server is the
-/// same row, not a second copy of it.
+/// SERVERS (10 §5, D33): live Quick Connect sessions (italic, top), then
+/// the shared account's server list, grouped by Séance's rules, each
+/// row carrying its live state as its one dot. Saved remote locations
+/// are favorites and list under FAVORITES with their own dots, so
+/// without the shared account this section holds only live sessions.
 List<Widget> _serversSection(_SidebarData data) {
   final l10n = data.l10n;
   final view = data.view;
@@ -28,18 +29,15 @@ List<Widget> _serversSection(_SidebarData data) {
 
   final loose = _ServerGroup('');
   final groups = <String, _ServerGroup>{};
-  for (final section in controller.sections) {
-    for (final bookmark in section.bookmarks.where(_isServerKind)) {
-      final name = section.name;
-      (name == null
-              ? loose
-              : groups.putIfAbsent(section.key, () => _ServerGroup(name)))
-          .stored
-          .add(bookmark);
-    }
-  }
   final catalog = view.catalog?.servers ?? const <ServerConfig>[];
+  // A pinned server leaves its group for PINNED rather than showing
+  // twice (Séance's rule): its group's count drops with it.
+  var pinned = 0;
   for (final server in catalog) {
+    if (controller.isPinned(server.id)) {
+      pinned++;
+      continue;
+    }
     final name = normalizeServerGroup(server.group);
     (name == null
             ? loose
@@ -50,27 +48,31 @@ List<Widget> _serversSection(_SidebarData data) {
         .catalog
         .add(server);
   }
-  // A saved endpoint is the session's saved row: once "Save to Servers…"
-  // (or the pane's save bar) lands, the italic duplicate retires.
+  final remoteFavorites = controller.bookmarks.where(_isServerKind).toList();
+  // A saved endpoint is the session's saved row: once "Save to
+  // Favorites…" (or the pane's save bar) lands, the italic duplicate
+  // retires.
   final saved = <String>{
-    for (final group in [loose, ...groups.values]) ...[
-      for (final bookmark in group.stored) ?_endpointKeyOf(bookmark),
-      for (final server in group.catalog)
-        _endpointKey(server.host, server.port, server.username),
-    ],
+    for (final bookmark in remoteFavorites) ?_endpointKeyOf(bookmark),
+    for (final server in catalog)
+      _endpointKey(server.host, server.port, server.username),
   };
   final sessions = [
     for (final session in data.facts.adhoc)
       if (!saved.contains(_endpointKeyOf(session.bookmark))) session,
   ];
 
-  final total =
-      sessions.length +
-      loose.length +
-      groups.values.fold<int>(0, (sum, group) => sum + group.length);
-  data.serverCount = total;
+  final total = sessions.length + catalog.length - pinned;
+  // The filter's threshold counts every server the rail lists once, the
+  // remote favorites included (without the shared account they are the
+  // user's servers), wherever PINNED put them.
+  data.serverCount = sessions.length + catalog.length + remoteFavorites.length;
 
   final body = <Widget>[];
+  // Live rows out of view with no drawn group header to speak for them
+  // (the filter hid them, or their whole group): SERVERS' header shows
+  // their state (D33).
+  final hiddenLoose = <ServerStatus?>[];
   for (final session in sessions) {
     final bookmark = session.bookmark;
     if (!data.countRow(
@@ -79,6 +81,7 @@ List<Widget> _serversSection(_SidebarData data) {
           ? null
           : () => view.onOpenFavorite!(bookmark, SidebarOpenAction.plain),
     )) {
+      hiddenLoose.add(_liveStatus(data, bookmark.id));
       continue;
     }
     body.add(
@@ -89,96 +92,107 @@ List<Widget> _serversSection(_SidebarData data) {
       ),
     );
   }
-  body.addAll(_serverRows(data, loose, group: null, depth: 0));
+  final looseHidden = <ServerConfig>[];
+  body.addAll(_serverRows(data, loose, depth: 0, hidden: looseHidden));
+  hiddenLoose.addAll(_catalogStatuses(data, looseHidden));
 
   final sortedKeys = groups.keys.toList()..sort();
   for (final key in sortedKeys) {
     final group = groups[key]!;
     final collapseKey = SidebarCollapseKeys.serverGroup(key);
-    final rows = _serverRows(data, group, group: group.name, depth: 1);
-    if (data.filtering && rows.isEmpty) continue;
+    final filtered = <ServerConfig>[];
+    final rows = _serverRows(data, group, depth: 1, hidden: filtered);
+    if (data.filtering && rows.isEmpty) {
+      hiddenLoose.addAll(_catalogStatuses(data, filtered));
+      continue;
+    }
     final collapsed = data.collapsed(collapseKey);
+    // The account's groups take no bookmark drops: a catalog server's
+    // group is edited in the server editor, and bookmarks file under
+    // FAVORITES.
     body.add(
-      _SidebarDropZone(
+      SidebarSectionHeader(
         key: ValueKey('sidebar.group.$collapseKey'),
-        planner: (payload, _) => _regroupPlan(
-          view,
-          payload,
-          group: group.name,
-          accepts: _isServerKind,
+        headerKey: ValueKey('sidebar.section.$collapseKey'),
+        nested: true,
+        title: group.name,
+        count: group.length,
+        collapsed: collapsed,
+        status: _hiddenLiveDot(
+          data,
+          _catalogStatuses(data, collapsed ? group.catalog : filtered),
         ),
-        builder: (indicator) => SidebarSectionHeader(
-          headerKey: ValueKey('sidebar.section.$collapseKey'),
-          nested: true,
-          title: group.name,
-          count: group.length,
-          collapsed: collapsed,
-          dropHighlight: indicator != SidebarDropIndicator.none,
-          onToggle: () => controller.toggleCollapsed(collapseKey),
-        ),
+        onToggle: () => controller.toggleCollapsed(collapseKey),
       ),
     );
     if (!collapsed) body.addAll(rows);
   }
 
   // Only a loaded store can say "none": mid-load or after a failed read
-  // (FAVORITES carries that error) the empty copy would be a claim.
+  // (FAVORITES carries that error) the empty copy would be a claim. A
+  // pinned server is still the account's, so all of them pinned is not
+  // "none" either.
   final empty =
-      total == 0 && !data.filtering && controller.load == SidebarLoad.ready;
+      sessions.isEmpty &&
+      catalog.isEmpty &&
+      !data.filtering &&
+      controller.load == SidebarLoad.ready;
   if (empty && data.home) {
     body.add(_homeEmptyServers(data));
   } else if (empty) {
     body.add(
       _SidebarHint(
         key: const ValueKey('sidebar.servers.empty'),
-        text: l10n.sidebarServersEmpty,
+        // With the shared account SERVERS is its server list; without
+        // it, the live sessions only.
+        text: view.catalog == null
+            ? l10n.sidebarServersEmpty
+            : l10n.sidebarCatalogEmpty,
         presentation: view.presentation,
-        // D22's adoption beat: an empty server list is the moment the
-        // ssh_config import earns its keep.
-        action: view.onImportSshConfig == null
-            ? null
-            : TextButton.icon(
-                key: const ValueKey('sidebar.importSshConfig'),
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                ),
-                onPressed: view.onImportSshConfig,
-                icon: const Icon(Icons.download_outlined, size: 14),
-                label: Text(l10n.sidebarImportSshConfig),
-              ),
       ),
     );
   }
-  if (data.filtering && body.isEmpty) return const [];
-
   final collapsed = data.collapsed(sectionKey);
+  final hiddenDot = _hiddenLiveDot(
+    data,
+    collapsed
+        ? [
+            for (final session in sessions)
+              _liveStatus(data, session.bookmark.id),
+            ..._catalogStatuses(data, [
+              ...loose.catalog,
+              for (final group in groups.values) ...group.catalog,
+            ]),
+          ]
+        : hiddenLoose,
+  );
+  // A filter that hides every row drops the section, unless a live
+  // server is among the hidden: its header stays to say so.
+  if (data.filtering && body.isEmpty && hiddenDot == null) return const [];
+
   final VoidCallback? onAdd = view.onAddCatalogServer ?? view.onQuickConnect;
   return [
-    _SidebarDropZone(
+    SidebarSectionHeader(
       key: const ValueKey('sidebar.servers.header'),
-      planner: (payload, _) =>
-          _regroupPlan(view, payload, group: null, accepts: _isServerKind),
-      builder: (indicator) => SidebarSectionHeader(
-        headerKey: ValueKey('sidebar.section.$sectionKey'),
-        title: l10n.sidebarServersSection,
-        count: total,
-        collapsed: collapsed,
-        dropHighlight: indicator != SidebarDropIndicator.none,
-        onToggle: () => controller.toggleCollapsed(sectionKey),
-        onAdd: onAdd,
-        addKey: const ValueKey('sidebar.servers.add'),
-        addTooltip: view.onAddCatalogServer != null
-            ? l10n.sidebarServersAddNew
-            : l10n.sidebarServersAddConnect,
-      ),
+      headerKey: ValueKey('sidebar.section.$sectionKey'),
+      title: l10n.sidebarServersSection,
+      count: total,
+      collapsed: collapsed,
+      status: hiddenDot,
+      onToggle: () => controller.toggleCollapsed(sectionKey),
+      onAdd: onAdd,
+      addKey: const ValueKey('sidebar.servers.add'),
+      addTooltip: view.onAddCatalogServer != null
+          ? l10n.sidebarServersAddNew
+          : l10n.sidebarServersAddConnect,
     ),
     if (!collapsed) ...body,
   ];
 }
 
 /// Home's empty SERVERS (D32 §9): an invitation to connect, with Quick
-/// Connect and — D22's adoption beat — the ssh_config import as buttons.
+/// Connect as its button. The ssh_config import is FAVORITES' offer now,
+/// where the hosts it imports land (D33).
 Widget _homeEmptyServers(_SidebarData data) {
   final l10n = data.l10n;
   final view = data.view;
@@ -186,7 +200,9 @@ Widget _homeEmptyServers(_SidebarData data) {
     key: const ValueKey('sidebar.servers.empty'),
     icon: Icons.dns_outlined,
     title: l10n.compactHomeServersEmptyTitle,
-    body: l10n.compactHomeServersEmptyBody,
+    body: view.catalog == null
+        ? l10n.compactHomeServersEmptyBody
+        : l10n.compactHomeServersEmptyAccountBody,
     actions: [
       if (view.onQuickConnect != null)
         FilledButton.tonalIcon(
@@ -195,59 +211,60 @@ Widget _homeEmptyServers(_SidebarData data) {
           icon: const Icon(Icons.power_outlined),
           label: Text(l10n.sidebarAddQuickConnect),
         ),
-      if (view.onImportSshConfig != null)
-        OutlinedButton.icon(
-          key: const ValueKey('sidebar.importSshConfig'),
-          onPressed: view.onImportSshConfig,
-          icon: const Icon(Icons.download_outlined),
-          label: Text(l10n.sidebarImportSshConfig),
-        ),
     ],
   );
 }
 
+/// The filter haystack of a remote location's row: its name, endpoint,
+/// landing path and group.
+String _remoteHaystack(Bookmark bookmark) => [
+  bookmark.label,
+  ?_endpointKeyOf(bookmark),
+  ?bookmark.remotePath,
+  ?bookmark.group,
+].join(' ');
+
+/// Counts an account server's row against the filter; true when it
+/// shows.
+bool _catalogShows(_SidebarData data, ServerConfig server) {
+  final open = data.view.onOpenCatalogServer;
+  return data.countRow(
+    serverSearchHaystack(server),
+    open: open == null ? null : () => open(server, SidebarOpenAction.plain),
+  );
+}
+
+/// The rows of [members] the filter keeps; the ones it hides land in
+/// [hidden], for a header to show their live state.
 List<Widget> _serverRows(
   _SidebarData data,
   _ServerGroup members, {
-  required String? group,
   required int depth,
+  required List<ServerConfig> hidden,
 }) {
-  final view = data.view;
-  return [
-    for (final bookmark in members.stored)
-      if (data.countRow(
-        [
-          bookmark.label,
-          ?_endpointKeyOf(bookmark),
-          ?bookmark.remotePath,
-          ?bookmark.group,
-        ].join(' '),
-        open: view.onOpenFavorite == null
-            ? null
-            : () => view.onOpenFavorite!(bookmark, SidebarOpenAction.plain),
-      ))
-        _SavedServerRow(
-          key: ValueKey('sidebar.favorite.${bookmark.id}'),
-          data: data,
-          bookmark: bookmark,
-          group: group,
-          depth: depth,
-        ),
-    for (final server in members.catalog)
-      if (data.countRow(
-        serverSearchHaystack(server),
-        open: view.onOpenCatalogServer == null
-            ? null
-            : () => view.onOpenCatalogServer!(server, SidebarOpenAction.plain),
-      ))
-        _CatalogServerRow(
-          key: ValueKey('sidebar.catalog.row.${server.id}'),
-          data: data,
-          server: server,
-          depth: depth,
-        ),
-  ];
+  final rows = <Widget>[];
+  for (final server in members.catalog) {
+    if (!_catalogShows(data, server)) {
+      hidden.add(server);
+      continue;
+    }
+    rows.add(
+      _CatalogServerRow(
+        key: ValueKey('sidebar.catalog.row.${server.id}'),
+        data: data,
+        server: server,
+        depth: depth,
+      ),
+    );
+  }
+  return rows;
 }
+
+/// The live states of account servers, for [_hiddenLiveDot].
+Iterable<ServerStatus?> _catalogStatuses(
+  _SidebarData data,
+  Iterable<ServerConfig> servers,
+) => [for (final server in servers) _liveStatus(data, server.id)];
 
 /// The endpoint of the active pane's Quick Connect session, if it shows one.
 String? _activeAdhocEndpoint(_SidebarData data) {
@@ -283,7 +300,7 @@ ServerStatus? _liveStatus(_SidebarData data, String serverId) {
 }
 
 /// The live Quick Connect session a saved row stands in for (10 §5):
-/// "Save to Servers…" leaves the session browsing under its adhoc id and
+/// "Save to Favorites…" leaves the session browsing under its adhoc id and
 /// retires its italic row, so the saved row of the same endpoint paints
 /// that session's status and its Disconnect drops it.
 SidebarAdhocSession? _sessionSavedAs(_SidebarData data, Bookmark bookmark) {
@@ -295,12 +312,59 @@ SidebarAdhocSession? _sessionSavedAs(_SidebarData data, Bookmark bookmark) {
   return null;
 }
 
+/// A remote favorite's live state: its own connection first, else the
+/// Quick Connect session it was saved from, which speaks for it until
+/// the row connects itself ([session], non-null in that case).
+({ServerStatus? status, SidebarAdhocSession? session}) _savedLive(
+  _SidebarData data,
+  Bookmark bookmark,
+) {
+  final own = _liveStatus(data, bookmark.id);
+  final session = _isLive(own) ? null : _sessionSavedAs(data, bookmark);
+  return (
+    status: session == null ? own : _liveStatus(data, session.bookmark.id),
+    session: session,
+  );
+}
+
+/// The dot a header draws for live servers it keeps out of view (D33):
+/// a folded group's or section's rows, or rows the filter hides, so
+/// "what am I connected to" never needs an unfold. A connection up
+/// outranks one being attempted; with nothing live, no dot.
+SidebarStatusDot? _hiddenLiveDot(
+  _SidebarData data,
+  Iterable<ServerStatus?> statuses,
+) {
+  final chrome = PoltergeistChrome.of(data.context);
+  var pending = false;
+  for (final status in statuses) {
+    switch (status?.state) {
+      case ServerConnectionState.connected:
+        return SidebarStatusDot(chrome.statusConnected);
+      case ServerConnectionState.connecting ||
+          ServerConnectionState.reconnecting:
+        pending = true;
+      case _:
+        break;
+    }
+  }
+  return pending ? SidebarStatusDot(chrome.statusConnecting) : null;
+}
+
 ConnectionServer? _connectionOf(_SidebarData data, String serverId) {
   for (final server in data.view.connections?.servers ?? const []) {
     if (server.serverId == serverId) return server;
   }
   return null;
 }
+
+/// The green ring a connected server's mark wears beside its dot (D33,
+/// Séance's old connected ring): only while a connection is up, not
+/// while one is being attempted.
+Color? _connectedRing(BuildContext context, ServerStatus? status) =>
+    status?.state == ServerConnectionState.connected
+    ? PoltergeistChrome.of(context).statusConnected
+    : null;
 
 bool _isLive(ServerStatus? status) => switch (status?.state) {
   ServerConnectionState.connecting ||
@@ -346,8 +410,20 @@ SidebarMenuEntry? _disconnectVerb(
   );
 }
 
-/// A saved server location (a remotePath bookmark): its badge, the live
-/// dot, the endpoint and any failure in the tooltip, and the connection
+/// Where a remote favorite's row is drawn (D33).
+enum _SavedRowPlacement {
+  /// Under FAVORITES, in the store's one user order: the row drags, and
+  /// takes bookmark and folder drops at its edges.
+  favorites,
+
+  /// In PINNED, which orders by label: no position to drag to or drop
+  /// at, so the row does neither.
+  pinned,
+}
+
+/// A saved remote location (a remotePath bookmark), listed under
+/// FAVORITES, or PINNED once pinned (D33): its badge, the live dot, the
+/// endpoint and any failure in the tooltip, and the connection and pin
 /// verbs beside the store edits.
 class _SavedServerRow extends StatelessWidget {
   const _SavedServerRow({
@@ -355,25 +431,27 @@ class _SavedServerRow extends StatelessWidget {
     required this.bookmark,
     required this.group,
     required this.depth,
+    this.placement = _SavedRowPlacement.favorites,
     super.key,
   });
 
   final _SidebarData data;
   final Bookmark bookmark;
+
+  /// The FAVORITES group its drops file into; unused in PINNED.
   final String? group;
   final int depth;
+  final _SavedRowPlacement placement;
 
   @override
   Widget build(BuildContext context) {
     final l10n = data.l10n;
     final view = data.view;
     final id = bookmark.id;
-    final own = _liveStatus(data, id);
     // The row's own connection outranks a saved session's; otherwise the
     // session it was saved from speaks for it.
-    final session = _isLive(own) ? null : _sessionSavedAs(data, bookmark);
+    final (:status, :session) = _savedLive(data, bookmark);
     final liveId = session?.bookmark.id ?? id;
-    final status = session == null ? own : _liveStatus(data, liveId);
     final probe = view.probes?.statuses[id];
     final (:appearance, :dot) = _serverIndicator(
       context,
@@ -397,36 +475,38 @@ class _SavedServerRow extends StatelessWidget {
     final failure = listed?.paneFailure;
     final open = view.onOpenFavorite;
     final adhocEndpoint = _activeAdhocEndpoint(data);
+    final tint = ServerTint(named: bookmark.color);
     final mark = _serverMark(
       data,
       context,
-      ServerTint(named: bookmark.color),
+      tint,
       ServerGlyphMark(bookmark.icon),
     );
-    final home = data.home;
-    final endpoint = home ? _homeSavedEndpoint(data, bookmark) : null;
+    final endpoint = _savedEndpoint(data, bookmark);
+    // The landing path follows the endpoint: two remote favorites of one
+    // server differ only there.
+    final place = bookmark.remotePath;
+    final where = endpoint == null || place == null
+        ? endpoint ?? place
+        : l10n.compactHomeRemoteLocation(endpoint, place);
 
     // The row's visuals are excluded from semantics; the label carries
-    // the state and the failure a sighted user reads in the tooltip.
+    // the state, the endpoint and the failure a sighted user reads on the
+    // second line or in the tooltip, in either density (a tooltip is
+    // not a screen reader's).
     final details = [
       if (blocked) l10n.connectionsBlockedWarning,
       ?status?.detail,
       if (failure != null)
         l10n.connectionsPaneFailure(failure.paneTabId, failure.message),
     ];
-    final semanticLabel = home
-        ? _homeSemantics([
-            bookmark.label,
-            appearance.label,
-            endpoint,
-            ...details,
-            _homeTabsSpoken(data, liveId),
-          ])
-        : [
-            bookmark.label,
-            if (appearance.label.isNotEmpty) appearance.label,
-            ...details,
-          ].join(', ');
+    final semanticLabel = _spokenLabel([
+      bookmark.label,
+      appearance.label,
+      where,
+      ...details,
+      _tabsSpoken(data, liveId),
+    ]);
     final tooltip = [
       if (appearance.label.isNotEmpty) appearance.label,
       ?_endpointLabelWithPort(bookmark),
@@ -437,11 +517,10 @@ class _SavedServerRow extends StatelessWidget {
     Widget row(SidebarDropIndicator indicator) => SidebarRow(
       mark: mark,
       status: dot,
+      accent: serverAccent(context, tint)?.line,
+      markRing: _connectedRing(context, status),
       title: bookmark.label,
-      subtitle: home
-          ? _homeServerLine(l10n, _homeStateWords(appearance, probe), endpoint)
-          : null,
-      showMenuButton: home,
+      subtitle: _serverLine(l10n, _stateWords(appearance, probe), where),
       depth: depth,
       dropIndicator: indicator,
       trailingText: _tabsText(data, liveId),
@@ -479,22 +558,56 @@ class _SavedServerRow extends StatelessWidget {
             onSelected: () => view.onLocalEdits!(bookmark),
           ),
         const SidebarMenuDivider(),
+        // The account server's verb and words: both are servers the
+        // user shortlists (D33).
+        SidebarMenuAction(
+          key: const ValueKey('sidebar.menu.pin'),
+          label: data.controller.isPinned(id)
+              ? l10n.sidebarUnpin
+              : l10n.sidebarPinToTop,
+          onSelected: () => data.controller.togglePinned(id),
+        ),
+        const SidebarMenuDivider(),
         ..._editVerbs(context, data, bookmark),
       ],
     );
 
+    if (placement == _SavedRowPlacement.pinned) {
+      return _ProbeVisibility(
+        probes: view.probes,
+        id: id,
+        child: row(SidebarDropIndicator.none),
+      );
+    }
     return _ProbeVisibility(
       probes: view.probes,
       id: id,
       child: _SidebarDropZone(
-        planner: (payload, fraction) => _reorderPlan(
-          view,
-          payload,
-          fraction,
-          target: bookmark,
-          group: group,
-          accepts: _isServerKind,
-        ),
+        // A bookmark of any kind reorders around it (FAVORITES keeps one
+        // user order); a dragged folder adds itself beside it.
+        planner: (payload, fraction) {
+          final reorder = _reorderPlan(
+            view,
+            payload,
+            fraction,
+            target: bookmark,
+            group: group,
+            accepts: _anyBookmark,
+          );
+          if (reorder != null || payload is Bookmark) return reorder;
+          final before = fraction < 0.5;
+          return _addFavoritePlan(
+            context,
+            view,
+            payload,
+            indicator: before
+                ? SidebarDropIndicator.before
+                : SidebarDropIndicator.after,
+            group: group,
+            beforeId: before ? null : bookmark.id,
+            afterId: before ? bookmark.id : null,
+          );
+        },
         builder: (indicator) => _bookmarkDraggable(
           context,
           bookmark: bookmark,
@@ -506,10 +619,12 @@ class _SavedServerRow extends StatelessWidget {
   }
 }
 
-/// A server row's 18 px mark: a plain glyph like every other rail row
-/// when the server has no colour and no image or emoji of its own; the
-/// shared badge (Séance's tint and mark) when it does. Home draws the
-/// 40 dp disc instead.
+/// A server row's mark. Compact, a plain glyph like every other rail row
+/// when the server has no colour and no image or emoji of its own, and
+/// the shared badge (Séance's tint and mark) at the kit's 18 px (24 on
+/// touch) when it does. Comfortable, always the 32 px badge, whose
+/// neutral tile an uncoloured server wears, as Séance's rows did before
+/// the kit (D33). Home's list draws the 40 dp disc instead.
 Widget _serverMark(
   _SidebarData data,
   BuildContext context,
@@ -517,20 +632,28 @@ Widget _serverMark(
   ServerMark mark, {
   String? label,
 }) {
-  if (data.home) return _homeServerMark(context, tint, mark, label: label);
-  if (mark is ServerGlyphMark && serverAccent(context, tint) == null) {
+  if (data.list) return _homeServerMark(context, tint, mark, label: label);
+  final extent = sidebarMarkExtent(context);
+  if (!data.comfortable &&
+      mark is ServerGlyphMark &&
+      serverAccent(context, tint) == null) {
     return Icon(
       serverIconData(mark.icon),
-      size: 16,
+      size: sidebarGlyphSize(context),
       color: PoltergeistChrome.of(context).secondaryText,
     );
   }
-  return ServerBadge(tint: tint, mark: mark, size: 18, semanticsLabel: label);
+  return ServerBadge(
+    tint: tint,
+    mark: mark,
+    size: extent,
+    semanticsLabel: label,
+  );
 }
 
-/// A saved server's endpoint for its Home line: the embedded identity,
+/// A saved server's endpoint for its second line: the embedded identity,
 /// else the catalog server it references.
-String? _homeSavedEndpoint(_SidebarData data, Bookmark bookmark) {
+String? _savedEndpoint(_SidebarData data, Bookmark bookmark) {
   final identity = bookmark.server?.identity;
   if (identity != null) {
     return sidebarEndpointText(
@@ -593,7 +716,7 @@ class _CatalogServerRow extends StatelessWidget {
           username: server.username,
         );
     final open = view.onOpenCatalogServer;
-    final home = data.home;
+    final tint = ServerTint.of(server);
     final endpoint = sidebarEndpointText(
       username: server.username,
       host: server.host,
@@ -607,37 +730,36 @@ class _CatalogServerRow extends StatelessWidget {
         mark: _serverMark(
           data,
           context,
-          ServerTint.of(server),
+          tint,
           server.mark,
           label: server.label,
         ),
         status: dot,
+        accent: serverAccent(context, tint)?.line,
+        markRing: _connectedRing(context, status),
         title: server.label,
-        subtitle: home
-            ? _homeServerLine(
-                l10n,
-                _homeStateWords(appearance, probe),
-                endpoint,
-              )
-            : null,
-        showMenuButton: home,
+        subtitle: _serverLine(l10n, _stateWords(appearance, probe), endpoint),
         depth: depth,
+        // Provenance (D33): Edit, Duplicate and Delete here change the
+        // account's record, not a bookmark of this device's, so the row
+        // says where it comes from: a small mark, and in words.
+        trailingIcon: Icons.cloud_outlined,
         trailingText: _tabsText(data, server.id),
         hoverAction: _disconnectAction(data, connection, live),
         tooltip: [
           if (appearance.label.isNotEmpty) appearance.label,
           '${server.username}@${server.host}:${server.port}',
+          l10n.sidebarFromSeanceAccount,
         ].join('\n'),
-        semanticLabel: home
-            ? _homeSemantics([
-                server.label,
-                appearance.label,
-                endpoint,
-                _homeTabsSpoken(data, server.id),
-              ])
-            : appearance.label.isEmpty
-            ? server.label
-            : '${server.label}, ${appearance.label}',
+        // What the row shows, in either density: the endpoint is the
+        // tooltip's on a compact row, which a screen reader never gets.
+        semanticLabel: _spokenLabel([
+          server.label,
+          appearance.label,
+          endpoint,
+          _tabsSpoken(data, server.id),
+          l10n.sidebarFromSeanceAccount,
+        ]),
         selected: data.selectionKey == _serverSelectionKey(server.id),
         onActivate: open == null
             ? null
@@ -650,6 +772,14 @@ class _CatalogServerRow extends StatelessWidget {
           ),
           const SidebarMenuDivider(),
           ?_disconnectVerb(data, connection, live),
+          const SidebarMenuDivider(),
+          SidebarMenuAction(
+            key: const ValueKey('sidebar.catalog.menu.pin'),
+            label: data.controller.isPinned(server.id)
+                ? l10n.sidebarUnpin
+                : l10n.sidebarPinToTop,
+            onSelected: () => data.controller.togglePinned(server.id),
+          ),
           const SidebarMenuDivider(),
           if (view.onEditCatalogServer != null)
             SidebarMenuAction(
@@ -676,7 +806,7 @@ class _CatalogServerRow extends StatelessWidget {
 }
 
 /// A live Quick Connect session with no saved row (10 §5): italic, at the
-/// top of SERVERS, with "Save to Servers…" beside the connection verbs.
+/// top of SERVERS, with "Save to Favorites…" beside the connection verbs.
 class _AdhocRow extends StatelessWidget {
   const _AdhocRow({required this.data, required this.session, super.key});
 
@@ -700,7 +830,6 @@ class _AdhocRow extends StatelessWidget {
       username: identity?.username ?? '',
     );
     final open = view.onOpenFavorite;
-    final home = data.home;
     final endpoint = identity == null
         ? null
         : sidebarEndpointText(
@@ -708,26 +837,19 @@ class _AdhocRow extends StatelessWidget {
             host: identity.host,
             port: identity.port,
           );
-    final unsaved = home
-        ? l10n.paneUnsavedSession(endpoint ?? bookmark.label)
-        : null;
+    final unsaved = l10n.paneUnsavedSession(endpoint ?? bookmark.label);
     return SidebarRow(
-      mark: home
+      mark: data.list
           ? _HomeDisc(
               glyph: Icons.bolt,
               tint: Theme.of(context).colorScheme.tertiary,
             )
-          : Icon(
-              Icons.bolt,
-              size: 16,
-              color: PoltergeistChrome.of(context).secondaryText,
-            ),
+          : _placeMark(context, Icons.bolt),
       status: dot,
+      accent: serverAccent(context, ServerTint(named: bookmark.color))?.line,
+      markRing: _connectedRing(context, status),
       title: bookmark.label,
-      subtitle: home
-          ? _homeServerLine(l10n, _homeStateWords(appearance, null), unsaved)
-          : null,
-      showMenuButton: home,
+      subtitle: _serverLine(l10n, _stateWords(appearance, null), unsaved),
       italic: true,
       trailingText: _tabsText(data, bookmark.id),
       hoverAction: _disconnectAction(data, connection, live),
@@ -736,19 +858,13 @@ class _AdhocRow extends StatelessWidget {
         ?_endpointLabelWithPort(bookmark),
         ?session.path,
       ].join('\n'),
-      semanticLabel: home
-          ? _homeSemantics([
-              bookmark.label,
-              l10n.sidebarUnsavedSession,
-              appearance.label,
-              endpoint,
-              _homeTabsSpoken(data, bookmark.id),
-            ])
-          : [
-              bookmark.label,
-              l10n.sidebarUnsavedSession,
-              if (appearance.label.isNotEmpty) appearance.label,
-            ].join(', '),
+      semanticLabel: _spokenLabel([
+        bookmark.label,
+        l10n.sidebarUnsavedSession,
+        appearance.label,
+        endpoint,
+        _tabsSpoken(data, bookmark.id),
+      ]),
       selected: data.selectionKey == _serverSelectionKey(bookmark.id),
       onActivate: open == null
           ? null
@@ -761,7 +877,7 @@ class _AdhocRow extends StatelessWidget {
         const SidebarMenuDivider(),
         SidebarMenuAction(
           key: const ValueKey('sidebar.adhoc.menu.save'),
-          label: l10n.sidebarSaveToServers,
+          label: l10n.sidebarSaveToFavorites,
           onSelected: () => unawaited(
             saveSessionToServers(context, view.controller, session),
           ),

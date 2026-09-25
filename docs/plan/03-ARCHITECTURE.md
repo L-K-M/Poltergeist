@@ -1478,14 +1478,9 @@ abstract interface class TransferProducer {
   /// [destinationPath] — the caller computes the destination (the preview
   /// cache path per 06 §5.3) — completing once produced. Used by future
   /// promised-file drag-out and by Quick Look / preview for remote files.
-  /// A path String, not a `File`, crosses the isolate boundary here:
-  /// `TransferProducer` is implemented engine-side but consumed through
-  /// `EngineClient` (§5's "plain-data messages ... nothing non-sendable"
-  /// rule), so a `ProduceLocalCopyRequest` (source, path,
-  /// destinationPath — all plain data) belongs in §5's protocol
-  /// inventory alongside the other `EngineRequest`s, with cancellation
-  /// riding the existing `CancelRequest` machinery rather than an
-  /// ad-hoc, unversioned handle.
+  /// A path String, not a `File`: the destination is plain data the
+  /// caller computes (the preview cache's temp, or the path an OS
+  /// drag-out promise gave).
   Future<void> produceLocalCopy(FsLocation source, String path,
       {required String destinationPath, RemoteTransferCancellation? cancellation});
 }
@@ -1494,6 +1489,31 @@ abstract interface class TransferProducer {
 `TransferQueue implements TransferProducer` from M4; Quick Look and the
 preview pane (06) consume it from M7, which keeps the hook exercised and
 tested long before drag-out exists.
+
+> **As built (protocol v13, D8 addendum 2026-09-24).** The queue runs on
+> the UI isolate and leases its channels through the v13 bridge (§5's "As
+> built"), so the producer is called in-process; no `ProduceLocalCopyRequest`
+> exists in the engine protocol and none is needed. The app composes
+> `QueuePreviewProducer` over the concrete queue in `main.dart`, and the UI
+> reaches it only through that seam, never the queue itself.
+>
+> **OS drag-out (D14 amendment 2026-09-25).** The richer entry point,
+> `enqueueProduce(PreviewProduceSpec)`, carries two drag-out fields:
+> `writeMode` (`replace`, the preview default for the cache's own temp, or
+> `exclusive`, which fails with a `conflict` and leaves a same-named file
+> alone) and `slotPool` (`preview` or `dragOut`, each with its own two-slot
+> cap, so a many-file drop into Finder cannot starve Quick Look).
+> `QueueDragOutProducer` (app) always asks for `exclusive` + `dragOut` and
+> produces a promised file straight into the path the OS gave. A promised
+> folder is not a produce hop: it is an ordinary recursive download task
+> into the promised path's parent, awaited with `awaitTransferTaskTerminal`
+> over the app's `AppTransferQueue` events. That task is journaled and
+> conflict-aware like any download and does not bypass the queue pause
+> (the drag-out controller fails the promise instead of letting the OS
+> wait). A hard kill mid-produce never leaves a half file under the
+> promised name (temp-then-rename); it can leave the hidden
+> `.poltergeist-*.tmp` sibling, which no restore sweeps because produce
+> hops are unjournaled.
 
 ## 5. Isolate model (D8)
 

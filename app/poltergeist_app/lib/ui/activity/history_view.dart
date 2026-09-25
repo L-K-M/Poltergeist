@@ -1,15 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/activity_panel_controller.dart';
+import '../../theme/app_theme.dart';
 import '../server_label_scope.dart';
 import 'activity_format.dart';
 
 /// The History tab (02 §6): the queue's persisted, capped history —
 /// newest first — behind a filter field, with Clear History in the
-/// strip. Rows are SelectableText: the log is copyable verbatim.
+/// strip. A row's lines ellipsize to the inspector's width; the log stays
+/// copyable verbatim through the row's context menu, which copies the
+/// whole record, the part the ellipsis hides included.
 class ActivityHistoryView extends StatefulWidget {
   const ActivityHistoryView({super.key, required this.controller});
 
@@ -50,6 +56,11 @@ class _ActivityHistoryViewState extends State<ActivityHistoryView> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final theme = Theme.of(context);
+    final chrome = PoltergeistChrome.of(context);
+    // The header filter's capsule (D32 §4), at the size Clear History's
+    // label reads at (labelLarge and bodyMedium are both 13 px on desktop).
+    final fieldText = theme.textTheme.bodyMedium;
     final history = widget.controller.history;
     final query = _query;
     final rows = [
@@ -61,20 +72,43 @@ class _ActivityHistoryViewState extends State<ActivityHistoryView> {
       children: [
         Padding(
           padding: const EdgeInsetsDirectional.fromSTEB(10, 6, 10, 4),
+          // On one baseline: the hint and Clear History read as one line
+          // whatever the font's metrics do inside the field's capsule.
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
             children: [
               Expanded(
                 child: SizedBox(
-                  height: 32,
+                  height: 28,
                   child: TextField(
                     key: const ValueKey('history.filter'),
                     controller: _filter,
+                    style: fieldText,
+                    textAlignVertical: TextAlignVertical.center,
                     decoration: InputDecoration(
-                      hintText: l10n.activityHistoryFilter,
                       isDense: true,
-                      border: const OutlineInputBorder(),
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 8),
+                      filled: true,
+                      fillColor: chrome.capsuleFill,
+                      hintText: l10n.activityHistoryFilter,
+                      hintStyle: fieldText?.copyWith(
+                        color: chrome.secondaryText,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 6,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.search,
+                        size: 16,
+                        color: chrome.secondaryText,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 28,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(7),
+                        borderSide: BorderSide.none,
+                      ),
                     ),
                     onChanged: (value) =>
                         setState(() => _query = value.toLowerCase()),
@@ -136,20 +170,59 @@ class _HistoryRow extends StatelessWidget {
         '${transferEndpointLabel(entry.destination, localLabel: l10n.activityTaskRouteLocal, serverLabel: serverLabel)}'
         ':${entry.destinationDir}';
     final names = entry.rootPaths.map(pathBasename).join(', ');
+    final title = '$time · $verb · $names';
+    final details =
+        '$route · $outcome'
+        '${entry.error == null ? '' : ' · ${entry.error}'}';
+    // Right-click (long-press on touch) copies the record whole: its
+    // lines ellipsize, so a selection could never reach what they hide.
+    return MenuAnchor(
+      menuChildren: [
+        MenuItemButton(
+          key: ValueKey('history.copy.${entry.taskId}'),
+          leadingIcon: const Icon(Icons.copy_outlined, size: 16),
+          onPressed: () => unawaited(
+            Clipboard.setData(ClipboardData(text: '$title\n$details')),
+          ),
+          child: Text(l10n.activityHistoryCopy),
+        ),
+      ],
+      builder: (context, menu, child) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onSecondaryTapUp: (tap) => menu.open(position: tap.localPosition),
+        onLongPressStart: (press) =>
+            menu.open(position: press.localPosition),
+        child: child,
+      ),
+      child: _content(context, title, details, colors),
+    );
+  }
+
+  Widget _content(
+    BuildContext context,
+    String title,
+    String details,
+    ColorScheme colors,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SelectableText(
-            '$time · $verb · $names',
-            maxLines: 1,
-            style: Theme.of(context).textTheme.labelMedium,
+          // The hover shows what the ellipsis hides.
+          Tooltip(
+            message: title,
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
           ),
-          SelectableText(
-            '$route · $outcome'
-            '${entry.error == null ? '' : ' · ${entry.error}'}',
+          Text(
+            details,
             maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: entry.outcome == TransferTaskState.failed
                   ? colors.error

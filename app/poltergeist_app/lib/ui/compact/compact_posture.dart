@@ -27,6 +27,7 @@ enum CompactKey {
   workspace,
   home,
   homeSettings,
+  homeDensity,
   homeMore,
   browser,
   browserBack,

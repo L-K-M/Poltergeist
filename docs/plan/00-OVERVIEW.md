@@ -29,7 +29,7 @@ update the plan first.**
 | [07-MILESTONES.md](07-MILESTONES.md) | Milestones M0–M10 with exit criteria; the distribution workstream; the mobile-constraints memo |
 | [08-TESTING.md](08-TESTING.md) | Test strategy: engine tests, fakes, sshd-in-Docker matrix, perf benchmarks, a11y checks |
 | [09-PLAYBOOK.md](09-PLAYBOOK.md) | The implementation playbook: conventions, guardrails, definition of done, PR workflow, what never to do |
-| [10-WORKSPACE-REDESIGN.md](10-WORKSPACE-REDESIGN.md) | The D32 inspector workspace: window anatomy, header toolbar, shared sidebar, pane anatomy, inspector, Sync sheet, menus, Android posture, the Séance sibling contract |
+| [10-WORKSPACE-REDESIGN.md](10-WORKSPACE-REDESIGN.md) | The D32 inspector workspace: window anatomy, header toolbar, shared sidebar (its two densities per D33), pane anatomy, inspector, Sync sheet, menus, Android posture, the Séance sibling contract |
 
 Repository infrastructure (CI, GLM review workflow, release pipeline, build
 scripts) already exists on `main` and is documented in
@@ -65,7 +65,7 @@ D16 activity panel · D17 editor · D18 security model · D19 trust
 stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
 D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
 permissions · D29 mobile hooks · D30 Séance license · D31 no mounting ·
-D32 inspector workspace
+D32 inspector workspace · D33 sidebar density
 
 ### Stack and shape
 
@@ -491,6 +491,73 @@ D32 inspector workspace
   OS drop-IN uses `desktop_drop`; OS drag-OUT (promised files) is
   deliberately v1.x — the transfer queue exposes a produce-on-demand hook
   from day one so any promised-file backend can attach later.
+  - **Amendment (2026-09-25): OS drag-out ships, first-party.** No
+    `super_drag_and_drop` / `super_native_extensions`: on macOS it cannot
+    see a press under `desktop_drop`'s overlay, cannot promise folders,
+    writes every remote file twice, and brings CocoaPods and a Rust build
+    into an SPM-only project. Instead one Dart seam
+    (`lib/services/os_drag_out.dart`: `DragOutBackend`, the
+    `poltergeist/dragout` channel whose protocol that file documents, and
+    a no-op backend on mobile, web, and in tests) with small native
+    backends per platform. The rules:
+    - *Hand-off, not replacement.* In-app drags stay Flutter `Draggable`s
+      with every existing target, verb rule, spring-load, and test. Only
+      when a row drag's pointer leaves the window does the pane hand the
+      payload (every selected item) to a native session, once per
+      gesture; the pane then cancels its own pointer, and the native side
+      ends the embedder's view of the press so no click stays stuck.
+    - *Local items* travel as plain file URLs; the destination picks copy,
+      move, or link. Delete is never offered (a Dock-Trash drop would be
+      an unguarded delete, D15), and no backend deletes on a move.
+    - *Remote items* are file promises on macOS (`NSFilePromiseProvider`,
+      `public.folder` for directories). A file is produced straight into
+      the path the OS gave: an exclusive produce hop (never replacing a
+      same-named file) on a two-slot drag-out budget separate from Quick
+      Look's. A folder is an ordinary recursive download task, awaited to
+      its end. It does not bypass the queue pause: a paused queue fails
+      the promise at once, and a pause mid-download cancels the task,
+      each with an Alert, so the OS never waits on a pause. Both show in
+      Transfers; the OS-side cancel cancels the task; a failure fails the
+      promise and keeps its failed row and Alert. A receiver that asks
+      for a different folder name fails with an Alert (the queue lands a
+      root under its own name; whether Finder ever renames is open).
+    - *Linux and Windows* carry local items only for now (GTK
+      `text/uri-list`, built and verified under Xvfb; Windows
+      `CF_HDROP` in the shell's own data object, built but not yet
+      run on Windows). Remote rows there show a
+      "use Download To…" hint and keep dragging in-app; File ▸ Download
+      To… is the fallback everywhere. Windows virtual files are the
+      follow-up.
+    - *Own-drag echo.* A drag of ours that comes back into the window
+      lands on `desktop_drop`; the controller recognizes its session (the
+      dropped paths, or a promise called into `desktop_drop`'s staging
+      folder, which fails fast) and the pane applies the in-app verb
+      rules from the stored payload.
+    - *macOS backend* (`macos/Runner/DragOutChannel.swift`, same day). A
+      local event monitor supplies the press whichever view it hit
+      (`desktop_drop`'s overlay, `macos_window_utils`' passthrough
+      views). A synthetic mouse-up to the FlutterViewController ends
+      Flutter's press, then the session begins from the newest drag
+      event so the image keeps its offset from the pointer. Items show
+      their Finder icons and names, several in a pile under AppKit's
+      count badge. Promise writes hop from a private queue to the main
+      queue and never wait on Dart; each publishes a cancellable
+      `NSProgress` on the promised URL. Not yet run on a Mac.
+    - *Windows backend* (`windows/runner/drag_out.cpp`, same day). The
+      items leave as their folder's own `IShellFolder::GetUIObjectOf`
+      data object, the one Explorer drags (`CF_HDROP` plus the shell
+      formats), not `SHCreateDataObject`, which only promises the shell
+      ID list; they must share one folder, as a pane selection does.
+      `startDrag` requires the primary button down and the mouse
+      capture still on the Flutter view (a pen or touch drag has none
+      and stays in-app), posts a registered message, and replies; the
+      message's handler sends the view a synthetic `WM_LBUTTONUP` and
+      runs `SHDoDragDrop` under the Dart PNG (decoded through WIC).
+      `sessionEnded` reports the logical performed effect first, since
+      the shell's optimized move returns none. Nothing is deleted on a
+      move; a Recycle Bin drop is the shell's own recycle, if it does
+      one. Not yet run on Windows; virtual files for remote items are
+      the follow-up.
 - **D17 — Editor.** Séance's editor stack (document I/O with BOM/CRLF
   fidelity, syntax engine, find bar, conflict-aware save-and-upload) is
   ported per D2 and kept behaviorally identical; external editors reuse the
@@ -558,6 +625,59 @@ D32 inspector workspace
   the header shows a progress ring whenever work runs, and new work
   opens the inspector on Transfers. Anything D32 does not name in 02
   still holds.
+- **D33 — Sidebar density and restored row detail (2026-09-25,
+  owner-directed; amends D32 and 10 §2, §5, §8, §9, §10).** Aligning
+  both apps' sidebars on one kit had lost what the owner used: the two
+  views (Séance's comfortable and compact lists), the address or path
+  on a second line, and several marks. The owner's calls, binding for
+  both apps:
+  - **Two densities, one switch.** Compact is D32's one-line rail,
+    unchanged; comfortable is the default on every platform: 52 px rows
+    (56 dp on a tablet's touch rail) with a 32 px mark, a 14 px title
+    and a 12 px second line the kit draws only when comfortable, so the
+    hosts always hand it over and cannot drift. Comfortable headers keep
+    their chevron, count and "+" in view, and every comfortable or
+    touch row shows its "⋮". The choice is device-local
+    (`sidebar.density`) and set from the bottom bar's switch, a phone
+    Home's app bar, or View ▸ Use Compact/Comfortable Sidebar Rows (one
+    item naming the other density: the macOS menu cannot show a check).
+    A phone Home is the Material list when comfortable and the rail's
+    touch rows when compact.
+  - **The second line** says what each row's tooltip says first: free
+    space, a home-relative path, a sync's two sides, a workspace's kind,
+    or a server's endpoint, with the state words first while it is
+    connecting, failed, blocked or unreachable, and a remote favorite's
+    landing path after it.
+  - **Marks:** the 4 px accent line in a server's colour
+    (`ServerAccentBar.width`) and a green connected ring around a
+    connected server's mark come back in both densities, beside the one
+    status dot. A blocked host key gets its own no-entry dot and an
+    unreachable host a red ring, so three states no longer share one
+    red dot. A header that hides a live server (folded, or filtered)
+    shows a dot for it.
+  - **Poltergeist's sections:** remote locations are favorites again,
+    under FAVORITES beside local folders as 10 §5 always said (the first
+    D32 build had moved them under SERVERS, a deviation recorded
+    nowhere); SERVERS is the shared account's list plus the live Quick
+    Connect sessions, and the session verb reads "Save to Favorites…".
+    Poltergeist gains a PINNED shortlist above the others (a device-local
+    pin set, "Pin to top" / "Unpin", as in Séance), and the account's
+    rows carry a small cloud mark and "From your Séance account".
+  - **PINNED, as the owner confirmed it** ("Pin servers to a shortlist
+    at the top, as Séance has"): the account's servers and the remote
+    favorites both pin, so PINNED works without the shared account, and
+    it is the rail's first section, before DEVICES. A pinned row leaves
+    FAVORITES or SERVERS (its group's count drops with it) and keeps its
+    own row in PINNED. The mix is ordered by label, case folded, then by
+    id. A pinned row neither drags nor takes drops, since PINNED has no
+    user order; Move to Group still refiles it. Deleting a pinned
+    favorite drops its pin; the stored key stays `sidebar.pinnedServers`.
+  - **Kept as D32 built it:** ungrouped rows come first with no
+    "Ungrouped" header.
+  - **The filter** shows at five servers again (both apps' old
+    threshold), its count names "↵ opens the first", "No matches" offers
+    Clear filter, and a query drops itself once the rail it filtered is
+    empty.
 
 ### Security, trust, distribution
 

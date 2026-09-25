@@ -18,8 +18,10 @@ import 'services/checkout_session.dart';
 import 'services/connection_state_bridge.dart';
 import 'services/content_size_reporter.dart';
 import 'services/double_click_action.dart';
+import 'services/drag_out_producer.dart' show DragOutProducer;
 import 'services/editor_registry_controller.dart';
 import 'services/engine_session.dart';
+import 'services/os_drag_out.dart' show DragOutBackend;
 import 'services/pane_tabs_controller.dart' show NewTabTarget;
 import 'services/probe_settings_store.dart' show ProbeSettings;
 import 'services/quick_look_channel.dart' show QuickLookChannel;
@@ -27,6 +29,7 @@ import 'services/quit_guard.dart';
 import 'services/recent_locations.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
+import 'services/sidebar_controller.dart' show SidebarDensity;
 import 'services/ssh_config_import_setup.dart';
 import 'services/sync_environment.dart';
 import 'services/sync_queue_facade.dart';
@@ -81,8 +84,14 @@ class PoltergeistApp extends StatefulWidget {
     this.onSidebarHiddenSaveError,
     this.initialSidebarCollapsedGroups = const {},
     this.onSidebarCollapsedGroupsChanged,
+    this.initialSidebarDensity = SidebarDensity.comfortable,
+    this.onSidebarDensityChanged,
+    this.initialSidebarPinnedServers = const {},
+    this.onSidebarPinnedServersChanged,
     this.previewCache,
     this.previewProducer,
+    this.dragOutProducer,
+    this.dragOutBackend,
     this.quickLook,
     this.initialPreviewThresholdBytes =
         defaultLargeDownloadThresholdBytes,
@@ -228,6 +237,14 @@ class PoltergeistApp extends StatefulWidget {
   final Set<String> initialSidebarCollapsedGroups;
   final void Function(Set<String> keys)? onSidebarCollapsedGroupsChanged;
 
+  /// The persisted sidebar row density and its save sink (D33).
+  final SidebarDensity initialSidebarDensity;
+  final void Function(SidebarDensity density)? onSidebarDensityChanged;
+
+  /// The persisted PINNED shortlist and its save sink (D33).
+  final Set<String> initialSidebarPinnedServers;
+  final void Function(Set<String> ids)? onSidebarPinnedServersChanged;
+
   /// 06 §5.3's preview cache behind the whole preview slice — null
   /// composes no preview session (Space falls through, the preview
   /// commands stay disabled). `main.dart` supplies the app-support
@@ -238,6 +255,15 @@ class PoltergeistApp extends StatefulWidget {
   /// the composed queue in production (D14); null leaves remote
   /// previews promptless-disabled while local ones still render.
   final PreviewProducer? previewProducer;
+
+  /// OS drag-out's remote-file seam (00 D14's drag-out amendment): a
+  /// `QueueDragOutProducer` over the same produce hook in production;
+  /// null leaves remote rows without file promises.
+  final DragOutProducer? dragOutProducer;
+
+  /// The native drag-out session (`poltergeist/dragout`); null
+  /// composes none, so a row drag that leaves the window just ends.
+  final DragOutBackend? dragOutBackend;
 
   /// The macOS Quick Look channel seam (06 §5.1) — injectable for
   /// tests; null binds the real method channel.
@@ -471,8 +497,14 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       initialSidebarCollapsedGroups: widget.initialSidebarCollapsedGroups,
       onSidebarCollapsedGroupsChanged:
           widget.onSidebarCollapsedGroupsChanged,
+      initialSidebarDensity: widget.initialSidebarDensity,
+      onSidebarDensityChanged: widget.onSidebarDensityChanged,
+      initialSidebarPinnedServers: widget.initialSidebarPinnedServers,
+      onSidebarPinnedServersChanged: widget.onSidebarPinnedServersChanged,
       previewCache: widget.previewCache,
       previewProducer: widget.previewProducer,
+      dragOutProducer: widget.dragOutProducer,
+      dragOutBackend: widget.dragOutBackend,
       quickLook: widget.quickLook,
       initialPreviewThresholdBytes: widget.initialPreviewThresholdBytes,
       onPreviewCacheCapacityChanged:

@@ -608,6 +608,27 @@ counterpart is ported here.
   `statusStyle` separately. A style without a colour cannot be
   expressed this way. The ring's rendering, `_hollowStroke`, and the
   enum are Séance's.
+- D33 extension, 2026-09-25: written once and committed to both repos
+  on the same day (Poltergeist `4c166a8`, `60b2b63` and `396b568`;
+  Séance `663ceae`, `ec6439f` and `183b24f`), so the two files still
+  differ only in the
+  header comment, the chrome import and `_chrome()`. Added:
+  - `SidebarKitDensity {compact, comfortable}` on `SidebarKitScope`
+    (`densityOf`, comfortable by default), `sidebarHomeLayout()`,
+    density-aware `sidebarMarkExtent()` and the new
+    `sidebarGlyphSize()`: compact keeps D32's 26 px rail, comfortable
+    is 52 px (56 dp touch) with a 32 px mark.
+  - `SidebarRow.subtitle` drawn only when comfortable (the host always
+    passes it; the long-press sheet shows it under its title in either
+    density), `showMenuButton` defaulting to comfortable-or-touch,
+    `accent` (the 4 px colour line) and `markRing` (the connected ring).
+  - `SidebarDotStyle.blocked`, `SidebarSectionHeader.status` for a
+    header's live dot, comfortable headers keeping chevron, count and
+    "+" in view, and ← / → swallowed on headers and rows so focus stays
+    in the sidebar.
+  - `SidebarDensitySwitch`, `SidebarBottomBar.onDensityChanged`, and
+    the `compactRows` / `comfortableRows` strings. The filter's count
+    reads on a line under the field.
 
 ## app/poltergeist_app/lib/services/badge_image.dart
 

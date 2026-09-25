@@ -27,6 +27,7 @@ const kSelectionTransferToOtherPaneCommandId =
     'selection.transferToOtherPane';
 const kSelectionMoveToOtherPaneCommandId = 'selection.moveToOtherPane';
 const kFileRevealCommandId = 'file.reveal';
+const kFileDownloadToCommandId = 'file.downloadTo';
 const kFileNewFolderCommandId = 'file.newFolder';
 const kFileNewFileCommandId = 'file.newFile';
 const kFileDeleteCommandId = 'file.delete';
@@ -124,6 +125,24 @@ void _transfer(
 /// D32's shell-level commands (10 §4, §8): the inspector toggle and its
 /// Alerts tab, Connect (⌘K), and the dual-pane Copy/Move to Other Pane
 /// verbs (F5/F6, the Commander convention every two-pane manager uses).
+/// Opens the platform's folder picker titled [dialogTitle]; null when
+/// the user cancelled.
+typedef DirectoryPicker = Future<String?> Function(String dialogTitle);
+
+/// Download To…'s source: the active tab's server and the selection
+/// roots, while that tab is a live remote listing; null otherwise.
+({String serverId, List<String> roots})? _downloadSource(
+  WorkspaceController workspace,
+) {
+  final pane = workspace.activeTabController;
+  if (pane == null || !pane.verbsEnabled) return null;
+  final location = pane.location;
+  if (location is! RemotePaneLocation) return null;
+  final roots = _selectionRoots(pane);
+  if (roots.isEmpty) return null;
+  return (serverId: location.serverId, roots: roots);
+}
+
 /// The local path "Show in Finder" acts on: the cursor row of a local
 /// tab, else its first selected row — null for remote tabs (a remote
 /// item has no local file to reveal).
@@ -170,6 +189,11 @@ List<RegisteredCommand> buildShellCommands({
   /// row disabled.
   Future<void> Function(String serverId)? disconnectServer,
   WindowFullScreen? fullScreen,
+
+  /// The folder picker behind Download To…; null (mobile, where the
+  /// row drag and its OS hand-off do not exist either) registers no
+  /// Download To… at all.
+  DirectoryPicker? pickDirectory,
 }) {
   final window = fullScreen ?? WindowManagerFullScreen.instance;
   bool browsing() => workspace.activeTabController?.verbsEnabled ?? false;
@@ -559,6 +583,43 @@ List<RegisteredCommand> buildShellCommands({
         group: 3,
       ),
     ),
+    // 02-UX's "Download to…" (00 D14's drag-out amendment): the remote
+    // selection into a local folder the user picks, as an ordinary
+    // queue download. The fallback wherever remote rows cannot be
+    // dragged out to the OS (Linux, Windows), and handy everywhere.
+    if (pickDirectory != null)
+      RegisteredCommand(
+        id: kFileDownloadToCommandId,
+        scope: CommandScope.selection,
+        label: (l10n) => l10n.fileDownloadToLabel,
+        icon: Icons.download_outlined,
+        enabled: () =>
+            dropDelegate() != null && _downloadSource(workspace) != null,
+        disabledReason: (l10n) => l10n.commandDisabledDownloadToRemoteOnly,
+        run: (context) async {
+          // Captured before the picker opens: the pick is modal, but
+          // the verb acts on what was selected when it was chosen.
+          final source = _downloadSource(workspace);
+          if (source == null) return;
+          final folder = await pickDirectory(
+            AppLocalizations.of(context).fileDownloadToDialogTitle,
+          );
+          final queue = dropDelegate();
+          if (folder == null || queue == null) return;
+          queue.enqueue(
+            source: ServerFsLocation(source.serverId),
+            rootPaths: source.roots,
+            destination: const LocalFsLocation(),
+            destinationDir: folder,
+            operation: TransferOperation.copy,
+          );
+        },
+        menuPlacement: const CommandMenuPlacement(
+          menu: AppMenuId.file,
+          order: 84,
+          group: 3,
+        ),
+      ),
       if (revealer.supported)
       RegisteredCommand(
         id: kFileRevealCommandId,

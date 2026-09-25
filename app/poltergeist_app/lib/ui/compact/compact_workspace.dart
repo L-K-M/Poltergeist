@@ -66,6 +66,7 @@ class CompactWorkspace extends StatefulWidget {
     required this.inspector,
     required this.seams,
     this.home,
+    this.homeDensitySwitch,
     this.clock = DateTime.now,
   });
 
@@ -80,6 +81,10 @@ class CompactWorkspace extends StatefulWidget {
   /// Home's content (the sidebar's home presentation). Null when the
   /// shell has no sidebar: the browser is then the only screen.
   final Widget? home;
+
+  /// The sidebar's density switch for Home's app bar (D33); null draws
+  /// none.
+  final Widget? homeDensitySwitch;
   final DateTime Function() clock;
 
   @override
@@ -411,6 +416,7 @@ class CompactWorkspaceState extends State<CompactWorkspace>
               role: _PageRole.home,
               child: CompactHome(
                 sidebar: home,
+                densitySwitch: widget.homeDensitySwitch,
                 commands: widget.commands,
                 onRunCommand: widget.onRunCommand,
               ),

@@ -19,6 +19,27 @@
   - Panes get a location header with a menu of enclosing folders,
     sortable columns, denser rows with file-kind icons, selection on
     press, and right-click menus everywhere.
+- **Two sidebar views.** The sidebar's rows come in two densities:
+  comfortable, the default, with a larger mark and the path, free space
+  or `user@host` (with the state first when a server is connecting,
+  failed or blocked) spelled on a second line, and compact, one line
+  with those details in the tooltip. Switch at the foot of the
+  sidebar, on the phone's Home, or with View ▸ Use Compact/Comfortable
+  Sidebar Rows; the choice is kept per device.
+  - A server's colour leads its row as a line again, a connected server
+    wears a green ring, a blocked host key has its own mark, and an
+    unreachable host shows a red ring.
+  - Saved remote folders are favorites again, listed under Favorites
+    beside local folders; "Save to Servers…" is now "Save to
+    Favorites…". Servers lists your Séance account's servers (marked as
+    such) and live Quick Connect sessions, and a Pinned section keeps
+    the ones you pin at the top.
+  - Pinned is the sidebar's first section, and saved remote folders pin
+    too ("Pin to top" in their menu), so it works without a Séance
+    account.
+  - A folded group or a filter never hides a live connection: the
+    header shows its dot. The filter appears at five servers again,
+    says "↵ opens the first", and offers Clear filter.
 - **New verbs.** Connect (⌘K), New Folder, New File, Duplicate, Move to
   Trash with a clear confirmation, Copy and Move to Other Pane (F5, F6),
   Show in Finder / File Manager / Explorer, and Help ▸ Keyboard
@@ -32,6 +53,19 @@
   shows one pane at a time with an A·B switcher. Long-press selects,
   and the inspector is a bottom sheet. System back steps through
   selection, sheets, folders and home.
+- **Drag files out of Poltergeist.** Dragging rows past the window's
+  edge hands them to the system, so they can land in a file manager or
+  another app; several selected items travel together, and the
+  destination decides whether to copy or move. On Linux this carries
+  local files today, and so does Windows (built, awaiting its first run
+  on Windows). On macOS local files travel as file URLs, and
+  remote files and folders as file promises that download straight to
+  where you drop them (built, awaiting its first run on a Mac); on
+  Linux and Windows a remote drag shows a hint and stays inside the
+  window. A drag that comes back into Poltergeist lands like any
+  in-app drag.
+- **Download To….** File ▸ Download To… and the row menu download the
+  selected remote items into a folder you pick.
 - **Shares an account with Séance.** Bookmark sync now preselects the
   Séance sync account, so both apps show the same servers.
 - **Remote transfers work.** Uploads, downloads, remote→remote copies,

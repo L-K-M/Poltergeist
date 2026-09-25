@@ -583,6 +583,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Transferring to the other pane isn\'t available yet — the transfer queue arrives in a later milestone.';
 
   @override
+  String get paneNoticeDragOutRemote =>
+      'Remote items can\'t be dragged out of Poltergeist here yet. Use Download To… instead.';
+
+  @override
   String get paneNoticeDismiss => 'Dismiss';
 
   @override
@@ -1271,6 +1275,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get activityCopyError => 'Copy error';
+
+  @override
+  String get activityHistoryCopy => 'Copy';
 
   @override
   String get activityTaskRemoteUnavailable =>
@@ -3480,6 +3487,30 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String alertDragOutFailed(String name) {
+    return 'Couldn\'t drag “$name” out';
+  }
+
+  @override
+  String alertDragOutPaused(String folder) {
+    return 'Transfers are paused. Resume them, then drag it to $folder again.';
+  }
+
+  @override
+  String alertDragOutPausedMidway(String folder) {
+    return 'Transfers were paused, so the download to $folder stopped.';
+  }
+
+  @override
+  String alertDragOutRenamed(String folder) {
+    return 'The drop in $folder asked for a different name than the folder\'s own.';
+  }
+
+  @override
+  String get alertDragOutUnavailable =>
+      'Remote items can\'t be downloaded right now.';
+
+  @override
   String alertConflictsPending(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -3601,6 +3632,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get fileRevealWindowsLabel => 'Show in Explorer';
+
+  @override
+  String get fileDownloadToLabel => 'Download To…';
+
+  @override
+  String get fileDownloadToDialogTitle => 'Download To';
+
+  @override
+  String get commandDisabledDownloadToRemoteOnly => 'Select items on a server';
 
   @override
   String get commandDisabledRevealLocalOnly => 'Select a local item';
@@ -4258,6 +4298,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sidebarServersSection => 'Servers';
 
   @override
+  String get sidebarFromSeanceAccount => 'From your Séance account';
+
+  @override
+  String get sidebarPinnedSection => 'Pinned';
+
+  @override
+  String get sidebarPinToTop => 'Pin to top';
+
+  @override
+  String get sidebarUnpin => 'Unpin';
+
+  @override
   String get sidebarShowSection => 'Show';
 
   @override
@@ -4337,7 +4389,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sidebarServersEmpty =>
-      'No servers yet. Connect to one, then save it here.';
+      'Quick Connect sessions show here. Save one to keep it in Favorites.';
 
   @override
   String get sidebarGroupEmpty => 'Drag favorites here';
@@ -4349,10 +4401,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sidebarEject => 'Eject';
 
   @override
-  String get sidebarSaveToServers => 'Save to Servers…';
+  String get sidebarSaveToFavorites => 'Save to Favorites…';
 
   @override
-  String get sidebarSaveToServersTitle => 'Save to Servers';
+  String get sidebarSaveToFavoritesTitle => 'Save to Favorites';
 
   @override
   String get sidebarUnsavedSession => 'not saved';
@@ -4365,6 +4417,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get viewFilterSidebarLabel => 'Filter Sidebar';
+
+  @override
+  String get viewUseCompactSidebarRowsLabel => 'Use Compact Sidebar Rows';
+
+  @override
+  String get viewUseComfortableSidebarRowsLabel =>
+      'Use Comfortable Sidebar Rows';
 
   @override
   String sidebarEjectFailed(String name) {
@@ -4533,6 +4592,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sidebarRowMenu => 'More actions';
 
   @override
+  String get sidebarCompactRows => 'Compact rows';
+
+  @override
+  String get sidebarComfortableRows => 'Comfortable rows';
+
+  @override
   String get compactHomeThisDeviceSubtitle => 'App storage';
 
   @override
@@ -4570,8 +4635,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get compactHomeServersEmptyTitle => 'Connect to a server';
 
   @override
+  String get compactHomeServersEmptyAccountBody =>
+      'Servers on your Séance account appear here, with their status.';
+
+  @override
   String get compactHomeServersEmptyBody =>
-      'Servers you save appear here, with their status.';
+      'Quick Connect sessions appear here, with their status. Save one to keep it in Favorites.';
 
   @override
   String get compactHomeFavoritesEmptyTitle => 'Keep folders close';
@@ -4583,11 +4652,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String compactAddedToFavorites(String label) {
     return 'Added “$label” to Favorites.';
-  }
-
-  @override
-  String compactSavedToServers(String label) {
-    return 'Saved “$label” to Servers.';
   }
 
   @override

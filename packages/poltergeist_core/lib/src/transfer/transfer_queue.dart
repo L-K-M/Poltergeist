@@ -187,11 +187,23 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
   /// read must not crawl at the background bandwidth limit.
   final BandwidthLimiter _produceLimiter = BandwidthLimiter();
 
-  /// 03 §4.7's dedicated produce-slot cap: at most
-  /// [previewProduceSlotLimit] produce hops hold a channel at once;
-  /// further requests wait in [_produceWaiters] holding no lease.
-  int _produceInFlight = 0;
-  final ListQueue<Completer<void>> _produceWaiters = ListQueue();
+  /// 03 §4.7's dedicated produce-slot caps, one budget per
+  /// [ProduceSlotPool]: at most [previewProduceSlotLimit] preview hops
+  /// and, separately, [dragOutProduceSlotLimit] drag-out hops hold a
+  /// channel at once (00 D14's drag-out amendment: a many-file drop
+  /// into Finder must not starve Quick Look). Further requests wait in
+  /// their pool's [_produceWaiters] holding no lease.
+  final Map<ProduceSlotPool, int> _produceInFlight = {
+    for (final pool in ProduceSlotPool.values) pool: 0,
+  };
+  final Map<ProduceSlotPool, ListQueue<Completer<void>>> _produceWaiters = {
+    for (final pool in ProduceSlotPool.values) pool: ListQueue(),
+  };
+
+  static int _produceSlotLimit(ProduceSlotPool pool) => switch (pool) {
+    ProduceSlotPool.preview => previewProduceSlotLimit,
+    ProduceSlotPool.dragOut => dragOutProduceSlotLimit,
+  };
 
   /// The durability barrier a move landing on a local destination runs
   /// before its source is unlinked (00 D26): fsync the landed file's
@@ -479,10 +491,11 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
   }
 
   // ---------------------------------------------------------------------
-  // Produce-on-demand (03 §4.7, 06 §5.3) — the Quick Look / preview hook:
-  // one unjournaled, head-inserted download hop per request, exempt from
-  // queue pause, in-flight caps, and the throttle, under a dedicated
-  // two-slot ceiling.
+  // Produce-on-demand (03 §4.7, 06 §5.3) — the Quick Look / preview hook
+  // and the OS drag-out promise (D14's amendment): one unjournaled,
+  // head-inserted download hop per request, exempt from queue pause,
+  // in-flight caps, and the throttle, under a dedicated two-slot ceiling
+  // per [ProduceSlotPool].
   // ---------------------------------------------------------------------
 
   /// Enqueues one produce hop and returns its live task handle. The task
@@ -586,58 +599,59 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
     );
   }
 
-  /// Waits for a free produce slot (03 §4.7's cap of two), holding no
-  /// lease while queued. Cancellation — the task token or the attempt
-  /// token a per-task pause trips — abandons the wait; a grant that
-  /// arrives as the wait dies is handed to the next waiter rather than
-  /// leaked.
+  /// Waits for a free slot in [pool] (03 §4.7's cap of two per pool),
+  /// holding no lease while queued. Cancellation — the task token or
+  /// the attempt token a per-task pause trips — abandons the wait; a
+  /// grant that arrives as the wait dies is handed to the next waiter
+  /// rather than leaked.
   Future<void> _acquireProduceSlot(
     TransferTask task,
     RemoteTransferCancellation attempt,
+    ProduceSlotPool pool,
   ) async {
     _throwIfTaskCancelled(task);
     if (attempt.isCancelled) throw _cancelledException();
-    if (_produceInFlight < previewProduceSlotLimit) {
-      _produceInFlight++;
+    final waiters = _produceWaiters[pool]!;
+    if (_produceInFlight[pool]! < _produceSlotLimit(pool)) {
+      _produceInFlight[pool] = _produceInFlight[pool]! + 1;
       return;
     }
     final waiter = Completer<void>();
-    _produceWaiters.addLast(waiter);
+    waiters.addLast(waiter);
     await Future.any([
       waiter.future,
       task.cancellation.whenCancelled,
       attempt.whenCancelled,
     ]);
-    if (_produceWaiters.remove(waiter)) {
+    if (waiters.remove(waiter)) {
       // Still queued when we woke: the wait died to a cancel — no slot
       // was granted.
       throw _cancelledException();
     }
     if (task.cancellation.isCancelled || attempt.isCancelled) {
       // Granted concurrently with the cancel: pass the slot on.
-      final next = _produceWaiters.isEmpty
-          ? null
-          : _produceWaiters.removeFirst();
+      final next = waiters.isEmpty ? null : waiters.removeFirst();
       next?.complete();
       throw _cancelledException();
     }
-    _produceInFlight++;
+    _produceInFlight[pool] = _produceInFlight[pool]! + 1;
   }
 
-  void _releaseProduceSlot() {
-    _produceInFlight--;
-    final next = _produceWaiters.isEmpty
-        ? null
-        : _produceWaiters.removeFirst();
+  void _releaseProduceSlot(ProduceSlotPool pool) {
+    _produceInFlight[pool] = _produceInFlight[pool]! - 1;
+    final waiters = _produceWaiters[pool]!;
+    final next = waiters.isEmpty ? null : waiters.removeFirst();
     next?.complete();
   }
 
   /// Executes the produce task's single hop (03 §4.7, 06 §5.3): server
-  /// → the caller's exclusive local temp path. The exemptions are the
-  /// contract — no queue-pause gate, no `_inFlightFiles` accounting, no
-  /// user throttle ([_produceLimiter] stands in) — while per-task pause
-  /// and cancel, the disconnect retry budget, and the queue row all
-  /// behave exactly like a managed checkout's.
+  /// → the caller's local path (the preview cache's exclusive temp, or a
+  /// drag-out destination written under [ProduceWriteMode.exclusive]).
+  /// The exemptions are the contract — no queue-pause gate, no
+  /// `_inFlightFiles` accounting, no user throttle ([_produceLimiter]
+  /// stands in) — while per-task pause and cancel, the disconnect retry
+  /// budget, and the queue row all behave exactly like a managed
+  /// checkout's.
   ///
   /// Progress emits `TransferQueueItemEvent`s (byte counts live on the
   /// item) rather than `TransferQueueProgressEvent` — §4.7's rule that
@@ -681,7 +695,7 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
       _emit(TransferQueueItemEvent(task.id, item.id, item.state));
       _setTaskState(runtime, TransferTaskState.running);
       try {
-        await _acquireProduceSlot(task, attempt);
+        await _acquireProduceSlot(task, attempt, produce.slotPool);
         try {
           final leases = await _leaseServerIds([produce.serverId], attempt);
           try {
@@ -695,9 +709,11 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
               destinationPath: produce.destinationPath,
               length: produce.expectedSize,
               maximumBytes: produce.maximumBytes,
-              // The temp is the cache's exclusive sibling — overwrite is
-              // the expected shape; the commit rename serializes it.
-              overwrite: true,
+              // A preview's temp is the cache's exclusive sibling, so
+              // overwrite is the expected shape; the commit rename
+              // serializes it. A drag-out lands in a user folder, where
+              // an existing file must win (a conflict failure).
+              overwrite: produce.writeMode == ProduceWriteMode.replace,
               // The produced entry's digest is the cache's honesty
               // check — record it beside the file (06 §5.3).
               computeHash: true,
@@ -729,7 +745,7 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
             await _releaseLeases(leases);
           }
         } finally {
-          _releaseProduceSlot();
+          _releaseProduceSlot(produce.slotPool);
         }
       } on RemoteFileException catch (error) {
         if (error.kind == RemoteFileErrorKind.cancelled ||

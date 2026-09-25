@@ -11,6 +11,7 @@ import 'package:poltergeist_sync/poltergeist_sync.dart'
 
 import '../../l10n/app_localizations.dart';
 import '../../services/checkout_session.dart';
+import '../../services/drag_out_controller.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
@@ -96,6 +97,7 @@ class PaneTabsView extends StatelessWidget {
     required this.onCancelRecovery,
     this.bookmarks,
     this.dropDelegate,
+    this.dragOut,
     this.supportsOsDrop,
     this.preview,
     this.checkoutSession,
@@ -134,6 +136,9 @@ class PaneTabsView extends StatelessWidget {
   /// drop zone and the strip's tab-header targets. Null refuses every
   /// drop and leaves rows undraggable.
   final PaneDropDelegate? dropDelegate;
+
+  /// OS drag-out (D14's amendment); see [PaneView.dragOut].
+  final DragOutController? dragOut;
 
   /// Whether the OS drop-in `DropTarget` mounts — see
   /// [PaneView.supportsOsDrop].
@@ -224,6 +229,7 @@ class PaneTabsView extends StatelessWidget {
                 onCancelRecovery: onCancelRecovery,
                 bookmarks: bookmarks,
                 dropDelegate: dropDelegate,
+                dragOut: dragOut,
                 supportsOsDrop: supportsOsDrop,
                 preview: preview,
                 checkoutSession: checkoutSession,
@@ -1045,12 +1051,16 @@ class _TabEntryDropState extends State<_TabEntryDrop> {
     )) {
       return;
     }
-    delegate.enqueue(
-      source: drag.source,
-      rootPaths: drag.rootPaths,
-      destination: destination.fs,
-      destinationDir: destination.dir,
-      operation: verb,
+    // An OS drag-out hand-off in flight holds the enqueue until it knows
+    // whether this release was its own.
+    drag.landInApp(
+      () => delegate.enqueue(
+        source: drag.source,
+        rootPaths: drag.rootPaths,
+        destination: destination.fs,
+        destinationDir: destination.dir,
+        operation: verb,
+      ),
     );
   }
 

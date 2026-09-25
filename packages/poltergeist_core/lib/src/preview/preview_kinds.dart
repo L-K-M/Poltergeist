@@ -59,6 +59,12 @@ const int defaultPreviewCacheCapacityBytes = 512 * 1024 * 1024;
 /// dedicated concurrency cap of two producer slots").
 const int previewProduceSlotLimit = 2;
 
+/// The OS drag-out producer's own concurrent-slot ceiling (00 D14's
+/// drag-out amendment): promise fulfilment draws from a separate budget
+/// so a many-file drop into Finder can never starve Quick Look's
+/// [previewProduceSlotLimit] slots.
+const int dragOutProduceSlotLimit = 2;
+
 /// The [PreviewKind] for [name]'s extension, BEFORE content inspection.
 /// Remote entries classify on the listing's name alone so the prompt
 /// card and the caps can decide without downloading; a produced file

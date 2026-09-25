@@ -172,10 +172,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'transfer.downloadLimitBytesPerSecond'",
     "'transfer.uploadLimitBytesPerSecond'",
     "'transfer.autoClearCompleted'",
-    // The sidebar's persisted keys (02 §4): the hidden intent and the
-    // collapsed-group set — settings.json keys, never rendered.
+    // The sidebar's persisted keys (02 §4, D33): the hidden intent, the
+    // collapsed-group set and the row density — settings.json keys,
+    // never rendered.
     "'layout.sidebarHidden'",
     "'sidebar.collapsedGroups'",
+    "'sidebar.density'",
+    "'sidebar.pinnedServers'",
     // The preview panel's persisted keys (06 §8): cache capacity and the
     // large-download confirmation threshold — settings.json keys.
     "'preview.cacheCapacityBytes'",
@@ -1478,11 +1481,15 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // endpoint data — plumbing, never authored copy.
   'lib/ui/sidebar/sidebar_view.dart': {
     "'sidebar.noMatches'",
+    "'sidebar.noMatches.clear'",
+    // The empty query: Clear filter's and the stale-query drop's.
+    "''",
     "'sidebar.filter'",
     "'sidebar.filter.field'",
     "'sidebar.bottomBar'",
     "'sidebar.add'",
     "'sidebar.settings'",
+    "'sidebar.density'",
     "'sidebar.add.newServer'",
     "'sidebar.add.quickConnect'",
     "'sidebar.add.currentFolder'",
@@ -1545,6 +1552,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "' '",
     "'sidebar.favorites.empty'",
     "'sidebar.favorites.addStandard'",
+    "'sidebar.importSshConfig'",
     r"'sidebar.favorite.${bookmark.id}'",
     "'sidebar.menu.updateWorkspace'",
     "'sidebar.menu.rename'",
@@ -1552,6 +1560,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.menu.ungroup'",
     "'sidebar.menu.newGroup'",
     "'sidebar.menu.delete'",
+  },
+  // PINNED's widget keys: plumbing, never authored copy.
+  'lib/ui/sidebar/sidebar_pinned_section.dart': {
+    r"'sidebar.catalog.row.${server.id}'",
+    r"'sidebar.favorite.${bookmark.id}'",
+    "'sidebar.pinned.header'",
+    r"'sidebar.section.$sectionKey'",
   },
   'lib/ui/sidebar/sidebar_servers_section.dart': {
     "''",
@@ -1561,23 +1576,21 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'sidebar.section.$collapseKey'",
     "'sidebar.servers.empty'",
     "'sidebar.servers.quickConnect'",
-    "'sidebar.importSshConfig'",
     "'sidebar.servers.header'",
     r"'sidebar.section.$sectionKey'",
     "'sidebar.servers.add'",
+    "'sidebar.catalog.menu.pin'",
+    "'sidebar.menu.pin'",
     "' '",
-    r"'sidebar.favorite.${bookmark.id}'",
     r"'sidebar.catalog.row.${server.id}'",
     r"'$username@${host.toLowerCase()}:$port'",
     r"'sidebar.row.disconnect.${server.serverId}'",
     "'sidebar.menu.disconnect'",
-    "', '",
     r"'\n'",
     r"'sidebar.menu.review.$id'",
     "'sidebar.menu.localEdits'",
     r"'${identity.username}@${identity.host}:${identity.port}'",
     r"'${server.username}@${server.host}:${server.port}'",
-    r"'${server.label}, ${appearance.label}'",
     "'sidebar.catalog.menu'",
     "'sidebar.catalog.menu.edit'",
     "'sidebar.catalog.menu.duplicate'",
@@ -1587,9 +1600,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The portable kit's empty query (the filter's clear button).
   'lib/ui/sidebar/sidebar_kit.dart': {
     "''",
-    // The first-verb and header "+" focus nodes' debug labels —
-    // diagnostics, never shown.
+    // The first-verb, row button and header "+" focus nodes' debug
+    // labels: diagnostics, never shown.
     "'SidebarRow first verb'",
+    "'SidebarRow action'",
+    "'SidebarRow menu button'",
     "'SidebarSectionHeader add'",
   },
   // The sidebar filter's term split and the path-separator trimming of
@@ -1612,6 +1627,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The sidebar commands' registry ids.
   'lib/ui/sidebar/sidebar_commands.dart': {
     "'view.filterSidebar'",
+    "'view.toggleSidebarDensity'",
     "'favorite.add'",
     "'connect.saveToServers'",
   },
@@ -1755,6 +1771,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'selection.transferToOtherPane'",
     "'selection.moveToOtherPane'",
     "'file.reveal'",
+    "'file.downloadTo'",
     "'file.newFolder'",
     "'file.newFile'",
     "'file.delete'",
@@ -1846,6 +1863,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'server:${server.serverId}'",
     r"'edits:$serverId'",
     r"'update:${info.latestVersion}'",
+    r"'dragout:${notice.id}'",
   },
   // Rate/ETA rendering and path grammar: the `/s` suffix, the ETA unit
   // glyphs, the custom-rate regex and its unit table, both path
@@ -1941,6 +1959,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'history.filter'",
     "'history.clear'",
     "'history.list'",
+    r"'history.copy.${entry.taskId}'",
     "''",
     r"'\n'",
     "', '",
@@ -1952,6 +1971,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$route · $outcome'",
     r"' · ${entry.error}'",
     r"'${entry.error == null ? '' : ' · ${entry.error}'}'",
+    r"'$title\n$details'",
   },
   // The popover's per-direction widget keys — test plumbing composed
   // from the direction prefix, never authored copy.
@@ -2606,6 +2626,71 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'xdg-open'",
     "'gio'",
   },
+  // OS drag-out's channel protocol (00 D14's amendment): method names,
+  // argument keys, item kinds, the channel name, and the English
+  // diagnostics a refused call carries to the native side: wire data,
+  // never rendered UI copy (the Alerts tab localizes drag-out failures).
+  'lib/services/os_drag_out.dart': {
+    "'poltergeist/dragout'",
+    "'file'",
+    "'kind'",
+    "'path'",
+    "'name'",
+    "'isDirectory'",
+    "'promise'",
+    "'promiseId'",
+    "'size'",
+    "'sessionId'",
+    "'position'",
+    "'allowedOperations'",
+    "'items'",
+    "'image'",
+    "'imageSize'",
+    "'imageAnchor'",
+    r"'DragOutPromiseException(${failure.name}: $message)'",
+    "'startDrag'",
+    "'started'",
+    "'reason'",
+    "'message'",
+    "'promiseProgress'",
+    "'completedBytes'",
+    "'totalBytes'",
+    "'badArguments'",
+    r"'${call.method} expects a map'",
+    r"'${call.method} needs a sessionId'",
+    "'fulfilPromise'",
+    "'destinationPath'",
+    "'fulfilPromise needs promiseId and destinationPath'",
+    "'no drag-out delegate is attached'",
+    "'cancelPromise'",
+    "'sessionEnded'",
+    "'operation'",
+    r"'${call.method} is not a drag-out callback'",
+  },
+  // The drag-out controller's session and promise ids, macOS's
+  // `/private` temp spelling, desktop_drop's `Drops` staging folder
+  // name, and the English diagnostics a failed promise hands the native
+  // completion (Finder logs them; the user-facing report is the
+  // localized Alert).
+  'lib/services/drag_out_controller.dart': {
+    r"'p${promises.length + 1}'",
+    r"'dragout-${++_sequence}'",
+    "'/private'",
+    r"'$prefix/tmp/'",
+    r"'$prefix/var/'",
+    "'unknown drag-out session or promise'",
+    "'the drag came back into Poltergeist'",
+    "'the promise is already being fulfilled'",
+    "'no transfer queue to produce remote files'",
+    "'no transfer queue to download remote folders'",
+    "'the drop asked for a different folder name'",
+    "'transfers are paused'",
+    "'transfers were paused during the download'",
+    "'the download was cancelled'",
+    "'Drops'",
+  },
+  // The drag image's ellipsis glyph: typography, not copy.
+  'lib/ui/panes/drag_out_image.dart': {"'\u2026'"},
 };
 
 /// The icon-label/keyword pairs ported verbatim from Séance's picker

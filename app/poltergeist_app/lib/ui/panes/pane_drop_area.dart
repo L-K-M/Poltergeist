@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../services/drag_out_controller.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
@@ -44,6 +45,7 @@ class PaneDropArea extends StatefulWidget {
     required this.onHoverFolderRow,
     required this.supportsOsDrop,
     required this.child,
+    this.dragOut,
   });
 
   /// The destination pane tab's controller — its `location` is the
@@ -76,6 +78,12 @@ class PaneDropArea extends StatefulWidget {
   /// Whether the OS drop-in `DropTarget` mounts at all — false on
   /// platforms `desktop_drop` does not serve (mobile).
   final bool supportsOsDrop;
+
+  /// OS drag-out (00 D14's amendment): while one of its sessions runs,
+  /// an OS drag over this zone is our own drag coming back, so hover and
+  /// drop follow the in-app verb rules with the stored payload instead
+  /// of the OS-drop copy. Null treats every OS drop as foreign.
+  final DragOutController? dragOut;
 
   final Widget child;
 
@@ -283,17 +291,18 @@ class _PaneDropAreaState extends State<PaneDropArea> {
     _setHover(label: null, folderRow: null);
   }
 
-  /// The drop lands: resolve once more at release time — the pointer
-  /// may have moved past the last `onMove` — then enqueue through the
-  /// shared seam. The verb reads the modifiers held AT RELEASE.
-  void _acceptInApp(PaneEntryDrag drag, Offset global) {
+  /// The drop lands: resolve once more at release time (the pointer may
+  /// have moved past the last `onMove`) into the enqueue through the
+  /// shared seam, which the caller runs; null when the drop lands
+  /// nothing. The verb reads the modifiers held AT RELEASE.
+  VoidCallback? _resolveInAppDrop(PaneEntryDrag drag, Offset global) {
     final delegate = widget.delegate;
     final resolved = _resolveDrop(global);
     final destination = _destinationFs;
     drag.verb.value = null;
     _clearHover();
     if (resolved == null || delegate == null || destination == null) {
-      return;
+      return null;
     }
     final modifiers = paneDropModifiers(context);
     final verb = paneDropVerb(
@@ -311,9 +320,9 @@ class _PaneDropAreaState extends State<PaneDropArea> {
       destinationDir: resolved.dir,
       operation: verb,
     )) {
-      return;
+      return null;
     }
-    delegate.enqueue(
+    return () => delegate.enqueue(
       source: drag.source,
       rootPaths: drag.rootPaths,
       destination: destination,
@@ -338,6 +347,13 @@ class _PaneDropAreaState extends State<PaneDropArea> {
   /// carries no move intent the app can honor), the position still
   /// deciding hovered-folder vs current directory.
   void _updateOsHover(Offset global) {
+    final echo = widget.dragOut?.activeEchoPayload;
+    if (echo != null) {
+      // Our own drag, back in the window: label it like the in-app drag
+      // it came from (a same-volume move stays a move).
+      _updateInAppHover(echo, global);
+      return;
+    }
     // Recorded so the spring-load timer can re-resolve under the
     // pointer at fire time, same as the in-app path.
     _activeHoverGlobal = global;
@@ -407,8 +423,12 @@ class _PaneDropAreaState extends State<PaneDropArea> {
         data?.verb.value = null;
         _clearHover();
       },
-      onAcceptWithDetails: (details) =>
-          _acceptInApp(details.data, details.offset),
+      onAcceptWithDetails: (details) {
+        // Resolved at release; an OS drag-out hand-off in flight holds
+        // the enqueue until it knows whether this release was its own.
+        final drop = _resolveInAppDrop(details.data, details.offset);
+        if (drop != null) details.data.landInApp(drop);
+      },
       builder: (context, candidateData, rejectedData) => widget.child,
     );
     if (widget.supportsOsDrop) {
@@ -419,6 +439,16 @@ class _PaneDropAreaState extends State<PaneDropArea> {
         onDragExited: (_) => _clearHover(),
         onDragDone: (details) {
           _clearHover();
+          // A drag of ours that came back lands by the in-app rules from
+          // the stored payload; anything else is a foreign OS drop.
+          final echo = widget.dragOut?.claimEcho([
+            for (final item in details.files) item.path,
+          ]);
+          if (echo != null) {
+            // The native session's own drop: nothing to hold for.
+            _resolveInAppDrop(echo, details.globalPosition)?.call();
+            return;
+          }
           _acceptOsDrop(details);
         },
         child: zone,

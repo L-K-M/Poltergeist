@@ -1,5 +1,5 @@
 // The sidebar and connection verbs 10 §8's menus reach as registered
-// commands (D21): Server ▸ Disconnect, Save to Servers…, and Add Current
+// commands (D21): Server ▸ Disconnect, Save to Favorites…, and Add Current
 // Folder to Favorites act on the active tab through the rail's own flows.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -185,7 +185,7 @@ void main() {
       expect(store.bookmarks.single.localPath, '/home/tester');
     });
 
-    testWidgets('Save to Servers… saves the active Quick Connect session, '
+    testWidgets('Save to Favorites… saves the active Quick Connect session, '
         'then retires', (tester) async {
       final lanes = controller_test.FakePaneLanes();
       final pane = await connectAdhoc(lanes, adhocBookmark());
@@ -225,7 +225,7 @@ void main() {
       expect(save.enabled(), isFalse);
     });
 
-    testWidgets('Save to Servers… is disabled on a saved server\'s tab', (
+    testWidgets('Save to Favorites… is disabled on a saved server\'s tab', (
       tester,
     ) async {
       final lanes = controller_test.FakePaneLanes();
