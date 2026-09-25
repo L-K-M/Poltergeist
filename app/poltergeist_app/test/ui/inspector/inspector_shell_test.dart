@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
@@ -124,6 +125,28 @@ void main() {
     expect(row, findsNothing);
     expect(badgeOn(toggle), findsNothing);
     expect(find.byKey(const ValueKey('alerts.empty')), findsOneWidget);
+  });
+
+  testWidgets('assistive tech can switch the inspector\'s tabs', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await pumpShell(tester);
+      final transfers = find.byKey(const ValueKey('inspector.tab.transfers'));
+      expect(
+        tester
+            .getSemantics(transfers)
+            .getSemanticsData()
+            .hasAction(SemanticsAction.tap),
+        isTrue,
+      );
+      tester.semantics.tap(find.semantics.byLabel('Transfers'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('activity.panel')), findsOneWidget);
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('a restored session keeps the user\'s hide and tab', (

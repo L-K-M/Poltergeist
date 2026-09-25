@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
@@ -145,6 +146,28 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('toolbar.overflow.action')));
     await tester.pumpAndSettle();
     expect(runs, ['action']);
+  });
+
+  testWidgets('assistive tech can press a button, never a disabled one', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await pumpHeader(tester);
+      final node = tester.getSemantics(button('action'));
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      tester.semantics.tap(find.semantics.byLabel('Label action'));
+      await tester.pump();
+      expect(runs, ['action']);
+
+      final disabled = tester.getSemantics(button('status'));
+      expect(
+        disabled.getSemanticsData().hasAction(SemanticsAction.tap),
+        isFalse,
+      );
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('a badge shows its count, capped at 99+', (tester) async {

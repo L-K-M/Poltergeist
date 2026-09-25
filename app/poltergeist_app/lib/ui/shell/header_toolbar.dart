@@ -268,6 +268,7 @@ class _ToolbarButton extends StatelessWidget {
         child: icon,
       );
     }
+    final onTap = enabled ? () => unawaited(onRun(command)) : null;
     return Tooltip(
       message: commandTooltip(command, l10n, theme.platform),
       child: Semantics(
@@ -276,9 +277,13 @@ class _ToolbarButton extends StatelessWidget {
         label: command.label(l10n),
         excludeSemantics: true,
         enabled: enabled,
+        // excludeSemantics drops the InkWell's own tap action with its
+        // subtree, so the node carries it: a screen reader's activate
+        // (VoiceOver's press, Narrator's invoke, TalkBack's tap) runs it.
+        onTap: onTap,
         child: InkWell(
           key: ValueKey('command.${command.id}'),
-          onTap: enabled ? () => unawaited(onRun(command)) : null,
+          onTap: onTap,
           borderRadius: BorderRadius.circular(6),
           hoverColor: chrome.hoverFill,
           child: Container(

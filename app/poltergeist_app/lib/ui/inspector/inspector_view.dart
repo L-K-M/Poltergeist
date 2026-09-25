@@ -172,6 +172,8 @@ class _TabSwitcher extends StatelessWidget {
           button: true,
           label: label,
           excludeSemantics: true,
+          // The excluded InkWell's tap, kept for screen readers.
+          onTap: () => onSelect(value),
           child: InkWell(
             key: ValueKey('inspector.tab.${value.name}'),
             borderRadius: BorderRadius.circular(6),
