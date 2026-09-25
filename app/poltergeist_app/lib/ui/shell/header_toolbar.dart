@@ -53,8 +53,8 @@ class HeaderToolbar extends StatelessWidget {
   final Map<String, Widget Function(BuildContext context, Widget button)>
   statusExtras;
 
-  /// Per-command badge counts (the inspector toggle's alert count).
-  final Map<String, int> badges;
+  /// Per-command badges (the inspector toggle's alert count).
+  final Map<String, ToolbarBadge> badges;
 
   final Widget? filterField;
   final Widget? menuButton;
@@ -176,7 +176,7 @@ class HeaderToolbar extends StatelessWidget {
                     onRun: onRun,
                     labelled:
                         labelled && command.toolbarPlacement!.labelled,
-                    badge: badges[command.id] ?? 0,
+                    badge: badges[command.id],
                   ),
                 ),
             ],
@@ -193,6 +193,18 @@ class HeaderToolbar extends StatelessWidget {
     final extra = statusExtras[command.id];
     return extra == null ? button : extra(context, button);
   }
+}
+
+/// A count badged on a header button, with the words a screen reader
+/// hears for it: the painted number alone is excluded from semantics
+/// with the rest of the button's visuals.
+class ToolbarBadge {
+  const ToolbarBadge({required this.count, required this.announcement});
+
+  final int count;
+
+  /// The count in words ("3 alerts"), announced as the button's value.
+  final String announcement;
 }
 
 /// ForkLift's rounded group behind related toolbar buttons.
@@ -241,7 +253,7 @@ class _ToolbarButton extends StatelessWidget {
   final RegisteredCommand command;
   final Future<void> Function(RegisteredCommand command) onRun;
   final bool labelled;
-  final int badge;
+  final ToolbarBadge? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -258,10 +270,14 @@ class _ToolbarButton extends StatelessWidget {
       size: 17,
       color: color,
     );
-    if (badge > 0) {
+    final badge = this.badge;
+    final badged = badge != null && badge.count > 0;
+    if (badged) {
       icon = Badge(
         label: Text(
-          badge > 99 ? l10n.badgeCountOverflow : l10n.badgeCount(badge),
+          badge.count > 99
+              ? l10n.badgeCountOverflow
+              : l10n.badgeCount(badge.count),
         ),
         backgroundColor: theme.colorScheme.error,
         textColor: theme.colorScheme.onError,
@@ -275,6 +291,7 @@ class _ToolbarButton extends StatelessWidget {
         button: true,
         toggled: command.checked == null ? null : checked,
         label: command.label(l10n),
+        value: badged ? badge.announcement : null,
         excludeSemantics: true,
         enabled: enabled,
         // excludeSemantics drops the InkWell's own tap action with its

@@ -75,7 +75,7 @@ void main() {
   Future<void> pumpHeader(
     WidgetTester tester, {
     double width = 1200,
-    Map<String, int> badges = const {},
+    Map<String, ToolbarBadge> badges = const {},
   }) async {
     tester.view.physicalSize = Size(width, 200);
     tester.view.devicePixelRatio = 1;
@@ -171,16 +171,43 @@ void main() {
   });
 
   testWidgets('a badge shows its count, capped at 99+', (tester) async {
-    await pumpHeader(tester, badges: {'status': 3});
+    await pumpHeader(
+      tester,
+      badges: {'status': const ToolbarBadge(count: 3, announcement: '')},
+    );
     expect(
       find.descendant(of: button('status'), matching: find.text('3')),
       findsOneWidget,
     );
-    await pumpHeader(tester, badges: {'status': 120});
+    await pumpHeader(
+      tester,
+      badges: {'status': const ToolbarBadge(count: 120, announcement: '')},
+    );
     expect(
       find.descendant(of: button('status'), matching: find.text('99+')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('a badge is announced in words; no badge, no value', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await pumpHeader(
+        tester,
+        badges: {
+          'status': const ToolbarBadge(count: 3, announcement: '3 alerts'),
+          'lead': const ToolbarBadge(count: 0, announcement: 'none'),
+        },
+      );
+      String valueOf(String id) =>
+          tester.getSemantics(button(id)).getSemanticsData().value;
+      expect(valueOf('status'), '3 alerts');
+      expect(valueOf('lead'), isEmpty);
+    } finally {
+      semantics.dispose();
+    }
   });
 
   test('the tooltip names the first shortcut after the label', () {

@@ -145,8 +145,9 @@ class _TabSwitcher extends StatelessWidget {
       InspectorTab value,
       IconData icon,
       IconData selectedIcon,
-      String label,
-      int badge, {
+      String label, {
+      int badge = 0,
+      String Function(int count)? announce,
       bool errorBadge = false,
     }) {
       final isSelected = value == selected;
@@ -171,6 +172,8 @@ class _TabSwitcher extends StatelessWidget {
           selected: isSelected,
           button: true,
           label: label,
+          // The painted count is excluded with the glyph; say it.
+          value: badge > 0 ? announce?.call(badge) : null,
           excludeSemantics: true,
           // The excluded InkWell's tap, kept for screen readers.
           onTap: () => onSelect(value),
@@ -205,7 +208,6 @@ class _TabSwitcher extends StatelessWidget {
             Icons.info_outline,
             Icons.info,
             l10n.inspectorTabInfo,
-            0,
           ),
           const SizedBox(width: 6),
           tab(
@@ -213,7 +215,8 @@ class _TabSwitcher extends StatelessWidget {
             Icons.swap_vert,
             Icons.swap_vert,
             l10n.inspectorTabTransfers,
-            liveTransfers,
+            badge: liveTransfers,
+            announce: l10n.transferCountSemantics,
           ),
           const SizedBox(width: 6),
           tab(
@@ -221,7 +224,8 @@ class _TabSwitcher extends StatelessWidget {
             Icons.warning_amber_outlined,
             Icons.warning_amber,
             l10n.inspectorTabAlerts,
-            alertCount,
+            badge: alertCount,
+            announce: l10n.alertCountSemantics,
             errorBadge: true,
           ),
         ],

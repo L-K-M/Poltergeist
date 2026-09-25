@@ -1696,7 +1696,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         nativeTitlebar: mac,
         leadingInset: mac && !sidebarInline ? _macTrafficLightsInset : 0,
         title: _HeaderTitle(workspace: workspace),
-        badges: {kViewToggleInspectorCommandId: _alerts.attentionCount},
+        badges: {
+          kViewToggleInspectorCommandId: ToolbarBadge(
+            count: _alerts.attentionCount,
+            announcement: strings.alertCountSemantics(_alerts.attentionCount),
+          ),
+        },
         statusExtras: {
           kViewToggleActivityPanelCommandId: (context, button) =>
               HeaderActivityButton(controller: _activity, child: button),

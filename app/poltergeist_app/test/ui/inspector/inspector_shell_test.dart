@@ -149,6 +149,34 @@ void main() {
     }
   });
 
+  testWidgets('the alert and transfer counts are announced, not only '
+      'painted', (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await pumpShell(tester);
+      String valueOf(Finder finder) =>
+          tester.getSemantics(finder).getSemanticsData().value;
+      final alertsTab = find.byKey(const ValueKey('inspector.tab.alerts'));
+      final transfersTab = find.byKey(
+        const ValueKey('inspector.tab.transfers'),
+      );
+      expect(valueOf(toggle), isEmpty);
+
+      queue.addTask(state: TransferTaskState.failed, error: 'x');
+      queue.addTask(state: TransferTaskState.failed, error: 'y');
+      queue.addTask(state: TransferTaskState.running);
+      // The running task spins the activity ring: fixed frames, never
+      // a settle.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(valueOf(toggle), '2 alerts');
+      expect(valueOf(alertsTab), '2 alerts');
+      expect(valueOf(transfersTab), '1 unfinished transfer');
+    } finally {
+      semantics.dispose();
+    }
+  });
+
   testWidgets('a restored session keeps the user\'s hide and tab', (
     tester,
   ) async {
