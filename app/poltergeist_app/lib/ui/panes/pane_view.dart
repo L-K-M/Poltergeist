@@ -542,7 +542,8 @@ class _PaneViewState extends State<PaneView> {
     // Retry, as a dialog's default button (Esc is its Cancel, below).
     if (controller.error != null &&
         !controller.connectionLost &&
-        key == LogicalKeyboardKey.enter &&
+        (key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.numpadEnter) &&
         plainKey) {
       if (event is! KeyRepeatEvent) unawaited(controller.retry());
       return KeyEventResult.handled;

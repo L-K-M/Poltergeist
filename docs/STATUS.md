@@ -8641,7 +8641,9 @@ the failed target as Forward history. A failed file Open or a rejected
 typed path just clears. A folder that failed its own re-list moves up
 to its parent, and a root falls back to home. A failed connect leaves
 through the connecting state's sibling-aware Cancel, which the error
-had hidden. The same audit found one more loop: a journal flush that
+had hidden. Only a local pane whose home root itself fails keeps Retry
+alone; the path field and the sidebar still navigate it away. The same
+audit found one more loop: a journal flush that
 keeps failing vetoed every quit, so the only way out was killing the
 process. Its warning now offers Quit Anyway, which loses nothing a
 crash would not (the journal is crash-consistent).

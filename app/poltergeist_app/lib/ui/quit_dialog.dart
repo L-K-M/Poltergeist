@@ -104,16 +104,18 @@ Future<bool> showQuitFlushFailedDialog(
         scrollable: true,
         title: Text(l10n.quitFlushFailedTitle),
         content: Text(l10n.quitFlushFailedBody(error)),
+        // The safe action first, as the quit confirmation orders
+        // Keep Transferring: traversal reaches it before the way out.
         actions: [
-          TextButton(
-            key: const ValueKey('quitFlush.quitAnyway'),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10n.quitFlushFailedQuitAnyway),
-          ),
           TextButton(
             key: const ValueKey('quitFlush.dismiss'),
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: Text(l10n.quitFlushFailedDismiss),
+          ),
+          TextButton(
+            key: const ValueKey('quitFlush.quitAnyway'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.quitFlushFailedQuitAnyway),
           ),
         ],
       );

@@ -864,6 +864,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(left.error, isNotNull);
 
+    // The numpad's Enter retries too; this folder still refuses.
+    await tester.sendKeyEvent(LogicalKeyboardKey.numpadEnter);
+    await tester.pumpAndSettle();
+    expect(
+      channel.listCalls.where((path) => path == '/home/tester/gone'),
+      hasLength(2),
+    );
+    expect(left.error, isNotNull);
+
     channel.listings['/home/tester/gone'] = [_entry('back.txt')];
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
@@ -991,8 +1000,10 @@ void main() {
       expect(left.error, isNotNull);
 
       // Owned keys are consumed: no cursor move, no hidden navigation.
-      // (Enter is the overlay's Retry; its own test pins that.)
+      // Enter is the overlay's Retry: the folder still has no listing,
+      // so it fails again and never falls through to the stale rows.
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
       await tester.pumpAndSettle();
       expect(left.cursorIndex, isNull);
