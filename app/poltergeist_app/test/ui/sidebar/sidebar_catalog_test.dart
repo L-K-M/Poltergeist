@@ -190,7 +190,10 @@ void main() {
     expect(find.text('beta'), findsOneWidget);
     // The endpoint is the tooltip now (one-line rows, 10 §5).
     expect(find.text('deploy@z1.example.com:22'), findsNothing);
-    expect(find.byTooltip('deploy@z1.example.com:22'), findsOneWidget);
+    expect(
+      find.byTooltip('deploy@z1.example.com:22\nFrom your Séance account'),
+      findsOneWidget,
+    );
     // A coloured or emoji server keeps its Séance badge.
     expect(
       find.descendant(of: row('m1'), matching: find.byType(ServerBadge)),
@@ -537,6 +540,51 @@ void main() {
     controller.toggleCollapsed('sec:servers');
     await tester.pumpAndSettle();
     expect(header('sec:servers').status, row.status);
+  });
+
+  testWidgets('an account server says it comes from the Séance account', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final now = DateTime.utc(2026, 10, 1);
+    store.bookmarks = [
+      Bookmark(
+        id: 'b1',
+        kind: BookmarkKind.remotePath,
+        label: 'saved-web',
+        server: BookmarkServerRef(
+          identity: EmbeddedHostIdentity(
+            host: 'web.example.com',
+            port: 22,
+            username: 'deploy',
+            authMethod: AuthMethod.agent,
+          ),
+        ),
+        sortKey: 'mm',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+    catalog.replace([_server('s1', label: 'alpha')]);
+    await pump(tester);
+    SidebarRow sidebarRow(Finder finder) => tester.widget<SidebarRow>(
+      find.descendant(of: finder, matching: find.byType(SidebarRow)),
+    );
+
+    final account = sidebarRow(row('s1'));
+    expect(account.trailingIcon, Icons.cloud_outlined);
+    expect(account.tooltip, contains('From your Séance account'));
+    expect(
+      find.bySemanticsLabel(
+        RegExp('^alpha.*from your Séance account', caseSensitive: false),
+      ),
+      findsOneWidget,
+    );
+    // A bookmark of this device's own carries no such mark.
+    final saved = sidebarRow(find.byKey(const ValueKey('sidebar.favorite.b1')));
+    expect(saved.trailingIcon, isNull);
+    expect(saved.tooltip, isNot(contains('Séance account')));
+    semantics.dispose();
   });
 
   testWidgets('null open callback renders non-activatable rows', (

@@ -1582,7 +1582,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.menu.localEdits'",
     r"'${identity.username}@${identity.host}:${identity.port}'",
     r"'${server.username}@${server.host}:${server.port}'",
-    r"'${server.label}, ${appearance.label}'",
     "'sidebar.catalog.menu'",
     "'sidebar.catalog.menu.edit'",
     "'sidebar.catalog.menu.duplicate'",

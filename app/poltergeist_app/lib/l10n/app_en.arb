@@ -5535,6 +5535,10 @@
   "@sidebarServersSection": {
     "description": "Sidebar section header over the shared account's servers and live Quick Connect sessions (D32 §5, D33). Rendered in caps."
   },
+  "sidebarFromSeanceAccount": "From your Séance account",
+  "@sidebarFromSeanceAccount": {
+    "description": "Tooltip line and spoken part of a Servers row that comes from the shared Séance account (its edits change the account's record), beside the row's small cloud mark (D33)."
+  },
   "sidebarPinnedSection": "Pinned",
   "@sidebarPinnedSection": {
     "description": "Sidebar section header over the servers the user pinned (D33), drawn above Servers while any is pinned. Rendered in caps. Séance uses the same word."

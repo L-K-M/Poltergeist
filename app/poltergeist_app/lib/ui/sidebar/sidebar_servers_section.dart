@@ -738,11 +738,16 @@ class _CatalogServerRow extends StatelessWidget {
         title: server.label,
         subtitle: _serverLine(l10n, _stateWords(appearance, probe), endpoint),
         depth: depth,
+        // Provenance (D33): Edit, Duplicate and Delete here change the
+        // account's record, not a bookmark of this device's, so the row
+        // says where it comes from — a small mark, and in words.
+        trailingIcon: Icons.cloud_outlined,
         trailingText: _tabsText(data, server.id),
         hoverAction: _disconnectAction(data, connection, live),
         tooltip: [
           if (appearance.label.isNotEmpty) appearance.label,
           '${server.username}@${server.host}:${server.port}',
+          l10n.sidebarFromSeanceAccount,
         ].join('\n'),
         semanticLabel: data.comfortable
             ? _spokenLabel([
@@ -750,10 +755,13 @@ class _CatalogServerRow extends StatelessWidget {
                 appearance.label,
                 endpoint,
                 _tabsSpoken(data, server.id),
+                l10n.sidebarFromSeanceAccount,
               ])
-            : appearance.label.isEmpty
-            ? server.label
-            : '${server.label}, ${appearance.label}',
+            : _spokenLabel([
+                server.label,
+                appearance.label,
+                l10n.sidebarFromSeanceAccount,
+              ]),
         selected: data.selectionKey == _serverSelectionKey(server.id),
         onActivate: open == null
             ? null

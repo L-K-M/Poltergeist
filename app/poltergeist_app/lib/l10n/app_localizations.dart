@@ -6472,6 +6472,12 @@ abstract class AppLocalizations {
   /// **'Servers'**
   String get sidebarServersSection;
 
+  /// Tooltip line and spoken part of a Servers row that comes from the shared Séance account (its edits change the account's record), beside the row's small cloud mark (D33).
+  ///
+  /// In en, this message translates to:
+  /// **'From your Séance account'**
+  String get sidebarFromSeanceAccount;
+
   /// Sidebar section header over the servers the user pinned (D33), drawn above Servers while any is pinned. Rendered in caps. Séance uses the same word.
   ///
   /// In en, this message translates to:

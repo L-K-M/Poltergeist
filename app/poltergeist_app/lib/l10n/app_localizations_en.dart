@@ -4258,6 +4258,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sidebarServersSection => 'Servers';
 
   @override
+  String get sidebarFromSeanceAccount => 'From your Séance account';
+
+  @override
   String get sidebarPinnedSection => 'Pinned';
 
   @override
