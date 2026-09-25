@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Cuts a release: bumps the `version:` in every pubspec in lockstep (the
-# packages + the app once it exists), keeps the app lockfile and the README
-# version line in step, commits, tags "v<version>", and with --push pushes
-# branch + tag — which triggers .github/workflows/release.yml to test, build
-# the app clients (Android APK, Linux/macOS/Windows desktop bundles, unsigned
-# iOS IPA), and publish the GitHub Release.
+# packages + the app once it exists), keeps the committed lockfiles and the
+# README version line in step, commits, tags "v<version>", and with --push
+# pushes branch + tag — which triggers .github/workflows/release.yml to test,
+# build the app clients (Android APK, Linux/macOS/Windows desktop bundles,
+# unsigned iOS IPA), and publish the GitHub Release.
 #
 #   scripts/release.sh 0.2.0          # bump pubspecs + README, commit, tag v0.2.0
 #   scripts/release.sh 0.2.0 --push   # …also push the commit + tag (CI then publishes)
@@ -107,19 +107,22 @@ done
 [[ -n "$PUBSPECS" ]] || { echo "error: no pubspecs found to bump" >&2; exit 1; }
 export RELEASE_PUBSPECS="$PUBSPECS"
 
-# The app's committed lockfile pins the workspace packages' versions; keep it
-# in step so the post-release `flutter pub get` is a no-op. The package list
-# is derived from packages/*/ at run time (directory basename = package name,
-# per this repo family's convention), mirroring the RELEASE_PUBSPECS glob, so
-# a new workspace package needs no edit here either. Each lockfile entry's
-# block ends at its `version:` line, so the range substitution touches
-# exactly that line; a package absent from the lockfile makes its range a
-# harmless no-op. The engine runs this via bash -c with RELEASE_NEW_VERSION
-# exported — hence the single quotes — from the repo root on whatever host
-# invoked the stub; probe GNU vs BSD sed exactly like the engine
-# (`sed -i ""` is BSD-only syntax, and plain `sed -i` breaks macOS).
-# ${RELEASE_NEW_VERSION} expands when the engine runs this, not here. A no-op
-# until the app (and its lockfile) exist.
+# Every committed lockfile that path-depends on a workspace package pins that
+# package's version: the app's, and the bench shim's under tool/bench (the
+# 1.0.0 and 1.0.1 bumps both left it naming the previous version, which the
+# Séance license gate then refused as dirty). Keep them in step so the post-release
+# `dart pub get` is a no-op. The locks are the ones beside the pubspecs bumped
+# above (packages/*, tool/*, app/*), and the packages are packages/*/ read by
+# their `name:`, not their directory (packages/poltergeist_bench is
+# poltergeist_m0_bench), skipping any without a `version:` to bump, so a new
+# package or tool needs no edit here. Each lockfile entry's block ends at its
+# `version:` line, so the range substitution touches exactly that line; a
+# package absent from a lockfile makes its range a harmless no-op. The engine
+# runs this via bash -c with RELEASE_NEW_VERSION exported — hence the single
+# quotes — from the repo root on whatever host invoked the stub; probe GNU vs
+# BSD sed exactly like the engine (`sed -i ""` is BSD-only syntax, and plain
+# `sed -i` breaks macOS). ${RELEASE_NEW_VERSION} expands when the engine runs
+# this, not here.
 # shellcheck disable=SC2016
 export RELEASE_POST_BUMP='
   set -euo pipefail
@@ -129,21 +132,25 @@ export RELEASE_POST_BUMP='
     --version "${RELEASE_NEW_VERSION}" \
     --pubspec app/poltergeist_app/pubspec.yaml
 
-  LOCK=app/poltergeist_app/pubspec.lock
-  if [ -f "$LOCK" ]; then
-    if sed --version 2>/dev/null | head -n 1 | grep -q "GNU sed"; then
-      SED_I=(sed -i)
-    else
-      SED_I=(sed -i "")
-    fi
-    SED_EXPRS=()
-    for d in packages/*/; do
-      pkg="$(basename "$d")"
-      SED_EXPRS+=(-e "/^  ${pkg}:/,/^    version:/ s/^(    version: \")[^\"]*(\")/\1${RELEASE_NEW_VERSION}\2/")
+  if sed --version 2>/dev/null | head -n 1 | grep -q "GNU sed"; then
+    SED_I=(sed -i)
+  else
+    SED_I=(sed -i "")
+  fi
+  SED_EXPRS=()
+  for pubspec in packages/*/pubspec.yaml; do
+    [ -f "$pubspec" ] || continue
+    grep -q "^version:" "$pubspec" || continue
+    pkg="$(sed -n -E "s/^name:[[:space:]]*([A-Za-z0-9_]+).*/\1/p" "$pubspec")"
+    [ -n "$pkg" ] || continue
+    SED_EXPRS+=(-e "/^  ${pkg}:/,/^    version:/ s/^(    version: \")[^\"]*(\")/\1${RELEASE_NEW_VERSION}\2/")
+  done
+  if [ "${#SED_EXPRS[@]}" -gt 0 ]; then
+    # One lock per call, so no range carries over into the next file.
+    for lock in packages/*/pubspec.lock tool/*/pubspec.lock app/*/pubspec.lock; do
+      [ -f "$lock" ] || continue
+      "${SED_I[@]}" -E "${SED_EXPRS[@]}" "$lock"
     done
-    if [ "${#SED_EXPRS[@]}" -gt 0 ]; then
-      "${SED_I[@]}" -E "${SED_EXPRS[@]}" "$LOCK"
-    fi
   fi'
 export RELEASE_CI_NOTE="CI (release.yml) will now test, build the app clients (APK, Linux/macOS/Windows, iOS IPA), and publish the GitHub Release for <tag>."
 export RELEASE_INVOKED_AS="scripts/release.sh"
