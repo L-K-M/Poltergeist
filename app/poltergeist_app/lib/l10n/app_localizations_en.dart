@@ -4367,6 +4367,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get viewFilterSidebarLabel => 'Filter Sidebar';
 
   @override
+  String get viewUseCompactSidebarRowsLabel => 'Use Compact Sidebar Rows';
+
+  @override
+  String get viewUseComfortableSidebarRowsLabel =>
+      'Use Comfortable Sidebar Rows';
+
+  @override
   String sidebarEjectFailed(String name) {
     return 'Couldn\'t eject “$name”. Close anything using it and try again.';
   }

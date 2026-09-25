@@ -15,6 +15,9 @@ import 'sidebar_view.dart' show addLocationToFavorites, saveSessionToServers;
 /// 10 §5's sidebar filter chord.
 const kViewFilterSidebarCommandId = 'view.filterSidebar';
 
+/// D33's View menu row that flips the sidebar between its two densities.
+const kViewToggleSidebarDensityCommandId = 'view.toggleSidebarDensity';
+
 /// The sidebar's "+" and row verbs that act on the active pane (D21).
 const kFavoriteAddCommandId = 'favorite.add';
 const kConnectSaveToServersCommandId = 'connect.saveToServers';
@@ -50,13 +53,39 @@ RegisteredCommand buildSidebarFilterCommand({
     sidebar.requestFilter();
   },
   // Beside Filter in the Edit menu's last section: 10 §8's table does
-  // not list this chord's row, and its View section is Sidebar,
-  // Inspector, Second Pane with nothing between them.
+  // not list this chord's row, and its View section keeps to the
+  // regions and D33's density row.
   menuPlacement: const CommandMenuPlacement(
     menu: AppMenuId.edit,
     order: 95,
     group: 4,
   ),
+);
+
+/// `view.toggleSidebarDensity` (D33): flips the sidebar's rows between
+/// compact and comfortable, the same choice as the bottom bar's switch.
+/// One item whose label names the density it switches to, because the
+/// macOS menu bar drops a check mark (PlatformMenuItem carries a label,
+/// the enablement and a shortcut only), the pattern of Show and Hide
+/// Inspector. No chord: the menu row is its reachable path, and the
+/// palette lists it too.
+RegisteredCommand buildSidebarDensityCommand({
+  required SidebarController sidebar,
+}) => RegisteredCommand(
+  id: kViewToggleSidebarDensityCommandId,
+  scope: CommandScope.app,
+  label: (l10n) => switch (sidebar.density) {
+    SidebarDensity.comfortable => l10n.viewUseCompactSidebarRowsLabel,
+    SidebarDensity.compact => l10n.viewUseComfortableSidebarRowsLabel,
+  },
+  icon: Icons.density_medium,
+  run: (context) async => sidebar.setDensity(switch (sidebar.density) {
+    SidebarDensity.comfortable => SidebarDensity.compact,
+    SidebarDensity.compact => SidebarDensity.comfortable,
+  }),
+  // 10 §8's View section, amended by D33: after Show/Hide Sidebar (60),
+  // before the Inspector (65).
+  menuPlacement: const CommandMenuPlacement(menu: AppMenuId.view, order: 62),
 );
 
 /// The sidebar verbs that act on the active pane, as registered commands

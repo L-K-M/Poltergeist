@@ -5687,6 +5687,14 @@
   "@viewFilterSidebarLabel": {
     "description": "Command label: shows and focuses the sidebar's filter field (view.filterSidebar, ⌥⌘F / Ctrl+Alt+F)."
   },
+  "viewUseCompactSidebarRowsLabel": "Use Compact Sidebar Rows",
+  "@viewUseCompactSidebarRowsLabel": {
+    "description": "View menu command (view.toggleSidebarDensity) while the sidebar's rows are comfortable: switches them to one line with details in tooltips. The label names the density it switches to, because the macOS menu cannot show a check mark. Séance uses the same words."
+  },
+  "viewUseComfortableSidebarRowsLabel": "Use Comfortable Sidebar Rows",
+  "@viewUseComfortableSidebarRowsLabel": {
+    "description": "View menu command (view.toggleSidebarDensity) while the sidebar's rows are compact: switches them to two lines with the path or address spelled out. Séance uses the same words."
+  },
   "sidebarEjectFailed": "Couldn't eject “{name}”. Close anything using it and try again.",
   "@sidebarEjectFailed": {
     "description": "Shown when the OS refuses to eject a volume.",

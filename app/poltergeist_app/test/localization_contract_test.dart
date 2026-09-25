@@ -1615,6 +1615,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The sidebar commands' registry ids.
   'lib/ui/sidebar/sidebar_commands.dart': {
     "'view.filterSidebar'",
+    "'view.toggleSidebarDensity'",
     "'favorite.add'",
     "'connect.saveToServers'",
   },

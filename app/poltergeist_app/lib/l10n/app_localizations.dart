@@ -6670,6 +6670,18 @@ abstract class AppLocalizations {
   /// **'Filter Sidebar'**
   String get viewFilterSidebarLabel;
 
+  /// View menu command (view.toggleSidebarDensity) while the sidebar's rows are comfortable: switches them to one line with details in tooltips. The label names the density it switches to, because the macOS menu cannot show a check mark. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Use Compact Sidebar Rows'**
+  String get viewUseCompactSidebarRowsLabel;
+
+  /// View menu command (view.toggleSidebarDensity) while the sidebar's rows are compact: switches them to two lines with the path or address spelled out. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Use Comfortable Sidebar Rows'**
+  String get viewUseComfortableSidebarRowsLabel;
+
   /// Shown when the OS refuses to eject a volume.
   ///
   /// In en, this message translates to:

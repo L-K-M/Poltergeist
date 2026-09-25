@@ -279,6 +279,7 @@ const _desktopMenus = <AppMenuId, List<String>>{
   ],
   AppMenuId.view: [
     'Show/Hide Sidebar Ctrl+Alt+S',
+    'Use Compact Sidebar Rows',
     'Hide Inspector Ctrl+Alt+I',
     'Show/Hide Second Pane Ctrl+Shift+D',
     _divider,
@@ -387,6 +388,7 @@ const _macMenus = <String, List<String>>{
   ],
   'View': [
     'Show/Hide Sidebar ⌃⌘S',
+    'Use Compact Sidebar Rows',
     'Hide Inspector ⌥⌘I',
     'Show/Hide Second Pane ⇧⌘D',
     _divider,

@@ -32,11 +32,13 @@ import 'sidebar_kit.dart';
 export '../../services/local_volumes.dart' show SystemLocalVolumes;
 export 'sidebar_commands.dart'
     show
+        buildSidebarDensityCommand,
         buildSidebarFilterCommand,
         buildSidebarVerbCommands,
         kConnectSaveToServersCommandId,
         kFavoriteAddCommandId,
-        kViewFilterSidebarCommandId;
+        kViewFilterSidebarCommandId,
+        kViewToggleSidebarDensityCommandId;
 
 part 'sidebar_devices_section.dart';
 part 'sidebar_dialogs.dart';

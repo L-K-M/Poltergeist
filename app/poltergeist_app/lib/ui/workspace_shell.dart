@@ -1412,6 +1412,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           sidebarIsDrawer: () => !_sidebarFits,
           toggleSidebarDrawer: _toggleSidebarDrawer,
         ),
+      // D33's View ▸ Use Compact/Comfortable Sidebar Rows.
+      if (sidebar != null) buildSidebarDensityCommand(sidebar: sidebar),
       // The rail's active-pane verbs (D21): Add Current Folder to
       // Favorites and Save to Servers… run from the menus too.
       if (workspace != null && sidebar != null)
