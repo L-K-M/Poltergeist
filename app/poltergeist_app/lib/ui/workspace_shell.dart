@@ -1806,11 +1806,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
     final header = ListenableBuilder(
       listenable: Listenable.merge([enablement, _alerts]),
+      // The traffic lights sit in the window only while the toolbar band
+      // shows; full screen hides both (MacosToolbarBandScope). Read here,
+      // so a switch rebuilds the header alone.
       builder: (context, _) => HeaderToolbar(
         commands: commands,
         onRun: _runCommand,
         nativeTitlebar: mac,
-        leadingInset: mac && !sidebarInline ? _macTrafficLightsInset : 0,
+        leadingInset:
+            mac && !sidebarInline && MacosToolbarBandScope.visibleOf(context)
+            ? _macTrafficLightsInset
+            : 0,
         title: _HeaderTitle(workspace: workspace),
         badges: {
           kViewToggleInspectorCommandId: ToolbarBadge(

@@ -131,6 +131,16 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'index'",
     "'closed'",
   },
+  // The macOS toolbar band's `poltergeist/window` channel: method names
+  // and a wiring-fault diagnostic that only reaches the runner's reply,
+  // never a rendered surface.
+  'lib/services/macos_toolbar_band_channel.dart': {
+    "'poltergeist/window'",
+    "'isToolbarBandVisible'",
+    "'toolbarBandChanged'",
+    "'BAD_ARGS'",
+    "'toolbarBandChanged needs a bool argument'",
+  },
   // The D15 trash channel server (03 §7.1): Platform.operatingSystem ids
   // and wiring-fault diagnostics that only reach the error reporter,
   // never a rendered surface.

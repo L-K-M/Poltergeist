@@ -33,6 +33,15 @@ app/poltergeist_app/ios/Pods/
 app/poltergeist_app/android/.gradle/
 app/poltergeist_app/**/GeneratedPluginRegistrant.*
 
+# The Kotlin Gradle plugin's session and error logs, which the Android
+# folder's own ignores miss.
+app/poltergeist_app/android/.kotlin/
+
+# `dart test --coverage` / `flutter test --coverage` output, and the Flutter
+# tool's crash logs, which land in whatever directory it ran from.
+coverage/
+flutter_*.log
+
 # Editors / OS
 .idea/
 .vscode/

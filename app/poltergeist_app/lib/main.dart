@@ -21,6 +21,7 @@ import 'services/engine_session.dart';
 import 'services/file_stores.dart';
 import 'services/identity_audit_log.dart';
 import 'services/identity_file_reader.dart';
+import 'services/macos_toolbar_band_channel.dart';
 import 'services/os_drag_out.dart' show platformDragOutBackend;
 import 'services/probe_settings_store.dart';
 import 'services/quit_guard.dart';
@@ -413,6 +414,12 @@ Future<void> main() async {
     onEnabledChanged: preferences.saveUpdateChecksEnabled,
   );
 
+  // macOS full screen hides the unified toolbar band the shell header
+  // draws under (D32 §3); the runner reports the switch so the layout
+  // follows it.
+  final toolbarBand = Platform.isMacOS ? MacosToolbarBandChannel() : null;
+  if (toolbarBand != null) errorReporter.observe(toolbarBand.start());
+
   runApp(
     PoltergeistApp(
       initialPaneRatio: paneRatio,
@@ -475,6 +482,7 @@ Future<void> main() async {
       syncEnvironment: syncEnvironment,
       syncTasks: syncTasks,
       updateCheck: updateCheck,
+      toolbarBand: toolbarBand,
       onContentSizeChanged: (size) {
         errorReporter.observe(windowLifecycle.calibrateMinimumSize(size));
       },

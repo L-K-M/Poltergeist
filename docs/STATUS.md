@@ -8538,6 +8538,41 @@ packages/poltergeist_core` is clean, and `poltergeist_core` ran 1542
 passed, 37 skipped, and 2 failed, the root-only chmod checkout tests
 (2 of the passing tests are new). The protocol guard exits 0.
 
+## macOS full screen hides the toolbar band (2026-09-25)
+
+AppKit keeps a window's toolbar visible in full screen in an opaque strip
+of its own, so the empty unified toolbar behind D32 §3's 52 pt band
+covered the shell header. The runner now hides the toolbar on the
+will-enter edge and restores it on will-exit, and reports the switch on
+`poltergeist/window` (`MacosToolbarBandChannel`). While the band is gone
+the header drops its traffic-light inset, and routes, dialogs, and
+toasts drop the band reservation. The reservation's `MediaQuery` stays
+in the tree either way, so the switch keeps the navigator and shell
+state (an earlier draft that unwrapped it rebuilt the whole app).
+
+Verification: `flutter analyze` clean; `macos_toolbar_band_test.dart`
+covers the reservation and the inset in both states and across a live
+switch with a pushed route (both new cases fail with the band ignored);
+`macos_toolbar_band_channel_test.dart` covers the channel. Not verified
+here: the Swift half (no Mac in the container; CI's macOS client leg
+compiles it) and the look on a real display, which the release
+checklist's macOS row now covers.
+
+## D35 — Android is supported (2026-09-25)
+
+Owner-directed (00 D35), effective from the first release after
+v1.0.1, which was tagged before this change and still carries the old
+label. The release notes drop the APK's rehearsal
+label (the IPA keeps its unsigned, unsupported one), `docs/INSTALL.md`
+gains the sideload steps, the README's known issues list open item 33's
+gaps, 07's deferral table splits iOS from Android, and the release
+checklist gains an Android row for the on-device checks. No build or
+signing change: CI and `release.yml` already built and signed the APK.
+Verification: the release workflow test pins the new notes. Not
+verified here: a device or emulator run, and a local APK build (Maven
+Central answered Gradle's dependency fetches with HTTP 429 in this
+container), so CI's android client leg is the build evidence.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -9385,7 +9420,10 @@ passed, 37 skipped, and 2 failed, the root-only chmod checkout tests
     progress (transfers stop when Android freezes the backgrounded
     process); and a DocumentsProvider exposing servers to other apps.
     Also unverified until a device run: predictive-back animation, IME
-    insets, and TalkBack over the compact surfaces.
+    insets, and TalkBack over the compact surfaces. **2026-09-25:** D35
+    made Android supported with these slices still open; the README's
+    known issues name them and the release checklist's Android row
+    carries the device checks.
 
 ## Independent audit
 

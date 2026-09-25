@@ -24,7 +24,11 @@ with the QA machine's result and date, and attach the filled copy to the PR.
   Find, Save and Upload buttons, dialog tops, and top-toast actions take
   clicks, while empty band space still drags and double-click zooms
   (the band insets are pinned by `macos_toolbar_band_test.dart`; only
-  the native hit-testing needs a Mac).
+  the native hit-testing needs a Mac). Full screen (green button,
+  ⌃⌘F, and back out): no titlebar strip covers the header; the
+  titlebar only slides in with the menu bar; the header's traffic-light
+  gap closes with the sidebar hidden and returns on exit; the window
+  comes back with its 52 pt band intact.
 - [ ] **Windows** — OWNER MANUAL QA: native titlebar; snap layouts work;
   Flutter-drawn `MenuBar` complete; Alt+F4 quits cleanly with a running
   queue (prevent-close flush prompt).
@@ -32,6 +36,14 @@ with the QA machine's result and date, and attach the filled copy to the PR.
   AppImage both launch; `StartupWMClass` maps the window to the desktop
   entry (the `StartupWMClass=Com.lkm.poltergeist_app` contract itself is
   enforced by `scripts/package-linux.sh` + its test, not manual).
+- [ ] **Android** (D35) — OWNER MANUAL QA on a phone and a tablet: the
+  APK installs per `docs/INSTALL.md` and a later release's APK upgrades
+  it in place with data kept; connect, browse, upload, and download;
+  every back step (selection, sheet, field, folder history, Home, leave)
+  with the predictive-back animation on Android 13+; the keyboard never
+  covers a focused field (IME insets); TalkBack reads Home, rows, and
+  the selection bar. The compact posture's behavior itself is pinned by
+  `test/ui/compact/compact_posture_test.dart`.
 
 ## IME smoke
 
