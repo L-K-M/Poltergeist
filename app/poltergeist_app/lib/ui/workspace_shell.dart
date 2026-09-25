@@ -1383,6 +1383,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           sidebarIsDrawer: () => !_sidebarInline,
           toggleSidebarDrawer: _toggleSidebarDrawer,
         ),
+      // The rail's active-pane verbs (D21): Add Current Folder to
+      // Favorites and Save to Servers… run from the menus too.
+      if (workspace != null && sidebar != null)
+        ...buildSidebarVerbCommands(sidebar: sidebar, workspace: workspace),
       if (workspace != null)
         ...buildShellCommands(
           workspace: workspace,
@@ -1395,6 +1399,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           fileOps: () => _fileOps,
           reportFailure: _reportCommandFailure,
           locationLabel: _paneLocationLabel,
+          disconnectServer: widget.engineSession == null
+              ? null
+              : _disconnectServer,
         ),
       // `open-with-external` registers whenever a workspace exists
       // (D21): the Open With ▸ submenu renders disabled rows while no
@@ -1454,6 +1461,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // file.preview's enablement keys off the live surface state too
       // (an open Quick Look / visible panel keeps the verb live).
       ?preview,
+      // Save to Servers… retires once the store carries the endpoint.
+      ?sidebar,
     ]);
 
     final platform = Theme.of(context).platform;
@@ -2950,7 +2959,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           : (bookmark) => unawaited(_showLocalEditsReview(bookmark.id)),
       onDisconnect: session == null
           ? null
-          : (server) => unawaited(_disconnectServer(server)),
+          : (server) => unawaited(_disconnectServer(server.serverId)),
       // The blocked-review affordance exists only where a composition
       // can start a connect: the session's engine raises the pool's
       // changed-key review at the attempt (D18).
@@ -3758,12 +3767,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     return workspace.left;
   }
 
-  /// The Connections row's Disconnect (02 §4): drops the pool's
-  /// reference for the server through the pane lanes — the same seam a
-  /// pane's recovery banner cancels through.
-  Future<void> _disconnectServer(ConnectionServer server) async {
+  /// The Connections row's Disconnect (02 §4), and Server ▸ Disconnect
+  /// for the active tab's server: drops the pool's reference for the
+  /// server through the pane lanes — the same seam a pane's recovery
+  /// banner cancels through.
+  Future<void> _disconnectServer(String serverId) async {
     try {
-      await widget.engineSession?.paneLanes.disconnectServer(server.serverId);
+      await widget.engineSession?.paneLanes.disconnectServer(serverId);
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
     }

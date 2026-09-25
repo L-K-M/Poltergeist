@@ -872,9 +872,9 @@
   "@goEditPathLabel": {
     "description": "Command label: swap the pane's path bar for an editable field seeded with the current location (go.editPath, 02 §2.1)."
   },
-  "goEnclosingLabel": "Parent Folder",
+  "goEnclosingLabel": "Enclosing Folder",
   "@goEnclosingLabel": {
-    "description": "Command label: navigate to the parent folder."
+    "description": "Command label: navigate to the parent folder (go.enclosing; 10 §8's Go menu names it Enclosing Folder, Finder's term)."
   },
   "goForwardLabel": "Forward",
   "@goForwardLabel": {
@@ -1579,9 +1579,9 @@
   "@workspaceMenuEmpty": {
     "description": "Disabled row inside the Workspaces submenu while no workspace has been saved yet."
   },
-  "viewToggleActivityPanelLabel": "Show/Hide Activity",
+  "viewToggleActivityPanelLabel": "Transfers",
   "@viewToggleActivityPanelLabel": {
-    "description": "Menu label for view.toggleActivityPanel (02 §9's View table: Show/Hide Activity)."
+    "description": "Menu label for view.toggleActivityPanel, which shows or hides the inspector's Transfers tab (10 §8's View menu: Info, Transfers, Alerts). Also the header activity button's tooltip."
   },
   "queueTogglePauseLabel": "Pause/Resume Transfers",
   "@queueTogglePauseLabel": {
@@ -2023,9 +2023,9 @@
   "@settingsTitle": {
     "description": "Title of the Settings surface (02 §10)."
   },
-  "settingsBackupCommand": "Back up bookmarks…",
+  "settingsBackupCommand": "Back up and sync…",
   "@settingsBackupCommand": {
-    "description": "Menu command opening Settings at the Bookmark backup section (D21)."
+    "description": "Menu command opening Settings at the Bookmark backup section (D21). 10 §8's Server menu wording; 10 §10 says Sync in both sibling apps."
   },
   "settingsCommand": "Settings…",
   "@settingsCommand": {
@@ -2859,9 +2859,9 @@
   "@filePreviewLabelNeutral": {
     "description": "file.preview's command label off macOS — the docked in-app panel owns Space there, so the macOS-only 'Quick Look' name would be wrong (02 §8.3/§9, 06 §5)."
   },
-  "viewTogglePreviewLabel": "Show/Hide Preview",
+  "viewTogglePreviewLabel": "Info",
   "@viewTogglePreviewLabel": {
-    "description": "Command label: hide or show the docked preview rail (view.togglePreview, 02 §8.3/§9, 06 §5.2). While it shows on macOS, Space owns the panel and Quick Look is suppressed."
+    "description": "Command label for view.togglePreview, which shows or hides the inspector's Info tab, where the preview renders (10 §8's View menu: Info, Transfers, Alerts; D32 merged 06 §5.2's preview rail into Info)."
   },
   "previewPanelLabel": "Preview",
   "@previewPanelLabel": {
@@ -3701,9 +3701,9 @@
       "right": {"type": "String"}
     }
   },
-  "syncSynchronizePanes": "Synchronize Panes",
+  "syncSynchronizePanes": "Synchronize…",
   "@syncSynchronizePanes": {
-    "description": "Command label: build an ad-hoc pair from the two panes and open its plan view (05 §7, sync.synchronizePanes, ⌥⌘Y)."
+    "description": "Command label: build an ad-hoc pair from the two panes and open the Sync sheet (05 §7, 10 §7/§8, sync.synchronizePanes, ⌥⌘Y). The ellipsis says a sheet opens before anything runs."
   },
   "syncRescan": "Rescan",
   "@syncRescan": {
@@ -6029,5 +6029,25 @@
         "type": "String"
       }
     }
+  },
+  "goHomeLabel": "Home",
+  "@goHomeLabel": {
+    "description": "Command label: browse the tab's home, the user's home folder locally or the login folder on a server (go.home, ⇧⌘H, 02 §8.3, 10 §8's Go menu)."
+  },
+  "viewEnterFullScreenLabel": "Enter Full Screen",
+  "@viewEnterFullScreenLabel": {
+    "description": "View menu command on Windows and Linux while the window is not full screen (10 §8). macOS shows AppKit's own item instead."
+  },
+  "viewExitFullScreenLabel": "Exit Full Screen",
+  "@viewExitFullScreenLabel": {
+    "description": "The same View menu command's label while the window is full screen (Windows and Linux, 10 §8)."
+  },
+  "commandDisabledNotConnected": "Requires a tab connected to a server",
+  "@commandDisabledNotConnected": {
+    "description": "Disabled-command reason for Server ▸ Disconnect (connect.disconnect): the active tab shows no live server connection."
+  },
+  "commandDisabledNoQuickConnect": "Requires an unsaved Quick Connect session",
+  "@commandDisabledNoQuickConnect": {
+    "description": "Disabled-command reason for Server ▸ Save to Servers… (connect.saveToServers): the active tab is not browsing a Quick Connect session that is not saved yet."
   }
 }

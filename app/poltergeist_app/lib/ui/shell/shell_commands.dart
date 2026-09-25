@@ -10,6 +10,7 @@ import '../../services/pane_drop.dart';
 import '../../services/pane_file_ops.dart';
 import '../../services/pane_tabs_controller.dart';
 import '../../services/registered_command.dart';
+import '../../services/window_full_screen.dart';
 import '../../services/workspace_controller.dart';
 import 'delete_confirm_dialog.dart';
 import 'keyboard_shortcuts_dialog.dart';
@@ -17,6 +18,8 @@ import 'keyboard_shortcuts_dialog.dart';
 const kViewToggleInspectorCommandId = 'view.toggleInspector';
 const kViewShowAlertsCommandId = 'view.showAlerts';
 const kConnectQuickConnectCommandId = 'connect.quickConnect';
+const kConnectDisconnectCommandId = 'connect.disconnect';
+const kViewToggleFullScreenCommandId = 'view.toggleFullScreen';
 const kSelectionTransferToOtherPaneCommandId =
     'selection.transferToOtherPane';
 const kSelectionMoveToOtherPaneCommandId = 'selection.moveToOtherPane';
@@ -128,6 +131,26 @@ String? _revealTarget(WorkspaceController workspace) {
   return roots.isEmpty ? null : roots.first;
 }
 
+/// The server Server ▸ Disconnect drops: the one the active tab browses,
+/// while its connection is live (the sidebar row's rule, which offers
+/// Disconnect only then). The pool's own state leads; before its first
+/// report the tab's binding phase stands in.
+String? _disconnectTarget(WorkspaceController workspace) {
+  final pane = workspace.activeTabController;
+  final server = pane?.remoteBookmark;
+  if (pane == null || server == null) return null;
+  final live = switch (pane.connectionStatus?.state) {
+    ServerConnectionState.connecting ||
+    ServerConnectionState.connected ||
+    ServerConnectionState.reconnecting => true,
+    null =>
+      pane.phase == PanePhase.browsing ||
+          pane.phase == PanePhase.connectingRemote,
+    _ => false,
+  };
+  return live ? server.id : null;
+}
+
 List<RegisteredCommand> buildShellCommands({
   required WorkspaceController workspace,
   required PaneDropDelegate? Function() dropDelegate,
@@ -138,7 +161,14 @@ List<RegisteredCommand> buildShellCommands({
   required void Function(Object error) reportFailure,
   required String Function(PaneController pane) locationLabel,
   FileManagerRevealer revealer = const FileManagerRevealer(),
+
+  /// Drops the pool's reference for a server: the sidebar row's
+  /// Disconnect, which Server ▸ Disconnect reuses. Null leaves the menu
+  /// row disabled.
+  Future<void> Function(String serverId)? disconnectServer,
+  WindowFullScreen? fullScreen,
 }) {
+  final window = fullScreen ?? WindowManagerFullScreen.instance;
   bool browsing() => workspace.activeTabController?.verbsEnabled ?? false;
   // Delete and Duplicate act on the selected rows only (PaneFileOps),
   // never on a bare cursor row: after a Ctrl-click deselect or an
@@ -283,7 +313,7 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 72,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -308,7 +338,7 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 90,
-        group: 3,
+        group: 4,
       ),
       toolbarPlacement: const CommandToolbarPlacement(
         slot: ToolbarSlot.actions,
@@ -338,7 +368,7 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 92,
-        group: 3,
+        group: 4,
       ),
     ),
     RegisteredCommand(
@@ -367,10 +397,10 @@ List<RegisteredCommand> buildShellCommands({
       label: (l10n) => l10n.helpReleaseNotesLabel,
       icon: Icons.new_releases_outlined,
       run: (_) => openUrl(_releasesPage),
+      // 10 §8's Help menu is one section.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.help,
         order: 20,
-        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -382,7 +412,6 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.help,
         order: 30,
-        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -403,9 +432,10 @@ List<RegisteredCommand> buildShellCommands({
         ],
       ),
       run: (_) async => workspace.toggleInspector(),
+      // 10 §8's View menu: Sidebar (60), Inspector, Second Pane (70).
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
-        order: 75,
+        order: 65,
       ),
       toolbarPlacement: const CommandToolbarPlacement(
         slot: ToolbarSlot.status,
@@ -419,9 +449,11 @@ List<RegisteredCommand> buildShellCommands({
       label: (l10n) => l10n.viewShowAlertsLabel,
       icon: Icons.warning_amber_outlined,
       run: (_) async => workspace.showInspector(InspectorTab.alerts),
+      // 10 §8's View menu: Info (80), Transfers (85), Alerts.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
-        order: 95,
+        order: 90,
+        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -446,11 +478,52 @@ List<RegisteredCommand> buildShellCommands({
       ),
     ),
     RegisteredCommand(
+      id: kConnectDisconnectCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.sidebarDisconnect,
+      icon: Icons.eject,
+      // ⇧⌘K on macOS, Ctrl+Shift+K elsewhere (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyK, meta: true, shift: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyK, control: true, shift: true),
+        ],
+      ),
+      enabled: () =>
+          disconnectServer != null && _disconnectTarget(workspace) != null,
+      disabledReason: (l10n) => l10n.commandDisabledNotConnected,
+      run: (_) async {
+        final serverId = _disconnectTarget(workspace);
+        if (serverId == null || disconnectServer == null) return;
+        await disconnectServer(serverId);
+      },
+      // 10 §8's Server menu: Connect… ⌘K, Disconnect.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.server,
+        order: 20,
+      ),
+    ),
+    RegisteredCommand(
       id: kSelectionTransferToOtherPaneCommandId,
       scope: CommandScope.selection,
       label: (l10n) => l10n.selectionCopyToOtherPaneLabel,
       icon: Icons.content_copy_outlined,
-      activators: (_) => const [SingleActivator(LogicalKeyboardKey.f5)],
+      // F5 / ⇧⌘C (10 §4). A Mac laptop's F5 is a media key unless Fn is
+      // held, so ⇧⌘C leads there: the first chord is the one the header
+      // tooltip and the native key equivalent carry. Elsewhere F5 is
+      // the Commander convention and leads.
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyC, meta: true, shift: true),
+          SingleActivator(LogicalKeyboardKey.f5),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.f5),
+          SingleActivator(LogicalKeyboardKey.keyC, control: true, shift: true),
+        ],
+      ),
       enabled: () =>
           _canTransfer(workspace, dropDelegate, TransferOperation.copy),
       disabledReason: (l10n) => l10n.commandDisabledNeedsTwoPanes,
@@ -459,7 +532,7 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 80,
-        group: 2,
+        group: 3,
       ),
       toolbarPlacement: const CommandToolbarPlacement(
         slot: ToolbarSlot.actions,
@@ -480,7 +553,7 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 82,
-        group: 2,
+        group: 3,
       ),
     ),
       if (revealer.supported)
@@ -503,6 +576,26 @@ List<RegisteredCommand> buildShellCommands({
           menu: AppMenuId.file,
           order: 68,
           group: 1,
+        ),
+      ),
+    // 10 §8's View menu ends with Enter Full Screen on every platform;
+    // macOS renders AppKit's own item there instead of this command.
+    // No F11 chord yet: the chord layer binds unmodified keys only from
+    // its function-key list, and the menu row alone keeps the command
+    // reachable (02 §8.1).
+    if (window.supported)
+      RegisteredCommand(
+        id: kViewToggleFullScreenCommandId,
+        scope: CommandScope.app,
+        label: (l10n) => window.isFullScreen
+            ? l10n.viewExitFullScreenLabel
+            : l10n.viewEnterFullScreenLabel,
+        icon: Icons.fullscreen,
+        run: (_) => window.toggle(),
+        menuPlacement: const CommandMenuPlacement(
+          menu: AppMenuId.view,
+          order: 120,
+          group: 4,
         ),
       ),
   ];

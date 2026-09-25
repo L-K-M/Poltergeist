@@ -26,11 +26,17 @@ import '../server_state_indicator.dart';
 import 'sidebar_facts.dart';
 import 'sidebar_kit.dart';
 
-// The shell's one sidebar import carries the command and the host volume
-// source it wires, so the rail's composition stays a single seam there.
+// The shell's one sidebar import carries the commands and the host
+// volume source it wires, so the rail's composition stays a single seam
+// there.
 export '../../services/local_volumes.dart' show SystemLocalVolumes;
 export 'sidebar_commands.dart'
-    show buildSidebarFilterCommand, kViewFilterSidebarCommandId;
+    show
+        buildSidebarFilterCommand,
+        buildSidebarVerbCommands,
+        kConnectSaveToServersCommandId,
+        kFavoriteAddCommandId,
+        kViewFilterSidebarCommandId;
 
 part 'sidebar_devices_section.dart';
 part 'sidebar_dialogs.dart';

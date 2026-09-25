@@ -762,8 +762,9 @@ class _AdhocRow extends StatelessWidget {
         SidebarMenuAction(
           key: const ValueKey('sidebar.adhoc.menu.save'),
           label: l10n.sidebarSaveToServers,
-          onSelected: () =>
-              unawaited(_saveSessionToServers(context, view, session)),
+          onSelected: () => unawaited(
+            saveSessionToServers(context, view.controller, session),
+          ),
         ),
         ?_disconnectVerb(data, connection, live),
       ],
