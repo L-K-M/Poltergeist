@@ -66,7 +66,7 @@ stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
 D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
 permissions · D29 mobile hooks · D30 Séance license · D31 no mounting ·
 D32 inspector workspace · D33 sidebar density · D34 colour vocabulary ·
-D35 Android supported · D36 settings window
+D35 Android supported · D36 settings window · D37 device themes
 
 ### Stack and shape
 
@@ -780,6 +780,46 @@ D35 Android supported · D36 settings window
     app's isolate, whose quit guard and exit flush decide them.
   - **Still parked (D25):** more than one workspace window. D13's single
     workspace window stands.
+- **D37 — Device themes (2026-09-25, owner-directed; amends D11 and
+  10 §10's shared tokens).** The owner asked whether Vervellum's theming
+  system could come to Séance and Poltergeist. Séance built it first and
+  Poltergeist ports it, so the two behave as one family. Binding for both
+  apps:
+  - **One editable theme per device,** not a library of saved ones. Ten
+    presets are starting points, not modes: picking one copies its values
+    in, every value stays editable, and the app repaints as it changes,
+    with no Save button. A preset is recognised by its values, not its
+    name.
+  - **The default is the app as it was.** The first preset (Poltergeist
+    here, Séance there) leaves every colour Automatic: the shared slate
+    and Finder-light tables, following the system's light or dark or a
+    mode the user picks, with the app's own accent. A test pins it to the
+    theme the app built before themes existed. A palette that sets its
+    own surface takes its brightness from that surface and mixes its
+    Automatic shades from it.
+  - **One stored format for both apps.** A theme is one JSON object with
+    Séance's keys and hex forms, decoded leniently (a bad value costs only
+    itself, and garbage reads as the default), so Copy theme in one app
+    pastes into the other. Séance's terminal colours have no use here:
+    they are read past when pasted, and a theme copied from here carries
+    none. Preset names are stored in English and shown through ARB.
+  - **Device-local.** Kept in settings.json (`theme.palette`,
+    `theme.mode`); never synced, and in no backup or Séance-account
+    record.
+  - **Where it is set:** Settings → Appearance, the tab after General in
+    the Settings window (D36), and the section after General in the
+    Settings dialog that phones, tablets and a desktop without the window
+    host open.
+  - **What it reaches:** the colour scheme, the D32 chrome tokens (the
+    four server status colours among them, now chrome fields rather than
+    the scheme's error and outline, which stay the tables' for error
+    text), the interface font, and a corner scale for Material's shapes
+    and the shared sidebar kit's hand-drawn corners. Colour never carries
+    meaning alone: every status keeps its shape and its words.
+  - **Not ported from Vervellum:** its backdrop materials (no Flutter
+    equivalent without a vibrancy plugin), font designs (a font family
+    instead), verdict colours (the status colours instead), and its
+    panel-only scrim and card fill.
 
 ### Security, trust, distribution
 

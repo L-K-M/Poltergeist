@@ -18,6 +18,16 @@
     right-click menus and the command palette.
   - The inspector's Info, Transfers and Alerts tabs are blue, cyan and
     yellow, and the open one lights up in its colour.
+- **Themes.** Settings has an Appearance section (a tab of its own in the
+  Settings window, and after General on phones and tablets). Pick one of
+  ten themes (Poltergeist, Graphite, Paper, Newsprint, Solarized,
+  Midnight, Terminal, Vapor, Bubblegum, High contrast) as a starting
+  point, then change any colour, the four server status colours, the
+  interface font and how round the corners are; the app repaints as you
+  go. Colours left on Automatic follow light or dark as you choose. Copy
+  theme and Paste theme carry a theme between devices, and between
+  Poltergeist and Séance; themes do not sync. An existing install looks
+  exactly as before.
 - **A new workspace.** The window is rebuilt in the style of ForkLift and
   Transmit:
   - A calm header: back and forward, the current location, New Folder,

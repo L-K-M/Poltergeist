@@ -440,6 +440,9 @@ Poltergeist and Séance are one product family. The contract:
    - one brand accent per app (Poltergeist teal, Séance violet)
    - one colour vocabulary (D34): twelve family hues, each with one
      meaning in both apps, in a table the two apps keep byte-identical
+   - these are each app's default theme: D37's device themes let the
+     user change them, the same way and in the same stored format in
+     both apps
 3. **Same account.** Both apps enroll in the same Séance sync server with the
    same account and passphrase. Poltergeist's enrollment defaults to the
    shared account (04 amended by D32), so Séance's servers appear in
