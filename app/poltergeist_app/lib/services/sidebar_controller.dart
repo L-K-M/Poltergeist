@@ -7,9 +7,9 @@ import 'application_error_reporter.dart';
 import 'uuid.dart';
 
 /// The sidebar's fixed sections (10 §5), in rail order. [pinned] is the
-/// shortlist of the account's servers the user pinned (D33), drawn only
-/// while one is listed.
-enum SidebarSection { devices, favorites, pinned, servers }
+/// shortlist of the servers the user pinned, the account's and the
+/// remote favorites (D33), drawn only while one is listed.
+enum SidebarSection { pinned, devices, favorites, servers }
 
 /// The persisted collapse-key vocabulary (02 §4: device-local). Every key
 /// carries its surface's namespace — `sec:` for the three fixed sections,
@@ -226,10 +226,12 @@ final class SidebarController extends ChangeNotifier {
     }
   }
 
-  /// The ids of the account's servers pinned to PINNED (10 §5's "pinned
-  /// servers come first", D33). An id whose server is no longer listed
-  /// keeps its pin: it draws nothing, and comes back pinned if the
-  /// server does.
+  /// The ids of the servers pinned to PINNED (10 §5's "pinned servers
+  /// come first", D33): the account's servers and the remote favorites
+  /// share this one set, as they share one id space (both apps mint
+  /// UUIDs for both). An id whose server is no longer listed keeps its
+  /// pin: it draws nothing, and comes back pinned if the server does (a
+  /// sync round that restores it, the shared account back on).
   Set<String> get pinnedServers => _pinned;
 
   bool isPinned(String serverId) => _pinned.contains(serverId);

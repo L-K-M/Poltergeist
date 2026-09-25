@@ -272,7 +272,7 @@ void main() {
         {'a1'},
       ]);
       expect(controller.isPinned('a1'), isTrue);
-      // PINNED sits first in the server list (10 §5), above SERVERS.
+      // PINNED leads the rail (D33), above SERVERS.
       final pinnedY = tester.getTopLeft(header('sec:pinned')).dy;
       final serversY = tester.getTopLeft(header('sec:servers')).dy;
       final alphaY = tester.getTopLeft(row('a1')).dy;
@@ -349,6 +349,56 @@ void main() {
       expect(row('a2'), findsOneWidget);
       expect(header('sec:pinned'), findsOneWidget);
       expect(header('sec:servers'), findsNothing);
+    });
+
+    testWidgets('PINNED mixes account servers and remote favorites in one '
+        'order, by label whatever the case', (tester) async {
+      final now = DateTime.utc(2026, 10, 1);
+      Bookmark favorite(String id, String label) => Bookmark(
+        id: id,
+        kind: BookmarkKind.remotePath,
+        label: label,
+        server: BookmarkServerRef(
+          identity: EmbeddedHostIdentity(
+            host: '$id.example.com',
+            port: 22,
+            username: 'deploy',
+            authMethod: AuthMethod.agent,
+          ),
+        ),
+        sortKey: 'mm',
+        createdAt: now,
+        updatedAt: now,
+      );
+      store.bookmarks = [favorite('b1', 'bravo'), favorite('c1', 'Charlie')];
+      catalog.replace([
+        _server('a1', label: 'alpha'),
+        _server('d1', label: 'Delta'),
+        _server('e1', label: 'echo'),
+      ]);
+      await pump(tester, pinned: {'a1', 'b1', 'c1', 'd1'});
+
+      double y(Finder finder) => tester.getTopLeft(finder).dy;
+      Finder favoriteRow(String id) =>
+          find.byKey(ValueKey('sidebar.favorite.$id'));
+      final ys = [
+        y(header('sec:pinned')),
+        y(row('a1')),
+        y(favoriteRow('b1')),
+        y(favoriteRow('c1')),
+        y(row('d1')),
+        y(header('sec:favorites')),
+        y(header('sec:servers')),
+        y(row('e1')),
+      ];
+      expect(ys, orderedEquals([...ys]..sort()));
+      final pinned = tester.widget<SidebarSectionHeader>(
+        find.ancestor(
+          of: header('sec:pinned'),
+          matching: find.byType(SidebarSectionHeader),
+        ),
+      );
+      expect(pinned.count, 4);
     });
 
     testWidgets('PINNED folds under its own key', (tester) async {

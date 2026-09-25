@@ -8,9 +8,14 @@ bool _anyBookmark(Bookmark bookmark) => true;
 /// locations, workspaces, and saved syncs) in the store's one user
 /// order. Loose favorites first, then each named group as a nested
 /// disclosure row with its members indented, a group holding any mix of
-/// kinds. The empty state offers Desktop, Documents, and Downloads as
-/// one click (never seeded silently, because favorites sync to other
-/// devices) and the ssh_config import, whose hosts land here.
+/// kinds. A pinned remote favorite lists in PINNED instead, and its
+/// group counts it no longer; a group left with nothing to show draws
+/// no header. Drops still resolve against the store by id, so a hidden
+/// pinned member between two rows only keeps its place. The empty
+/// state offers Desktop, Documents, and Downloads as one click (never
+/// seeded silently, because favorites sync to other devices) and the
+/// ssh_config import, whose hosts land here; it waits for a store that
+/// holds no favorite at all, pinned or not.
 List<Widget> _favoritesSection(_SidebarData data) {
   final l10n = data.l10n;
   final view = data.view;
@@ -20,6 +25,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
 
   final body = <Widget>[];
   var count = 0;
+  var pinned = 0;
   final sections = controller.sections;
   // Remote favorites out of view without a drawn group to speak for
   // them (the filter hid them, or their whole group): the section's
@@ -66,7 +72,11 @@ List<Widget> _favoritesSection(_SidebarData data) {
     // that hold nothing yet.
     final groups = <({String name, String key, List<Bookmark> members})>[];
     for (final section in sections) {
-      final members = section.bookmarks;
+      final members = [
+        for (final bookmark in section.bookmarks)
+          if (!_pinnedFavorite(data, bookmark)) bookmark,
+      ];
+      pinned += section.bookmarks.length - members.length;
       if (section.name == null) {
         count += members.length;
         for (final bookmark in members) {
@@ -153,7 +163,10 @@ List<Widget> _favoritesSection(_SidebarData data) {
       }
     }
 
-    if (count == 0 && controller.pendingGroups.isEmpty && !data.filtering) {
+    if (count == 0 &&
+        pinned == 0 &&
+        controller.pendingGroups.isEmpty &&
+        !data.filtering) {
       body.add(data.home ? _homeEmptyFavorites(data) : _emptyFavorites(data));
     }
   }
@@ -161,7 +174,15 @@ List<Widget> _favoritesSection(_SidebarData data) {
   final collapsed = data.collapsed(sectionKey);
   final hiddenDot = _hiddenLiveDot(
     data,
-    _favoriteStatuses(data, collapsed ? controller.bookmarks : hiddenLoose),
+    _favoriteStatuses(
+      data,
+      collapsed
+          ? [
+              for (final bookmark in controller.bookmarks)
+                if (!_pinnedFavorite(data, bookmark)) bookmark,
+            ]
+          : hiddenLoose,
+    ),
   );
   // A filter that hides every row drops the section, unless a live
   // server is among the hidden: its header stays to say so.

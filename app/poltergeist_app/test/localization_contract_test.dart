@@ -1561,6 +1561,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.menu.newGroup'",
     "'sidebar.menu.delete'",
   },
+  // PINNED's widget keys: plumbing, never authored copy.
+  'lib/ui/sidebar/sidebar_pinned_section.dart': {
+    r"'sidebar.catalog.row.${server.id}'",
+    r"'sidebar.favorite.${bookmark.id}'",
+    "'sidebar.pinned.header'",
+    r"'sidebar.section.$sectionKey'",
+  },
   'lib/ui/sidebar/sidebar_servers_section.dart': {
     "''",
     r"'${bookmark.label} ${sessionEndpointLabel(bookmark)}'",
@@ -1572,8 +1579,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.servers.header'",
     r"'sidebar.section.$sectionKey'",
     "'sidebar.servers.add'",
-    "'sidebar.pinned.header'",
     "'sidebar.catalog.menu.pin'",
+    "'sidebar.menu.pin'",
     "' '",
     r"'sidebar.catalog.row.${server.id}'",
     r"'$username@${host.toLowerCase()}:$port'",

@@ -32,10 +32,10 @@ List<Widget> _serversSection(_SidebarData data) {
   final catalog = view.catalog?.servers ?? const <ServerConfig>[];
   // A pinned server leaves its group for PINNED rather than showing
   // twice (Séance's rule): its group's count drops with it.
-  final pinned = _ServerGroup('');
+  var pinned = 0;
   for (final server in catalog) {
     if (controller.isPinned(server.id)) {
-      pinned.catalog.add(server);
+      pinned++;
       continue;
     }
     final name = normalizeServerGroup(server.group);
@@ -62,15 +62,11 @@ List<Widget> _serversSection(_SidebarData data) {
       if (!saved.contains(_endpointKeyOf(session.bookmark))) session,
   ];
 
-  final total = sessions.length + catalog.length - pinned.length;
-  // The filter's threshold counts every server the rail lists, the
-  // remote favorites included: without the shared account they are
-  // the user's servers.
-  data.serverCount = total + pinned.length + remoteFavorites.length;
-
-  // PINNED first, in rail order, so the filter's first match and its
-  // count read the rows top to bottom.
-  final pinnedSection = _pinnedSection(data, pinned);
+  final total = sessions.length + catalog.length - pinned;
+  // The filter's threshold counts every server the rail lists once, the
+  // remote favorites included (without the shared account they are the
+  // user's servers), wherever PINNED put them.
+  data.serverCount = sessions.length + catalog.length + remoteFavorites.length;
 
   final body = <Widget>[];
   // Live rows out of view with no drawn group header to speak for them
@@ -172,13 +168,10 @@ List<Widget> _serversSection(_SidebarData data) {
   );
   // A filter that hides every row drops the section, unless a live
   // server is among the hidden: its header stays to say so.
-  if (data.filtering && body.isEmpty && hiddenDot == null) {
-    return pinnedSection;
-  }
+  if (data.filtering && body.isEmpty && hiddenDot == null) return const [];
 
   final VoidCallback? onAdd = view.onAddCatalogServer ?? view.onQuickConnect;
   return [
-    ...pinnedSection,
     SidebarSectionHeader(
       key: const ValueKey('sidebar.servers.header'),
       headerKey: ValueKey('sidebar.section.$sectionKey'),
@@ -194,34 +187,6 @@ List<Widget> _serversSection(_SidebarData data) {
           : l10n.sidebarServersAddConnect,
     ),
     if (!collapsed) ...body,
-  ];
-}
-
-/// PINNED (10 §5's "pinned servers come first", D33): the account's
-/// servers the user pinned, by label, above SERVERS. Drawn only while one
-/// is listed, like Séance's.
-List<Widget> _pinnedSection(_SidebarData data, _ServerGroup pinned) {
-  if (pinned.catalog.isEmpty) return const [];
-  final filtered = <ServerConfig>[];
-  final rows = _serverRows(data, pinned, depth: 0, hidden: filtered);
-  final sectionKey = SidebarCollapseKeys.section(SidebarSection.pinned);
-  final collapsed = data.collapsed(sectionKey);
-  final hiddenDot = _hiddenLiveDot(
-    data,
-    _catalogStatuses(data, collapsed ? pinned.catalog : filtered),
-  );
-  if (rows.isEmpty && hiddenDot == null) return const [];
-  return [
-    SidebarSectionHeader(
-      key: const ValueKey('sidebar.pinned.header'),
-      headerKey: ValueKey('sidebar.section.$sectionKey'),
-      title: data.l10n.sidebarPinnedSection,
-      count: pinned.length,
-      collapsed: collapsed,
-      status: hiddenDot,
-      onToggle: () => data.controller.toggleCollapsed(sectionKey),
-    ),
-    if (!collapsed) ...rows,
   ];
 }
 
@@ -259,6 +224,16 @@ String _remoteHaystack(Bookmark bookmark) => [
   ?bookmark.group,
 ].join(' ');
 
+/// Counts an account server's row against the filter; true when it
+/// shows.
+bool _catalogShows(_SidebarData data, ServerConfig server) {
+  final open = data.view.onOpenCatalogServer;
+  return data.countRow(
+    serverSearchHaystack(server),
+    open: open == null ? null : () => open(server, SidebarOpenAction.plain),
+  );
+}
+
 /// The rows of [members] the filter keeps; the ones it hides land in
 /// [hidden], for a header to show their live state.
 List<Widget> _serverRows(
@@ -267,16 +242,9 @@ List<Widget> _serverRows(
   required int depth,
   required List<ServerConfig> hidden,
 }) {
-  final view = data.view;
   final rows = <Widget>[];
   for (final server in members.catalog) {
-    final shows = data.countRow(
-      serverSearchHaystack(server),
-      open: view.onOpenCatalogServer == null
-          ? null
-          : () => view.onOpenCatalogServer!(server, SidebarOpenAction.plain),
-    );
-    if (!shows) {
+    if (!_catalogShows(data, server)) {
       hidden.add(server);
       continue;
     }
@@ -442,22 +410,38 @@ SidebarMenuEntry? _disconnectVerb(
   );
 }
 
+/// Where a remote favorite's row is drawn (D33).
+enum _SavedRowPlacement {
+  /// Under FAVORITES, in the store's one user order: the row drags, and
+  /// takes bookmark and folder drops at its edges.
+  favorites,
+
+  /// In PINNED, which orders by label: no position to drag to or drop
+  /// at, so the row does neither.
+  pinned,
+}
+
 /// A saved remote location (a remotePath bookmark), listed under
-/// FAVORITES (D33): its badge, the live dot, the endpoint and any failure
-/// in the tooltip, and the connection verbs beside the store edits.
+/// FAVORITES, or PINNED once pinned (D33): its badge, the live dot, the
+/// endpoint and any failure in the tooltip, and the connection and pin
+/// verbs beside the store edits.
 class _SavedServerRow extends StatelessWidget {
   const _SavedServerRow({
     required this.data,
     required this.bookmark,
     required this.group,
     required this.depth,
+    this.placement = _SavedRowPlacement.favorites,
     super.key,
   });
 
   final _SidebarData data;
   final Bookmark bookmark;
+
+  /// The FAVORITES group its drops file into; unused in PINNED.
   final String? group;
   final int depth;
+  final _SavedRowPlacement placement;
 
   @override
   Widget build(BuildContext context) {
@@ -574,10 +558,27 @@ class _SavedServerRow extends StatelessWidget {
             onSelected: () => view.onLocalEdits!(bookmark),
           ),
         const SidebarMenuDivider(),
+        // The account server's verb and words: both are servers the
+        // user shortlists (D33).
+        SidebarMenuAction(
+          key: const ValueKey('sidebar.menu.pin'),
+          label: data.controller.isPinned(id)
+              ? l10n.sidebarUnpin
+              : l10n.sidebarPinToTop,
+          onSelected: () => data.controller.togglePinned(id),
+        ),
+        const SidebarMenuDivider(),
         ..._editVerbs(context, data, bookmark),
       ],
     );
 
+    if (placement == _SavedRowPlacement.pinned) {
+      return _ProbeVisibility(
+        probes: view.probes,
+        id: id,
+        child: row(SidebarDropIndicator.none),
+      );
+    }
     return _ProbeVisibility(
       probes: view.probes,
       id: id,
