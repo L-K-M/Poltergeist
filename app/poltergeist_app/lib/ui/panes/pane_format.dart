@@ -117,26 +117,39 @@ String formatPosixModeSymbolic(int mode) {
 String formatPosixModeOctal(int mode) =>
     (mode & 0xFFF).toRadixString(8).padLeft(4, '0');
 
-/// The listing's kind-glyph families (D32 §6: "kind glyphs are tinted
-/// by category"). A glyph is a sighted-user hint only — the announced
-/// kind stays the entry's file type (02 §13), so a wrong guess from an
-/// extension never misleads assistive tech.
-enum PaneKindCategory { folder, link, image, text, archive, pdf, media, other }
+/// The listing's kind-glyph families (D32 §6, coloured by D34's family
+/// hues in `kind_glyph.dart`). A glyph is a sighted-user hint only: the
+/// announced kind stays the entry's file type (02 §13), so a wrong guess
+/// from an extension never misleads assistive tech.
+enum PaneKindCategory {
+  folder,
+  link,
+  image,
+  document,
+  code,
+  archive,
+  pdf,
+  audio,
+  video,
+  other,
+}
 
 // Extension families, lowercase, one space-separated table per family —
 // machine data the classifier splits once, never rendered.
 const _imageExtensions =
     'png jpg jpeg gif webp bmp tif tiff heic heif svg ico avif psd raw';
-const _textExtensions =
-    'txt md markdown rst log csv tsv json yaml yml toml xml html htm css';
+const _documentExtensions =
+    'txt md markdown rst log csv tsv rtf doc docx odt pages xls xlsx ods '
+    'numbers ppt pptx odp epub';
 const _codeExtensions =
-    'scss js mjs ts jsx tsx dart py rb go rs java kt swift c h cc cpp hpp';
+    'json yaml yml toml xml html htm css scss js mjs ts jsx tsx dart py rb '
+    'go rs java kt swift c h cc cpp hpp';
 const _scriptExtensions =
     'm mm cs php sh bash zsh fish ps1 bat sql ini conf cfg env lock';
 const _archiveExtensions =
     'zip tar gz tgz bz2 xz 7z rar zst lz4 dmg iso deb rpm pkg jar apk';
-const _mediaExtensions =
-    'mp3 wav flac aac ogg m4a opus mp4 mov mkv avi webm m4v wmv mpg';
+const _audioExtensions = 'mp3 wav flac aac ogg m4a opus';
+const _videoExtensions = 'mp4 mov mkv avi webm m4v wmv mpg';
 
 Set<String> _extensionSet(List<String> tables) => {
   for (final table in tables) ...table.split(' '),
@@ -145,16 +158,16 @@ Set<String> _extensionSet(List<String> tables) => {
 final _categoryByExtension = <String, PaneKindCategory>{
   for (final ext in _extensionSet([_imageExtensions]))
     ext: PaneKindCategory.image,
-  for (final ext in _extensionSet([
-    _textExtensions,
-    _codeExtensions,
-    _scriptExtensions,
-  ]))
-    ext: PaneKindCategory.text,
+  for (final ext in _extensionSet([_documentExtensions]))
+    ext: PaneKindCategory.document,
+  for (final ext in _extensionSet([_codeExtensions, _scriptExtensions]))
+    ext: PaneKindCategory.code,
   for (final ext in _extensionSet([_archiveExtensions]))
     ext: PaneKindCategory.archive,
-  for (final ext in _extensionSet([_mediaExtensions]))
-    ext: PaneKindCategory.media,
+  for (final ext in _extensionSet([_audioExtensions]))
+    ext: PaneKindCategory.audio,
+  for (final ext in _extensionSet([_videoExtensions]))
+    ext: PaneKindCategory.video,
   'pdf': PaneKindCategory.pdf,
 };
 

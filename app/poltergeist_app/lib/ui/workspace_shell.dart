@@ -3425,6 +3425,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         onFavorite: (bookmark, action) =>
             _openFavorite(bookmark, _sidebarAction(action)),
         onRecent: _openRecentLocation,
+        localHome: (widget.localVolumes ?? SystemLocalVolumes.host)
+            .homeDirectory,
       ).whenComplete(() => _quickOpenOpen = false),
     );
   }

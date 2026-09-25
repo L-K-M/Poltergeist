@@ -2,7 +2,8 @@
 
 **Status:** Accepted with its PR · **Date:** 2026-09-24 · **Decision:** D32 in
 [00-OVERVIEW.md](00-OVERVIEW.md), amended 2026-09-25 by D33 (sidebar density
-and restored row detail: §2, §5, §8, §9, §10)
+and restored row detail: §2, §5, §8, §9, §10) and D34 (the colour vocabulary:
+§4, §5, §6, §10)
 
 This chapter replaces the shipped v1.0 window chrome with a ForkLift- and
 Transmit-grade workspace. Where it conflicts with [02-UX.md](02-UX.md) it
@@ -161,6 +162,10 @@ The header is registry-driven. A command appears only if it declares a
   - Related buttons sit in one capsule group, as ForkLift does.
   - Primary actions carry text labels.
   - Every control has a tooltip with its shortcut ("New Folder ⇧⌘N").
+  - A verb's filled glyph wears its D34 hue while enabled (New Folder
+    blue, Move to Trash red, Copy to Other Pane cyan, Sync indigo,
+    Connect green) and turns grey when disabled; its label stays in the
+    ink. Navigation and the panel toggles keep the neutral outline.
 - **Overflow:** as the window narrows, groups fold into a "»" menu in the
   order actions → primary labels (Sync and Connect become icon-only) →
   actions menu. Labels never ellipsize.
@@ -213,12 +218,15 @@ The header is registry-driven. A command appears only if it declares a
 - **Rows**, in two densities (D33; the bottom bar, View, and a phone Home's
   app bar switch them, device-local, comfortable by default):
   - **Compact:** one line, 26 px. An 18 px mark with one composed 7 px
-    status dot. A 13 px name that ellipsizes in the middle. Trailing 11 px
+    status dot; a place's mark is its D34 hue's tile, as in comfortable. A 13 px name that ellipsizes in the middle. Trailing 11 px
     tabular secondary text (free space, `×N` tabs). Secondary facts in the
     tooltip.
   - **Comfortable:** 52 px (56 dp on a tablet's touch rail). A 32 px mark: a
     server's badge (the neutral tile when it has no colour), a place's
-    rounded tile of the same shape. A 14 px name over a 12 px second line:
+    rounded tile of the same shape in the favorite's colour or, without
+    one, its D34 hue (Home blue, the disks graphite, a removable volume
+    brown, a workspace teal, a saved sync indigo, and a standard folder
+    under home in the hue of what it holds). A 14 px name over a 12 px second line:
     a device's free space (its path without it), a folder home-relative, a
     saved sync's two sides, "Workspace", a server's state words first
     (connecting, failed, blocked, unreachable) and then `user@host`, a
@@ -277,7 +285,10 @@ The header is registry-driven. A command appears only if it declares a
   - A chevron shows the sort direction.
   - Resizable columns, with widths in `ViewPreferences`.
 - **Rows:**
-  - 22 px (comfortable 28, touch 48). Kind glyphs are tinted by category.
+  - 22 px (comfortable 28, touch 48). Kind glyphs are the filled faces in
+    their D34 hue: folders blue, links cyan, images pink, code orange,
+    archives brown, PDFs red, audio and video purple, documents and the
+    rest graphite.
   - Accent selection fill with on-accent text in the active pane, grey in
     the inactive one.
   - **Selection happens on pointer-down.** Double-click is detected from
@@ -424,6 +435,8 @@ Poltergeist and Séance are one product family. The contract:
    - 8 px radii
    - the slate dark palette and the Finder-like light palette
    - one brand accent per app (Poltergeist teal, Séance violet)
+   - one colour vocabulary (D34): twelve family hues, each with one
+     meaning in both apps, in a table the two apps keep byte-identical
 3. **Same account.** Both apps enroll in the same Séance sync server with the
    same account and passphrase. Poltergeist's enrollment defaults to the
    shared account (04 amended by D32), so Séance's servers appear in

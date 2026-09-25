@@ -175,7 +175,7 @@ void main() {
       await settleBody(tester);
       expect(find.byKey(const ValueKey('quickLook.noPreview')), findsOneWidget);
       // The body's large glyph and the title bar's both say folder.
-      expect(find.byIcon(Icons.folder_outlined), findsNWidgets(2));
+      expect(find.byIcon(Icons.folder), findsNWidgets(2));
     });
 
     testWidgets('an image or PDF over the Info well\'s decode cap is '

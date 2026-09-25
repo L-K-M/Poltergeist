@@ -7896,6 +7896,37 @@ Deferred: drag-out to Finder (file promises, D14), column resizing and
 per-location sort persistence, free space in the pane header, and the
 Android slices listed under item 33.
 
+## D34 — colour that means something (2026-09-25)
+
+The owner found the glyphs too bland to tell apart and asked for the
+colour-coded buttons of iTunes, Postbox and the old Finder sidebar,
+in both apps. D34 in [plan/00](plan/00-OVERVIEW.md) records the
+vocabulary; 10 §4, §5, §6 and §10 are amended. This is the Poltergeist
+side; Séance carries the same table.
+
+- **The palette.** `lib/theme/family_hues.dart`: twelve `FamilyHue`s,
+  per-theme glyph tints in a `FamilyPalette` theme extension, and a
+  `FamilyHueTile` whose top-lit fill is the same in both themes.
+- **Listing.** `kindGlyph` (`ui/panes/kind_glyph.dart`) is the one
+  kind table for the desktop rows, the phone's kind badges, the info
+  panel, the preview well, Quick Look and the transfer rows (it replaces
+  two copies of the old scheme-role switch). `PaneKindCategory` splits
+  text into document and code, and media into audio and video.
+- **Commands.** `RegisteredCommand.hue`; `commandIcon`
+  (`ui/shell/command_icon.dart`) paints it in the toolbar, the overflow
+  and context menus and the palette while the command is enabled.
+- **Sidebar.** `place_glyphs.dart` holds the device, favorite and
+  standard-folder glyphs; `_placeMark` draws a tile in both densities.
+- **Inspector.** Tabs in blue, cyan and yellow, the selected one on a
+  wash of its hue; alert severities follow.
+- **Tests.** `family_hues_test.dart` (every hue on every chrome surface
+  and row state, on its own wash, and every tile glyph on its fill),
+  `place_glyphs_test.dart`, a toolbar hue test, and the sidebar's tile
+  marks. Captures before and after: `tasks/d34-colour/captures/`
+  (`family_hues_capture_test.dart`, `POLTERGEIST_CAPTURE=1`).
+- **Not verified here:** the running app on macOS, Windows or a phone;
+  the captures are real-font widget renders on Linux.
+
 ## D33 — sidebar density and restored row detail (2026-09-25)
 
 The owner reported that aligning both apps' sidebars on the shared kit

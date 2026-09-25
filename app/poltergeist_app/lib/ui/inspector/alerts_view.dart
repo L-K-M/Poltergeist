@@ -5,6 +5,7 @@ import '../../l10n/app_localizations.dart';
 import '../../services/alert_center.dart';
 import '../../services/drag_out_controller.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/family_hues.dart';
 import '../activity/activity_format.dart';
 import '../server_label_scope.dart';
 
@@ -105,13 +106,16 @@ class _AlertRow extends StatelessWidget {
     final labelOf = ServerLabelScope.maybeOf(context);
     String serverName(String id) => labelOf?.call(id) ?? id;
 
+    // D34: an error keeps the error red; a warning is the attention
+    // yellow the Alerts tab wears, and a note the Info tab's blue.
+    final palette = FamilyPalette.of(context);
     final (IconData icon, Color color) = switch (alert.severity) {
-      AlertSeverity.error => (Icons.error_outline, theme.colorScheme.error),
+      AlertSeverity.error => (Icons.error, theme.colorScheme.error),
       AlertSeverity.warning => (
-        Icons.warning_amber_outlined,
-        theme.colorScheme.tertiary,
+        Icons.warning_amber,
+        palette.glyph(FamilyHue.yellow),
       ),
-      AlertSeverity.info => (Icons.info_outline, theme.colorScheme.primary),
+      AlertSeverity.info => (Icons.info, palette.glyph(FamilyHue.blue)),
     };
 
     final (String title, String? detail, List<(String, VoidCallback)> verbs) =

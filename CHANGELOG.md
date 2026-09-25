@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Colour that means something.** Icons get their colour back, and
+  each colour means one thing in both Poltergeist and Séance, so you can
+  find things by colour before you read them:
+  - Folders are blue, code orange, images pink, audio and video purple,
+    archives brown, PDFs red and links cyan, in the listing, the
+    inspector, Quick Look and Transfers.
+  - Sidebar places lead with a coloured tile: Home blue, disks
+    graphite, a USB stick brown, a workspace teal, a saved sync indigo.
+    Desktop, Documents, Downloads, Pictures, Music and Movies get their
+    own icons.
+  - Toolbar verbs are coloured while you can use them (New Folder blue,
+    Move to Trash red, Copy to Other Pane cyan, Sync indigo, Connect
+    green) and turn grey when you can't. The same colours mark them in
+    right-click menus and the command palette.
+  - The inspector's Info, Transfers and Alerts tabs are blue, cyan and
+    yellow, and the open one lights up in its colour.
 - **A new workspace.** The window is rebuilt in the style of ForkLift and
   Transmit:
   - A calm header: back and forward, the current location, New Folder,
