@@ -452,23 +452,31 @@ class _SyncItemRow extends StatelessWidget {
     final secondary = activeSelection
         ? chrome.onSelection
         : chrome.secondaryText;
+    // The active selection's fill is itself a tone: the action tones and
+    // the status colours drop to about 1:1 on it (02 §13), so the row's
+    // marks paint on-selection there, as a file row's glyph does. The
+    // glyph's character still says the action.
+    Color mark(Color tone) => activeSelection ? chrome.onSelection : tone;
     final included = syncRowIncluded(item);
     final reason = item.error ?? syncReasonText(l10n, item, now: now);
     final statusIcon = switch (item.status) {
-      SyncItemStatus.running => const SizedBox(
+      SyncItemStatus.running => SizedBox(
         width: 12,
         height: 12,
-        child: CircularProgressIndicator(strokeWidth: 1.5),
+        child: CircularProgressIndicator(
+          strokeWidth: 1.5,
+          color: activeSelection ? chrome.onSelection : null,
+        ),
       ),
       SyncItemStatus.done => Icon(
         Icons.check,
         size: 14,
-        color: theme.colorScheme.primary,
+        color: mark(theme.colorScheme.primary),
       ),
       SyncItemStatus.failed || SyncItemStatus.conflicted => Icon(
         Icons.error_outline,
         size: 14,
-        color: theme.colorScheme.error,
+        color: mark(theme.colorScheme.error),
       ),
       _ => null,
     };
@@ -561,7 +569,7 @@ class _SyncItemRow extends StatelessWidget {
                           child: Text(
                             syncActionGlyph(item.effective),
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: tone,
+                              color: mark(tone),
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -572,7 +580,7 @@ class _SyncItemRow extends StatelessWidget {
                       Icon(
                         Icons.circle,
                         size: 6,
-                        color: theme.colorScheme.primary,
+                        color: mark(theme.colorScheme.primary),
                       ),
                   ],
                 ),
@@ -608,7 +616,7 @@ class _SyncItemRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: item.error != null
-                            ? theme.colorScheme.error
+                            ? mark(theme.colorScheme.error)
                             : secondary,
                       ),
                     ),

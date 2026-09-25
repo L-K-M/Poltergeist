@@ -67,6 +67,14 @@ void main() {
             chrome.inactiveSelectionFill,
           ),
           ('caption on capsule', chrome.secondaryText, chrome.capsuleFill),
+          // The sync plan's selected row in the focused table: its action
+          // glyph (a character) and a failure's reason paint on-accent,
+          // not in their tones — those fall to about 1:1 on the fill.
+          (
+            'sync plan glyph and reason on active selection',
+            chrome.onSelection,
+            chrome.selectionFill,
+          ),
           // D32 §8's menu rows: the shortcut hint on the menu panel.
           (
             'menu shortcut hint',
@@ -111,6 +119,13 @@ void main() {
           ('archive glyph', scheme.secondary, chrome.paneBackground),
           ('pdf glyph', scheme.error, chrome.paneBackground),
           ('generic glyph', chrome.secondaryText, chrome.paneBackground),
+          // The sync plan's status marks and override dot on a selected
+          // row in the focused table (on-accent, as the glyph above).
+          (
+            'sync plan status marks on active selection',
+            chrome.onSelection,
+            chrome.selectionFill,
+          ),
           // The active pane's 2 px marker against the strip it underlines.
           (
             'active pane line',
