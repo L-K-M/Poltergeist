@@ -100,6 +100,13 @@ bool FlutterWindow::OnCreate() {
         operations->Trash(wide_path, std::move(result));
       });
 
+  // OS drag-out (00 D14's 2026-09-25 amendment): a pane row drag that
+  // leaves the window becomes a shell drag of its local files. The
+  // session starts on its own message-loop turn (MessageHandler below).
+  drag_out_ = std::make_unique<DragOut>(
+      flutter_controller_->engine()->messenger(), GetHandle(),
+      flutter_controller_->view()->GetNativeWindow());
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
@@ -115,7 +122,9 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   // Tear down in submission order: the channel first (no new trash
   // calls), then the worker (pending jobs finish and join), and only
-  // then the engine — a completing MethodResult needs it alive.
+  // then the engine — a completing MethodResult needs it alive. The
+  // drag-out channel goes before the engine too.
+  drag_out_ = nullptr;
   if (trash_channel_) {
     // The channel's destruction alone does not unregister the handler
     // from the engine messenger — clear it explicitly so a late call
@@ -135,6 +144,11 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // A drag-out session the channel accepted runs here, after its reply.
+  if (drag_out_ && drag_out_->HandleWindowMessage(message)) {
+    return 0;
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

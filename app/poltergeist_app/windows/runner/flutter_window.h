@@ -8,6 +8,7 @@
 
 #include <memory>
 
+#include "drag_out.h"
 #include "trash_operations.h"
 #include "win32_window.h"
 
@@ -31,6 +32,11 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  // OS drag-out (00 D14's 2026-09-25 amendment). Declared after the
+  // controller so it is destroyed first: its channel lives on the
+  // engine's messenger.
+  std::unique_ptr<DragOut> drag_out_;
 
   // The D15 trash channel (03 §7.1). Declaration order is teardown
   // order in reverse: trash_channel_ is destroyed first (no new work is
