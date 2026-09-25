@@ -825,8 +825,16 @@ void main() {
 
         dataOf(Finder finder) => tester.getSemantics(finder).getSemanticsData();
 
-        for (final label in const ['label-r2', 'Docs', 'Daily pair']) {
-          final data = dataOf(find.bySemanticsLabel(RegExp('^$label\$')));
+        for (final label in const [
+          // A server row names its endpoint and landing folder on the
+          // compact rail too: the tooltip is not a screen reader's.
+          'label-r2, deploy@r2.example.com · /srv/r2',
+          'Docs',
+          'Daily pair',
+        ]) {
+          final data = dataOf(
+            find.bySemanticsLabel(RegExp('^${RegExp.escape(label)}\$')),
+          );
           expect(
             data.flagsCollection.isButton,
             isTrue,
@@ -834,7 +842,11 @@ void main() {
           );
         }
         // The live server row folds its state into the label.
-        final live = dataOf(find.bySemanticsLabel('label-r1, Connected'));
+        final live = dataOf(
+          find.bySemanticsLabel(
+            'label-r1, Connected, deploy@r1.example.com · /srv/r1',
+          ),
+        );
         expect(live.flagsCollection.isButton, isTrue);
 
         controller.toggleCollapsed('fav:work');
@@ -969,7 +981,7 @@ void main() {
         expect(opens, isEmpty);
         // An announced-but-inert button is a dead affordance (WCAG 4.1.2).
         final data = tester
-            .getSemantics(find.bySemanticsLabel('label-r1'))
+            .getSemantics(find.bySemanticsLabel(RegExp('^label-r1, ')))
             .getSemanticsData();
         expect(data.flagsCollection.isButton, isFalse);
       } finally {

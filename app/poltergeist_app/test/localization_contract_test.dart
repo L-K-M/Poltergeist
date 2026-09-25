@@ -1576,7 +1576,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$username@${host.toLowerCase()}:$port'",
     r"'sidebar.row.disconnect.${server.serverId}'",
     "'sidebar.menu.disconnect'",
-    "', '",
     r"'\n'",
     r"'sidebar.menu.review.$id'",
     "'sidebar.menu.localEdits'",

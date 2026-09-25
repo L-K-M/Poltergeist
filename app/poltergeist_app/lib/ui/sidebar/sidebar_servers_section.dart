@@ -502,26 +502,22 @@ class _SavedServerRow extends StatelessWidget {
         : l10n.compactHomeRemoteLocation(endpoint, place);
 
     // The row's visuals are excluded from semantics; the label carries
-    // the state and the failure a sighted user reads in the tooltip.
+    // the state, the endpoint and the failure a sighted user reads on the
+    // second line or in the tooltip, in either density (a tooltip is
+    // not a screen reader's).
     final details = [
       if (blocked) l10n.connectionsBlockedWarning,
       ?status?.detail,
       if (failure != null)
         l10n.connectionsPaneFailure(failure.paneTabId, failure.message),
     ];
-    final semanticLabel = data.comfortable
-        ? _spokenLabel([
-            bookmark.label,
-            appearance.label,
-            where,
-            ...details,
-            _tabsSpoken(data, liveId),
-          ])
-        : [
-            bookmark.label,
-            if (appearance.label.isNotEmpty) appearance.label,
-            ...details,
-          ].join(', ');
+    final semanticLabel = _spokenLabel([
+      bookmark.label,
+      appearance.label,
+      where,
+      ...details,
+      _tabsSpoken(data, liveId),
+    ]);
     final tooltip = [
       if (appearance.label.isNotEmpty) appearance.label,
       ?_endpointLabelWithPort(bookmark),
@@ -749,19 +745,15 @@ class _CatalogServerRow extends StatelessWidget {
           '${server.username}@${server.host}:${server.port}',
           l10n.sidebarFromSeanceAccount,
         ].join('\n'),
-        semanticLabel: data.comfortable
-            ? _spokenLabel([
-                server.label,
-                appearance.label,
-                endpoint,
-                _tabsSpoken(data, server.id),
-                l10n.sidebarFromSeanceAccount,
-              ])
-            : _spokenLabel([
-                server.label,
-                appearance.label,
-                l10n.sidebarFromSeanceAccount,
-              ]),
+        // What the row shows, in either density: the endpoint is the
+        // tooltip's on a compact row, which a screen reader never gets.
+        semanticLabel: _spokenLabel([
+          server.label,
+          appearance.label,
+          endpoint,
+          _tabsSpoken(data, server.id),
+          l10n.sidebarFromSeanceAccount,
+        ]),
         selected: data.selectionKey == _serverSelectionKey(server.id),
         onActivate: open == null
             ? null
@@ -860,19 +852,13 @@ class _AdhocRow extends StatelessWidget {
         ?_endpointLabelWithPort(bookmark),
         ?session.path,
       ].join('\n'),
-      semanticLabel: data.comfortable
-          ? _spokenLabel([
-              bookmark.label,
-              l10n.sidebarUnsavedSession,
-              appearance.label,
-              endpoint,
-              _tabsSpoken(data, bookmark.id),
-            ])
-          : [
-              bookmark.label,
-              l10n.sidebarUnsavedSession,
-              if (appearance.label.isNotEmpty) appearance.label,
-            ].join(', '),
+      semanticLabel: _spokenLabel([
+        bookmark.label,
+        l10n.sidebarUnsavedSession,
+        appearance.label,
+        endpoint,
+        _tabsSpoken(data, bookmark.id),
+      ]),
       selected: data.selectionKey == _serverSelectionKey(bookmark.id),
       onActivate: open == null
           ? null

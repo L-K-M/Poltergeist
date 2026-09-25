@@ -576,7 +576,7 @@ void main() {
     expect(account.tooltip, contains('From your Séance account'));
     expect(
       find.bySemanticsLabel(
-        RegExp('^alpha.*from your Séance account', caseSensitive: false),
+        'alpha, deploy@s1.example.com, From your Séance account',
       ),
       findsOneWidget,
     );
