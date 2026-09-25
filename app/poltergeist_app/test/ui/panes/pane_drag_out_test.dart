@@ -348,6 +348,50 @@ void main() {
     expect(queue.enqueuedSpecs.single.destinationDir, '/srv/other');
   });
 
+  dndWidgets('the hand-off carries what the drag picked up even when the '
+      'listing changes under it', (tester) async {
+    await bindLocals();
+    await pumpShell(tester);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('report.txt')),
+    );
+    await tester.pump();
+    await gesture.moveBy(const Offset(40, 0));
+    await tester.pump();
+    // A refresh lists a new file above: report.txt's row now shows
+    // notes.txt, and notes.txt's shows aaa.txt.
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entryAt('/home/tester', 'docs', type: RemoteFileType.directory),
+      _entryAt('/home/tester', 'aaa.txt', size: 1),
+      _entryAt('/home/tester', 'notes.txt', size: 10),
+      _entryAt('/home/tester', 'report.txt', size: 2048),
+    ];
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await tester.pump();
+    expect(left.entries.map((entry) => entry.name), [
+      'docs',
+      'aaa.txt',
+      'notes.txt',
+      'report.txt',
+    ]);
+
+    await gesture.moveTo(const Offset(1300, 200));
+    await tester.pump();
+    await gesture.moveTo(const Offset(1450, 200));
+    await tester.pump();
+    await endDrag(tester, gesture);
+
+    expect(
+      backend.requests.single.items.map(
+        (item) => (item as LocalDragOutItem).path,
+      ),
+      ['/home/tester/report.txt'],
+    );
+  });
+
   dndWidgets('without a drag-out controller the edge changes nothing', (
     tester,
   ) async {

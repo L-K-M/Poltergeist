@@ -808,12 +808,20 @@ class _PaneViewState extends State<PaneView> {
   /// hand-off (or its hint) happens at most once per gesture.
   bool _dragOutDecided = false;
 
+  /// The payload the current row drag's avatar carries, kept from the
+  /// drag's start: rows are built by index, so a listing change under
+  /// the drag rebuilds the dragged row with another row's payload.
+  PaneEntryDrag? _rowDrag;
+
+  void _onRowDragStarted(PaneEntryDrag drag) => _rowDrag = drag;
+
   /// D14's drag-out amendment: the row drag's pointer left the window.
   /// Only a position outside the view counts: every in-app target sits
   /// inside it, so in-app drags are untouched.
-  void _onRowDragUpdate(PaneEntryDrag drag, DragUpdateDetails details) {
+  void _onRowDragUpdate(DragUpdateDetails details) {
     final dragOut = widget.dragOut;
-    if (dragOut == null || _dragOutDecided) return;
+    final drag = _rowDrag;
+    if (dragOut == null || drag == null || _dragOutDecided) return;
     final view = View.of(context);
     final bounds = Offset.zero & (view.physicalSize / view.devicePixelRatio);
     if (bounds.contains(details.globalPosition)) return;
@@ -887,6 +895,7 @@ class _PaneViewState extends State<PaneView> {
     if (index >= controller.entries.length) return;
     _rowClaimedPointer = event.pointer;
     _rowDown = event;
+    _rowDrag = null;
     _dragOutDecided = false;
     _deferredSelect = null;
     final platform = Theme.of(context).platform;
@@ -1189,6 +1198,9 @@ class _PaneViewState extends State<PaneView> {
                         widget.controller.startRename();
                       },
                       onListingPointerDown: _onListingPointerDown,
+                      onDragStarted: widget.dragOut == null
+                          ? null
+                          : _onRowDragStarted,
                       onDragUpdate: widget.dragOut == null
                           ? null
                           : _onRowDragUpdate,
@@ -1219,6 +1231,7 @@ class _RowGestures {
     required this.onOpen,
     required this.onRename,
     required this.onListingPointerDown,
+    this.onDragStarted,
     this.onDragUpdate,
   });
 
@@ -1240,11 +1253,14 @@ class _RowGestures {
   /// Presses on the listing no row claimed (the empty-area menu).
   final void Function(PointerDownEvent event) onListingPointerDown;
 
+  /// A row drag began carrying this payload (the avatar's for the whole
+  /// gesture); set together with [onDragUpdate].
+  final void Function(PaneEntryDrag drag)? onDragStarted;
+
   /// A row drag's moves, for the OS drag-out hand-off at the window
   /// edge (D14's amendment); null leaves the row `Draggable` exactly as
   /// it was, in-app only.
-  final void Function(PaneEntryDrag drag, DragUpdateDetails details)?
-  onDragUpdate;
+  final void Function(DragUpdateDetails details)? onDragUpdate;
 }
 
 class _PaneSurface extends StatelessWidget {
@@ -1880,7 +1896,7 @@ class _PaneSurface extends StatelessWidget {
       rootPaths: [for (final selected in grabbed) selected.path],
       entries: grabbed,
     );
-    final onDragUpdate = gestures.onDragUpdate;
+    final onDragStarted = gestures.onDragStarted;
     return Draggable<PaneEntryDrag>(
       data: drag,
       // The pointer anchor keeps DragTargetDetails.offset equal to the
@@ -1888,9 +1904,10 @@ class _PaneSurface extends StatelessWidget {
       dragAnchorStrategy: pointerDragAnchorStrategy,
       maxSimultaneousDrags: 1,
       // D14's drag-out amendment: the pane watches for the window edge.
-      onDragUpdate: onDragUpdate == null
-          ? null
-          : (details) => onDragUpdate(drag, details),
+      // The start reports this build's payload, the one the avatar
+      // takes; a later build of this row may carry another.
+      onDragStarted: onDragStarted == null ? null : () => onDragStarted(drag),
+      onDragUpdate: gestures.onDragUpdate,
       feedback: PaneEntryDragAvatar(drag: drag),
       childWhenDragging: Opacity(opacity: 0.4, child: row),
       child: row,
