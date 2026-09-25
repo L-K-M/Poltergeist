@@ -4,7 +4,7 @@ description: >-
   pipelined tree scanner, comparison modes, plan model, executor, journal,
   and the rsync exporter. Pure Dart over RemoteFileSystem (D3) — no
   Flutter, no dartssh2, no Process (05 §2/§11).
-version: 1.0.0
+version: 1.0.1
 publish_to: none
 resolution: workspace
 
