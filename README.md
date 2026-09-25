@@ -14,11 +14,11 @@ of [Séance](https://github.com/L-K-M/Seance).
 
 ## Known issues
 
-- **Remote transfers in 1.0.0.** In the 1.0.0 release, tasks that name
-  a remote endpoint (uploads, downloads, remote sync runs, and remote
-  managed checkouts) fail fast with a typed `unsupported` error. The
-  engine's bridged transfer lease (protocol v13) fixes this for the next
-  release. See
+- **Remote transfers in 1.0.0 (fixed on main).** In the 1.0.0 release,
+  tasks that name a remote endpoint (uploads, downloads, remote sync
+  runs, and remote managed checkouts) fail fast with a typed
+  `unsupported` error. The engine's bridged transfer lease (protocol
+  v13) is on main and fixes this; it ships with the next release. See
   [STATUS open item 23](docs/STATUS.md).
 - **Linux screen readers.** Flutter's Linux embedder exposes semantics
   through the legacy ATK layer; custom widgets are largely invisible to
