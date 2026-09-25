@@ -79,9 +79,10 @@ final class SidebarSyncStatus {
   final String? error;
 }
 
-/// The SERVERS filter threshold (10 §5): below eight servers the field is
-/// chrome; it still shows while a query is live or after ⌥⌘F.
-const _filterServerThreshold = 8;
+/// The filter threshold (10 §5, amended by D33): below five servers the
+/// field is chrome, as both apps drew it before the kit; it still shows
+/// while a query is live or after ⌥⌘F.
+const _filterServerThreshold = 5;
 
 /// The D32 sidebar (10 §5): DEVICES, FAVORITES, and SERVERS over the
 /// shared kit, a filter field that spans all three, and the bottom bar.
@@ -400,8 +401,24 @@ class _SidebarViewState extends State<SidebarView> {
           key: const ValueKey('sidebar.noMatches'),
           text: l10n.sidebarNoMatches,
           presentation: widget.presentation,
+          action: TextButton(
+            key: const ValueKey('sidebar.noMatches.clear'),
+            style: data.home ? null : _hintButtonStyle,
+            onPressed: () => widget.controller.setFilterQuery(''),
+            child: Text(l10n.sidebarCatalogFilterClear),
+          ),
         ),
       );
+    }
+    // Séance's rule: once the rail the query filtered holds no row at
+    // all, the query drops itself, or the next row added would be met
+    // with "No matches". After the frame: this is seen from a build.
+    if (data.filtering && data.total == 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.controller.filterQuery.isNotEmpty) {
+          widget.controller.setFilterQuery('');
+        }
+      });
     }
 
     final controller = widget.controller;
@@ -434,9 +451,7 @@ class _SidebarViewState extends State<SidebarView> {
               onChanged: controller.setFilterQuery,
               onDismiss: controller.dismissFilter,
               onSubmitted: data.firstMatch,
-              countText: data.filtering
-                  ? l10n.sidebarCatalogFilterCount(data.matched, data.total)
-                  : null,
+              countText: data.filtering ? _countText(l10n, data) : null,
             ),
           Expanded(
             child: ListView(
@@ -717,6 +732,12 @@ Future<({SidebarAddOutcome outcome, String label})> addLocationToFavorites(
     return (outcome: SidebarAddOutcome.failed, label: label);
   }
 }
+
+/// The filter's count: "3 of 12", naming Enter's shortcut while there is
+/// a first match for it to open (both apps' hint before the kit).
+String _countText(AppLocalizations l10n, _SidebarData data) => data.matched > 0
+    ? l10n.sidebarCatalogFilterCountOpenFirst(data.matched, data.total)
+    : l10n.sidebarCatalogFilterCount(data.matched, data.total);
 
 String _syncedAgo(AppLocalizations l10n, Duration age) {
   if (age.inMinutes < 1) return l10n.sidebarSyncedJustNow;

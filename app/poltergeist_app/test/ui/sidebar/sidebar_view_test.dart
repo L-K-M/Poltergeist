@@ -1419,10 +1419,12 @@ void main() {
   });
 
   group('filter', () {
-    testWidgets('the field appears at eight servers and filters every '
+    testWidgets('the field appears at five servers and filters every '
         'section', (tester) async {
+      // Five, as both apps drew it before the kit (D33); remote
+      // favorites count, being the user's servers without the account.
       store.bookmarks = [
-        for (var i = 0; i < 7; i++) _remote('srv$i', sortKey: 'm$i'),
+        for (var i = 0; i < 4; i++) _remote('srv$i', sortKey: 'm$i'),
         _local('web-assets', label: 'web-assets'),
       ];
       final volumes = _FakeVolumes()..volumes = const [_home, _root];
@@ -1454,7 +1456,8 @@ void main() {
       expect(find.byKey(const ValueKey('sidebar.favorite.srv0')), findsNothing);
       // DEVICES matches nothing, so it steps aside entirely.
       expect(find.text('DEVICES'), findsNothing);
-      expect(find.text('2 of 11'), findsOneWidget);
+      // The count names Enter's shortcut while there is a first match.
+      expect(find.text('2 of 8 · ↵ opens the first'), findsOneWidget);
 
       // Enter opens the first visible match in rail order.
       await tester.testTextInput.receiveAction(TextInputAction.go);
@@ -1471,6 +1474,54 @@ void main() {
         find.byKey(const ValueKey('sidebar.favorite.srv0')),
         findsOneWidget,
       );
+    });
+
+    testWidgets('with nothing to open the count drops the Enter hint, and '
+        'Clear filter brings the rows back', (tester) async {
+      store.bookmarks = [_local('l1', label: 'Docs')];
+      final controller = await pumpSidebar(tester);
+      controller.requestFilter();
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('sidebar.filter.field')),
+        'zzz',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('0 of 1'), findsOneWidget);
+      expect(find.text('No matches'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sidebar.noMatches.clear')));
+      await tester.pumpAndSettle();
+
+      expect(controller.filterQuery, isEmpty);
+      expect(find.byKey(const ValueKey('sidebar.favorite.l1')), findsOneWidget);
+    });
+
+    testWidgets('a query drops itself once the rail it filtered empties', (
+      tester,
+    ) async {
+      // Séance's rule: a stale query would greet the next row the user
+      // adds with "No matches".
+      store.bookmarks = [_local('l1', label: 'Docs')];
+      final controller = await pumpSidebar(tester);
+      controller.requestFilter();
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('sidebar.filter.field')),
+        'Docs',
+      );
+      await tester.pumpAndSettle();
+
+      await tester.runAsync(() => store.remove('l1'));
+      await tester.runAsync(controller.reload);
+      await tester.pumpAndSettle();
+      expect(controller.filterQuery, isEmpty);
+
+      await tester.runAsync(() => store.save(_local('l2', label: 'Music')));
+      await tester.runAsync(controller.reload);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('sidebar.favorite.l2')), findsOneWidget);
+      expect(find.text('No matches'), findsNothing);
     });
 
     testWidgets('a query folds nothing: collapsed groups open while it runs', (

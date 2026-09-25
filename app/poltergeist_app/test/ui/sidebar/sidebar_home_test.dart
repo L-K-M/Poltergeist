@@ -532,6 +532,29 @@ void main() {
     });
   });
 
+  group('search', () {
+    testWidgets('no matches offers Clear filter', (tester) async {
+      store.bookmarks = [_folder('docs', '/home/deploy/Documents')];
+      await pumpHome(tester);
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const ValueKey('sidebar.home.search')),
+          matching: find.byType(TextField),
+        ),
+        'zzz',
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('sidebar.favorite.docs')), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('sidebar.noMatches.clear')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('sidebar.favorite.docs')),
+        findsOneWidget,
+      );
+    });
+  });
+
   group('empty states', () {
     testWidgets('no servers invites a connection with Quick Connect', (
       tester,

@@ -1481,6 +1481,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // endpoint data — plumbing, never authored copy.
   'lib/ui/sidebar/sidebar_view.dart': {
     "'sidebar.noMatches'",
+    "'sidebar.noMatches.clear'",
+    // The empty query: Clear filter's and the stale-query drop's.
+    "''",
     "'sidebar.filter'",
     "'sidebar.filter.field'",
     "'sidebar.bottomBar'",

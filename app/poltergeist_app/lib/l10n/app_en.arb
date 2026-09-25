@@ -3896,7 +3896,7 @@
   },
   "sidebarCatalogFilterCount": "{matches} of {total}",
   "@sidebarCatalogFilterCount": {
-    "description": "Helper text under the catalog filter while a query is active and no row can be opened: the match count against the catalog total.",
+    "description": "The sidebar filter's count while a query is active and no row can be opened (and on the phone's Home, always): the matching rows against every row the filter considered.",
     "placeholders": {
       "matches": {
         "type": "int",
@@ -3910,7 +3910,7 @@
   },
   "sidebarCatalogFilterCountOpenFirst": "{matches} of {total} · ↵ opens the first",
   "@sidebarCatalogFilterCountOpenFirst": {
-    "description": "Helper text under the catalog filter while a query matches at least one row — names the Enter-opens-first-match affordance.",
+    "description": "The sidebar filter's count under the field while a query matches at least one row: names the Enter-opens-first-match affordance (both apps' hint, restored by D33).",
     "placeholders": {
       "matches": {
         "type": "int",
@@ -3924,7 +3924,7 @@
   },
   "sidebarCatalogFilterClear": "Clear filter",
   "@sidebarCatalogFilterClear": {
-    "description": "Tooltip of the catalog filter's clear button."
+    "description": "Tooltip of the sidebar filter's clear button, and the button under No matches that clears the query."
   },
   "sidebarCatalogSyncNow": "Sync now",
   "@sidebarCatalogSyncNow": {

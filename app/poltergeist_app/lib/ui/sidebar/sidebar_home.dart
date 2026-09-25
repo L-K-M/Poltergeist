@@ -54,6 +54,9 @@ extension _SidebarHome on _SidebarViewState {
                   focusNode: _filterFocus,
                   onChanged: controller.setFilterQuery,
                   onSubmitted: data.firstMatch,
+                  // The bare "3 of 12": a phone's keyboard has a search
+                  // key, not the ↵ the rail's hint names, and the count
+                  // rides inside a field a thumb's width from full.
                   countText: data.filtering
                       ? l10n.sidebarCatalogFilterCount(data.matched, data.total)
                       : null,

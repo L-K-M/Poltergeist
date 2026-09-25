@@ -24,7 +24,7 @@ const kConnectSaveToServersCommandId = 'connect.saveToServers';
 
 /// `view.filterSidebar` (⌥⌘F on macOS, Ctrl+Alt+F elsewhere): shows the
 /// sidebar if it is hidden, then opens and focuses its filter field. The
-/// field shows on its own at eight servers; this reaches it below that.
+/// field shows on its own at five servers; this reaches it below that.
 ///
 /// Below the inline stage the sidebar lives in the shell's drawer, which
 /// [toggleSidebarDrawer] opens — a chord can only reach this command

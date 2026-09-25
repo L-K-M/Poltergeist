@@ -4686,19 +4686,19 @@ abstract class AppLocalizations {
   /// **'Filter servers'**
   String get sidebarCatalogFilter;
 
-  /// Helper text under the catalog filter while a query is active and no row can be opened: the match count against the catalog total.
+  /// The sidebar filter's count while a query is active and no row can be opened (and on the phone's Home, always): the matching rows against every row the filter considered.
   ///
   /// In en, this message translates to:
   /// **'{matches} of {total}'**
   String sidebarCatalogFilterCount(int matches, int total);
 
-  /// Helper text under the catalog filter while a query matches at least one row — names the Enter-opens-first-match affordance.
+  /// The sidebar filter's count under the field while a query matches at least one row: names the Enter-opens-first-match affordance (both apps' hint, restored by D33).
   ///
   /// In en, this message translates to:
   /// **'{matches} of {total} · ↵ opens the first'**
   String sidebarCatalogFilterCountOpenFirst(int matches, int total);
 
-  /// Tooltip of the catalog filter's clear button.
+  /// Tooltip of the sidebar filter's clear button, and the button under No matches that clears the query.
   ///
   /// In en, this message translates to:
   /// **'Clear filter'**

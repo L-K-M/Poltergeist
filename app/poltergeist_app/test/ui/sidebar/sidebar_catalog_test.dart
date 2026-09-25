@@ -409,16 +409,16 @@ void main() {
     expect(opens.single.$2, SidebarOpenAction.oppositePane);
   });
 
-  testWidgets('the filter field appears at eight servers and filters', (
+  testWidgets('the filter field appears at five servers and filters', (
     tester,
   ) async {
     catalog.replace([
       _server('a1', label: 'alpha'),
       _server('a2', label: 'alpine'),
-      for (final id in ['b1', 'c1', 'd1', 'e1', 'f1']) _server(id),
+      for (final id in ['b1', 'c1']) _server(id),
     ]);
     await pump(tester);
-    // Seven: still chrome (10 §5's threshold is eight).
+    // Four: still chrome (the threshold is five again, D33).
     expect(find.byType(TextField), findsNothing);
 
     catalog.replace([...catalog.servers, _server('g1')]);
@@ -431,7 +431,7 @@ void main() {
     expect(find.text('alpha'), findsOneWidget);
     expect(find.text('alpine'), findsOneWidget);
     expect(find.text('label-b1'), findsNothing);
-    expect(find.text('2 of 8'), findsOneWidget);
+    expect(find.text('2 of 5 · ↵ opens the first'), findsOneWidget);
 
     await tester.testTextInput.receiveAction(TextInputAction.go);
     await tester.pumpAndSettle();
