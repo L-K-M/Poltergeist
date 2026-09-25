@@ -570,6 +570,27 @@ void main() {
       );
     });
 
+    test('a press retires a session whose end never came and tells Dart', () {
+      // Until Dart hears the end, it keeps the session running: its
+      // payload labels every OS drag over a pane and claims same-path
+      // foreign drops as its own echo.
+      final record = _body(swift, 'private func record(');
+      final retired = record.indexOf('if let lost = activeSession {');
+      expect(retired, isNonNegative);
+      expect(
+        record.substring(retired),
+        allOf(
+          contains('activeSession = nil'),
+          contains(
+            'channel.invokeMethod("sessionEnded", arguments: [\n'
+            '          "sessionId": lost.id,\n'
+            '          "operation": "none",\n'
+            '        ])',
+          ),
+        ),
+      );
+    });
+
     test('records the press whichever view it hit', () {
       expect(
         swift,

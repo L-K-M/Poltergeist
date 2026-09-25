@@ -151,9 +151,14 @@ final class DragOutChannel: NSObject {
       lastDown = event
       lastDragged = nil
       // A press only arrives once any AppKit session is over, so a
-      // session whose end never came must not refuse later drags as busy.
+      // session whose end never came must not refuse later drags as busy,
+      // and Dart must stop treating it as running.
       if let lost = activeSession {
         activeSession = nil
+        channel.invokeMethod("sessionEnded", arguments: [
+          "sessionId": lost.id,
+          "operation": "none",
+        ])
         releaseProvidersLater(lost.id)
       }
     case .leftMouseDragged:
