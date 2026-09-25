@@ -722,10 +722,11 @@ D32 inspector workspace · D33 sidebar density · D34 colour vocabulary
     Séance, byte-identical, and a hue means the same thing in both.
   - **Quiet chrome stays quiet.** D11 holds for the surfaces: the slate
     and Finder-light neutrals, the one accent, the status dots. Colour
-    goes on glyphs that name a kind of thing, never on text, fills or
-    state; the status dots keep green, amber and red to themselves, and
-    selection keeps the accent (the active selection repaints glyphs
-    on-accent).
+    goes on glyphs that name a kind of thing, never on text, surfaces or
+    state; its only fills are the small ones that carry a glyph (a
+    place's tile, a disc's wash, the open inspector tab's wash). The
+    status dots keep green, amber and red to themselves, and selection
+    keeps the accent (the active selection repaints glyphs on-accent).
   - **Verbs are coloured and filled; navigation is neither.** A
     toolbar, context-menu or palette command that declares a hue
     (`RegisteredCommand.hue`) paints its filled glyph in it while

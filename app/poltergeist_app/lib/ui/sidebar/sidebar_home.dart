@@ -11,7 +11,7 @@ const double _homeFabClearance = 88;
 /// the browser's kind badge (compact_listing.dart), so a location reads
 /// the same on the list that opens it and on the screen it opens.
 const double _homeGlyphSize = 22;
-const double _homeTintAlpha = 0.14;
+const double _homeTintAlpha = FamilyPalette.discWashAlpha;
 
 /// Home sits on the page surface, like the browser it pushes; the rail
 /// keeps the sidebar's own fill.
@@ -257,8 +257,9 @@ class _HomeSyncFooter extends StatelessWidget {
 /// A rail row's mark for a place with a colour of its own (a coloured
 /// favorite): [glyph] on a rounded tile the shape of the servers' badge,
 /// filled with that colour, so every mark in the rail is one size (D33).
-/// A place without one wears its family hue's tile instead (D34). [extent] and [glyphSize] are read at the row,
-/// under the kit's scope: a drag's floating copy renders outside it.
+/// A place without one wears its family hue's tile instead (D34).
+/// [extent] and [glyphSize] are read at the row, under the kit's scope:
+/// a drag's floating copy renders outside it.
 class _RailTile extends StatelessWidget {
   const _RailTile({
     required this.glyph,

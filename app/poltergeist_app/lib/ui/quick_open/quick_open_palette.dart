@@ -98,6 +98,10 @@ Future<void> showQuickOpenPalette(
   required void Function(Bookmark bookmark, QuickOpenAction action) onFavorite,
   required void Function(RecentLocation recent, QuickOpenAction action)
   onRecent,
+
+  /// The local home folder, so a standard folder's favorite (`~/Downloads`)
+  /// wears the same glyph here as in the sidebar; null draws a folder.
+  String? localHome,
 }) {
   return showDialog<void>(
     context: context,
@@ -109,6 +113,7 @@ Future<void> showQuickOpenPalette(
       onCommand: onCommand,
       onFavorite: onFavorite,
       onRecent: onRecent,
+      localHome: localHome,
     ),
   );
 }
@@ -122,6 +127,7 @@ class _QuickOpenPalette extends StatefulWidget {
     required this.onCommand,
     required this.onFavorite,
     required this.onRecent,
+    this.localHome,
   });
 
   final List<RegisteredCommand> commands;
@@ -131,6 +137,7 @@ class _QuickOpenPalette extends StatefulWidget {
   final void Function(RegisteredCommand command) onCommand;
   final void Function(Bookmark bookmark, QuickOpenAction action) onFavorite;
   final void Function(RecentLocation recent, QuickOpenAction action) onRecent;
+  final String? localHome;
 
   @override
   State<_QuickOpenPalette> createState() => _QuickOpenPaletteState();
@@ -704,7 +711,7 @@ class _QuickOpenPaletteState extends State<_QuickOpenPalette> {
       context,
       ServerTint(named: bookmark.color),
     );
-    final place = favoriteGlyph(bookmark);
+    final place = favoriteGlyph(bookmark, home: widget.localHome);
     if (enabled && accent == null) {
       return FamilyHueTile(
         hue: place.hue,

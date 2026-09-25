@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -238,9 +237,9 @@ void main() {
       );
       addTearDown(session!.shutdown);
 
-      // The desktop window: flutter_test's host platform is Android,
-      // whose touch rows would stand in for the 22 px listing.
-      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      // The desktop window (the variant below sets the platform):
+      // flutter_test's host platform is Android, whose touch rows would
+      // stand in for the 22 px listing.
       final base = buildPoltergeistTheme(
         brightness,
         platform: TargetPlatform.linux,
@@ -276,17 +275,16 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 50)),
       );
       await tester.pumpAndSettle();
+      // Both panes' scripted listings arrived.
       expect(find.text('invoice-0921.pdf'), findsOneWidget);
+      expect(find.text('style.css'), findsOneWidget);
 
       // A selection lights the selection verbs (Trash red, Duplicate and
-      // Copy cyan) and fills the Info well with the kind's big glyph.
+      // Copy cyan) and puts the item under its kind glyph in Info.
       await tester.tap(find.text('keynote.mov'));
       await tester.pumpAndSettle();
 
-      if (Platform.environment['POLTERGEIST_CAPTURE'] != '1') {
-        debugDefaultTargetPlatformOverride = null;
-        return;
-      }
+      if (Platform.environment['POLTERGEIST_CAPTURE'] != '1') return;
       final boundary = tester.renderObject<RenderRepaintBoundary>(
         find.byKey(const ValueKey('capture.window')),
       );
@@ -304,7 +302,6 @@ void main() {
       // ignore: avoid_print
       print('capture: ${file.absolute.path}');
       file.writeAsBytesSync(bytes);
-      debugDefaultTargetPlatformOverride = null;
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
   }
 }

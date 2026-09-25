@@ -1979,6 +1979,7 @@ void main() {
         find.ancestor(of: glyph, matching: find.byType(FamilyHueTile)),
       );
       expect(tile.hue, FamilyHue.blue);
+      expect(tester.widget<Icon>(glyph).color, FamilyHue.blue.onTile);
     });
 
     testWidgets('a compact rail keeps the tile, at the 18 px mark', (

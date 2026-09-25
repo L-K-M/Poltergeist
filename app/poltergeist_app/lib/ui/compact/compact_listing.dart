@@ -718,7 +718,7 @@ class _KindBadge extends StatelessWidget {
         : DecoratedBox(
             key: ValueKey(glyph),
             decoration: BoxDecoration(
-              color: tint.withValues(alpha: 0.14),
+              color: tint.withValues(alpha: FamilyPalette.discWashAlpha),
               shape: BoxShape.circle,
               border: selecting
                   ? Border.all(color: colors.outline, width: 1.5)

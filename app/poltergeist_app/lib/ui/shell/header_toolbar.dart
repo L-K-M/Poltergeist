@@ -459,18 +459,18 @@ class _OverflowButton extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     return MenuAnchor(
       menuChildren: [
-        for (final command in commands)
+        for (final (command, enabled) in [
+          for (final command in commands) (command, command.enabled()),
+        ])
           MenuItemButton(
             key: ValueKey('toolbar.overflow.${command.id}'),
             leadingIcon: commandIcon(
               context,
               command,
               size: 16,
-              enabled: command.enabled(),
+              enabled: enabled,
             ),
-            onPressed: command.enabled()
-                ? () => unawaited(onRun(command))
-                : null,
+            onPressed: enabled ? () => unawaited(onRun(command)) : null,
             child: Text(command.label(l10n)),
           ),
       ],

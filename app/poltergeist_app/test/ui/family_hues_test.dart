@@ -61,7 +61,11 @@ void main() {
             inspectorTabWashAlpha,
             chrome.inspectorBackground,
           ),
-          ('kind badge and Home disc', 0.14, chrome.paneBackground),
+          (
+            'kind badge and Home disc',
+            FamilyPalette.discWashAlpha,
+            chrome.paneBackground,
+          ),
         ];
         for (final hue in FamilyHue.values) {
           final glyph = palette!.glyph(hue);
