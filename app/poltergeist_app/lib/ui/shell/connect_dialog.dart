@@ -313,9 +313,11 @@ class _ServerRow extends StatelessWidget {
                         choice.detail,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        // Opaque on the highlight: at 11 px a dimmed
+                        // on-accent fell under 4.5:1 on the fill.
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: highlighted
-                              ? chrome.onSelection.withValues(alpha: 0.8)
+                              ? chrome.onSelection
                               : chrome.secondaryText,
                         ),
                       ),

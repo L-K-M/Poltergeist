@@ -6,6 +6,8 @@ import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/shell/connect_dialog.dart';
 
+import '../contrast_math.dart';
+
 /// D32 §4's Connect popover: saved servers as one-click rows above Quick
 /// Connect, recent first, keyboard-driven from the focused field, in a
 /// dialog that hugs its content.
@@ -213,6 +215,22 @@ void main() {
       await tester.pumpAndSettle();
       expect(opened, ['s1']);
       semantics.dispose();
+    });
+
+    testWidgets('the highlighted row\'s address stays legible', (tester) async {
+      await pumpDialog(tester, 2);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      final chrome = PoltergeistChrome.of(tester.element(dialog));
+      final detail = tester.widget<Text>(find.text('me@s0.example.com'));
+      final painted = Color.alphaBlend(
+        detail.style!.color!,
+        chrome.selectionFill,
+      );
+      expect(
+        contrast(painted, chrome.selectionFill),
+        greaterThanOrEqualTo(4.5),
+      );
     });
 
     testWidgets('a click opens a row', (tester) async {

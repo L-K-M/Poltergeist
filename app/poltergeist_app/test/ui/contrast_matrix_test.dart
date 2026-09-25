@@ -75,6 +75,14 @@ void main() {
             chrome.onSelection,
             chrome.selectionFill,
           ),
+          // The Connect dialog's highlighted server row: the 11 px
+          // user@host detail is opaque on-accent (a dimmed one measured
+          // under 4 on the fill).
+          (
+            'connect row detail on highlight',
+            chrome.onSelection,
+            chrome.selectionFill,
+          ),
           // D32 §8's menu rows: the shortcut hint on the menu panel.
           (
             'menu shortcut hint',
