@@ -316,6 +316,32 @@ void main() {
       }
     });
 
+    test('new work bringing Transfers forward leaves the walk '
+        'running', () async {
+      // D16's auto-show (and the boot seed) is not the user leaving
+      // Info: the measure keeps going and Info shows it on return.
+      final (controller, channel) = await _browsedPane([
+        _entry('docs', type: RemoteFileType.directory),
+      ]);
+      final other = PaneController(
+        paneTabId: 'pane.right',
+        lanes: FakePaneLanes(),
+      );
+      final workspace = WorkspaceController(
+        left: testPaneStrip(controller),
+        right: testPaneStrip(other),
+      );
+      addTearDown(workspace.dispose);
+      channel.holdNext = Completer<void>();
+      channel.listings['/home/tester/docs'] = const [];
+      controller.setCursorIndex(0);
+      controller.startFolderSize();
+
+      workspace.setActivityPanelHidden(false);
+      expect(workspace.inspectorTab, InspectorTab.transfers);
+      expect(controller.folderSizeInFlight, isTrue);
+    });
+
     test('the walk survives while the Info tab stays on screen', () async {
       final (controller, channel) = await _browsedPane([
         _entry('docs', type: RemoteFileType.directory),

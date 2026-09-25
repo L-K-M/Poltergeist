@@ -115,13 +115,15 @@ class WorkspaceController extends ChangeNotifier {
   }
 
   /// The Info tab is the only consumer of a tab's folder-size walk and
-  /// enclosed-apply operation (02 §2.6, D28), so the moment it leaves
-  /// the screen — the inspector hidden, another tab selected — every
-  /// pane tab's in-flight Info work ends: a walk left running would
-  /// hold the tab close guard for nothing, and an apply's confirmation
-  /// would be orphaned. The retired per-pane Get Info overlay did this
-  /// on its close; the inspector column owns the edge now. Callers
-  /// notify afterwards; the cancels notify their own panes.
+  /// enclosed-apply operation (02 §2.6, D28), so the moment the user
+  /// takes it off the screen — the inspector hidden, another tab
+  /// selected — every pane tab's in-flight Info work ends: a walk left
+  /// running would hold the tab close guard for nothing, and an apply's
+  /// confirmation would be orphaned. D16's new-work edge is not the
+  /// user leaving Info ([setActivityPanelHidden] skips this). The
+  /// retired per-pane Get Info overlay did this on its close; the
+  /// inspector column owns the edge now. Callers notify afterwards; the
+  /// cancels notify their own panes.
   void _endInfoWorkIfLeft(bool infoWasShown) {
     if (!infoWasShown || !previewPanelHidden) return;
     for (final strip in [left, right]) {
@@ -151,9 +153,17 @@ class WorkspaceController extends ChangeNotifier {
   bool get activityPanelHidden =>
       _inspectorHidden || _inspectorTab != InspectorTab.transfers;
 
+  /// Showing here is D16's new-work edge, never a user's choice to
+  /// leave Info: an unrelated transfer starting must not cut a running
+  /// folder-size walk or a confirmed recursive chmod short, so the
+  /// reveal skips [_endInfoWorkIfLeft] and that work runs on into the
+  /// terminal snapshot Info shows on return.
   void setActivityPanelHidden(bool hidden) {
     if (!hidden) {
-      showInspector(InspectorTab.transfers);
+      if (!activityPanelHidden) return;
+      _inspectorHidden = false;
+      _inspectorTab = InspectorTab.transfers;
+      notifyListeners();
     } else if (!activityPanelHidden) {
       setInspectorHidden(true);
     }
