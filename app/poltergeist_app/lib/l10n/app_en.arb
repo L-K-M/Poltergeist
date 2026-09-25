@@ -6065,5 +6065,23 @@
   "connectDialogHighlightCleared": "No server highlighted. Press Return to connect to the address.",
   "@connectDialogHighlightCleared": {
     "description": "Screen-reader announcement when ↑/↓ in the Connect dialog's address field move the highlight past the saved server rows, so Return submits the typed address again."
+  },
+  "alertCountSemantics": "{count, plural, =1{1 alert} other{{count} alerts}}",
+  "@alertCountSemantics": {
+    "description": "D32 §3: what a screen reader hears for the alert count badged on the inspector toggle and the Alerts tab (the painted badge shows only the number).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "transferCountSemantics": "{count, plural, =1{1 unfinished transfer} other{{count} unfinished transfers}}",
+  "@transferCountSemantics": {
+    "description": "D32 §3: what a screen reader hears for the count badged on the inspector's Transfers tab: queued, running, and paused transfers.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

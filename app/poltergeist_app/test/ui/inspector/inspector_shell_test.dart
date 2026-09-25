@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
@@ -126,6 +127,56 @@ void main() {
     expect(find.byKey(const ValueKey('alerts.empty')), findsOneWidget);
   });
 
+  testWidgets('assistive tech can switch the inspector\'s tabs', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await pumpShell(tester);
+      final transfers = find.byKey(const ValueKey('inspector.tab.transfers'));
+      expect(
+        tester
+            .getSemantics(transfers)
+            .getSemanticsData()
+            .hasAction(SemanticsAction.tap),
+        isTrue,
+      );
+      tester.semantics.tap(find.semantics.byLabel('Transfers'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('activity.panel')), findsOneWidget);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('the alert and transfer counts are announced, not only '
+      'painted', (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await pumpShell(tester);
+      String valueOf(Finder finder) =>
+          tester.getSemantics(finder).getSemanticsData().value;
+      final alertsTab = find.byKey(const ValueKey('inspector.tab.alerts'));
+      final transfersTab = find.byKey(
+        const ValueKey('inspector.tab.transfers'),
+      );
+      expect(valueOf(toggle), isEmpty);
+
+      queue.addTask(state: TransferTaskState.failed, error: 'x');
+      queue.addTask(state: TransferTaskState.failed, error: 'y');
+      queue.addTask(state: TransferTaskState.running);
+      // The running task spins the activity ring: fixed frames, never
+      // a settle.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(valueOf(toggle), '2 alerts');
+      expect(valueOf(alertsTab), '2 alerts');
+      expect(valueOf(transfersTab), '1 unfinished transfer');
+    } finally {
+      semantics.dispose();
+    }
+  });
+
   testWidgets('a restored session keeps the user\'s hide and tab', (
     tester,
   ) async {
@@ -150,7 +201,7 @@ void main() {
   testWidgets('a narrow window folds the inspector into an overlay, not a '
       'persisted hide (10 §3.2)', (tester) async {
     // No sidebar in this composition, so the inline inspector needs its
-    // width plus two 240 px panes and the splitters (774 px).
+    // width plus two 260 px panes and the splitters (814 px).
     await pumpShell(tester, size: const Size(700, 800));
     expect(region, findsNothing);
     expect(splitter, findsNothing);
@@ -204,6 +255,40 @@ void main() {
       inspectorDefaultWidth,
       inspectorDefaultWidth - shellSplitterKeyStep,
     ]);
+  });
+
+  testWidgets('assistive tech adjusts the splitter like a slider and '
+      'hears the width it lands on', (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      final saved = <double>[];
+      await pumpShell(
+        tester,
+        onInspectorWidthChanged: (width) async => saved.add(width),
+      );
+      final node = find.semantics.byLabel('Resize inspector');
+      final data = tester.getSemantics(splitter).getSemanticsData();
+      expect(data.value, '280 pixels');
+      expect(data.increasedValue, '296 pixels');
+      expect(data.decreasedValue, '264 pixels');
+
+      // Increase widens the region whichever side of the splitter it
+      // sits on, and persists once like a key step.
+      tester.semantics.increase(node);
+      await tester.pump();
+      expect(tester.getSize(region).width, inspectorDefaultWidth + 16);
+      tester.semantics.decrease(node);
+      tester.semantics.decrease(node);
+      await tester.pump();
+      expect(tester.getSize(region).width, inspectorDefaultWidth - 16);
+      expect(saved, [
+        inspectorDefaultWidth + 16,
+        inspectorDefaultWidth,
+        inspectorDefaultWidth - 16,
+      ]);
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('double-clicking the splitter resets the default width', (

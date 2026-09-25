@@ -4615,4 +4615,26 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get connectDialogHighlightCleared =>
       'No server highlighted. Press Return to connect to the address.';
+
+  @override
+  String alertCountSemantics(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count alerts',
+      one: '1 alert',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String transferCountSemantics(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count unfinished transfers',
+      one: '1 unfinished transfer',
+    );
+    return '$_temp0';
+  }
 }

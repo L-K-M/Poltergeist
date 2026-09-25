@@ -7029,6 +7029,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No server highlighted. Press Return to connect to the address.'**
   String get connectDialogHighlightCleared;
+
+  /// D32 §3: what a screen reader hears for the alert count badged on the inspector toggle and the Alerts tab (the painted badge shows only the number).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 alert} other{{count} alerts}}'**
+  String alertCountSemantics(int count);
+
+  /// D32 §3: what a screen reader hears for the count badged on the inspector's Transfers tab: queued, running, and paused transfers.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 unfinished transfer} other{{count} unfinished transfers}}'**
+  String transferCountSemantics(int count);
 }
 
 class _AppLocalizationsDelegate

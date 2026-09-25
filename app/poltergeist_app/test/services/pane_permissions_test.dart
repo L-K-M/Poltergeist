@@ -802,6 +802,42 @@ void main() {
       expect(controller.applyToEnclosedInFlight, isFalse);
     });
 
+    test('new work bringing Transfers forward never cuts a confirmed '
+        'apply short', () async {
+      // D16's auto-show is not the user leaving Info: an unrelated
+      // transfer starting mid-walk must not leave the tree half
+      // re-moded.
+      final (controller, channel) = await _browsedPane([
+        _entry('docs', type: RemoteFileType.directory, mode: 0x41ED),
+      ]);
+      final workspace = WorkspaceController(
+        left: testPaneStrip(controller),
+        right: testPaneStrip(
+          PaneController(paneTabId: 'pane.right', lanes: FakePaneLanes()),
+        ),
+      );
+      addTearDown(workspace.dispose);
+      channel.listings['/home/tester/docs'] = [
+        _entry('a.txt', root: '/home/tester/docs', mode: 0x81A4),
+        _entry('b.txt', root: '/home/tester/docs', mode: 0x81A4),
+      ];
+      final held = Completer<void>();
+      channel.heldPermissions = held;
+      _cursorTo(controller, 'docs');
+
+      unawaited(
+        controller.requestApplyToEnclosed(confirm: () async => true),
+      );
+      await _settle();
+      expect(controller.applyToEnclosedInFlight, isTrue);
+
+      workspace.setActivityPanelHidden(false);
+      expect(workspace.inspectorTab, InspectorTab.transfers);
+      held.complete();
+      await _settle();
+      expect(controller.enclosedApply?.stage, EnclosedApplyStage.done);
+    });
+
     test('cancel mid-walk settles cancelled with the partial tally, and '
         'the guard drops', () async {
       final (controller, channel) = await _browsedPane([

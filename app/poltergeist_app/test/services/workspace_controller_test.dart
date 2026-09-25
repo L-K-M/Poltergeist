@@ -122,4 +122,24 @@ void main() {
       expect(rig.workspace.secondPaneHidden, isTrue);
     });
   });
+
+  test('a tab change inside the active pane notifies; the other pane\'s '
+      'does not', () {
+    // Info and the header filter bind the active tab through the
+    // workspace alone, so its identity change must reach them.
+    final rig = build();
+    var notified = 0;
+    rig.workspace.addListener(() => notified++);
+
+    rig.workspace.right.newTab();
+    expect(notified, 0);
+
+    rig.workspace.left.newTab();
+    expect(notified, 1);
+    expect(identical(rig.workspace.activeTabController, rig.left), isFalse);
+
+    rig.workspace.left.activateTab(rig.workspace.left.tabs.first);
+    expect(notified, 2);
+    expect(identical(rig.workspace.activeTabController, rig.left), isTrue);
+  });
 }

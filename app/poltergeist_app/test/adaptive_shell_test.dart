@@ -8,6 +8,10 @@ import 'package:poltergeist_app/ui/adaptive_shell.dart';
 import 'package:poltergeist_app/ui/layout/pane_allocation.dart';
 
 const _testWindowSize = Size(1180, 760);
+
+/// Two panes at their floor plus the splitter (D32 §3.2): below it pane
+/// B auto-hides.
+const _twoPaneFloor = 2 * minPaneWidth + paneSplitterExtent;
 const _keyboardResizeStepCountToEdge = 37;
 
 Widget _pane(String name) => ColoredBox(
@@ -69,13 +73,13 @@ void main() {
     );
   });
 
-  testWidgets('auto-hides and restores pane B across the mobile boundary', (
+  testWidgets('auto-hides and restores pane B across the two-pane floor', (
     tester,
   ) async {
-    await _pumpShell(tester, size: const Size(599, 600));
+    await _pumpShell(tester, size: const Size(_twoPaneFloor - 1, 600));
     expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsNothing);
 
-    tester.view.physicalSize = const Size(600, 600);
+    tester.view.physicalSize = const Size(_twoPaneFloor, 600);
     await tester.pump();
     expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsOneWidget);
   });
@@ -85,7 +89,7 @@ void main() {
     tester,
   ) async {
     final reports = <bool>[];
-    tester.view.physicalSize = const Size(599, 600);
+    tester.view.physicalSize = const Size(_twoPaneFloor - 1, 600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
@@ -109,7 +113,7 @@ void main() {
     await tester.pump();
     expect(reports, [false]);
 
-    tester.view.physicalSize = const Size(600, 600);
+    tester.view.physicalSize = const Size(_twoPaneFloor, 600);
     await pump(intent: SecondPaneIntent.shown);
     await tester.pump();
     expect(reports, [false, true]);

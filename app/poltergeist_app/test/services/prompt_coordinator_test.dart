@@ -97,6 +97,13 @@ const _credential = CredentialPromptData(
 );
 
 void main() {
+  // The prompt's own Connect button: the shell header behind the dialog
+  // carries a labelled Connect too wherever it has the room (10 §4).
+  final dialogConnect = find.descendant(
+    of: find.byType(AlertDialog),
+    matching: find.text('Connect'),
+  );
+
   late FakePromptBridge bridge;
   late ScriptedVault vault;
   late ScriptedIdentityReader reader;
@@ -380,7 +387,7 @@ void main() {
 
     expect(find.byType(AlertDialog), findsOneWidget);
     await tester.enterText(find.widgetWithText(TextField, 'Password'), 'pw');
-    await tester.tap(find.text('Connect'));
+    await tester.tap(dialogConnect);
     await tester.pumpAndSettle();
 
     final reply = bridge.replies.single.$3 as CredentialPromptReply;
@@ -407,7 +414,7 @@ void main() {
     await tester.enterText(find.widgetWithText(TextField, 'Password'), 'pw');
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pump();
-    await tester.tap(find.text('Connect'));
+    await tester.tap(dialogConnect);
     await tester.pumpAndSettle();
 
     expect(vault.puts.single.id, 'secret-7');
@@ -433,7 +440,7 @@ void main() {
 
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pump();
-    await tester.tap(find.text('Connect'));
+    await tester.tap(dialogConnect);
     await tester.pumpAndSettle();
 
     // An empty secret must not land in the vault: it would kind-match and
@@ -467,7 +474,7 @@ void main() {
     );
 
     await tester.enterText(find.widgetWithText(TextField, 'Password'), 'pw');
-    await tester.tap(find.text('Connect'));
+    await tester.tap(dialogConnect);
     await tester.pumpAndSettle();
 
     expect((bridge.replies.single.$3 as CredentialPromptReply).password, 'pw');
@@ -497,7 +504,7 @@ void main() {
       find.widgetWithText(TextField, 'Passphrase'),
       'phrase',
     );
-    await tester.tap(find.text('Connect'));
+    await tester.tap(dialogConnect);
     await tester.pumpAndSettle();
 
     expect(reader.reads, ['~/.ssh/id_ed25519']);
@@ -846,7 +853,7 @@ void main() {
     await tester.enterText(find.widgetWithText(TextField, 'Password'), 'pw');
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pump();
-    await tester.tap(find.text('Connect'));
+    await tester.tap(dialogConnect);
     await tester.pumpAndSettle();
 
     expect(

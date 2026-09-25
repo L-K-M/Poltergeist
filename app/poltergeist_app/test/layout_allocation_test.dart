@@ -2,14 +2,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/ui/layout/pane_allocation.dart';
 
 const _desktopBoundary = 1080.0;
-// D32 §3.1/§3.2: the compact posture starts below 600, and the A|B
-// splitter is a 7 px hairline grab area like the region splitters.
-const _mobileBoundary = 600.0;
+// D32 §3.1/§3.2: pane B auto-hides once two 260 px panes and the A|B
+// splitter, a 7 px hairline grab area like the region splitters, no
+// longer fit.
 const _splitterExtent = 7.0;
+const _mobileBoundary = 2 * 260.0 + _splitterExtent;
 
 void main() {
   group('allocatePanes', () {
-    test('keeps both panes at the compact boundary', () {
+    test('keeps both panes at the two-pane floor', () {
       final allocation = allocatePanes(
         width: _mobileBoundary,
         ratio: 0.5,
@@ -22,7 +23,7 @@ void main() {
       expect(allocation.totalWidth, _mobileBoundary);
     });
 
-    test('auto-hides the second pane below the mobile boundary', () {
+    test('auto-hides the second pane below the two-pane floor', () {
       final allocation = allocatePanes(
         width: _mobileBoundary - 1,
         ratio: 0.5,
@@ -72,9 +73,9 @@ void main() {
       );
 
       expect(allocation.stage, LayoutStage.compact);
-      expect(allocation.primaryWidth, 473);
+      expect(allocation.primaryWidth, 453);
       expect(allocation.splitterWidth, _splitterExtent);
-      expect(allocation.secondaryWidth, 240);
+      expect(allocation.secondaryWidth, 260);
       expect(
         allocation.primaryWidth +
             allocation.splitterWidth +

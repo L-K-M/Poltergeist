@@ -1371,7 +1371,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           swapFocus: () => _focusPane(workspace.swapFocus()),
           sidebarAvailable: () => _sidebar != null,
           toggleSidebarDrawer: _toggleSidebarDrawer,
-          sidebarIsDrawer: () => !_sidebarInline,
+          sidebarIsDrawer: () => !_sidebarFits,
           focusFilter: _focusHeaderFilter,
           preview: preview,
         ),
@@ -1380,7 +1380,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         buildSidebarFilterCommand(
           sidebar: sidebar,
           workspace: workspace,
-          sidebarIsDrawer: () => !_sidebarInline,
+          sidebarIsDrawer: () => !_sidebarFits,
           toggleSidebarDrawer: _toggleSidebarDrawer,
         ),
       // The rail's active-pane verbs (D21): Add Current Folder to
@@ -1537,9 +1537,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }
 
   /// Whether the sidebar is inline in the current allocation (D32 §3.2)
-  /// — the last layout's answer, read by `view.toggleSidebar` to choose
-  /// between the inline intent and the drawer.
+  /// — the last layout's answer, read by the resize clamps.
   bool _sidebarInline = true;
+
+  /// Whether the window has room for the sidebar inline, hidden or not:
+  /// `view.toggleSidebar` reads it to choose between the inline intent
+  /// and the drawer. [_sidebarInline] is false while the user hides the
+  /// sidebar, so it would send the re-show to the drawer instead.
+  bool _sidebarFits = true;
+
+  /// The inspector's half of the same answer, read by the resize clamps.
+  bool _inspectorInline = true;
 
   /// D32's window anatomy (10 §3): sidebar | header over (pane A | pane B
   /// | inspector), with the staged collapse evaluated on the content
@@ -1562,13 +1570,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }) {
     final strings = AppLocalizations.of(context);
     final chrome = PoltergeistChrome.of(context);
-    const paneRegionMin = 2 * minPaneWidth + paneSplitterExtent;
     final sidebarWidth = _sidebarWidth;
     final inspectorWidth = _inspectorWidth;
     final sidebarWanted = sidebar != null && !workspace.sidebarHidden;
-    final sidebarInline =
-        sidebarWanted &&
-        width >= sidebarWidth + shellSplitterExtent + paneRegionMin;
+    _sidebarFits = width >= sidebarWidth + shellSplitterExtent + _paneRegionMin;
+    final sidebarInline = sidebarWanted && _sidebarFits;
     _sidebarInline = sidebarInline;
     final inspectorWanted = !workspace.inspectorHidden;
     final usedBySidebar = sidebarInline
@@ -1577,7 +1583,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final inspectorInline =
         inspectorWanted &&
         width >=
-            usedBySidebar + inspectorWidth + shellSplitterExtent + paneRegionMin;
+            usedBySidebar +
+                inspectorWidth +
+                shellSplitterExtent +
+                _paneRegionMin;
+    _inspectorInline = inspectorInline;
     final inspectorOverlay = inspectorWanted && !inspectorInline;
 
     final inspector = InspectorView(
@@ -1695,7 +1705,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         nativeTitlebar: mac,
         leadingInset: mac && !sidebarInline ? _macTrafficLightsInset : 0,
         title: _HeaderTitle(workspace: workspace),
-        badges: {kViewToggleInspectorCommandId: _alerts.attentionCount},
+        badges: {
+          kViewToggleInspectorCommandId: ToolbarBadge(
+            count: _alerts.attentionCount,
+            announcement: strings.alertCountSemantics(_alerts.attentionCount),
+          ),
+        },
         statusExtras: {
           kViewToggleActivityPanelCommandId: (context, button) =>
               HeaderActivityButton(controller: _activity, child: button),
@@ -1731,7 +1746,20 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                   focusNode: _inspectorSplitterFocus,
                   label: strings.resizeInspector,
                   value: strings.splitterWidthPx(inspectorWidth.round()),
+                  increasedValue: strings.splitterWidthPx(
+                    _clampInspector(
+                      inspectorWidth + shellSplitterKeyStep,
+                      width,
+                    ).round(),
+                  ),
+                  decreasedValue: strings.splitterWidthPx(
+                    _clampInspector(
+                      inspectorWidth - shellSplitterKeyStep,
+                      width,
+                    ).round(),
+                  ),
                   grow: -1,
+                  onResizeStart: () => _inspectorDragWidth = null,
                   onResize: (delta) => _resizeInspector(delta, width),
                   onResizeEnd: _commitInspectorWidth,
                   onReset: () {
@@ -1777,6 +1805,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
             focusNode: _sidebarSplitterFocus,
             label: strings.resizeSidebar,
             value: strings.splitterWidthPx(sidebarWidth.round()),
+            increasedValue: strings.splitterWidthPx(
+              _clampSidebar(sidebarWidth + shellSplitterKeyStep, width).round(),
+            ),
+            decreasedValue: strings.splitterWidthPx(
+              _clampSidebar(sidebarWidth - shellSplitterKeyStep, width).round(),
+            ),
+            onResizeStart: () => _sidebarDragWidth = null,
             onResize: (delta) => _resizeSidebar(delta, width),
             onResizeEnd: _commitSidebarWidth,
             onReset: () {
@@ -1865,32 +1900,69 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     if (_compactPosture) _compactKey.currentState?.showBrowser();
   }
 
+  /// The unclamped width the current splitter interaction has reached
+  /// (10 §3.1), reset as each one starts. A pointer delivers a drag as
+  /// many small deltas: clamping each onto the displayed width would
+  /// throw the overshoot away, and the drag-past-minimum hide could
+  /// then only fire on one event larger than the overshoot.
+  double? _sidebarDragWidth;
+  double? _inspectorDragWidth;
+
   /// Sidebar drag/key resize (10 §3.1): clamped to its bounds and to the
   /// room the panes need; dragging well past the minimum hides it as a
   /// user hide.
   void _resizeSidebar(double delta, double windowWidth) {
-    final next = _sidebarWidth + delta;
+    final next = (_sidebarDragWidth ?? _sidebarWidth) + delta;
+    _sidebarDragWidth = next;
     if (next < sidebarMinWidth - _collapseOvershoot) {
+      _sidebarDragWidth = null;
       _workspace?.setSidebarHidden(true);
       setState(() => _sidebarWidth = sidebarMinWidth);
       return;
     }
-    setState(() {
-      _sidebarWidth = next.clamp(sidebarMinWidth, sidebarMaxWidth);
-    });
+    setState(() => _sidebarWidth = _clampSidebar(next, windowWidth));
   }
 
   void _resizeInspector(double delta, double windowWidth) {
-    final next = _inspectorWidth + delta;
+    final next = (_inspectorDragWidth ?? _inspectorWidth) + delta;
+    _inspectorDragWidth = next;
     if (next < inspectorMinWidth - _collapseOvershoot) {
+      _inspectorDragWidth = null;
       _workspace?.setInspectorHidden(true);
       setState(() => _inspectorWidth = inspectorMinWidth);
       return;
     }
-    setState(() {
-      _inspectorWidth = next.clamp(inspectorMinWidth, inspectorMaxWidth);
-    });
+    setState(() => _inspectorWidth = _clampInspector(next, windowWidth));
   }
+
+  /// [width] held to the sidebar's bounds and its inline room.
+  double _clampSidebar(double width, double windowWidth) => width.clamp(
+    sidebarMinWidth,
+    _inlineRoom(
+      windowWidth,
+      otherRegion: _inspectorInline ? _inspectorWidth : null,
+    ).clamp(sidebarMinWidth, sidebarMaxWidth),
+  );
+
+  /// [width] held to the inspector's bounds and its inline room.
+  double _clampInspector(double width, double windowWidth) => width.clamp(
+    inspectorMinWidth,
+    _inlineRoom(
+      windowWidth,
+      otherRegion: _sidebarInline ? _sidebarWidth : null,
+    ).clamp(inspectorMinWidth, inspectorMaxWidth),
+  );
+
+  /// The widest a region can grow and stay inline (10 §3.2): the window
+  /// less the [otherRegion] still inline beside it, both splitters, and
+  /// the panes' floor. A drag past it would flip the region into the
+  /// drawer or overlay under the pointer and unmount its splitter before
+  /// the width could persist.
+  double _inlineRoom(double windowWidth, {required double? otherRegion}) =>
+      windowWidth -
+      (otherRegion == null ? 0 : otherRegion + shellSplitterExtent) -
+      shellSplitterExtent -
+      _paneRegionMin;
 
   void _commitSidebarWidth() =>
       _persist(widget.onSidebarWidthChanged, _sidebarWidth);
@@ -3848,14 +3920,19 @@ const _macTrafficLightsInset = 76.0;
 /// region (10 §3.1): a deliberate fling, never an accidental nudge.
 const _collapseOvershoot = 48.0;
 
+/// The panes' floor the sidebar and inspector yield to (10 §3.2): two
+/// minimum panes and their splitter.
+const _paneRegionMin = 2 * minPaneWidth + paneSplitterExtent;
+
 /// Sidebar width bounds (10 §3.1).
 const sidebarDefaultWidth = 232.0;
 const sidebarMinWidth = 180.0;
 const sidebarMaxWidth = 360.0;
 
 /// The header's title block (10 §4): the active pane's location — the
-/// folder or server name, and a secondary line with the full path
-/// (remote: `user@host:path`).
+/// folder or server name with the server dot, and `user@host` under it
+/// for remotes only. The full path is a tooltip (remote:
+/// `user@host:path`), never a second line (10 §2).
 class _HeaderTitle extends StatelessWidget {
   const _HeaderTitle({required this.workspace});
 
@@ -3872,25 +3949,41 @@ class _HeaderTitle extends StatelessWidget {
     final location = controller?.location;
     final bookmark = controller?.remoteBookmark;
     final identity = bookmark?.server?.identity;
-    final subtitle = switch (location) {
-      null => bookmark?.label,
+    final subtitle = bookmark == null
+        ? null
+        : identity != null
+        ? '${identity.username}@${identity.host}'
+        : bookmark.label;
+    final path = switch (location) {
+      null => null,
       final loc when identity != null =>
         '${identity.username}@${identity.host}:${loc.path}',
       final loc when bookmark != null => '${bookmark.label}:${loc.path}',
       final loc => loc.path,
     };
-    return Semantics(
+    final block = Semantics(
       header: true,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            key: const ValueKey('header.title'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleSmall,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  title,
+                  key: const ValueKey('header.title'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall,
+                ),
+              ),
+              if (bookmark != null && controller != null) ...[
+                const SizedBox(width: 4),
+                PaneConnectionDot(controller: controller),
+              ],
+            ],
           ),
           if (subtitle != null)
             Text(
@@ -3904,6 +3997,7 @@ class _HeaderTitle extends StatelessWidget {
         ],
       ),
     );
+    return path == null ? block : Tooltip(message: path, child: block);
   }
 }
 
@@ -3995,7 +4089,7 @@ class _HeaderFilterFieldState extends State<_HeaderFilterField> {
           key: const ValueKey('header.filter'),
           controller: _text,
           focusNode: widget.focusNode,
-          enabled: pane != null && pane.verbsEnabled,
+          enabled: pane != null && pane.acceptsFilterQuery,
           style: theme.textTheme.bodyMedium,
           textAlignVertical: TextAlignVertical.center,
           onChanged: (value) => pane?.setFilterQuery(value),
