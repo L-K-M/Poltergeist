@@ -13,6 +13,7 @@ import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
 import '../../theme/app_theme.dart' show isDesktopPlatform;
 import '../layout/pane_allocation.dart' show desktopStageBoundary;
+import 'pane_view.dart' show PaneView;
 
 const kGoBackCommandId = 'go.back';
 const kGoEditPathCommandId = 'go.editPath';
@@ -1052,13 +1053,33 @@ List<ShortcutActivator> Function(TargetPlatform) _perPlatform({
 /// Keys that bind unmodified at the chord layer because they never type
 /// text: the Commander-style F5 copy / F6 move to the other pane / F7
 /// new folder, and Delete (Move to Trash off macOS; Shift+Delete deletes
-/// permanently). F2 is not here — rename's F2 stays a pane key (02 §8.2).
+/// permanently — both fire only from a pane listing, [_listingOnly]).
+/// F2 is not here — rename's F2 stays a pane key (02 §8.2).
 final _functionKeys = <LogicalKeyboardKey>{
   LogicalKeyboardKey.f5,
   LogicalKeyboardKey.f6,
   LogicalKeyboardKey.f7,
   LogicalKeyboardKey.delete,
 };
+
+/// The delete family: a selection verb bound to Delete or Backspace
+/// (Delete and Shift+Delete off macOS, ⌘⌫ and ⌥⌘⌫ on it). The
+/// selection it acts on is a pane listing's, so its chords fire only
+/// while a pane listing's own focus node holds primary focus. Pressed
+/// on a sidebar row, a tab chip, an inspector or activity row, or a
+/// header button, the key must not trash the active pane's selection
+/// behind the user's back: there it is consumed without running, the
+/// way a disabled command's chord is.
+bool _listingOnly(RegisteredCommand command, ShortcutActivator activator) =>
+    command.scope == CommandScope.selection &&
+    activator is SingleActivator &&
+    (activator.trigger == LogicalKeyboardKey.delete ||
+        activator.trigger == LogicalKeyboardKey.backspace);
+
+bool _isPaneListing(FocusNode? node) {
+  final pane = node?.context?.findAncestorWidgetOfExactType<PaneView>();
+  return pane != null && identical(pane.focusNode, node);
+}
 
 class CommandChordScope extends StatelessWidget {
   const CommandChordScope({
@@ -1074,6 +1095,7 @@ class CommandChordScope extends StatelessWidget {
   Widget build(BuildContext context) {
     final platform = Theme.of(context).platform;
     final bindings = <ShortcutActivator, VoidCallback>{};
+    final listingOnly = <ShortcutActivator>{};
     for (final command in commands) {
       final activators = command.activators?.call(platform);
       if (activators == null) continue;
@@ -1110,6 +1132,7 @@ class CommandChordScope extends StatelessWidget {
             'Duplicate shortcut activator $activator: later command wins',
           );
         }
+        if (_listingOnly(command, activator)) listingOnly.add(activator);
         bindings[activator] = () {
           if (!command.enabled()) return;
           // Pane commands complete without escaping routes, but a
@@ -1149,7 +1172,9 @@ class CommandChordScope extends StatelessWidget {
         var result = KeyEventResult.ignored;
         for (final activator in bindings.keys) {
           if (activator.accepts(event, HardwareKeyboard.instance)) {
-            bindings[activator]!();
+            if (!listingOnly.contains(activator) || _isPaneListing(primary)) {
+              bindings[activator]!();
+            }
             result = KeyEventResult.handled;
           }
         }

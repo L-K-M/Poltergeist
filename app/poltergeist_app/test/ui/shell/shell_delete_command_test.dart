@@ -7,6 +7,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
@@ -14,6 +15,8 @@ import 'package:poltergeist_app/services/pane_file_ops.dart';
 import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/services/selection_state.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
+import 'package:poltergeist_app/ui/panes/pane_commands.dart';
+import 'package:poltergeist_app/ui/panes/pane_view.dart';
 import 'package:poltergeist_app/ui/shell/shell_commands.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -223,6 +226,161 @@ void main() {
       }
       expect(queue.prepareDeleteCalls, isEmpty);
       expect(queue.enqueuedSpecs, isEmpty);
+    });
+  });
+
+  group('the delete keys act only from a pane listing', () {
+    late FocusNode listing;
+    late FocusNode sidebarRow;
+    late FocusNode field;
+
+    setUp(() {
+      listing = FocusNode();
+      sidebarRow = FocusNode();
+      field = FocusNode();
+    });
+
+    tearDown(() {
+      listing.dispose();
+      sidebarRow.dispose();
+      field.dispose();
+    });
+
+    /// The shell's shape in miniature: one chord scope over the left
+    /// pane's listing, a focusable sidebar row, and a text field. The
+    /// left pane is bound locally with a.txt selected.
+    Future<void> pumpShell(WidgetTester tester, TargetPlatform platform) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.runAsync(() async {
+        final channel = FakePaneChannel('/home/tester');
+        channel.listings['/home/tester'] = [
+          _entry('/home/tester', 'a.txt'),
+          _entry('/home/tester', 'b.txt'),
+        ];
+        lanes.nextLocalChannel = channel;
+        await left.openLocalHome();
+        await _settle();
+      });
+      left.setCursorIndex(0);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: platform),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: CommandChordScope(
+              commands: commands,
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 200,
+                    child: Column(
+                      children: [
+                        Focus(
+                          focusNode: sidebarRow,
+                          child: const Text('Favorites row'),
+                        ),
+                        TextField(focusNode: field),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: PaneView(
+                      controller: left,
+                      pane: workspace.left,
+                      workspace: workspace,
+                      focusNode: listing,
+                      onSwapFocus: () {},
+                      onCancelRecovery: () {},
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    Future<void> press(
+      WidgetTester tester,
+      FocusNode focus,
+      LogicalKeyboardKey key, {
+      List<LogicalKeyboardKey> modifiers = const [],
+    }) async {
+      focus.requestFocus();
+      await tester.pump();
+      for (final modifier in modifiers) {
+        await tester.sendKeyDownEvent(modifier);
+      }
+      await tester.sendKeyEvent(key);
+      for (final modifier in modifiers.reversed) {
+        await tester.sendKeyUpEvent(modifier);
+      }
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Delete and Shift+Delete off macOS', (tester) async {
+      await pumpShell(tester, TargetPlatform.linux);
+
+      await press(tester, sidebarRow, LogicalKeyboardKey.delete);
+      await press(
+        tester,
+        sidebarRow,
+        LogicalKeyboardKey.delete,
+        modifiers: [LogicalKeyboardKey.shiftLeft],
+      );
+      await press(tester, field, LogicalKeyboardKey.delete);
+      expect(queue.prepareDeleteCalls, isEmpty);
+      expect(find.byKey(const ValueKey('delete.dialog')), findsNothing);
+
+      await press(tester, listing, LogicalKeyboardKey.delete);
+      expect(
+        queue.enqueuedDeletes.single.disposition,
+        DeleteDisposition.trash,
+      );
+      expect(queue.enqueuedDeletes.single.rootPaths, ['/home/tester/a.txt']);
+    });
+
+    testWidgets('Cmd-Backspace and Opt-Cmd-Backspace on macOS', (
+      tester,
+    ) async {
+      await pumpShell(tester, TargetPlatform.macOS);
+
+      await press(
+        tester,
+        sidebarRow,
+        LogicalKeyboardKey.backspace,
+        modifiers: [LogicalKeyboardKey.metaLeft],
+      );
+      await press(
+        tester,
+        sidebarRow,
+        LogicalKeyboardKey.backspace,
+        modifiers: [LogicalKeyboardKey.altLeft, LogicalKeyboardKey.metaLeft],
+      );
+      await press(
+        tester,
+        field,
+        LogicalKeyboardKey.backspace,
+        modifiers: [LogicalKeyboardKey.altLeft, LogicalKeyboardKey.metaLeft],
+      );
+      expect(queue.prepareDeleteCalls, isEmpty);
+      expect(find.byKey(const ValueKey('delete.dialog')), findsNothing);
+
+      await press(
+        tester,
+        listing,
+        LogicalKeyboardKey.backspace,
+        modifiers: [LogicalKeyboardKey.metaLeft],
+      );
+      expect(
+        queue.enqueuedDeletes.single.disposition,
+        DeleteDisposition.trash,
+      );
     });
   });
 }
