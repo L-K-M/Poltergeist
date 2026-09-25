@@ -592,17 +592,22 @@ D32 inspector workspace · D33 sidebar density
     under FAVORITES beside local folders as 10 §5 always said (the first
     D32 build had moved them under SERVERS, a deviation recorded
     nowhere); SERVERS is the shared account's list plus the live Quick
-    Connect sessions, and the session verb reads "Save to Favorites…". A
-    PINNED section above SERVERS holds the account's servers the user
-    pinned (device-local, "Pin to top" / "Unpin", as in Séance), and the
-    account's rows carry a small cloud mark and "From your Séance
-    account".
+    Connect sessions, and the session verb reads "Save to Favorites…".
+    Poltergeist gains a PINNED shortlist above the others (a device-local
+    pin set, "Pin to top" / "Unpin", as in Séance), and the account's
+    rows carry a small cloud mark and "From your Séance account".
   - **Kept as D32 built it:** ungrouped rows come first with no
     "Ungrouped" header.
   - **The filter** shows at five servers again (both apps' old
     threshold), its count names "↵ opens the first", "No matches" offers
     Clear filter, and a query drops itself once the rail it filtered is
     empty.
+
+  Built narrower than the PINNED call, pending the owner's confirmation
+  (not an owner decision): only the account's servers pin, and a remote
+  favorite has no pin verb, so without the shared Séance account PINNED
+  never appears. It also sits above SERVERS, after DEVICES and
+  FAVORITES, where Séance lists it first.
 
 ### Security, trust, distribution
 

@@ -7955,7 +7955,9 @@ here: anything needing macOS (the native View menu item), a device
 rail (unit tests cover the unreachable ring).
 
 Left for later: pinning remote favorites (only the account's servers
-pin, so without the shared account PINNED never appears), and Enter's
+pin, so without the shared account PINNED never appears; this and
+PINNED's place above SERVERS rather than first, as in Séance, await the
+owner's confirmation), and Enter's
 first match still follows rail order rather than preferring server
 rows (inventory M8).
 
