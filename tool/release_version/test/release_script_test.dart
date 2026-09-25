@@ -25,6 +25,12 @@ if [[ "\${FAKE_POST_BUMP_MODE:-skip}" == failSynchronization ]]; then
   printf 'post-ran\\n'
   exit 0
 fi
+if [[ "\${FAKE_POST_BUMP_MODE:-skip}" == succeedSynchronization ]]; then
+  cd "\$FAKE_POST_BUMP_ROOT"
+  RELEASE_DART_BIN=true RELEASE_NEW_VERSION=0.2.0 bash -c "\$RELEASE_POST_BUMP"
+  printf 'post-ran\\n'
+  exit 0
+fi
 
 printf 'pubspecs=%s\n' "\$RELEASE_PUBSPECS"
 printf 'regex=%s\n' "\$RELEASE_VERSION_REGEX"
@@ -174,6 +180,36 @@ exit 1
     expect(result.stdout, isNot(contains('post-ran')));
   });
 
+  test('post-bump pins workspace packages in every committed lock', () async {
+    _writeLockFixture(sandbox);
+
+    final result = await _runRelease(
+      fakeEngine,
+      ['2099.99.99'],
+      git: fakeGit,
+      postBumpMode: _PostBumpMode.succeedSynchronization,
+    );
+
+    expect(result.exitCode, 0, reason: result.stderr as String);
+    expect(result.stdout, contains('post-ran'));
+    // The bench harness's directory is not its package name, and its
+    // lock sits under tool/, not app/: the 1.0.0 and 1.0.1 bumps both
+    // left tool/bench/pubspec.lock naming the previous version.
+    expect(_lockedVersions(sandbox, 'tool/bench/pubspec.lock'), {
+      'poltergeist_m0_bench': '0.2.0',
+      'dartssh2': '3.0.2',
+    });
+    // A tool the release bumps is pinned too, in a package's lock.
+    expect(
+      _lockedVersions(sandbox, 'packages/poltergeist_bench/pubspec.lock'),
+      {'fixture_tool': '0.2.0'},
+    );
+    expect(_lockedVersions(sandbox, 'app/poltergeist_app/pubspec.lock'), {
+      'poltergeist_core': '0.2.0',
+      'unversioned_fixture': '0.0.0',
+    });
+  });
+
   test('checks the current version before a no-argument release', () async {
     final result = await _runRelease(fakeEngine, const [], git: fakeGit);
 
@@ -231,7 +267,84 @@ enum _GitFailure { localTags, none, remoteTags }
 
 enum _InvocationDirectory { caller, repository }
 
-enum _PostBumpMode { skip, failSynchronization }
+enum _PostBumpMode { skip, failSynchronization, succeedSynchronization }
+
+/// A repository shaped like this one where the post-bump hook reads it:
+/// a workspace package, the bench harness whose directory
+/// (poltergeist_bench) differs from its package name
+/// (poltergeist_m0_bench), a package with no version to bump, a tool
+/// the release bumps, and locks under app/, tool/ and packages/, all at
+/// the old version.
+void _writeLockFixture(Directory root) {
+  void write(String path, String contents) {
+    File(p.join(root.path, path))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(contents);
+  }
+
+  String pathEntry(String name, String directory, String version) =>
+      '''
+  $name:
+    dependency: "direct main"
+    description:
+      path: "../../$directory"
+      relative: true
+    source: path
+    version: "$version"
+''';
+
+  write(
+    'packages/poltergeist_core/pubspec.yaml',
+    'name: poltergeist_core\nversion: 0.1.0\n',
+  );
+  write(
+    'packages/poltergeist_bench/pubspec.yaml',
+    'name: poltergeist_m0_bench\nversion: 0.1.0\n',
+  );
+  write(
+    'packages/unversioned_fixture/pubspec.yaml',
+    'name: unversioned_fixture\n',
+  );
+  write(
+    'app/poltergeist_app/pubspec.lock',
+    'packages:\n'
+        '${pathEntry('poltergeist_core', 'packages/poltergeist_core', '0.1.0')}'
+        '${pathEntry('unversioned_fixture', 'packages/unversioned_fixture', '0.0.0')}',
+  );
+  write(
+    'tool/bench/pubspec.lock',
+    'packages:\n'
+        '  dartssh2:\n'
+        '    dependency: transitive\n'
+        '    source: hosted\n'
+        '    version: "3.0.2"\n'
+        '${pathEntry('poltergeist_m0_bench', 'packages/poltergeist_bench', '0.1.0')}',
+  );
+  write(
+    'tool/fixture_tool/pubspec.yaml',
+    'name: fixture_tool\nversion: 0.1.0\n',
+  );
+  write(
+    'packages/poltergeist_bench/pubspec.lock',
+    'packages:\n'
+        '${pathEntry('fixture_tool', 'tool/fixture_tool', '0.1.0')}',
+  );
+}
+
+/// [path]'s `packages` as name to locked version.
+Map<String, String> _lockedVersions(Directory root, String path) {
+  final entry = RegExp(r'^  (\w+):$');
+  final version = RegExp(r'^    version: "([^"]*)"$');
+  final versions = <String, String>{};
+  String? current;
+  for (final line in File(p.join(root.path, path)).readAsLinesSync()) {
+    final name = entry.firstMatch(line)?[1];
+    if (name != null) current = name;
+    final locked = version.firstMatch(line)?[1];
+    if (locked != null && current != null) versions[current] = locked;
+  }
+  return versions;
+}
 
 String _currentSemanticVersion() {
   final line = File(
