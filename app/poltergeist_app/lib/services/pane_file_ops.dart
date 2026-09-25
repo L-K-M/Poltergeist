@@ -58,11 +58,14 @@ final class PaneFileOps {
   }
 
   /// Step 2, after the user confirmed [confirmation]'s dialog: enqueues
-  /// the delete task. The disposition is the confirmation's effective
-  /// one, or permanent when [permanent] is set (the dialog's "delete
-  /// permanently instead" path, or a re-confirm after a trash refusal).
+  /// the delete task with [disposition] — the one the user accepted,
+  /// taken as is. It is never combined with the gesture or with the
+  /// confirmation's effective disposition: a permanent-delete gesture
+  /// whose dialog the user switched to the server trash must trash, and
+  /// a trash gesture switched to permanent must delete permanently.
   /// Calling this IS the confirmation, so a permanent delete is enqueued
-  /// confirmed — never call it without the dialog having been accepted.
+  /// confirmed — never call it without the dialog having been accepted
+  /// (or, for a local Move to Trash, without the OS trash serving).
   ///
   /// Throws [TrashException] when a local trash request finds the OS
   /// trash unavailable (re-confirm permanent, D15), and [ArgumentError]
@@ -70,14 +73,9 @@ final class PaneFileOps {
   /// opt into. [pane], when given, refreshes once the task settles.
   Future<TransferTask> deleteSelection(
     DeleteConfirmation confirmation, {
-    bool permanent = false,
+    required DeleteDisposition disposition,
     PaneController? pane,
   }) async {
-    final disposition =
-        permanent ||
-            confirmation.effectiveDisposition == DeleteDisposition.permanent
-        ? DeleteDisposition.permanent
-        : DeleteDisposition.trash;
     final task = await _queue.enqueueDelete(
       DeleteRequest(
         source: confirmation.source,

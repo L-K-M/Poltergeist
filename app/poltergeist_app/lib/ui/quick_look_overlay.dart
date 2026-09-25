@@ -220,8 +220,8 @@ IconData _kindIcon(String name) => switch (previewKindForName(name)) {
 };
 
 /// What the overlay can say about one path once it has looked: a folder,
-/// text it read, a file to hand an image or PDF renderer, or nothing
-/// renderable.
+/// text it read, a file to hand an image or PDF renderer, an image or
+/// PDF too large to decode, or nothing renderable.
 sealed class _Look {
   const _Look();
 }
@@ -238,6 +238,12 @@ final class _Text extends _Look {
 final class _Renderable extends _Look {
   const _Renderable(this.kind);
   final PreviewKind kind;
+}
+
+/// Over its kind's decode cap ([previewKindCapBytes], 06 §5.2) — the
+/// same refusal the Info well gives the same file.
+final class _TooLarge extends _Look {
+  const _TooLarge();
 }
 
 final class _Nothing extends _Look {
@@ -272,6 +278,17 @@ class _BodyState extends State<_Body> {
     switch (kind) {
       case PreviewKind.image:
       case PreviewKind.pdf:
+        // The Info well's decode cap holds here too: a full-resolution
+        // decode of a multi-hundred-MB image or PDF is a memory spike
+        // the overlay must not take on.
+        final cap = previewKindCapBytes(kind);
+        try {
+          if (cap != null && await File(path).length() > cap) {
+            return const _TooLarge();
+          }
+        } on FileSystemException {
+          return const _Nothing();
+        }
         return _Renderable(kind);
       case _:
         try {
@@ -305,6 +322,10 @@ class _BodyState extends State<_Body> {
           _Text(:final content) => _text(context, content),
           _Renderable(kind: PreviewKind.image) => _image(context),
           _Renderable() => _pdf(context),
+          _TooLarge() => _nothing(
+            context,
+            reason: AppLocalizations.of(context).previewRefusalOverKindCap,
+          ),
           _Nothing() => _nothing(context),
         };
       },
@@ -384,7 +405,9 @@ class _BodyState extends State<_Body> {
     return renderer(context, File(widget.path));
   }
 
-  Widget _nothing(BuildContext context, {IconData? icon}) {
+  /// The no-preview card; [reason] replaces its generic line when the
+  /// overlay refused a kind it could otherwise render.
+  Widget _nothing(BuildContext context, {IconData? icon, String? reason}) {
     final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final chrome = PoltergeistChrome.of(context);
@@ -403,7 +426,7 @@ class _BodyState extends State<_Body> {
           Text(widget.name, style: theme.textTheme.titleSmall),
           const SizedBox(height: 4),
           Text(
-            l10n.quickLookNoPreview,
+            reason ?? l10n.quickLookNoPreview,
             key: const ValueKey('quickLook.noPreview'),
             style: theme.textTheme.bodySmall?.copyWith(
               color: chrome.secondaryText,

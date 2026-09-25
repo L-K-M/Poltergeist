@@ -343,9 +343,10 @@ final class SyncPlanController extends ChangeNotifier {
   /// pre-edit one. Null leaves the stored state authoritative.
   SyncCaseOverrides? _pendingCaseOverrides;
 
-  /// [SyncPlanIntent.synchronize] awaiting the first settled scan —
-  /// consumed there whatever the outcome, so no later rescan runs
-  /// unreviewed.
+  /// [SyncPlanIntent.synchronize] awaiting the first scan — taken by
+  /// that scan when it starts, whatever its outcome (a failure, or a
+  /// rescan or rules edit superseding it mid-scan), so no other scan's
+  /// plan runs unreviewed.
   bool _autoRunPending;
 
   /// Synchronize stopped on the review — [reviewHold] reads the live
@@ -863,6 +864,11 @@ final class SyncPlanController extends ChangeNotifier {
 
   Future<void> _scanAndDiff() async {
     final generation = ++_scanGeneration;
+    // Synchronize was granted for exactly this plan: the first scan
+    // takes the intent, and a scan that supersedes it (the user edited
+    // the rules, flipped the mode, or rescanned) starts without it.
+    final autoRun = _autoRunPending;
+    _autoRunPending = false;
     _scanCancellation = ScanCancellation();
     // A rescan renders a NEW plan — the previous run's journal/retry
     // belong to the plan the user is no longer reviewing (rail 1).
@@ -934,12 +940,9 @@ final class SyncPlanController extends ChangeNotifier {
       _suggestHeavyDirectory();
       _phase = SyncPlanPhase.ready;
       _reassess();
-      _settleAutoRun();
+      if (autoRun) _settleAutoRun();
     } catch (error) {
       if (_disposed || generation != _scanGeneration) return;
-      // A failed first scan consumes the intent — the rescan the user
-      // triggers from the error state is a review, not a silent run.
-      _autoRunPending = false;
       _phase = SyncPlanPhase.error;
       _errorMessage = error is RemoteFileException
           ? error.message
@@ -1051,8 +1054,6 @@ final class SyncPlanController extends ChangeNotifier {
   /// the reason banner. A plan with nothing to do simply rests on its
   /// "Both sides match" state.
   void _settleAutoRun() {
-    if (!_autoRunPending) return;
-    _autoRunPending = false;
     final stats = _stats;
     if (stats == null || !stats.hasWork) return;
     if (syncAutoRunHold(stats) == null && gate is SyncRunClear) {

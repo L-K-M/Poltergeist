@@ -140,9 +140,16 @@ List<RegisteredCommand> buildShellCommands({
   FileManagerRevealer revealer = const FileManagerRevealer(),
 }) {
   bool browsing() => workspace.activeTabController?.verbsEnabled ?? false;
+  // Delete and Duplicate act on the selected rows only (PaneFileOps),
+  // never on a bare cursor row: after a Ctrl-click deselect or an
+  // invert, the cursor can rest on a row the user just deselected, and
+  // a destructive verb must not pick it up. Enablement follows the same
+  // rule, so the verbs are never enabled while having nothing to do.
   bool hasSelection() {
     final pane = workspace.activeTabController;
-    return pane != null && pane.verbsEnabled && _selectionRoots(pane).isNotEmpty;
+    return pane != null &&
+        pane.verbsEnabled &&
+        pane.selectedEntries.isNotEmpty;
   }
 
   Future<void> create(Future<String?> Function(PaneController) verb) async {
@@ -169,7 +176,11 @@ List<RegisteredCommand> buildShellCommands({
         if (confirmation == null) return;
         if (confirmation.effectiveDisposition == DeleteDisposition.trash &&
             !confirmation.trashUnavailable) {
-          await ops.deleteSelection(confirmation, pane: pane);
+          await ops.deleteSelection(
+            confirmation,
+            disposition: DeleteDisposition.trash,
+            pane: pane,
+          );
           return;
         }
       }
@@ -191,7 +202,7 @@ List<RegisteredCommand> buildShellCommands({
       if (decision is! DeleteConfirmed || confirmation == null) return;
       await ops.deleteSelection(
         confirmation,
-        permanent: decision.permanent,
+        disposition: decision.disposition,
         pane: pane,
       );
     } on Object catch (error) {

@@ -4,6 +4,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -37,6 +38,38 @@ SyncPlanController _fake(
 Future<void> _settle(SyncPlanController controller) async {
   controller.start();
   await pumpUntil(() => controller.phase == SyncPlanPhase.ready);
+}
+
+/// Parks the first scan call until [release] — a first scan still
+/// running when the user rescans, edits the rules, or flips the mode.
+final class _HeldFirstScan implements SyncPairScanner {
+  _HeldFirstScan(this._inner);
+
+  final SyncPairScanner _inner;
+  final _held = Completer<void>();
+  var _calls = 0;
+
+  void release() => _held.complete();
+
+  @override
+  Future<ScanResult> scan(
+    SyncEndpoint endpoint,
+    SyncSide side,
+    SyncRuleSet rules, {
+    bool? caseSensitivityOverride,
+    ScanCancellation? cancellation,
+    void Function(int entriesScanned)? onProgress,
+  }) async {
+    if (_calls++ == 0) await _held.future;
+    return _inner.scan(
+      endpoint,
+      side,
+      rules,
+      caseSensitivityOverride: caseSensitivityOverride,
+      cancellation: cancellation,
+      onProgress: onProgress,
+    );
+  }
 }
 
 SyncItem _update(String path) => testItem(
@@ -147,6 +180,52 @@ void main() {
       expect(controller.reviewHold, isNotNull);
       await controller.rescan();
       expect(controller.phase, SyncPlanPhase.ready);
+      expect(controller.reviewHold, isNull);
+    });
+
+    test('a first scan superseded mid-scan takes the intent with it', () async {
+      final pair = testSyncPair();
+      final scanner = _HeldFirstScan(
+        FakeSyncScanner(
+          left: testScanResult('/left', const {}),
+          right: testScanResult('/right', const {}),
+        ),
+      );
+      final tasks = SyncQueueTasks();
+      final controller = SyncPlanController(
+        pair: pair,
+        environment: testSyncEnvironment(Directory.systemTemp.createTempSync()),
+        syncTasks: tasks,
+        scanner: scanner,
+        // Creates only: the first scan would have been allowed to run.
+        differ: FakeSyncDiffer(
+          testPlan(pair, [
+            testItem(
+              'new.txt',
+              left: testFile(),
+              suggested: SyncActionType.copyLeftToRight,
+              reason: SyncReason.onlyOnLeft,
+            ),
+          ]),
+        ),
+        deviceId: 'test-device',
+        intent: SyncPlanIntent.synchronize,
+        rsyncEndpoints: resolveRsyncEndpoints,
+      );
+      addTearDown(controller.dispose);
+      controller.start();
+      await pumpUntil(() => controller.phase == SyncPlanPhase.scanning);
+
+      // The user changes the rules while Synchronize's first scan runs:
+      // the plan that replaces it was never the one they asked to run.
+      await controller.rescan();
+      scanner.release();
+      await pumpUntil(() => controller.phase != SyncPlanPhase.scanning);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.phase, SyncPlanPhase.ready);
+      expect(controller.lastRun, isNull);
+      expect(tasks.tasks, isEmpty);
       expect(controller.reviewHold, isNull);
     });
 

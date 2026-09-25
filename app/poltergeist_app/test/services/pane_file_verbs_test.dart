@@ -129,7 +129,11 @@ void main() {
       ]);
       expect(queue.prepareDeleteCalls.single.source, isA<LocalFsLocation>());
 
-      final task = await ops.deleteSelection(confirmation!, pane: pane);
+      final task = await ops.deleteSelection(
+        confirmation!,
+        disposition: confirmation.effectiveDisposition,
+        pane: pane,
+      );
       final request = queue.enqueuedDeletes.single;
       expect(request.disposition, DeleteDisposition.trash);
       expect(request.confirmed, isTrue);
@@ -148,7 +152,10 @@ void main() {
           permanent: true,
         );
         expect(queue.prepareDeleteCalls.single.preferTrash, isFalse);
-        await ops.deleteSelection(confirmation!);
+        await ops.deleteSelection(
+          confirmation!,
+          disposition: confirmation.effectiveDisposition,
+        );
         expect(
           queue.enqueuedDeletes.single.disposition,
           DeleteDisposition.permanent,

@@ -12,12 +12,15 @@ sealed class DeleteDecision {
   const DeleteDecision();
 }
 
-/// Proceed; [permanent] when the dialog's final wording was a permanent
-/// delete (the remote trash checkbox unchecked, or no trash at all).
+/// Proceed with [disposition]: the one the dialog's final wording
+/// promised — [DeleteDisposition.trash] exactly when the server trash
+/// box was checked, else [DeleteDisposition.permanent]. It decides in
+/// both directions: the caller runs it as is, never re-derived from the
+/// gesture or the confirmation model.
 final class DeleteConfirmed extends DeleteDecision {
-  const DeleteConfirmed({required this.permanent});
+  const DeleteConfirmed({required this.disposition});
 
-  final bool permanent;
+  final DeleteDisposition disposition;
 }
 
 final class DeleteCancelled extends DeleteDecision {
@@ -245,9 +248,13 @@ class _DeleteDialogState extends State<_DeleteDialog> {
                   backgroundColor: theme.colorScheme.error,
                   foregroundColor: theme.colorScheme.onError,
                 ),
-          onPressed: () => Navigator.of(
-            context,
-          ).pop(DeleteConfirmed(permanent: !move)),
+          onPressed: () => Navigator.of(context).pop(
+            DeleteConfirmed(
+              disposition: move
+                  ? DeleteDisposition.trash
+                  : DeleteDisposition.permanent,
+            ),
+          ),
           child: Text(confirmLabel),
         ),
       ],
