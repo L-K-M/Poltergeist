@@ -86,10 +86,13 @@
 /// produces the item exactly there. The method's REPLY is the
 /// completion: success replies `null`; failure replies an error
 /// (`PlatformException` on the Dart side, `FlutterError` natively) whose
-/// `code` is a [DragOutPromiseFailure] name and whose `message` is
-/// user-readable. A reply can take minutes; the native side keeps the
-/// completion handler until it arrives and never blocks the main thread
-/// waiting (macOS: `writePromiseTo` runs on a private
+/// `code` is a [DragOutPromiseFailure] name (`cancelled`, `exists`,
+/// `paused`, `renamed`, `ownDrop`, `unknown`, `unavailable`, `failed`)
+/// and whose `message` is an English diagnostic for the native error's
+/// description and logs; the user-facing report is Poltergeist's own
+/// Alert or failed Transfers row. A reply can take minutes; the native
+/// side keeps the completion handler until it arrives and never blocks
+/// the main thread waiting (macOS: `writePromiseTo` runs on a private
 /// `OperationQueue`, hops to the main queue to invoke the method, and
 /// returns). Dart replies exactly once per request.
 ///
