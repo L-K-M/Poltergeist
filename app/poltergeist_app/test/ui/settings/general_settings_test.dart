@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/registered_command.dart';
+import 'package:poltergeist_app/services/settings_window/settings_window_link.dart';
 import 'package:poltergeist_app/ui/settings/app_settings_command.dart';
 import 'package:poltergeist_app/ui/settings/general_settings.dart';
 
@@ -13,9 +14,7 @@ void main() {
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(
-      body: SingleChildScrollView(
-        child: GeneralSection(settings: settings),
-      ),
+      body: SingleChildScrollView(child: GeneralSection(settings: settings)),
     ),
   );
 
@@ -24,8 +23,7 @@ void main() {
     Future<void> Function(bool)? onCheckForUpdatesChanged,
   }) => GeneralSettings(
     checkForUpdates: checkForUpdates,
-    onCheckForUpdatesChanged:
-        onCheckForUpdatesChanged ?? (_) async {},
+    onCheckForUpdatesChanged: onCheckForUpdatesChanged ?? (_) async {},
   );
 
   testWidgets('the toggle commits the opt-out through its sink', (
@@ -53,8 +51,7 @@ void main() {
     await tester.pumpWidget(
       wrap(
         settings(
-          onCheckForUpdatesChanged: (_) async =>
-              throw StateError('disk full'),
+          onCheckForUpdatesChanged: (_) async => throw StateError('disk full'),
         ),
       ),
     );
@@ -83,6 +80,64 @@ void main() {
       final linux = command.activators!(TargetPlatform.linux);
       expect(mac, hasLength(1));
       expect(linux, hasLength(1));
+    });
+
+    Future<void> run(WidgetTester tester, RegisteredCommand command) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => command.run(context),
+              child: const Text('run'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('run'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('opens the Settings window on General when there is one', (
+      tester,
+    ) async {
+      final opened = <SettingsWindowTab>[];
+      await run(
+        tester,
+        buildAppSettingsCommand(
+          settings: () => settings(),
+          enabled: () => true,
+          openWindow: (tab) async {
+            opened.add(tab);
+            return true;
+          },
+        ),
+      );
+
+      expect(opened, [SettingsWindowTab.general]);
+      expect(
+        find.byKey(const ValueKey('general.settings.dialog')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('falls back to the dialog when the window cannot open', (
+      tester,
+    ) async {
+      await run(
+        tester,
+        buildAppSettingsCommand(
+          settings: () => settings(),
+          enabled: () => true,
+          openWindow: (_) async => false,
+        ),
+      );
+
+      expect(
+        find.byKey(const ValueKey('general.settings.dialog')),
+        findsOneWidget,
+      );
     });
   });
 }

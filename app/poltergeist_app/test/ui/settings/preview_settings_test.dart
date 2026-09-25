@@ -86,7 +86,7 @@ void main() {
       Future<int> Function()? onClearCache,
     }) {
       return PreviewDownloadsSettings(
-        cache: cache,
+        available: cache != null,
         capacityBytes: capacityBytes,
         thresholdBytes: thresholdBytes,
         onCapacityChanged: onCapacityChanged ?? (_) async {},

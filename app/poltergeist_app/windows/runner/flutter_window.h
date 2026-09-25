@@ -10,6 +10,7 @@
 
 #include "drag_out.h"
 #include "trash_operations.h"
+#include "settings_window.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -37,6 +38,10 @@ class FlutterWindow : public Win32Window {
   // controller so it is destroyed first: its channel lives on the
   // engine's messenger.
   std::unique_ptr<DragOut> drag_out_;
+
+  // Settings in a window of its own. Declared after the controller so it
+  // is destroyed first: it relays for the engine's messenger.
+  std::unique_ptr<SettingsWindowHost> settings_window_;
 
   // The D15 trash channel (03 §7.1). Declaration order is teardown
   // order in reverse: trash_channel_ is destroyed first (no new work is

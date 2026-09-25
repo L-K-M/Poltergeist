@@ -186,6 +186,21 @@ known-divergent surface.
   11. The console shows no assertion or error from the embedder or the
       runner during any of the above (in particular no "key up without
       key down" after Esc).
+- [ ] OWNER MANUAL QA: the Settings window (D36). On each desktop
+  platform: Settings, Back up and sync… and Configure Editors… each open
+  one window on General, Sync and Editing; choosing another while it is
+  open brings it forward on that tab. A change made there (the update
+  check switch, an editor added, a preview limit) shows in the workspace
+  at once and survives a restart, and a change made in the workspace
+  (an editor added from Open With) shows in the open window without
+  reopening it. Closing it leaves the app running and its main window
+  drawing; reopening opens a fresh screen. Quitting while the Settings
+  window is focused and the quit guard is armed (a transfer running)
+  still asks first, on macOS with ⌘Q (the window forwards the request
+  to the app). Closing the workspace window takes the Settings window
+  with it. On Windows the window stays above the workspace. Linux was
+  run under Xvfb (STATUS D36 section); macOS and Windows are compiled
+  by CI only, so this row is their first run.
 - [ ] OWNER MANUAL QA: theme flip (light/dark) live-restyles listing,
   plan view, and editor; HiDPI scaling at 100 %/150 %/200 % shows no
   clipped chrome.

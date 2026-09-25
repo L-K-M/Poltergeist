@@ -34,6 +34,9 @@ class MainFlutterWindow: NSWindow {
     didSet { toolbar?.isVisible = !inFullScreen }
   }
 
+  /// Settings in a window of its own (SettingsWindow.swift).
+  private var settingsWindow: SettingsWindowHost?
+
   /// The panel's current item set — only ever produced LOCAL paths
   /// (remote previews are materialized into the §5.3 cache first).
   fileprivate var quickLookItems: [QuickLookPreviewItem] = []
@@ -61,6 +64,12 @@ class MainFlutterWindow: NSWindow {
     MainFlutterWindowManipulator.start(mainFlutterWindow: self)
     RegisterGeneratedPlugins(
       registry: macOSWindowUtilsViewController.flutterViewController
+    )
+
+    settingsWindow = SettingsWindowHost(
+      mainWindow: self,
+      messenger: macOSWindowUtilsViewController.flutterViewController.engine
+        .binaryMessenger
     )
 
     // D15 trash (03 §7.1): FileManager.trashItem delivers to the OS
@@ -285,6 +294,14 @@ class MainFlutterWindow: NSWindow {
     )
 
     super.awakeFromNib()
+  }
+
+  /// The Settings window closes with this one, so closing the app's window
+  /// still leaves no window open and quits the app
+  /// (AppDelegate.applicationShouldTerminateAfterLastWindowClosed).
+  override func close() {
+    settingsWindow?.close()
+    super.close()
   }
 
   @objc private func hideToolbarBandForFullScreen(_ notification: Notification) {
