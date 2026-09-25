@@ -36,6 +36,12 @@ void main() {
         ],
       session_test.FakeAppBrowseChannel(homePath: '/home/tester')
         ..listings['/home/tester'] = [_entry('right.txt')],
+      // A ⌘T tab in pane A.
+      session_test.FakeAppBrowseChannel(homePath: '/home/tester')
+        ..listings['/home/tester'] = [
+          _entry('gamma.txt'),
+          _entry('delta.txt'),
+        ],
     ]);
   });
 
@@ -108,6 +114,26 @@ void main() {
     expect(find.text('beta.txt'), findsNothing);
 
     await runShellCommand(tester, kPaneFocusLeftCommandId);
+    expect(fieldText(tester), 'alp');
+  });
+
+  testWidgets('the field follows a tab change inside the active pane', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    await tester.enterText(field, 'alp');
+    await tester.pumpAndSettle();
+
+    // A new tab in the same pane: the query goes to the tab on screen,
+    // not to the hidden one it replaced.
+    await runShellCommand(tester, kTabNewCommandId);
+    expect(fieldText(tester), isEmpty);
+    await tester.enterText(field, 'gam');
+    await tester.pumpAndSettle();
+    expect(find.text('gamma.txt'), findsOneWidget);
+    expect(find.text('delta.txt'), findsNothing);
+
+    await runShellCommand(tester, kTabPreviousCommandId);
     expect(fieldText(tester), 'alp');
   });
 

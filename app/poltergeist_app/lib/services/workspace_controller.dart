@@ -22,6 +22,9 @@ class WorkspaceController extends ChangeNotifier {
       ),
       _activePane = left {
     syncBrowsing = SyncBrowsingController(workspace: this);
+    _shownTab = activeTabController;
+    left.addListener(_followActiveTab);
+    right.addListener(_followActiveTab);
   }
 
   /// The two panes (02 §1's pane A/pane B) — each a tab strip owning its
@@ -50,8 +53,27 @@ class WorkspaceController extends ChangeNotifier {
 
   /// The active pane's active tab controller — the browsing surface the
   /// registered pane commands act on; null while the pane sits on the
-  /// launcher (no tab open).
+  /// launcher (no tab open). A change notifies whichever way it came —
+  /// a pane change, or a tab switch, ⌘T, or ⌘W inside the active pane —
+  /// so surfaces bound to it (Info, the header filter) never stay on a
+  /// hidden or disposed tab.
   PaneController? get activeTabController => _activePane.activeTab?.controller;
+
+  /// The [activeTabController] the last notify described.
+  PaneController? _shownTab;
+
+  /// The strips notify on their own tab changes and forward every tab's
+  /// state; only an identity change of the active tab is the
+  /// workspace's news.
+  void _followActiveTab() {
+    if (!identical(activeTabController, _shownTab)) notifyListeners();
+  }
+
+  @override
+  void notifyListeners() {
+    _shownTab = activeTabController;
+    super.notifyListeners();
+  }
 
   /// `view.toggleSecondPane`'s user intent (02 §3): hiding pane B keeps
   /// its strip and every tab's state whole — the layout unmounts the
@@ -406,6 +428,8 @@ class WorkspaceController extends ChangeNotifier {
     // The link dies first so its anchor flags clear on live controllers
     // and its strip listeners detach before the strips go.
     syncBrowsing.dispose();
+    left.removeListener(_followActiveTab);
+    right.removeListener(_followActiveTab);
     left.dispose();
     right.dispose();
     super.dispose();
