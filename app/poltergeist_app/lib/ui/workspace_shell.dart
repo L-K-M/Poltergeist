@@ -82,6 +82,7 @@ import 'server_label_scope.dart';
 import 'shell/connect_dialog.dart';
 import 'shell/header_activity_button.dart';
 import 'shell/header_toolbar.dart';
+import 'shell/macos_toolbar_band.dart';
 import 'shell/shell_commands.dart';
 import 'shell/shell_splitter.dart';
 import 'sidebar/sidebar_view.dart';
@@ -1479,7 +1480,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           ? null
           : Drawer(
               backgroundColor: chrome.sidebarBackground,
-              child: SafeArea(child: _buildSidebarView(sshImportCommand)),
+              // macOS: clear the toolbar band the inline column's
+              // spacer clears, or the filter and first rows sit under it.
+              child: ReserveMacosToolbarBand(
+                child: SafeArea(child: _buildSidebarView(sshImportCommand)),
+              ),
             ),
       body: SafeArea(
         left: !compact,
@@ -1766,6 +1771,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           ShellSplitter(
             key: const ValueKey('sidebar.splitter'),
             focusNode: _sidebarSplitterFocus,
+            nativeTitlebar: mac,
             label: strings.resizeSidebar,
             value: strings.splitterWidthPx(sidebarWidth.round()),
             onResize: (delta) => _resizeSidebar(delta, width),
