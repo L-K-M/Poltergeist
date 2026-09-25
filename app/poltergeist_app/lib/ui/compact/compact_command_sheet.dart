@@ -8,6 +8,25 @@ import '../../theme/app_theme.dart';
 import '../menus/app_menus.dart';
 import 'compact_posture.dart';
 
+/// A verb the ⋮ sheet lists above the registry's menus: one that acts on
+/// what the screen shows and has no registered command (the browser's
+/// "Add Current Folder to Favorites", which the desktop's sidebar "+"
+/// carries).
+@immutable
+final class CompactSheetAction {
+  const CompactSheetAction({
+    required this.key,
+    required this.icon,
+    required this.label,
+    required this.onSelected,
+  });
+
+  final Key key;
+  final IconData icon;
+  final String label;
+  final VoidCallback onSelected;
+}
+
 /// D32 §8's Android row: the ⋮ overflow renders the same menu tree the
 /// desktop menu bar and the ☰ button render — [buildAppMenus] over
 /// [commands], so nothing on the phone is a parallel list (D21). Each
@@ -15,11 +34,13 @@ import 'compact_posture.dart';
 /// members under its own caption, since a sheet has no room for
 /// flyouts. Disabled rows stay visible with the command's reason, so
 /// the sheet's shape never shifts with state and a greyed verb says why.
+/// [leading] verbs list first, under the title.
 Future<void> showCompactCommandSheet(
   BuildContext context, {
   required String title,
   required List<RegisteredCommand> commands,
   required Future<void> Function(RegisteredCommand command) onRun,
+  List<CompactSheetAction> leading = const [],
 }) {
   final l10n = AppLocalizations.of(context);
   final menus = buildAppMenus(
@@ -42,6 +63,23 @@ Future<void> showCompactCommandSheet(
         title: title,
         menus: menus,
         scroll: scroll,
+        leading: [
+          for (final action in leading)
+            ListTile(
+              key: action.key,
+              contentPadding: const EdgeInsetsDirectional.only(
+                start: 24,
+                end: 16,
+              ),
+              minLeadingWidth: 32,
+              leading: Icon(action.icon),
+              title: Text(action.label),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                action.onSelected();
+              },
+            ),
+        ],
         onRun: (command) {
           Navigator.of(sheetContext).pop();
           unawaited(onRun(command));
@@ -56,12 +94,14 @@ class _CommandSheetBody extends StatelessWidget {
     required this.title,
     required this.menus,
     required this.scroll,
+    required this.leading,
     required this.onRun,
   });
 
   final String title;
   final List<AppMenuModel> menus;
   final ScrollController scroll;
+  final List<Widget> leading;
   final ValueChanged<RegisteredCommand> onRun;
 
   @override
@@ -77,6 +117,7 @@ class _CommandSheetBody extends StatelessWidget {
           style: theme.textTheme.titleMedium,
         ),
       ),
+      ...leading,
     ];
     for (final menu in menus) {
       final rows = <Widget>[];

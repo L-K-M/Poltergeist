@@ -6008,8 +6008,26 @@
   "@compactHomeFavoritesEmptyTitle": {
     "description": "D32 §9: title of the compact Home's empty FAVORITES state."
   },
-  "compactHomeFavoritesEmptyBody": "Folders you add to Favorites appear here, one tap from Home.",
+  "compactHomeFavoritesEmptyBody": "Open a folder, then choose Add Current Folder to Favorites from its menu.",
   "@compactHomeFavoritesEmptyBody": {
-    "description": "D32 §9: body of the compact Home's empty FAVORITES state."
+    "description": "D32 §9: body of the compact Home's empty FAVORITES state: how a folder becomes a favorite on a phone (the browser's ⋮ menu offers the verb)."
+  },
+  "compactAddedToFavorites": "Added “{label}” to Favorites.",
+  "@compactAddedToFavorites": {
+    "description": "D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local folder (Home, where the row appears, is a screen away).",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "compactSavedToServers": "Saved “{label}” to Servers.",
+  "@compactSavedToServers": {
+    "description": "D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a remote folder, which lands under Servers.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
   }
 }

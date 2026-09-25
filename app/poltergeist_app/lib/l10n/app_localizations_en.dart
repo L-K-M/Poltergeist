@@ -4578,5 +4578,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get compactHomeFavoritesEmptyBody =>
-      'Folders you add to Favorites appear here, one tap from Home.';
+      'Open a folder, then choose Add Current Folder to Favorites from its menu.';
+
+  @override
+  String compactAddedToFavorites(String label) {
+    return 'Added “$label” to Favorites.';
+  }
+
+  @override
+  String compactSavedToServers(String label) {
+    return 'Saved “$label” to Servers.';
+  }
 }

@@ -173,6 +173,16 @@ String sidebarComparablePath(String path) {
   return result;
 }
 
+/// Whether [location] can become a favorite ("Add Current Folder to
+/// Favorites"): a local folder always; a remote one only with the
+/// [remote] binding it would be saved from.
+bool canAddLocationToFavorites(PaneLocation? location, Bookmark? remote) =>
+    switch (location) {
+      null => false,
+      LocalPaneLocation() => true,
+      RemotePaneLocation() => remote != null,
+    };
+
 /// [path] relative to [home] the way a shell prints it (`~`,
 /// `~/Documents`), or [path] itself when it lies outside [home] or no
 /// home is known. The compact Home's location lines use it: an absolute

@@ -264,6 +264,71 @@ void main() {
       expect(_key((CompactKey.commandRow, 'file.newFolder')), findsOneWidget);
     });
 
+    testWidgets('⋮ adds the shown folder to Favorites, where Home cannot', (
+      tester,
+    ) async {
+      final harness = CompactHarness();
+      await harness.pump(tester);
+      await _openThisDevice(tester);
+
+      await tester.tap(_key(CompactKey.browserMore));
+      await tester.pumpAndSettle();
+      await tester.tap(_key(CompactKey.browserAddFavorite));
+      await tester.pumpAndSettle();
+
+      final added = harness.store.bookmarks.where(
+        (bookmark) => bookmark.localPath == '/home/deploy',
+      );
+      expect(added, hasLength(1));
+      expect(added.single.kind, BookmarkKind.localFolder);
+      // Home, where the row appears, is a screen away: say it landed.
+      expect(find.text('Added “deploy” to Favorites.'), findsOneWidget);
+
+      // A second time it already is one, and says so (once the first
+      // notice has timed out: snack bars queue).
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      await tester.tap(_key(CompactKey.browserMore));
+      await tester.pumpAndSettle();
+      await tester.tap(_key(CompactKey.browserAddFavorite));
+      await tester.pumpAndSettle();
+      expect(
+        harness.store.bookmarks.where((b) => b.localPath == '/home/deploy'),
+        hasLength(1),
+      );
+      expect(find.text('“deploy” is already in Favorites.'), findsOneWidget);
+
+      // Back on Home the favorite is a row, home-relative.
+      for (var i = 0; i < 4 && harness.compact(tester).browsing; i++) {
+        await harness.systemBack(tester);
+      }
+      expect(
+        find.byKey(ValueKey('sidebar.favorite.${added.single.id}')),
+        findsOneWidget,
+      );
+      expect(find.text('~'), findsOneWidget);
+    });
+
+    testWidgets('⋮ saves a remote folder to Servers', (tester) async {
+      final harness = CompactHarness();
+      await harness.pump(tester);
+      await tester.tap(find.byKey(const ValueKey('sidebar.favorite.demo')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(_key(CompactKey.browserMore));
+      await tester.pumpAndSettle();
+      await tester.tap(_key(CompactKey.browserAddFavorite));
+      await tester.pumpAndSettle();
+
+      final saved = harness.store.bookmarks.where(
+        (bookmark) => bookmark.remotePath == '/srv/www',
+      );
+      expect(saved, hasLength(1));
+      expect(saved.single.kind, BookmarkKind.remotePath);
+      expect(saved.single.label, 'www');
+      expect(find.text('Saved “www” to Servers.'), findsOneWidget);
+    });
+
     testWidgets('the filter narrows the listing and back clears it', (
       tester,
     ) async {

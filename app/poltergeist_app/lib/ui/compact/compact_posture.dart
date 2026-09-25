@@ -33,6 +33,7 @@ enum CompactKey {
   browserTitle,
   browserSubtitle,
   browserMore,
+  browserAddFavorite,
   browserFilter,
   filterField,
   filterClose,

@@ -6970,11 +6970,23 @@ abstract class AppLocalizations {
   /// **'Keep folders close'**
   String get compactHomeFavoritesEmptyTitle;
 
-  /// D32 §9: body of the compact Home's empty FAVORITES state.
+  /// D32 §9: body of the compact Home's empty FAVORITES state: how a folder becomes a favorite on a phone (the browser's ⋮ menu offers the verb).
   ///
   /// In en, this message translates to:
-  /// **'Folders you add to Favorites appear here, one tap from Home.'**
+  /// **'Open a folder, then choose Add Current Folder to Favorites from its menu.'**
   String get compactHomeFavoritesEmptyBody;
+
+  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local folder (Home, where the row appears, is a screen away).
+  ///
+  /// In en, this message translates to:
+  /// **'Added “{label}” to Favorites.'**
+  String compactAddedToFavorites(String label);
+
+  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a remote folder, which lands under Servers.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved “{label}” to Servers.'**
+  String compactSavedToServers(String label);
 }
 
 class _AppLocalizationsDelegate

@@ -483,38 +483,16 @@ class _SidebarViewState extends State<SidebarView> {
     ];
   }
 
-  /// "Add Current Folder to Favorites": a local pane's folder becomes a
-  /// favorite; a remote pane's becomes a saved server location (remote
-  /// bookmarks live under SERVERS).
+  /// "Add Current Folder to Favorites" for the active pane's location.
   Future<void> _addCurrentFolder(_SidebarData data) async {
     final location = _facts.activeLocation;
     if (location == null) return;
-    final l10n = data.l10n;
-    try {
-      switch (location) {
-        case LocalPaneLocation(:final path):
-          final added = await widget.controller.addLocalFolders([
-            path,
-          ], labelOf: _folderLabel);
-          if (added.isEmpty && mounted) {
-            _showSidebarNotice(
-              context,
-              l10n.sidebarAlreadyFavorite(_folderLabel(path)),
-            );
-          }
-        case RemotePaneLocation(:final path):
-          final live = _facts.activeRemote;
-          if (live == null) return;
-          await widget.controller.saveRemoteLocation(
-            live: live,
-            path: path,
-            label: path == '/' ? live.label : p.posix.basename(path),
-          );
-      }
-    } on Object catch (error, stackTrace) {
-      ApplicationErrorReporter().report(error, stackTrace);
-      if (mounted) _showSidebarError(context, l10n);
-    }
+    await addLocationToFavorites(
+      context,
+      widget.controller,
+      location: location,
+      remote: _facts.activeRemote,
+    );
   }
 
   /// The sync chip (10 §5), or null without a backup service.
@@ -585,6 +563,65 @@ class _SidebarViewState extends State<SidebarView> {
       tooltip: l10n.sidebarCatalogSyncNow,
       onPressed: widget.onSyncNow,
     );
+  }
+}
+
+/// What an "Add Current Folder to Favorites" landed: a new favorite, a
+/// folder that already was one (the caller has said so), a saved server
+/// location, or nothing (the failure has been reported and said).
+enum SidebarAddOutcome { favorite, alreadyFavorite, serverLocation, failed }
+
+/// "Add Current Folder to Favorites" (10 §5) for [location]: a local
+/// folder becomes a favorite; a remote one becomes a saved server
+/// location under SERVERS, saved from its live [remote] binding. One
+/// owner for the rail's "+" and the compact browser's ⋮, so both land
+/// the same bookmark and say the same thing when the folder already is
+/// one or the write fails. [label] names what was added, for a caller
+/// that confirms it (a phone's browser, where the list is not in view).
+Future<({SidebarAddOutcome outcome, String label})> addLocationToFavorites(
+  BuildContext context,
+  SidebarController controller, {
+  required PaneLocation location,
+  Bookmark? remote,
+}) async {
+  final l10n = AppLocalizations.of(context);
+  final String label;
+  switch (location) {
+    case LocalPaneLocation(:final path):
+      label = _folderLabel(path);
+    case RemotePaneLocation(:final path):
+      label = path == '/' ? (remote?.label ?? path) : p.posix.basename(path);
+  }
+  // Callers gate on [canAddLocationToFavorites]; a remote location without
+  // its binding has nothing to be saved from.
+  if (!canAddLocationToFavorites(location, remote)) {
+    return (outcome: SidebarAddOutcome.failed, label: label);
+  }
+  try {
+    switch (location) {
+      case LocalPaneLocation(:final path):
+        final added = await controller.addLocalFolders([
+          path,
+        ], labelOf: _folderLabel);
+        if (added.isNotEmpty) {
+          return (outcome: SidebarAddOutcome.favorite, label: label);
+        }
+        if (context.mounted) {
+          _showSidebarNotice(context, l10n.sidebarAlreadyFavorite(label));
+        }
+        return (outcome: SidebarAddOutcome.alreadyFavorite, label: label);
+      case RemotePaneLocation(:final path):
+        await controller.saveRemoteLocation(
+          live: remote!,
+          path: path,
+          label: label,
+        );
+        return (outcome: SidebarAddOutcome.serverLocation, label: label);
+    }
+  } on Object catch (error, stackTrace) {
+    ApplicationErrorReporter().report(error, stackTrace);
+    if (context.mounted) _showSidebarError(context, l10n);
+    return (outcome: SidebarAddOutcome.failed, label: label);
   }
 }
 
@@ -667,11 +704,8 @@ final class _SidebarData {
   /// broken (Séance's rule).
   bool collapsed(String key) => !filtering && controller.isCollapsed(key);
 
-  bool get canAddCurrentFolder => switch (facts.activeLocation) {
-    null => false,
-    LocalPaneLocation() => true,
-    RemotePaneLocation() => facts.activeRemote != null,
-  };
+  bool get canAddCurrentFolder =>
+      canAddLocationToFavorites(facts.activeLocation, facts.activeRemote);
 
   List<Bookmark> get favorites => [
     for (final section in controller.sections)
