@@ -596,18 +596,21 @@ D32 inspector workspace · D33 sidebar density
     Poltergeist gains a PINNED shortlist above the others (a device-local
     pin set, "Pin to top" / "Unpin", as in Séance), and the account's
     rows carry a small cloud mark and "From your Séance account".
+  - **PINNED, as the owner confirmed it** ("Pin servers to a shortlist
+    at the top, as Séance has"): the account's servers and the remote
+    favorites both pin, so PINNED works without the shared account, and
+    it is the rail's first section, before DEVICES. A pinned row leaves
+    FAVORITES or SERVERS (its group's count drops with it) and keeps its
+    own row in PINNED. The mix is ordered by label, case folded, then by
+    id. A pinned row neither drags nor takes drops, since PINNED has no
+    user order; Move to Group still refiles it. Deleting a pinned
+    favorite drops its pin; the stored key stays `sidebar.pinnedServers`.
   - **Kept as D32 built it:** ungrouped rows come first with no
     "Ungrouped" header.
   - **The filter** shows at five servers again (both apps' old
     threshold), its count names "↵ opens the first", "No matches" offers
     Clear filter, and a query drops itself once the rail it filtered is
     empty.
-
-  Built narrower than the PINNED call, pending the owner's confirmation
-  (not an owner decision): only the account's servers pin, and a remote
-  favorite has no pin verb, so without the shared Séance account PINNED
-  never appears. It also sits above SERVERS, after DEVICES and
-  FAVORITES, where Séance lists it first.
 
 ### Security, trust, distribution
 

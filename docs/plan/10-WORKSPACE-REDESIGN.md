@@ -167,6 +167,12 @@ The header is registry-driven. A command appears only if it declares a
 
 ## 5. Sidebar (shared anatomy, §10)
 
+- **PINNED** (D33): the servers the user pinned ("Pin to top", "Unpin",
+  device-local like Séance's pins), the account's and the remote
+  favorites alike. The first section, as in Séance, drawn only while one
+  is pinned, ordered by label (case folded, then by id). A pinned row
+  leaves FAVORITES or SERVERS (and its group) and PINNED draws the same
+  row, which neither drags nor takes drops there.
 - **DEVICES:**
   - Home (the user name) and the root volume, with free space in the
     trailing text.
@@ -184,14 +190,11 @@ The header is registry-driven. A command appears only if it declares a
     Downloads" as one click, and the ssh_config import, whose hosts land
     here. It is never seeded silently, because favorites sync to other
     devices.
-- **PINNED** (D33): the account's servers the user pinned ("Pin to top",
-  "Unpin", device-local like Séance's pins), above SERVERS and drawn only
-  while one is pinned. A pinned server leaves its group.
 - **SERVERS:**
   - The server list, the same one Séance shows under the shared account,
     and the live Quick Connect sessions. Without the shared account it holds
     the sessions only: a saved server is a remote favorite.
-  - Grouped, and pinned servers come first (PINNED above). Ungrouped rows
+  - Grouped, with pinned servers listed in PINNED instead. Ungrouped rows
     come before the groups, with no "Ungrouped" header.
   - Each row carries its live state as one dot: connected solid green,
     connecting amber, failed solid red, a blocked host key the red
@@ -412,7 +415,8 @@ Poltergeist and Séance are one product family. The contract:
    whether a second line shows), one status dot plus the connected ring
    and the colour line, a bottom bar with "+", sync status and the density
    switch, and no app bar in the rail. Séance shows SERVERS (and PINNED);
-   Poltergeist adds DEVICES and FAVORITES, and pins the account's servers.
+   Poltergeist adds DEVICES and FAVORITES under its PINNED, where the
+   account's servers and the remote favorites both pin.
 2. **Same design tokens:**
    - 13 px body and 11 px captions
    - 22 / 26 px rows; comfortable sidebar rows 52 px (56 dp on touch)
