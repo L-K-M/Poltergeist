@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/activity_panel_controller.dart';
+import 'package:poltergeist_app/services/transfer_limits_controller.dart';
 import 'package:poltergeist_app/ui/activity/activity_panel.dart';
 import 'package:poltergeist_app/ui/inspector/inspector_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -317,6 +318,51 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('bandwidth.up.set')));
     await tester.pumpAndSettle();
     expect(queue.uploadLimiter.bytesPerSecond, 2000000);
+  });
+
+  testWidgets('the popover sets the default per-server cap, and the '
+      'button shows it', (tester) async {
+    final limits = TransferLimitsController()..queue = queue;
+    controller.dispose();
+    controller = ActivityPanelController(queue: queue, transferLimits: limits);
+    addTearDown(limits.dispose);
+    await pumpPanel(tester);
+    // Nothing limited: the header shows the ∞ glyph.
+    expect(find.text('∞'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('activity.bandwidth')));
+    await tester.pumpAndSettle();
+    ChoiceChip chip(String key) =>
+        tester.widget<ChoiceChip>(find.byKey(ValueKey(key)));
+    expect(chip('transferLimit.perServer.automatic').selected, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('transferLimit.perServer.2')));
+    await tester.pumpAndSettle();
+    expect(queue.serverTransferLimits.filesFor('any'), 2);
+    expect(chip('transferLimit.perServer.2').selected, isTrue);
+    expect(chip('transferLimit.perServer.automatic').selected, isFalse);
+    expect(find.text('∞'), findsNothing);
+    expect(find.byIcon(Icons.speed), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('transferLimit.perServer.automatic')),
+    );
+    await tester.pumpAndSettle();
+    expect(queue.serverTransferLimits.filesFor('any'), isNull);
+    expect(find.text('∞'), findsOneWidget);
+  });
+
+  testWidgets('without a caps owner the popover offers bandwidth only', (
+    tester,
+  ) async {
+    await pumpPanel(tester);
+    await tester.tap(find.byKey(const ValueKey('activity.bandwidth')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('bandwidth.down.0')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('transferLimit.perServer.automatic')),
+      findsNothing,
+    );
   });
 
   testWidgets('a persisted non-preset limit opens as Custom with the '

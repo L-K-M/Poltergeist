@@ -1261,7 +1261,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get queueResumeTooltip => 'Resume the transfer queue';
 
   @override
-  String get activityBandwidthButton => 'Bandwidth';
+  String get activityBandwidthButton => 'Transfer limits';
 
   @override
   String get activityBandwidthUnlimited => '∞';
@@ -1541,7 +1541,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get bandwidthPopoverTitle => 'Bandwidth limits';
+  String get bandwidthPopoverTitle => 'Transfer limits';
 
   @override
   String get bandwidthDownLabel => 'Download';
@@ -1565,6 +1565,17 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get bandwidthSet => 'Set';
+
+  @override
+  String get transferLimitPerServerLabel => 'Simultaneous transfers per server';
+
+  @override
+  String get transferLimitAutomatic => 'Automatic';
+
+  @override
+  String transferLimitPerServerNote(int total) {
+    return 'Automatic lets a server use up to $total at once, the most the app runs in total. Browsing, editing and previews are never held back.';
+  }
 
   @override
   String get historyVerbCopy => 'Copy';
@@ -3277,6 +3288,23 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get serverEditorLoginScriptNote =>
       'Runs as if typed at the prompt right after connecting. Its text and output land in scrollback — keep secrets out. Blank for none.';
+
+  @override
+  String get serverEditorTransferLimit => 'Simultaneous transfers';
+
+  @override
+  String serverEditorTransferLimitDefault(String value) {
+    return 'Default ($value)';
+  }
+
+  @override
+  String get serverEditorTransferLimitNote =>
+      'How many files move to or from this server at once. Browsing, editing and previews are never held back. Kept on this device only.';
+
+  @override
+  String serverEditorTransferLimitSaveFailed(String error) {
+    return 'The server was saved, but its transfer limit wasn\'t: $error';
+  }
 
   @override
   String get serverEditorAppearance => 'Appearance';
