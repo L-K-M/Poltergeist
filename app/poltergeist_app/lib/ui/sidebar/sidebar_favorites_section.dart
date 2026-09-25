@@ -21,6 +21,10 @@ List<Widget> _favoritesSection(_SidebarData data) {
   final body = <Widget>[];
   var count = 0;
   final sections = controller.sections;
+  // Remote favorites out of view without a drawn group to speak for
+  // them (the filter hid them, or their whole group): the section's
+  // header shows their live state (D33).
+  final hiddenLoose = <Bookmark>[];
 
   final loading =
       (controller.load == SidebarLoad.idle ||
@@ -68,6 +72,8 @@ List<Widget> _favoritesSection(_SidebarData data) {
         for (final bookmark in members) {
           if (_favoriteShows(data, bookmark)) {
             body.add(_favoriteRow(data, bookmark, group: null, depth: 0));
+          } else {
+            hiddenLoose.add(bookmark);
           }
         }
         continue;
@@ -85,13 +91,24 @@ List<Widget> _favoritesSection(_SidebarData data) {
     for (final group in groups) {
       count += group.members.length;
       final collapseKey = SidebarCollapseKeys.favoriteGroup(group.key);
-      final rows = [
-        for (final bookmark in group.members)
-          if (_favoriteShows(data, bookmark))
-            _favoriteRow(data, bookmark, group: group.name, depth: 1),
-      ];
-      if (data.filtering && rows.isEmpty) continue;
+      final rows = <Widget>[];
+      final filtered = <Bookmark>[];
+      for (final bookmark in group.members) {
+        if (_favoriteShows(data, bookmark)) {
+          rows.add(_favoriteRow(data, bookmark, group: group.name, depth: 1));
+        } else {
+          filtered.add(bookmark);
+        }
+      }
+      if (data.filtering && rows.isEmpty) {
+        hiddenLoose.addAll(filtered);
+        continue;
+      }
       final collapsed = data.collapsed(collapseKey);
+      final hiddenDot = _hiddenLiveDot(
+        data,
+        _favoriteStatuses(data, collapsed ? group.members : filtered),
+      );
       body.add(
         _SidebarDropZone(
           key: ValueKey('sidebar.group.$collapseKey'),
@@ -115,6 +132,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
             title: group.name,
             count: group.members.length,
             collapsed: collapsed,
+            status: hiddenDot,
             dropHighlight: indicator != SidebarDropIndicator.none,
             onToggle: () => controller.toggleCollapsed(collapseKey),
           ),
@@ -140,9 +158,15 @@ List<Widget> _favoritesSection(_SidebarData data) {
     }
   }
 
-  if (data.filtering && body.isEmpty) return const [];
-
   final collapsed = data.collapsed(sectionKey);
+  final hiddenDot = _hiddenLiveDot(
+    data,
+    _favoriteStatuses(data, collapsed ? controller.bookmarks : hiddenLoose),
+  );
+  // A filter that hides every row drops the section, unless a live
+  // server is among the hidden: its header stays to say so.
+  if (data.filtering && body.isEmpty && hiddenDot == null) return const [];
+
   // Home shows no folder to add (D32 §9): its header keeps no "+".
   final addCurrent =
       !data.home &&
@@ -166,6 +190,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
         title: l10n.sidebarFavoritesSection,
         count: count,
         collapsed: collapsed,
+        status: hiddenDot,
         dropHighlight: indicator != SidebarDropIndicator.none,
         onToggle: () => controller.toggleCollapsed(sectionKey),
         onAdd: addCurrent,
@@ -176,6 +201,15 @@ List<Widget> _favoritesSection(_SidebarData data) {
     if (!collapsed) ...body,
   ];
 }
+
+/// The live states of the remote favorites among [bookmarks].
+Iterable<ServerStatus?> _favoriteStatuses(
+  _SidebarData data,
+  Iterable<Bookmark> bookmarks,
+) => [
+  for (final bookmark in bookmarks)
+    if (_isServerKind(bookmark)) _savedLive(data, bookmark).status,
+];
 
 bool _favoriteShows(_SidebarData data, Bookmark bookmark) => data.countRow(
   _isServerKind(bookmark)

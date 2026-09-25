@@ -68,7 +68,15 @@ List<Widget> _serversSection(_SidebarData data) {
   // the user's servers.
   data.serverCount = total + pinned.length + remoteFavorites.length;
 
+  // PINNED first, in rail order, so the filter's first match and its
+  // count read the rows top to bottom.
+  final pinnedSection = _pinnedSection(data, pinned);
+
   final body = <Widget>[];
+  // Live rows out of view with no drawn group header to speak for them
+  // (the filter hid them, or their whole group): SERVERS' header shows
+  // their state (D33).
+  final hiddenLoose = <ServerStatus?>[];
   for (final session in sessions) {
     final bookmark = session.bookmark;
     if (!data.countRow(
@@ -77,6 +85,7 @@ List<Widget> _serversSection(_SidebarData data) {
           ? null
           : () => view.onOpenFavorite!(bookmark, SidebarOpenAction.plain),
     )) {
+      hiddenLoose.add(_liveStatus(data, bookmark.id));
       continue;
     }
     body.add(
@@ -87,14 +96,20 @@ List<Widget> _serversSection(_SidebarData data) {
       ),
     );
   }
-  body.addAll(_serverRows(data, loose, depth: 0));
+  final looseHidden = <ServerConfig>[];
+  body.addAll(_serverRows(data, loose, depth: 0, hidden: looseHidden));
+  hiddenLoose.addAll(_catalogStatuses(data, looseHidden));
 
   final sortedKeys = groups.keys.toList()..sort();
   for (final key in sortedKeys) {
     final group = groups[key]!;
     final collapseKey = SidebarCollapseKeys.serverGroup(key);
-    final rows = _serverRows(data, group, depth: 1);
-    if (data.filtering && rows.isEmpty) continue;
+    final filtered = <ServerConfig>[];
+    final rows = _serverRows(data, group, depth: 1, hidden: filtered);
+    if (data.filtering && rows.isEmpty) {
+      hiddenLoose.addAll(_catalogStatuses(data, filtered));
+      continue;
+    }
     final collapsed = data.collapsed(collapseKey);
     // The account's groups take no bookmark drops: a catalog server's
     // group is edited in the server editor, and bookmarks file under
@@ -107,6 +122,10 @@ List<Widget> _serversSection(_SidebarData data) {
         title: group.name,
         count: group.length,
         collapsed: collapsed,
+        status: _hiddenLiveDot(
+          data,
+          _catalogStatuses(data, collapsed ? group.catalog : filtered),
+        ),
         onToggle: () => controller.toggleCollapsed(collapseKey),
       ),
     );
@@ -132,18 +151,36 @@ List<Widget> _serversSection(_SidebarData data) {
       ),
     );
   }
-  if (data.filtering && body.isEmpty) return const [];
-
   final collapsed = data.collapsed(sectionKey);
+  final hiddenDot = _hiddenLiveDot(
+    data,
+    collapsed
+        ? [
+            for (final session in sessions)
+              _liveStatus(data, session.bookmark.id),
+            ..._catalogStatuses(data, [
+              ...loose.catalog,
+              for (final group in groups.values) ...group.catalog,
+            ]),
+          ]
+        : hiddenLoose,
+  );
+  // A filter that hides every row drops the section, unless a live
+  // server is among the hidden: its header stays to say so.
+  if (data.filtering && body.isEmpty && hiddenDot == null) {
+    return pinnedSection;
+  }
+
   final VoidCallback? onAdd = view.onAddCatalogServer ?? view.onQuickConnect;
   return [
-    ..._pinnedSection(data, pinned),
+    ...pinnedSection,
     SidebarSectionHeader(
       key: const ValueKey('sidebar.servers.header'),
       headerKey: ValueKey('sidebar.section.$sectionKey'),
       title: l10n.sidebarServersSection,
       count: total,
       collapsed: collapsed,
+      status: hiddenDot,
       onToggle: () => controller.toggleCollapsed(sectionKey),
       onAdd: onAdd,
       addKey: const ValueKey('sidebar.servers.add'),
@@ -159,10 +196,16 @@ List<Widget> _serversSection(_SidebarData data) {
 /// servers the user pinned, by label, above SERVERS. Drawn only while one
 /// is listed, like Séance's.
 List<Widget> _pinnedSection(_SidebarData data, _ServerGroup pinned) {
-  final rows = _serverRows(data, pinned, depth: 0);
-  if (rows.isEmpty) return const [];
+  if (pinned.catalog.isEmpty) return const [];
+  final filtered = <ServerConfig>[];
+  final rows = _serverRows(data, pinned, depth: 0, hidden: filtered);
   final sectionKey = SidebarCollapseKeys.section(SidebarSection.pinned);
   final collapsed = data.collapsed(sectionKey);
+  final hiddenDot = _hiddenLiveDot(
+    data,
+    _catalogStatuses(data, collapsed ? pinned.catalog : filtered),
+  );
+  if (rows.isEmpty && hiddenDot == null) return const [];
   return [
     SidebarSectionHeader(
       key: const ValueKey('sidebar.pinned.header'),
@@ -170,6 +213,7 @@ List<Widget> _pinnedSection(_SidebarData data, _ServerGroup pinned) {
       title: data.l10n.sidebarPinnedSection,
       count: pinned.length,
       collapsed: collapsed,
+      status: hiddenDot,
       onToggle: () => data.controller.toggleCollapsed(sectionKey),
     ),
     if (!collapsed) ...rows,
@@ -210,28 +254,44 @@ String _remoteHaystack(Bookmark bookmark) => [
   ?bookmark.group,
 ].join(' ');
 
+/// The rows of [members] the filter keeps; the ones it hides land in
+/// [hidden], for a header to show their live state.
 List<Widget> _serverRows(
   _SidebarData data,
   _ServerGroup members, {
   required int depth,
+  required List<ServerConfig> hidden,
 }) {
   final view = data.view;
-  return [
-    for (final server in members.catalog)
-      if (data.countRow(
-        serverSearchHaystack(server),
-        open: view.onOpenCatalogServer == null
-            ? null
-            : () => view.onOpenCatalogServer!(server, SidebarOpenAction.plain),
-      ))
-        _CatalogServerRow(
-          key: ValueKey('sidebar.catalog.row.${server.id}'),
-          data: data,
-          server: server,
-          depth: depth,
-        ),
-  ];
+  final rows = <Widget>[];
+  for (final server in members.catalog) {
+    final shows = data.countRow(
+      serverSearchHaystack(server),
+      open: view.onOpenCatalogServer == null
+          ? null
+          : () => view.onOpenCatalogServer!(server, SidebarOpenAction.plain),
+    );
+    if (!shows) {
+      hidden.add(server);
+      continue;
+    }
+    rows.add(
+      _CatalogServerRow(
+        key: ValueKey('sidebar.catalog.row.${server.id}'),
+        data: data,
+        server: server,
+        depth: depth,
+      ),
+    );
+  }
+  return rows;
 }
+
+/// The live states of account servers, for [_hiddenLiveDot].
+Iterable<ServerStatus?> _catalogStatuses(
+  _SidebarData data,
+  Iterable<ServerConfig> servers,
+) => [for (final server in servers) _liveStatus(data, server.id)];
 
 /// The endpoint of the active pane's Quick Connect session, if it shows one.
 String? _activeAdhocEndpoint(_SidebarData data) {
@@ -277,6 +337,45 @@ SidebarAdhocSession? _sessionSavedAs(_SidebarData data, Bookmark bookmark) {
     if (_endpointKeyOf(session.bookmark) == key) return session;
   }
   return null;
+}
+
+/// A remote favorite's live state: its own connection first, else the
+/// Quick Connect session it was saved from, which speaks for it until
+/// the row connects itself ([session], non-null in that case).
+({ServerStatus? status, SidebarAdhocSession? session}) _savedLive(
+  _SidebarData data,
+  Bookmark bookmark,
+) {
+  final own = _liveStatus(data, bookmark.id);
+  final session = _isLive(own) ? null : _sessionSavedAs(data, bookmark);
+  return (
+    status: session == null ? own : _liveStatus(data, session.bookmark.id),
+    session: session,
+  );
+}
+
+/// The dot a header draws for live servers it keeps out of view (D33):
+/// a folded group's or section's rows, or rows the filter hides, so
+/// "what am I connected to" never needs an unfold. A connection up
+/// outranks one being attempted; with nothing live, no dot.
+SidebarStatusDot? _hiddenLiveDot(
+  _SidebarData data,
+  Iterable<ServerStatus?> statuses,
+) {
+  final chrome = PoltergeistChrome.of(data.context);
+  var pending = false;
+  for (final status in statuses) {
+    switch (status?.state) {
+      case ServerConnectionState.connected:
+        return SidebarStatusDot(chrome.statusConnected);
+      case ServerConnectionState.connecting ||
+          ServerConnectionState.reconnecting:
+        pending = true;
+      case _:
+        break;
+    }
+  }
+  return pending ? SidebarStatusDot(chrome.statusConnecting) : null;
 }
 
 ConnectionServer? _connectionOf(_SidebarData data, String serverId) {
@@ -360,12 +459,10 @@ class _SavedServerRow extends StatelessWidget {
     final l10n = data.l10n;
     final view = data.view;
     final id = bookmark.id;
-    final own = _liveStatus(data, id);
     // The row's own connection outranks a saved session's; otherwise the
     // session it was saved from speaks for it.
-    final session = _isLive(own) ? null : _sessionSavedAs(data, bookmark);
+    final (:status, :session) = _savedLive(data, bookmark);
     final liveId = session?.bookmark.id ?? id;
-    final status = session == null ? own : _liveStatus(data, liveId);
     final probe = view.probes?.statuses[id];
     final (:appearance, :dot) = _serverIndicator(
       context,

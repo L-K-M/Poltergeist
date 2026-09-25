@@ -978,6 +978,107 @@ void main() {
     });
   });
 
+  group('hidden live connections', () {
+    SidebarSectionHeader headerOf(WidgetTester tester, String key) =>
+        tester.widget<SidebarSectionHeader>(
+          find.ancestor(
+            of: find.byKey(ValueKey('sidebar.section.$key')),
+            matching: find.byType(SidebarSectionHeader),
+          ),
+        );
+
+    Future<PoltergeistChrome> connect(WidgetTester tester, String id) async {
+      lanes.watches[id]!.add(
+        const ServerStatus(ServerConnectionState.connected),
+      );
+      await tester.pumpAndSettle();
+      return PoltergeistChrome.of(tester.element(find.byType(SidebarView)));
+    }
+
+    testWidgets('a folded group shows the live server it hides', (
+      tester,
+    ) async {
+      store.bookmarks = [
+        _remote('r1', group: 'work'),
+        _local('l1', group: 'work', sortKey: 'mn'),
+      ];
+      final controller = await pumpSidebar(tester, withConnections: true);
+      final chrome = await connect(tester, 'r1');
+
+      // Open, the row wears its own dot; the header needs none.
+      expect(headerOf(tester, 'fav:work').status, isNull);
+
+      controller.toggleCollapsed('fav:work');
+      await tester.pumpAndSettle();
+      expect(
+        headerOf(tester, 'fav:work').status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+    });
+
+    testWidgets('a folded section shows the live server it hides', (
+      tester,
+    ) async {
+      store.bookmarks = [_remote('r1')];
+      final controller = await pumpSidebar(tester, withConnections: true);
+      final chrome = await connect(tester, 'r1');
+      expect(headerOf(tester, 'sec:favorites').status, isNull);
+
+      controller.toggleCollapsed('sec:favorites');
+      await tester.pumpAndSettle();
+      expect(
+        headerOf(tester, 'sec:favorites').status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+    });
+
+    testWidgets('a live server the filter hides keeps its dot in view', (
+      tester,
+    ) async {
+      store.bookmarks = [
+        _remote('r1', sortKey: 'ma'),
+        _local('l1', label: 'Docs', sortKey: 'mb'),
+      ];
+      final controller = await pumpSidebar(tester, withConnections: true);
+      final chrome = await connect(tester, 'r1');
+      controller.requestFilter();
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('sidebar.filter.field')),
+        'Docs',
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('sidebar.favorite.r1')), findsNothing);
+      expect(
+        headerOf(tester, 'sec:favorites').status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+
+      // Nothing matches at all: the section's header stays for the dot.
+      await tester.enterText(
+        find.byKey(const ValueKey('sidebar.filter.field')),
+        'zzz',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        headerOf(tester, 'sec:favorites').status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+    });
+
+    testWidgets('an idle server hidden in a fold marks nothing', (
+      tester,
+    ) async {
+      store.bookmarks = [_remote('r1', group: 'work')];
+      final controller = await pumpSidebar(tester, withConnections: true);
+      controller.toggleCollapsed('fav:work');
+      await tester.pumpAndSettle();
+      expect(headerOf(tester, 'fav:work').status, isNull);
+      expect(headerOf(tester, 'sec:favorites').status, isNull);
+    });
+  });
+
   group('servers', () {
     testWidgets('a saved server carries its live state as its one dot, with '
         'no Connections copy', (tester) async {

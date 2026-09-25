@@ -311,6 +311,34 @@ void main() {
       expect(header('sec:pinned'), findsNothing);
     });
 
+    testWidgets('the filter reads PINNED first and keeps it on its own', (
+      tester,
+    ) async {
+      catalog.replace([
+        _server('a1', label: 'alpha one'),
+        _server('a2', label: 'alpha two'),
+        _server('b1', label: 'beta'),
+      ]);
+      final controller = await pump(tester, pinned: {'a2'});
+      controller.requestFilter();
+      await tester.pumpAndSettle();
+      final field = find.byKey(const ValueKey('sidebar.filter.field'));
+
+      // Rail order: the pinned match is the first one Enter opens.
+      await tester.enterText(field, 'alpha');
+      await tester.pumpAndSettle();
+      await tester.testTextInput.receiveAction(TextInputAction.go);
+      await tester.pumpAndSettle();
+      expect(opens.single.$1.id, 'a2');
+
+      // Only a pinned server matches: PINNED stays, SERVERS goes.
+      await tester.enterText(field, 'two');
+      await tester.pumpAndSettle();
+      expect(row('a2'), findsOneWidget);
+      expect(header('sec:pinned'), findsOneWidget);
+      expect(header('sec:servers'), findsNothing);
+    });
+
     testWidgets('PINNED folds under its own key', (tester) async {
       catalog.replace([_server('a1'), _server('b1')]);
       final controller = await pump(tester, pinned: {'a1'});
@@ -459,6 +487,56 @@ void main() {
     await tester.pumpAndSettle();
     expect(sidebarRow().status, isNotNull);
     expect(sidebarRow().selected, isTrue);
+  });
+
+  testWidgets('a folded account group shows the live server it hides', (
+    tester,
+  ) async {
+    final lanes = controller_test.FakePaneLanes();
+    final left = PaneController(paneTabId: 'pane.left.tab1', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right.tab1', lanes: lanes);
+    final workspace = WorkspaceController(
+      left: testPaneStrip(left),
+      right: testPaneStrip(right),
+    );
+    addTearDown(workspace.dispose);
+    catalog.replace([_server('s1', group: 'Prod'), _server('s2')]);
+    final controller = await pump(tester, workspace: workspace);
+    final now = DateTime.utc(2026, 10, 1);
+    await left.connectRemote(
+      Bookmark(
+        id: 's1',
+        kind: BookmarkKind.remotePath,
+        label: 'label-s1',
+        server: const BookmarkServerRef(serverConfigId: 's1'),
+        sortKey: '',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      resolvedConfig: catalog.byId('s1'),
+    );
+    await tester.pumpAndSettle();
+    SidebarSectionHeader header(String key) =>
+        tester.widget<SidebarSectionHeader>(
+          find.ancestor(
+            of: find.byKey(ValueKey('sidebar.section.$key')),
+            matching: find.byType(SidebarSectionHeader),
+          ),
+        );
+    final row = tester.widget<SidebarRow>(
+      find.descendant(
+        of: find.byKey(const ValueKey('sidebar.catalog.row.s1')),
+        matching: find.byType(SidebarRow),
+      ),
+    );
+    expect(header('srv:prod').status, isNull);
+
+    controller.toggleCollapsed('srv:prod');
+    await tester.pumpAndSettle();
+    expect(header('srv:prod').status, row.status);
+    controller.toggleCollapsed('sec:servers');
+    await tester.pumpAndSettle();
+    expect(header('sec:servers').status, row.status);
   });
 
   testWidgets('null open callback renders non-activatable rows', (
