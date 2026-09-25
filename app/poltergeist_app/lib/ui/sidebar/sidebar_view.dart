@@ -32,11 +32,13 @@ import 'sidebar_kit.dart';
 export '../../services/local_volumes.dart' show SystemLocalVolumes;
 export 'sidebar_commands.dart'
     show
+        buildSidebarDensityCommand,
         buildSidebarFilterCommand,
         buildSidebarVerbCommands,
         kConnectSaveToServersCommandId,
         kFavoriteAddCommandId,
-        kViewFilterSidebarCommandId;
+        kViewFilterSidebarCommandId,
+        kViewToggleSidebarDensityCommandId;
 
 part 'sidebar_devices_section.dart';
 part 'sidebar_dialogs.dart';
@@ -77,9 +79,10 @@ final class SidebarSyncStatus {
   final String? error;
 }
 
-/// The SERVERS filter threshold (10 §5): below eight servers the field is
-/// chrome; it still shows while a query is live or after ⌥⌘F.
-const _filterServerThreshold = 8;
+/// The filter threshold (10 §5, amended by D33): below five servers the
+/// field is chrome, as both apps drew it before the kit; it still shows
+/// while a query is live or after ⌥⌘F.
+const _filterServerThreshold = 5;
 
 /// The D32 sidebar (10 §5): DEVICES, FAVORITES, and SERVERS over the
 /// shared kit, a filter field that spans all three, and the bottom bar.
@@ -148,10 +151,11 @@ class SidebarView extends StatefulWidget {
   final void Function(Bookmark bookmark)? onLocalEdits;
 
   /// D22's adoption affordance: the ssh_config import. Offered in the
-  /// empty SERVERS state and the + menu; null hides both.
+  /// empty FAVORITES state (where the imported hosts land) and the +
+  /// menu; null hides both.
   final VoidCallback? onImportSshConfig;
 
-  /// The shared-mode Séance server catalog (04 §4.2), merged into SERVERS.
+  /// The shared-mode Séance server catalog (04 §4.2): SERVERS lists it.
   /// Null in separate mode.
   final SeanceServerCatalog? catalog;
 
@@ -342,17 +346,7 @@ class _SidebarViewState extends State<SidebarView> {
       return _kitStrings!;
     }
     _stringsFor = l10n;
-    return _kitStrings = SidebarKitStrings(
-      sectionSemantics: (title, count) =>
-          l10n.sidebarSectionSemantics(title, l10n.paneItemCount(count)),
-      showSection: l10n.sidebarShowSection,
-      hideSection: l10n.sidebarHideSection,
-      filterHint: l10n.sidebarFilterHint,
-      filterClear: l10n.sidebarCatalogFilterClear,
-      addMenu: l10n.sidebarAddMenu,
-      settings: l10n.sidebarSettings,
-      rowMenu: l10n.sidebarRowMenu,
-    );
+    return _kitStrings = _sidebarKitStrings(l10n);
   }
 
   @override
@@ -360,21 +354,28 @@ class _SidebarViewState extends State<SidebarView> {
     final l10n = AppLocalizations.of(context);
     final view = widget;
     final home = view.presentation == SidebarPresentation.home;
-    return SidebarKitScope(
-      strings: _stringsOf(l10n),
-      // Home is a phone's list screen, drawn like the browser it opens:
-      // Material's list rows on the page surface.
-      layout: home ? SidebarKitLayout.list : SidebarKitLayout.rail,
-      background: home ? _homeBackground(context) : null,
-      child: ListenableBuilder(
-        listenable: Listenable.merge([
-          view.controller,
-          ?view.connections,
-          ?view.probes,
-          ?view.catalogListenable,
-        ]),
-        builder: (context, _) => _buildRail(context, l10n),
-      ),
+    // Outside the scope, so a density change rebuilds the scope itself
+    // and every kit widget under it hears the new metrics.
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        view.controller,
+        ?view.connections,
+        ?view.probes,
+        ?view.catalogListenable,
+      ]),
+      builder: (context, _) {
+        final density = sidebarKitDensityOf(view.controller.density);
+        return SidebarKitScope(
+          strings: _stringsOf(l10n),
+          // A comfortable Home is a phone's list screen, drawn like the
+          // browser it opens: Material's list rows on the page surface. A
+          // compact one keeps the rail's one-line touch rows.
+          layout: home ? sidebarHomeLayout(density) : SidebarKitLayout.rail,
+          density: density,
+          background: home ? _homeBackground(context) : null,
+          child: Builder(builder: (context) => _buildRail(context, l10n)),
+        );
+      },
     );
   }
 
@@ -400,8 +401,24 @@ class _SidebarViewState extends State<SidebarView> {
           key: const ValueKey('sidebar.noMatches'),
           text: l10n.sidebarNoMatches,
           presentation: widget.presentation,
+          action: TextButton(
+            key: const ValueKey('sidebar.noMatches.clear'),
+            style: data.home ? null : _hintButtonStyle,
+            onPressed: () => widget.controller.setFilterQuery(''),
+            child: Text(l10n.sidebarCatalogFilterClear),
+          ),
         ),
       );
+    }
+    // Séance's rule: once the rail the query filtered holds no row at
+    // all, the query drops itself, or the next row added would be met
+    // with "No matches". After the frame: this is seen from a build.
+    if (data.filtering && data.total == 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.controller.filterQuery.isNotEmpty) {
+          widget.controller.setFilterQuery('');
+        }
+      });
     }
 
     final controller = widget.controller;
@@ -434,9 +451,7 @@ class _SidebarViewState extends State<SidebarView> {
               onChanged: controller.setFilterQuery,
               onDismiss: controller.dismissFilter,
               onSubmitted: data.firstMatch,
-              countText: data.filtering
-                  ? l10n.sidebarCatalogFilterCount(data.matched, data.total)
-                  : null,
+              countText: data.filtering ? _countText(l10n, data) : null,
             ),
           Expanded(
             child: ListView(
@@ -448,9 +463,12 @@ class _SidebarViewState extends State<SidebarView> {
             key: const ValueKey('sidebar.bottomBar'),
             addKey: const ValueKey('sidebar.add'),
             settingsKey: const ValueKey('sidebar.settings'),
+            densityKey: const ValueKey('sidebar.density'),
             addEntries: () => _addMenuEntries(data),
             sync: _syncChip(l10n),
             onSettings: widget.onOpenSettings,
+            onDensityChanged: (density) =>
+                controller.setDensity(sidebarDensityOf(density)),
           ),
         ],
       ),
@@ -599,14 +617,71 @@ class _SidebarViewState extends State<SidebarView> {
   }
 }
 
+/// The kit's copy, from the app's localizations.
+SidebarKitStrings _sidebarKitStrings(AppLocalizations l10n) =>
+    SidebarKitStrings(
+      sectionSemantics: (title, count) =>
+          l10n.sidebarSectionSemantics(title, l10n.paneItemCount(count)),
+      showSection: l10n.sidebarShowSection,
+      hideSection: l10n.sidebarHideSection,
+      filterHint: l10n.sidebarFilterHint,
+      filterClear: l10n.sidebarCatalogFilterClear,
+      addMenu: l10n.sidebarAddMenu,
+      settings: l10n.sidebarSettings,
+      rowMenu: l10n.sidebarRowMenu,
+      compactRows: l10n.sidebarCompactRows,
+      comfortableRows: l10n.sidebarComfortableRows,
+    );
+
+/// The rows' density switch for a surface outside the sidebar (D33): a
+/// phone Home's app bar. The kit's switch over [controller], in a kit
+/// scope of its own for the strings and the platform's sizes; a pick
+/// lands on the controller, which the sidebar below hears too.
+class SidebarDensityControl extends StatelessWidget {
+  const SidebarDensityControl({required this.controller, super.key});
+
+  final SidebarController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) => SidebarKitScope(
+        strings: _sidebarKitStrings(l10n),
+        density: sidebarKitDensityOf(controller.density),
+        child: SidebarDensitySwitch(
+          onChanged: (density) =>
+              controller.setDensity(sidebarDensityOf(density)),
+        ),
+      ),
+    );
+  }
+}
+
+/// The kit's density for the controller's choice (D33): the services
+/// layer keeps its own enum so it never imports a widget type.
+SidebarKitDensity sidebarKitDensityOf(SidebarDensity density) =>
+    switch (density) {
+      SidebarDensity.compact => SidebarKitDensity.compact,
+      SidebarDensity.comfortable => SidebarKitDensity.comfortable,
+    };
+
+/// The controller's density for a pick on a kit switch.
+SidebarDensity sidebarDensityOf(SidebarKitDensity density) => switch (density) {
+  SidebarKitDensity.compact => SidebarDensity.compact,
+  SidebarKitDensity.comfortable => SidebarDensity.comfortable,
+};
+
 /// What an "Add Current Folder to Favorites" landed: a new favorite, a
-/// folder that already was one (the caller has said so), a saved server
-/// location, or nothing (the failure has been reported and said).
-enum SidebarAddOutcome { favorite, alreadyFavorite, serverLocation, failed }
+/// folder that already was one (the caller has said so), or nothing
+/// (the failure has been reported and said).
+enum SidebarAddOutcome { favorite, alreadyFavorite, failed }
 
 /// "Add Current Folder to Favorites" (10 §5) for [location]: a local
-/// folder becomes a favorite; a remote one becomes a saved server
-/// location under SERVERS, saved from its live [remote] binding. One
+/// folder becomes a favorite; a remote one becomes a remote favorite,
+/// saved from its live [remote] binding, beside them under FAVORITES
+/// (D33). One
 /// owner for the rail's "+" and the compact browser's ⋮, so both land
 /// the same bookmark and say the same thing when the folder already is
 /// one or the write fails. [label] names what was added, for a caller
@@ -649,7 +724,7 @@ Future<({SidebarAddOutcome outcome, String label})> addLocationToFavorites(
           path: path,
           label: label,
         );
-        return (outcome: SidebarAddOutcome.serverLocation, label: label);
+        return (outcome: SidebarAddOutcome.favorite, label: label);
     }
   } on Object catch (error, stackTrace) {
     ApplicationErrorReporter().report(error, stackTrace);
@@ -657,6 +732,12 @@ Future<({SidebarAddOutcome outcome, String label})> addLocationToFavorites(
     return (outcome: SidebarAddOutcome.failed, label: label);
   }
 }
+
+/// The filter's count: "3 of 12", naming Enter's shortcut while there is
+/// a first match for it to open (both apps' hint before the kit).
+String _countText(AppLocalizations l10n, _SidebarData data) => data.matched > 0
+    ? l10n.sidebarCatalogFilterCountOpenFirst(data.matched, data.total)
+    : l10n.sidebarCatalogFilterCount(data.matched, data.total);
 
 String _syncedAgo(AppLocalizations l10n, Duration age) {
   if (age.inMinutes < 1) return l10n.sidebarSyncedJustNow;
@@ -700,9 +781,20 @@ final class _SidebarData {
   SidebarController get controller => view.controller;
   bool get filtering => query.isNotEmpty;
 
-  /// The compact Home (D32 §9) rather than the rail: rows spell their
-  /// secondary facts on a second line, since touch has no hover tooltip.
+  /// The compact Home (D32 §9) rather than the rail: the search bar, the
+  /// floating "+", the empty states' invitations. How its rows draw
+  /// follows [list] and [comfortable], as the rail's do.
   bool get home => view.presentation == SidebarPresentation.home;
+
+  /// The kit's list layout (a comfortable Home): rows take the 40 dp
+  /// disc marks the browser's rows wear.
+  late final bool list =
+      SidebarKitScope.layoutOf(context) == SidebarKitLayout.list;
+
+  /// Comfortable rows (D33): the second line is drawn, so the announced
+  /// label follows what is on screen.
+  late final bool comfortable =
+      SidebarKitScope.densityOf(context) == SidebarKitDensity.comfortable;
 
   /// The folder `~` names, for home-relative location lines.
   String? get localHome => view.volumes?.homeDirectory;
@@ -712,7 +804,8 @@ final class _SidebarData {
   int total = 0;
   int matched = 0;
 
-  /// SERVERS' size, for the filter's appearance threshold.
+  /// How many servers the rail lists (SERVERS' rows and the remote
+  /// favorites), for the filter's appearance threshold.
   int serverCount = 0;
 
   VoidCallback? _firstMatch;
@@ -816,11 +909,13 @@ List<SidebarMenuEntry> _openVerbs(
   ],
 ];
 
-/// A server row's one dot and the words for it (10 §5): connected is a
-/// solid green disc, connecting or reconnecting amber, a failure or a
-/// host-key block red, a server that answers the probe but holds no
-/// connection a hollow green ring, and an unknown or idle server paints
-/// nothing. An unreachable probe stays red. [appearance] carries the
+/// A server row's one dot and the words for it (10 §5, D33): connected
+/// is a solid green disc, connecting or reconnecting amber, a failure a
+/// solid red disc, a host-key block the red no-entry dot (a refusal to
+/// act on, never read as a plain failure), a server that answers the
+/// probe but holds no connection a hollow green ring and one that does
+/// not answer a hollow red ring (Séance's reachability marks), and an
+/// unknown or idle server paints nothing. [appearance] carries the
 /// state's words for the row's semantics and tooltip, dot or not.
 @visibleForTesting
 ({ServerIndicatorAppearance appearance, SidebarStatusDot? dot})
@@ -835,14 +930,20 @@ sidebarServerIndicator(
   final dot = switch (appearance.glyph) {
     ServerIndicatorGlyph.connected => SidebarStatusDot(chrome.statusConnected),
     ServerIndicatorGlyph.pending => SidebarStatusDot(chrome.statusConnecting),
-    ServerIndicatorGlyph.failed ||
-    ServerIndicatorGlyph.blocked => SidebarStatusDot(scheme.error),
+    ServerIndicatorGlyph.failed => SidebarStatusDot(scheme.error),
+    ServerIndicatorGlyph.blocked => SidebarStatusDot(
+      scheme.error,
+      style: SidebarDotStyle.blocked,
+    ),
     ServerIndicatorGlyph.probe => switch (probe) {
       ProbeStatus.online => SidebarStatusDot(
         chrome.statusConnected,
         style: SidebarDotStyle.ring,
       ),
-      ProbeStatus.offline => SidebarStatusDot(scheme.error),
+      ProbeStatus.offline => SidebarStatusDot(
+        scheme.error,
+        style: SidebarDotStyle.ring,
+      ),
       ProbeStatus.unknown || null => null,
     },
     ServerIndicatorGlyph.none || ServerIndicatorGlyph.idle => null,

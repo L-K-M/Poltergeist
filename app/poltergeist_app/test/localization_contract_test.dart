@@ -172,10 +172,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'transfer.downloadLimitBytesPerSecond'",
     "'transfer.uploadLimitBytesPerSecond'",
     "'transfer.autoClearCompleted'",
-    // The sidebar's persisted keys (02 §4): the hidden intent and the
-    // collapsed-group set — settings.json keys, never rendered.
+    // The sidebar's persisted keys (02 §4, D33): the hidden intent, the
+    // collapsed-group set and the row density — settings.json keys,
+    // never rendered.
     "'layout.sidebarHidden'",
     "'sidebar.collapsedGroups'",
+    "'sidebar.density'",
+    "'sidebar.pinnedServers'",
     // The preview panel's persisted keys (06 §8): cache capacity and the
     // large-download confirmation threshold — settings.json keys.
     "'preview.cacheCapacityBytes'",
@@ -1478,11 +1481,15 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // endpoint data — plumbing, never authored copy.
   'lib/ui/sidebar/sidebar_view.dart': {
     "'sidebar.noMatches'",
+    "'sidebar.noMatches.clear'",
+    // The empty query: Clear filter's and the stale-query drop's.
+    "''",
     "'sidebar.filter'",
     "'sidebar.filter.field'",
     "'sidebar.bottomBar'",
     "'sidebar.add'",
     "'sidebar.settings'",
+    "'sidebar.density'",
     "'sidebar.add.newServer'",
     "'sidebar.add.quickConnect'",
     "'sidebar.add.currentFolder'",
@@ -1545,6 +1552,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "' '",
     "'sidebar.favorites.empty'",
     "'sidebar.favorites.addStandard'",
+    "'sidebar.importSshConfig'",
     r"'sidebar.favorite.${bookmark.id}'",
     "'sidebar.menu.updateWorkspace'",
     "'sidebar.menu.rename'",
@@ -1561,23 +1569,21 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'sidebar.section.$collapseKey'",
     "'sidebar.servers.empty'",
     "'sidebar.servers.quickConnect'",
-    "'sidebar.importSshConfig'",
     "'sidebar.servers.header'",
     r"'sidebar.section.$sectionKey'",
     "'sidebar.servers.add'",
+    "'sidebar.pinned.header'",
+    "'sidebar.catalog.menu.pin'",
     "' '",
-    r"'sidebar.favorite.${bookmark.id}'",
     r"'sidebar.catalog.row.${server.id}'",
     r"'$username@${host.toLowerCase()}:$port'",
     r"'sidebar.row.disconnect.${server.serverId}'",
     "'sidebar.menu.disconnect'",
-    "', '",
     r"'\n'",
     r"'sidebar.menu.review.$id'",
     "'sidebar.menu.localEdits'",
     r"'${identity.username}@${identity.host}:${identity.port}'",
     r"'${server.username}@${server.host}:${server.port}'",
-    r"'${server.label}, ${appearance.label}'",
     "'sidebar.catalog.menu'",
     "'sidebar.catalog.menu.edit'",
     "'sidebar.catalog.menu.duplicate'",
@@ -1587,9 +1593,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The portable kit's empty query (the filter's clear button).
   'lib/ui/sidebar/sidebar_kit.dart': {
     "''",
-    // The first-verb and header "+" focus nodes' debug labels —
-    // diagnostics, never shown.
+    // The first-verb, row button and header "+" focus nodes' debug
+    // labels: diagnostics, never shown.
     "'SidebarRow first verb'",
+    "'SidebarRow action'",
+    "'SidebarRow menu button'",
     "'SidebarSectionHeader add'",
   },
   // The sidebar filter's term split and the path-separator trimming of
@@ -1612,6 +1620,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The sidebar commands' registry ids.
   'lib/ui/sidebar/sidebar_commands.dart': {
     "'view.filterSidebar'",
+    "'view.toggleSidebarDensity'",
     "'favorite.add'",
     "'connect.saveToServers'",
   },

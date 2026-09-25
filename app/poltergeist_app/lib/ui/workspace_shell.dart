@@ -142,6 +142,10 @@ class WorkspaceShell extends StatefulWidget {
     this.onSidebarHiddenSaveError,
     this.initialSidebarCollapsedGroups = const {},
     this.onSidebarCollapsedGroupsChanged,
+    this.initialSidebarDensity = SidebarDensity.comfortable,
+    this.onSidebarDensityChanged,
+    this.initialSidebarPinnedServers = const {},
+    this.onSidebarPinnedServersChanged,
     this.previewCache,
     this.previewProducer,
     this.quickLook,
@@ -323,6 +327,16 @@ class WorkspaceShell extends StatefulWidget {
   /// sink — null leaves collapse memory in-process.
   final Set<String> initialSidebarCollapsedGroups;
   final void Function(Set<String> keys)? onSidebarCollapsedGroupsChanged;
+
+  /// The persisted sidebar row density (D33: device-local, comfortable
+  /// by default) and its save sink; null keeps the choice in-process.
+  final SidebarDensity initialSidebarDensity;
+  final void Function(SidebarDensity density)? onSidebarDensityChanged;
+
+  /// The persisted PINNED shortlist (D33: device-local server ids) and
+  /// its save sink; null keeps pins in-process.
+  final Set<String> initialSidebarPinnedServers;
+  final void Function(Set<String> ids)? onSidebarPinnedServersChanged;
 
   /// 06 §5.3's preview cache — the seam the whole preview slice keys
   /// on. Null composes no [PreviewSession]: Space keeps its pre-preview
@@ -614,6 +628,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         !identical(
           oldWidget.onSidebarCollapsedGroupsChanged,
           widget.onSidebarCollapsedGroupsChanged,
+        ) ||
+        oldWidget.initialSidebarDensity != widget.initialSidebarDensity ||
+        !identical(
+          oldWidget.onSidebarDensityChanged,
+          widget.onSidebarDensityChanged,
+        ) ||
+        !identical(
+          oldWidget.initialSidebarPinnedServers,
+          widget.initialSidebarPinnedServers,
+        ) ||
+        !identical(
+          oldWidget.onSidebarPinnedServersChanged,
+          widget.onSidebarPinnedServersChanged,
         )) {
       _sidebar?.dispose();
       _sidebar = _buildSidebar();
@@ -750,6 +777,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       store: store,
       initiallyCollapsed: widget.initialSidebarCollapsedGroups,
       onCollapsedChanged: widget.onSidebarCollapsedGroupsChanged,
+      density: widget.initialSidebarDensity,
+      onDensityChanged: widget.onSidebarDensityChanged,
+      initiallyPinned: widget.initialSidebarPinnedServers,
+      onPinnedChanged: widget.onSidebarPinnedServersChanged,
       onBookmarksChanged: _onSidebarBookmarksChanged,
       onBookmarkRemoved: _forwardBookmarkRemoval,
     );
@@ -1398,8 +1429,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           sidebarIsDrawer: () => !_sidebarFits,
           toggleSidebarDrawer: _toggleSidebarDrawer,
         ),
+      // D33's View ▸ Use Compact/Comfortable Sidebar Rows.
+      if (sidebar != null) buildSidebarDensityCommand(sidebar: sidebar),
       // The rail's active-pane verbs (D21): Add Current Folder to
-      // Favorites and Save to Servers… run from the menus too.
+      // Favorites and Save to Favorites… run from the menus too.
       if (workspace != null && sidebar != null)
         ...buildSidebarVerbCommands(sidebar: sidebar, workspace: workspace),
       if (workspace != null)
@@ -1476,7 +1509,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // file.preview's enablement keys off the live surface state too
       // (an open Quick Look / visible panel keeps the verb live).
       ?preview,
-      // Save to Servers… retires once the store carries the endpoint.
+      // Save to Favorites… retires once the store carries the endpoint.
       ?sidebar,
     ]);
 
@@ -1867,6 +1900,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               sshImportCommand,
               presentation: SidebarPresentation.home,
             ),
+      homeDensitySwitch: _sidebar == null
+          ? null
+          : SidebarDensityControl(controller: _sidebar!),
       seams: CompactPaneSeams(
         onCancelRecovery: (pane) =>
             unawaited(_cancelPaneRecovery(workspace, pane)),
@@ -1902,9 +1938,6 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final l10n = AppLocalizations.of(context);
     final message = switch (result.outcome) {
       SidebarAddOutcome.favorite => l10n.compactAddedToFavorites(result.label),
-      SidebarAddOutcome.serverLocation => l10n.compactSavedToServers(
-        result.label,
-      ),
       // Already a favorite, or failed: the shared verb has said so.
       SidebarAddOutcome.alreadyFavorite || SidebarAddOutcome.failed => null,
     };
@@ -2130,8 +2163,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
   }
 
-  /// The Connect dialog's one-click servers (D32 §4): the SERVERS rows —
-  /// saved server locations and the shared-account catalog — used most
+  /// The Connect dialog's one-click servers (D32 §4): the rail's servers —
+  /// saved remote favorites and the shared-account catalog — used most
   /// recently first, each opening a new tab exactly as the sidebar's
   /// new-tab open does.
   List<ConnectServerChoice> _connectChoices() {

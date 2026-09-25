@@ -279,6 +279,7 @@ const _desktopMenus = <AppMenuId, List<String>>{
   ],
   AppMenuId.view: [
     'Show/Hide Sidebar Ctrl+Alt+S',
+    'Use Compact Sidebar Rows',
     'Hide Inspector Ctrl+Alt+I',
     'Show/Hide Second Pane Ctrl+Shift+D',
     _divider,
@@ -311,7 +312,7 @@ const _desktopMenus = <AppMenuId, List<String>>{
   AppMenuId.server: [
     'Connect… Ctrl+K',
     'Disconnect Ctrl+Shift+K',
-    'Save to Servers…',
+    'Save to Favorites…',
     _divider,
     'Synchronize… Ctrl+Alt+Y',
     'New Saved Sync…',
@@ -387,6 +388,7 @@ const _macMenus = <String, List<String>>{
   ],
   'View': [
     'Show/Hide Sidebar ⌃⌘S',
+    'Use Compact Sidebar Rows',
     'Hide Inspector ⌥⌘I',
     'Show/Hide Second Pane ⇧⌘D',
     _divider,
@@ -419,7 +421,7 @@ const _macMenus = <String, List<String>>{
   'Server': [
     'Connect… ⌘K',
     'Disconnect ⇧⌘K',
-    'Save to Servers…',
+    'Save to Favorites…',
     _divider,
     'Synchronize… ⌥⌘Y',
     'New Saved Sync…',

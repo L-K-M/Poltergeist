@@ -13,17 +13,17 @@ import '../save_to_servers.dart';
 /// The banner's button height on desktop, inside its 30 px line.
 const double _desktopControlExtent = 26;
 
-/// Below this line width "Save to Servers…" folds to an icon button, so a
+/// Below this line width "Save to Favorites…" folds to an icon button, so a
 /// pane at its minimum width keeps the endpoint readable.
 const double _labelledSaveMinWidth = 300;
 
 /// The post-connect "Not saved" banner (02 §2.7, D32 §6's banner slot):
 /// one slim line for a live Quick Connect session —
-/// `Not saved · demo@host:2222   [Save to Servers…]  ×` — naming the live
+/// `Not saved · demo@host:2222   [Save to Favorites…]  ×` — naming the live
 /// endpoint, never the raw address string (which may have carried a
 /// stripped password).
 ///
-/// Save to Servers… runs the sidebar's own flow ([promptSaveToServers]:
+/// Save to Favorites… runs the sidebar's own flow ([promptSaveToServers]:
 /// the name prompt prefilled with the endpoint) and saves through
 /// [saveRemoteLocationTo], so a session saved here or from the rail
 /// lands as the same record. The banner watches [store] and leaves the
@@ -225,12 +225,12 @@ class _SaveFavoriteBarState extends State<SaveFavoriteBar> {
                   key: const ValueKey('saveFavorite.save'),
                   style: compact,
                   onPressed: _saving ? null : _save,
-                  child: Text(l10n.sidebarSaveToServers),
+                  child: Text(l10n.sidebarSaveToFavorites),
                 )
               else
                 IconButton(
                   key: const ValueKey('saveFavorite.save'),
-                  tooltip: l10n.sidebarSaveToServers,
+                  tooltip: l10n.sidebarSaveToFavorites,
                   onPressed: _saving ? null : _save,
                   visualDensity: VisualDensity.compact,
                   iconSize: 15,

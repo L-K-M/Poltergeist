@@ -128,9 +128,9 @@ Future<void> _deleteBookmark(
   }
 }
 
-/// "Save to Servers…" on a live Quick Connect session: the pane's
+/// "Save to Favorites…" on a live Quick Connect session: the pane's
 /// save-as-favorite flow, reached from the rail's row and from Server ▸
-/// Save to Servers… — a name (prefilled from the live endpoint, never
+/// Save to Favorites… — a name (prefilled from the live endpoint, never
 /// the raw address), then a store save through [controller].
 Future<void> saveSessionToServers(
   BuildContext context,

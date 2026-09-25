@@ -6,6 +6,8 @@ import 'package:path/path.dart' as p;
 import 'package:poltergeist_app/services/app_preferences.dart';
 import 'package:poltergeist_app/services/double_click_action.dart';
 import 'package:poltergeist_app/services/settings_store.dart';
+import 'package:poltergeist_app/services/sidebar_controller.dart'
+    show SidebarDensity;
 
 void main() {
   late Directory temporaryDirectory;
@@ -122,6 +124,53 @@ void main() {
       await preferences.loadDoubleClickAction(),
       DoubleClickAction.open,
     );
+  });
+
+  test('the sidebar density defaults to comfortable, persists, and falls '
+      'back on an unknown stored value', () async {
+    final preferences = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+
+    // D33: comfortable on every platform until the user picks.
+    expect(await preferences.loadSidebarDensity(), SidebarDensity.comfortable);
+
+    await preferences.saveSidebarDensity(SidebarDensity.compact);
+    expect(await preferences.loadSidebarDensity(), SidebarDensity.compact);
+
+    for (final stored in ['"roomy"', '3', 'null']) {
+      await settingsFile.writeAsString('{"sidebar.density":$stored}');
+      final reloaded = AppPreferences(
+        store: SettingsStore(path: settingsFile.path),
+      );
+      expect(
+        await reloaded.loadSidebarDensity(),
+        SidebarDensity.comfortable,
+        reason: 'stored $stored',
+      );
+    }
+  });
+
+  test('pinned servers persist; a malformed value reads empty', () async {
+    final preferences = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+
+    expect(await preferences.loadSidebarPinnedServers(), isEmpty);
+    await preferences.saveSidebarPinnedServers({'s1', 's2'});
+    expect(await preferences.loadSidebarPinnedServers(), {'s1', 's2'});
+
+    for (final stored in ['"s1"', '{"s1":true}', '[1, "s3"]']) {
+      await settingsFile.writeAsString('{"sidebar.pinnedServers":$stored}');
+      final reloaded = AppPreferences(
+        store: SettingsStore(path: settingsFile.path),
+      );
+      expect(
+        await reloaded.loadSidebarPinnedServers(),
+        stored == '[1, "s3"]' ? {'s3'} : isEmpty,
+        reason: 'stored $stored',
+      );
+    }
   });
 
   test('a non-finite persisted transfer limit decodes as unlimited',

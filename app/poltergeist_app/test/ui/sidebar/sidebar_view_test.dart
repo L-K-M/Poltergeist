@@ -15,6 +15,7 @@ import 'package:poltergeist_app/services/pane_drop.dart';
 import 'package:poltergeist_app/services/sidebar_controller.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
+import 'package:poltergeist_app/ui/server_appearance.dart';
 import 'package:poltergeist_app/ui/sidebar/sidebar_kit.dart';
 import 'package:poltergeist_app/ui/sidebar/sidebar_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -154,6 +155,7 @@ void main() {
   late List<ConnectionServer> disconnected;
   late List<ConnectionServer> reviewed;
   late List<Set<String>> collapsedWrites;
+  late List<SidebarDensity> densityWrites;
   late List<String> removedIds;
   late _ConnectionLanes lanes;
   ConnectionStatusController? connections;
@@ -178,6 +180,9 @@ void main() {
     Widget? dragSource,
     double height = 800,
     bool settle = true,
+    // The one-line rail most of these tests describe; null leaves the
+    // controller's own default (comfortable) in force.
+    SidebarDensity? density = SidebarDensity.compact,
   }) async {
     // Wider than the rail: the drop tests park a drag source beside it,
     // and a context menu needs room to open where it was asked.
@@ -185,12 +190,22 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
-    final controller = SidebarController(
-      store: store,
-      onCollapsedChanged: collapsedWrites.add,
-      onBookmarkRemoved: removedIds.add,
-      errors: errors,
-    );
+    final controller = density == null
+        ? SidebarController(
+            store: store,
+            onCollapsedChanged: collapsedWrites.add,
+            onDensityChanged: densityWrites.add,
+            onBookmarkRemoved: removedIds.add,
+            errors: errors,
+          )
+        : SidebarController(
+            store: store,
+            density: density,
+            onCollapsedChanged: collapsedWrites.add,
+            onDensityChanged: densityWrites.add,
+            onBookmarkRemoved: removedIds.add,
+            errors: errors,
+          );
     addTearDown(controller.dispose);
     unawaited(controller.reload());
 
@@ -275,13 +290,14 @@ void main() {
     disconnected = [];
     reviewed = [];
     collapsedWrites = [];
+    densityWrites = [];
     removedIds = [];
     lanes = _ConnectionLanes();
     connections = null;
   });
 
   group('sections', () {
-    testWidgets('every bookmark kind lands in its section on one line', (
+    testWidgets('every bookmark kind lands in FAVORITES on one line', (
       tester,
     ) async {
       store.bookmarks = [
@@ -311,23 +327,20 @@ void main() {
       for (final id in ['r1', 'l1', 'w1', 's1']) {
         expect(inSection(id), findsOneWidget, reason: 'missing row for $id');
       }
-      // Local folders, workspaces and syncs sit under FAVORITES; the
-      // remote bookmark is a saved server under SERVERS, below them.
+      // Every kind sits under FAVORITES (10 §5, D33): the remote
+      // location beside the local folder, the workspace and the sync.
+      // SERVERS below keeps the account's servers and live sessions.
       final favoritesHeader = tester.getTopLeft(
         find.byKey(const ValueKey('sidebar.section.sec:favorites')),
       );
       final serversHeader = tester.getTopLeft(
         find.byKey(const ValueKey('sidebar.section.sec:servers')),
       );
-      for (final id in ['l1', 'w1', 's1']) {
+      for (final id in ['r1', 'l1', 'w1', 's1']) {
         final y = tester.getTopLeft(inSection(id)).dy;
         expect(y, greaterThan(favoritesHeader.dy));
         expect(y, lessThan(serversHeader.dy));
       }
-      expect(
-        tester.getTopLeft(inSection('r1')).dy,
-        greaterThan(serversHeader.dy),
-      );
 
       // One line per row (10 §5): paths are tooltips, never subtitles.
       expect(find.text('/home/deploy/docs'), findsNothing);
@@ -382,7 +395,12 @@ void main() {
       await pumpSidebar(tester);
 
       expect(find.textContaining('Drag folders here'), findsOneWidget);
-      expect(find.textContaining('No servers yet'), findsOneWidget);
+      // Without the shared account SERVERS holds only live sessions, and
+      // says where a saved one goes.
+      expect(
+        find.textContaining('Quick Connect sessions show here'),
+        findsOneWidget,
+      );
       // No import seam: D22's offer stays absent, not dead.
       expect(
         find.byKey(const ValueKey('sidebar.importSshConfig')),
@@ -392,27 +410,33 @@ void main() {
       expect(store.bookmarks, isEmpty);
     });
 
-    testWidgets('the empty servers state offers the ssh_config import', (
+    testWidgets('the empty favorites state offers the ssh_config import', (
       tester,
     ) async {
       var taps = 0;
       await pumpSidebar(tester, onImportSshConfig: () => taps++);
 
-      final offer = find.byKey(const ValueKey('sidebar.importSshConfig'));
+      // Imported hosts land in FAVORITES, so the offer sits there.
+      final offer = find.descendant(
+        of: find.byKey(const ValueKey('sidebar.favorites.empty')),
+        matching: find.byKey(const ValueKey('sidebar.importSshConfig')),
+      );
       expect(offer, findsOneWidget);
       await tester.tap(offer);
       expect(taps, 1);
     });
 
-    testWidgets('the import offer hides once a server exists', (tester) async {
-      store.bookmarks = [_remote('r1')];
+    testWidgets('the import offer hides once any favorite exists', (
+      tester,
+    ) async {
+      store.bookmarks = [_local('l1')];
       await pumpSidebar(tester, onImportSshConfig: () {});
 
       expect(
         find.byKey(const ValueKey('sidebar.importSshConfig')),
         findsNothing,
       );
-      expect(find.byKey(const ValueKey('sidebar.favorite.r1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('sidebar.favorite.l1')), findsOneWidget);
     });
 
     testWidgets('a failed load shows the error and retry recovers', (
@@ -473,21 +497,51 @@ void main() {
       expect(collapsedWrites.last, isEmpty);
     });
 
-    testWidgets('a server group and a favorite group of one name fold '
-        'independently (the namespaced keys)', (tester) async {
+    testWidgets('a remote favorite and a local one share their group', (
+      tester,
+    ) async {
       store.bookmarks = [
         _local('f', group: 'work'),
-        _remote('s', group: 'work'),
+        _remote('s', group: 'work', sortKey: 'mn'),
       ];
       await pumpSidebar(tester);
 
-      expect(find.text('work'), findsNWidgets(2));
-      await tester.tap(find.byKey(const ValueKey('sidebar.section.srv:work')));
+      // One group under FAVORITES holds both kinds, as before D32. (A
+      // catalog group of the same name folds apart: the catalog test.)
+      expect(find.text('work'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sidebar.section.fav:work')));
       await tester.pumpAndSettle();
 
-      expect(collapsedWrites.last, {'srv:work'});
+      expect(collapsedWrites.last, {'fav:work'});
       expect(find.byKey(const ValueKey('sidebar.favorite.s')), findsNothing);
-      expect(find.byKey(const ValueKey('sidebar.favorite.f')), findsOneWidget);
+      expect(find.byKey(const ValueKey('sidebar.favorite.f')), findsNothing);
+    });
+
+    testWidgets('a local folder reorders among remote favorites', (
+      tester,
+    ) async {
+      store.bookmarks = [
+        _remote('a', sortKey: 'ma'),
+        _local('b', sortKey: 'mb'),
+        _remote('c', sortKey: 'mc'),
+      ];
+      final controller = await pumpSidebar(tester);
+      Finder row(String id) => find.byKey(ValueKey('sidebar.favorite.$id'));
+
+      final gesture = await tester.startGesture(
+        tester.getTopLeft(row('b')) + const Offset(10, 2),
+      );
+      await tester.pump();
+      await gesture.moveTo(tester.getCenter(row('c')) + const Offset(0, 8));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      final order = [
+        for (final section in controller.sections)
+          for (final bookmark in section.bookmarks) bookmark.id,
+      ];
+      expect(order, ['a', 'c', 'b']);
     });
 
     testWidgets('a section folds whole and shows its count only then', (
@@ -666,41 +720,40 @@ void main() {
       expect(opens.single.$1.id, 'a');
     });
 
-    testWidgets('the arrows and Tab get past the SERVERS header and its +', (
-      tester,
-    ) async {
-      store.bookmarks = [
-        _remote('a', sortKey: 'ma'),
-        _remote('b', sortKey: 'mb'),
-      ];
-      var added = 0;
-      await pumpSidebar(tester, onAddServer: () => added++);
-      Future<void> press(LogicalKeyboardKey key) async {
-        await tester.sendKeyEvent(key);
+    // Comfortable, the default, draws every row's "⋮", and a focused row
+    // its hover action: the arrows walk the rows past both.
+    for (final density in SidebarDensity.values) {
+      testWidgets('the arrows walk past the rows\' buttons '
+          '(${density.name})', (tester) async {
+        store.bookmarks = [
+          _local('a', label: 'Alpha', sortKey: 'ma'),
+          _local('b', label: 'Beta', sortKey: 'mb'),
+          _local('c', label: 'Gamma', sortKey: 'mc'),
+        ];
+        await pumpSidebar(tester, density: density);
+        await tester.tap(find.byKey(const ValueKey('sidebar.favorite.a')));
         await tester.pumpAndSettle();
-      }
+        opens.clear();
 
-      await tester.tap(find.byKey(const ValueKey('sidebar.favorite.a')));
-      await tester.pumpAndSettle();
-      opens.clear();
+        Future<void> press(LogicalKeyboardKey key) async {
+          await tester.sendKeyEvent(key);
+          await tester.pump();
+        }
 
-      // Up lands on the header (its "+" drawn for the keyboard); Down
-      // comes straight back to the row rather than bouncing off the "+".
-      await press(LogicalKeyboardKey.arrowUp);
-      await press(LogicalKeyboardKey.arrowDown);
-      await press(LogicalKeyboardKey.enter);
-      expect(opens.single.$1.id, 'a');
-      opens.clear();
+        await press(LogicalKeyboardKey.arrowDown);
+        await press(LogicalKeyboardKey.arrowDown);
+        await press(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        expect(opens.map((open) => open.$1.id), ['c']);
+        opens.clear();
 
-      // Tab takes the header's "+" as a stop of its own, then the row.
-      await press(LogicalKeyboardKey.arrowUp);
-      await press(LogicalKeyboardKey.tab);
-      await press(LogicalKeyboardKey.enter);
-      expect(added, 1);
-      await press(LogicalKeyboardKey.tab);
-      await press(LogicalKeyboardKey.enter);
-      expect(opens.single.$1.id, 'a');
-    });
+        await press(LogicalKeyboardKey.arrowUp);
+        await press(LogicalKeyboardKey.arrowUp);
+        await press(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        expect(opens.map((open) => open.$1.id), ['a']);
+      });
+    }
 
     testWidgets('Shift+F10 raises the focused row\'s context menu', (
       tester,
@@ -768,6 +821,15 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(BottomSheet), findsOneWidget);
+      // The sheet's heading spells the row's second line under its name,
+      // the one place a compact row's path shows on touch.
+      expect(
+        find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.text('/home/deploy/a'),
+        ),
+        findsOneWidget,
+      );
       await tester.tap(find.byKey(const ValueKey('sidebar.menu.open')));
       await tester.pumpAndSettle();
       expect(opens.single.$1.id, 'a');
@@ -798,8 +860,16 @@ void main() {
 
         dataOf(Finder finder) => tester.getSemantics(finder).getSemanticsData();
 
-        for (final label in const ['label-r2', 'Docs', 'Daily pair']) {
-          final data = dataOf(find.bySemanticsLabel(RegExp('^$label\$')));
+        for (final label in const [
+          // A server row names its endpoint and landing folder on the
+          // compact rail too: the tooltip is not a screen reader's.
+          'label-r2, deploy@r2.example.com · /srv/r2',
+          'Docs',
+          'Daily pair',
+        ]) {
+          final data = dataOf(
+            find.bySemanticsLabel(RegExp('^${RegExp.escape(label)}\$')),
+          );
           expect(
             data.flagsCollection.isButton,
             isTrue,
@@ -807,13 +877,17 @@ void main() {
           );
         }
         // The live server row folds its state into the label.
-        final live = dataOf(find.bySemanticsLabel('label-r1, Connected'));
+        final live = dataOf(
+          find.bySemanticsLabel(
+            'label-r1, Connected, deploy@r1.example.com · /srv/r1',
+          ),
+        );
         expect(live.flagsCollection.isButton, isTrue);
 
-        controller.toggleCollapsed('srv:work');
+        controller.toggleCollapsed('fav:work');
         await tester.pumpAndSettle();
         final group = dataOf(
-          find.byKey(const ValueKey('sidebar.section.srv:work')),
+          find.byKey(const ValueKey('sidebar.section.fav:work')),
         );
         expect(group.flagsCollection.isHeader, isTrue);
         expect(group.flagsCollection.isButton, isTrue);
@@ -942,12 +1016,113 @@ void main() {
         expect(opens, isEmpty);
         // An announced-but-inert button is a dead affordance (WCAG 4.1.2).
         final data = tester
-            .getSemantics(find.bySemanticsLabel('label-r1'))
+            .getSemantics(find.bySemanticsLabel(RegExp('^label-r1, ')))
             .getSemanticsData();
         expect(data.flagsCollection.isButton, isFalse);
       } finally {
         semantics.dispose();
       }
+    });
+  });
+
+  group('hidden live connections', () {
+    SidebarSectionHeader headerOf(WidgetTester tester, String key) =>
+        tester.widget<SidebarSectionHeader>(
+          find.ancestor(
+            of: find.byKey(ValueKey('sidebar.section.$key')),
+            matching: find.byType(SidebarSectionHeader),
+          ),
+        );
+
+    Future<PoltergeistChrome> connect(WidgetTester tester, String id) async {
+      lanes.watches[id]!.add(
+        const ServerStatus(ServerConnectionState.connected),
+      );
+      await tester.pumpAndSettle();
+      return PoltergeistChrome.of(tester.element(find.byType(SidebarView)));
+    }
+
+    testWidgets('a folded group shows the live server it hides', (
+      tester,
+    ) async {
+      store.bookmarks = [
+        _remote('r1', group: 'work'),
+        _local('l1', group: 'work', sortKey: 'mn'),
+      ];
+      final controller = await pumpSidebar(tester, withConnections: true);
+      final chrome = await connect(tester, 'r1');
+
+      // Open, the row wears its own dot; the header needs none.
+      expect(headerOf(tester, 'fav:work').status, isNull);
+
+      controller.toggleCollapsed('fav:work');
+      await tester.pumpAndSettle();
+      expect(
+        headerOf(tester, 'fav:work').status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+    });
+
+    testWidgets('a folded section shows the live server it hides', (
+      tester,
+    ) async {
+      store.bookmarks = [_remote('r1')];
+      final controller = await pumpSidebar(tester, withConnections: true);
+      final chrome = await connect(tester, 'r1');
+      expect(headerOf(tester, 'sec:favorites').status, isNull);
+
+      controller.toggleCollapsed('sec:favorites');
+      await tester.pumpAndSettle();
+      expect(
+        headerOf(tester, 'sec:favorites').status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+    });
+
+    testWidgets('a live server the filter hides keeps its dot in view', (
+      tester,
+    ) async {
+      store.bookmarks = [
+        _remote('r1', sortKey: 'ma'),
+        _local('l1', label: 'Docs', sortKey: 'mb'),
+      ];
+      final controller = await pumpSidebar(tester, withConnections: true);
+      final chrome = await connect(tester, 'r1');
+      controller.requestFilter();
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('sidebar.filter.field')),
+        'Docs',
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('sidebar.favorite.r1')), findsNothing);
+      expect(
+        headerOf(tester, 'sec:favorites').status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+
+      // Nothing matches at all: the section's header stays for the dot.
+      await tester.enterText(
+        find.byKey(const ValueKey('sidebar.filter.field')),
+        'zzz',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        headerOf(tester, 'sec:favorites').status,
+        SidebarStatusDot(chrome.statusConnected),
+      );
+    });
+
+    testWidgets('an idle server hidden in a fold marks nothing', (
+      tester,
+    ) async {
+      store.bookmarks = [_remote('r1', group: 'work')];
+      final controller = await pumpSidebar(tester, withConnections: true);
+      controller.toggleCollapsed('fav:work');
+      await tester.pumpAndSettle();
+      expect(headerOf(tester, 'fav:work').status, isNull);
+      expect(headerOf(tester, 'sec:favorites').status, isNull);
     });
   });
 
@@ -1279,10 +1454,12 @@ void main() {
   });
 
   group('filter', () {
-    testWidgets('the field appears at eight servers and filters every '
+    testWidgets('the field appears at five servers and filters every '
         'section', (tester) async {
+      // Five, as both apps drew it before the kit (D33); remote
+      // favorites count, being the user's servers without the account.
       store.bookmarks = [
-        for (var i = 0; i < 7; i++) _remote('srv$i', sortKey: 'm$i'),
+        for (var i = 0; i < 4; i++) _remote('srv$i', sortKey: 'm$i'),
         _local('web-assets', label: 'web-assets'),
       ];
       final volumes = _FakeVolumes()..volumes = const [_home, _root];
@@ -1314,7 +1491,8 @@ void main() {
       expect(find.byKey(const ValueKey('sidebar.favorite.srv0')), findsNothing);
       // DEVICES matches nothing, so it steps aside entirely.
       expect(find.text('DEVICES'), findsNothing);
-      expect(find.text('2 of 11'), findsOneWidget);
+      // The count names Enter's shortcut while there is a first match.
+      expect(find.text('2 of 8 · ↵ opens the first'), findsOneWidget);
 
       // Enter opens the first visible match in rail order.
       await tester.testTextInput.receiveAction(TextInputAction.go);
@@ -1333,12 +1511,60 @@ void main() {
       );
     });
 
+    testWidgets('with nothing to open the count drops the Enter hint, and '
+        'Clear filter brings the rows back', (tester) async {
+      store.bookmarks = [_local('l1', label: 'Docs')];
+      final controller = await pumpSidebar(tester);
+      controller.requestFilter();
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('sidebar.filter.field')),
+        'zzz',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('0 of 1'), findsOneWidget);
+      expect(find.text('No matches'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sidebar.noMatches.clear')));
+      await tester.pumpAndSettle();
+
+      expect(controller.filterQuery, isEmpty);
+      expect(find.byKey(const ValueKey('sidebar.favorite.l1')), findsOneWidget);
+    });
+
+    testWidgets('a query drops itself once the rail it filtered empties', (
+      tester,
+    ) async {
+      // Séance's rule: a stale query would greet the next row the user
+      // adds with "No matches".
+      store.bookmarks = [_local('l1', label: 'Docs')];
+      final controller = await pumpSidebar(tester);
+      controller.requestFilter();
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('sidebar.filter.field')),
+        'Docs',
+      );
+      await tester.pumpAndSettle();
+
+      await tester.runAsync(() => store.remove('l1'));
+      await tester.runAsync(controller.reload);
+      await tester.pumpAndSettle();
+      expect(controller.filterQuery, isEmpty);
+
+      await tester.runAsync(() => store.save(_local('l2', label: 'Music')));
+      await tester.runAsync(controller.reload);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('sidebar.favorite.l2')), findsOneWidget);
+      expect(find.text('No matches'), findsNothing);
+    });
+
     testWidgets('a query folds nothing: collapsed groups open while it runs', (
       tester,
     ) async {
       store.bookmarks = [_remote('a', group: 'work')];
       final controller = await pumpSidebar(tester);
-      controller.toggleCollapsed('srv:work');
+      controller.toggleCollapsed('fav:work');
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sidebar.favorite.a')), findsNothing);
 
@@ -1378,6 +1604,248 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sidebar.filter')), findsNothing);
+    });
+  });
+
+  group('comfortable rows', () {
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    Finder row(String key) => find.byKey(ValueKey(key));
+
+    testWidgets('every row kind spells its second line', (tester) async {
+      store.bookmarks = [
+        _local('l1', label: 'Docs', path: '/home/deploy/docs', sortKey: 'ma'),
+        Bookmark(
+          id: 'w1',
+          kind: BookmarkKind.workspace,
+          label: 'Daily pair',
+          sortKey: 'mb',
+          createdAt: _now,
+          updatedAt: _now,
+        ),
+        _remote('r1', sortKey: 'mc'),
+      ];
+      final volumes = _FakeVolumes()..volumes = const [_home, _usb];
+      await pumpSidebar(
+        tester,
+        volumes: volumes,
+        density: SidebarDensity.comfortable,
+      );
+
+      // DEVICES: free space moves from the trailing text to the line.
+      expect(find.text('69 GB free'), findsOneWidget);
+      expect(
+        rowOf(tester, row('sidebar.device./home/deploy')).trailingText,
+        isNull,
+      );
+      // A folder home-relative, a workspace by kind.
+      expect(find.text('~/docs'), findsOneWidget);
+      expect(find.text('Workspace'), findsOneWidget);
+      // A remote favorite: the endpoint and the folder it lands in.
+      expect(find.text('deploy@r1.example.com · /srv/r1'), findsOneWidget);
+      // The tooltips stay: a second line has room for one fact.
+      expect(find.byTooltip('/home/deploy/docs'), findsOneWidget);
+    });
+
+    testWidgets('a server line leads with the state words it needs', (
+      tester,
+    ) async {
+      store.bookmarks = [_remote('r1')];
+      await pumpSidebar(
+        tester,
+        withConnections: true,
+        density: SidebarDensity.comfortable,
+      );
+      const endpoint = 'deploy@r1.example.com · /srv/r1';
+
+      lanes.watches['r1']!.add(
+        const ServerStatus(ServerConnectionState.connecting),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('${l10n.connectionStateConnecting} · $endpoint'),
+        findsOneWidget,
+      );
+
+      lanes.watches['r1']!.add(
+        const ServerStatus(
+          ServerConnectionState.blocked,
+          detail: 'Host key changed.',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('${l10n.connectionBlockedTitle} · $endpoint'),
+        findsOneWidget,
+      );
+
+      // Connected needs no words: the dot and the ring say it.
+      lanes.watches['r1']!.add(
+        const ServerStatus(ServerConnectionState.connected),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(endpoint), findsOneWidget);
+    });
+
+    testWidgets('marks are 32 px: a badge for a server, a tile for a place', (
+      tester,
+    ) async {
+      store.bookmarks = [
+        _local('l1', label: 'Docs', sortKey: 'ma'),
+        _remote('r1', sortKey: 'mb'),
+      ];
+      await pumpSidebar(tester, density: SidebarDensity.comfortable);
+
+      // An uncoloured server still wears its badge: the neutral tile.
+      final badge = tester.widget<ServerBadge>(
+        find.descendant(
+          of: row('sidebar.favorite.r1'),
+          matching: find.byType(ServerBadge),
+        ),
+      );
+      expect(badge.size, 32);
+      final glyph = find.descendant(
+        of: row('sidebar.favorite.l1'),
+        matching: find.byIcon(Icons.folder_outlined),
+      );
+      expect(tester.widget<Icon>(glyph).size, 20);
+      expect(
+        tester.getSize(
+          find.ancestor(of: glyph, matching: find.byType(DecoratedBox)).first,
+        ),
+        const Size(32, 32),
+      );
+    });
+
+    testWidgets('the row ⋮ is drawn when comfortable, not on a compact rail', (
+      tester,
+    ) async {
+      store.bookmarks = [_local('l1')];
+      await pumpSidebar(tester, density: SidebarDensity.comfortable);
+      expect(
+        find.descendant(
+          of: row('sidebar.favorite.l1'),
+          matching: find.byIcon(Icons.more_vert),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    for (final density in SidebarDensity.values) {
+      testWidgets('a coloured server leads with its colour line '
+          '(${density.name})', (tester) async {
+        store.bookmarks = [
+          Bookmark(
+            id: 'c1',
+            kind: BookmarkKind.remotePath,
+            label: 'prod',
+            color: ServerColor.red,
+            server: _remote('x').server,
+            remotePath: '/srv',
+            sortKey: 'ma',
+            createdAt: _now,
+            updatedAt: _now,
+          ),
+          _remote('plain', sortKey: 'mb'),
+        ];
+        await pumpSidebar(tester, density: density);
+
+        final coloured = row('sidebar.favorite.c1');
+        final line = serverAccent(
+          tester.element(coloured),
+          const ServerTint(named: ServerColor.red),
+        )!.line;
+        expect(rowOf(tester, coloured).accent, line);
+        expect(rowOf(tester, row('sidebar.favorite.plain')).accent, isNull);
+        // The editor's preview of the line is the same width (D33).
+        final drawn = find.descendant(
+          of: coloured,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is DecoratedBox &&
+                widget.decoration is BoxDecoration &&
+                (widget.decoration as BoxDecoration).color == line,
+          ),
+        );
+        expect(tester.getSize(drawn).width, ServerAccentBar.width);
+      });
+    }
+
+    testWidgets('a connected server wears the green ring beside its dot', (
+      tester,
+    ) async {
+      store.bookmarks = [_remote('r1')];
+      await pumpSidebar(tester, withConnections: true);
+      final chrome = PoltergeistChrome.of(
+        tester.element(row('sidebar.favorite.r1')),
+      );
+
+      lanes.watches['r1']!.add(
+        const ServerStatus(ServerConnectionState.connecting),
+      );
+      await tester.pumpAndSettle();
+      expect(rowOf(tester, row('sidebar.favorite.r1')).markRing, isNull);
+
+      lanes.watches['r1']!.add(
+        const ServerStatus(ServerConnectionState.connected),
+      );
+      await tester.pumpAndSettle();
+      final connected = rowOf(tester, row('sidebar.favorite.r1'));
+      expect(connected.markRing, chrome.statusConnected);
+      expect(connected.status?.color, chrome.statusConnected);
+    });
+
+    testWidgets('the compact rail keeps the row ⋮ to the right-click', (
+      tester,
+    ) async {
+      store.bookmarks = [_local('l1')];
+      await pumpSidebar(tester);
+      expect(find.byIcon(Icons.more_vert), findsNothing);
+    });
+  });
+
+  group('density', () {
+    testWidgets('a controller left at its default draws comfortable rows', (
+      tester,
+    ) async {
+      store.bookmarks = [_local('l1', label: 'Docs')];
+      await pumpSidebar(tester, density: null);
+
+      final row = find.byKey(const ValueKey('sidebar.favorite.l1'));
+      expect(tester.getSize(row).height, 52);
+      expect(
+        SidebarKitScope.densityOf(tester.element(find.byType(SidebarRow))),
+        SidebarKitDensity.comfortable,
+      );
+    });
+
+    testWidgets('the bottom bar switch picks the density and persists it', (
+      tester,
+    ) async {
+      store.bookmarks = [_local('l1', label: 'Docs')];
+      final controller = await pumpSidebar(tester);
+      final row = find.byKey(const ValueKey('sidebar.favorite.l1'));
+      expect(tester.getSize(row).height, 26);
+
+      final bar = find.byKey(const ValueKey('sidebar.bottomBar'));
+      expect(
+        find.descendant(of: bar, matching: find.byType(SidebarDensitySwitch)),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.descendant(of: bar, matching: find.byTooltip('Comfortable rows')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(controller.density, SidebarDensity.comfortable);
+      expect(densityWrites, [SidebarDensity.comfortable]);
+      expect(tester.getSize(row).height, 52);
+
+      await tester.tap(
+        find.descendant(of: bar, matching: find.byTooltip('Compact rows')),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.density, SidebarDensity.compact);
+      expect(tester.getSize(row).height, 26);
     });
   });
 

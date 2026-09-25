@@ -4261,6 +4261,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sidebarServersSection => 'Servers';
 
   @override
+  String get sidebarFromSeanceAccount => 'From your Séance account';
+
+  @override
+  String get sidebarPinnedSection => 'Pinned';
+
+  @override
+  String get sidebarPinToTop => 'Pin to top';
+
+  @override
+  String get sidebarUnpin => 'Unpin';
+
+  @override
   String get sidebarShowSection => 'Show';
 
   @override
@@ -4340,7 +4352,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sidebarServersEmpty =>
-      'No servers yet. Connect to one, then save it here.';
+      'Quick Connect sessions show here. Save one to keep it in Favorites.';
 
   @override
   String get sidebarGroupEmpty => 'Drag favorites here';
@@ -4352,10 +4364,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sidebarEject => 'Eject';
 
   @override
-  String get sidebarSaveToServers => 'Save to Servers…';
+  String get sidebarSaveToFavorites => 'Save to Favorites…';
 
   @override
-  String get sidebarSaveToServersTitle => 'Save to Servers';
+  String get sidebarSaveToFavoritesTitle => 'Save to Favorites';
 
   @override
   String get sidebarUnsavedSession => 'not saved';
@@ -4368,6 +4380,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get viewFilterSidebarLabel => 'Filter Sidebar';
+
+  @override
+  String get viewUseCompactSidebarRowsLabel => 'Use Compact Sidebar Rows';
+
+  @override
+  String get viewUseComfortableSidebarRowsLabel =>
+      'Use Comfortable Sidebar Rows';
 
   @override
   String sidebarEjectFailed(String name) {
@@ -4536,6 +4555,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sidebarRowMenu => 'More actions';
 
   @override
+  String get sidebarCompactRows => 'Compact rows';
+
+  @override
+  String get sidebarComfortableRows => 'Comfortable rows';
+
+  @override
   String get compactHomeThisDeviceSubtitle => 'App storage';
 
   @override
@@ -4573,8 +4598,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get compactHomeServersEmptyTitle => 'Connect to a server';
 
   @override
+  String get compactHomeServersEmptyAccountBody =>
+      'Servers on your Séance account appear here, with their status.';
+
+  @override
   String get compactHomeServersEmptyBody =>
-      'Servers you save appear here, with their status.';
+      'Quick Connect sessions appear here, with their status. Save one to keep it in Favorites.';
 
   @override
   String get compactHomeFavoritesEmptyTitle => 'Keep folders close';
@@ -4586,11 +4615,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String compactAddedToFavorites(String label) {
     return 'Added “$label” to Favorites.';
-  }
-
-  @override
-  String compactSavedToServers(String label) {
-    return 'Saved “$label” to Servers.';
   }
 
   @override

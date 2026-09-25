@@ -19,6 +19,24 @@
   - Panes get a location header with a menu of enclosing folders,
     sortable columns, denser rows with file-kind icons, selection on
     press, and right-click menus everywhere.
+- **Two sidebar views.** The sidebar's rows come in two densities:
+  comfortable, the default, with a larger mark and the path, free space
+  or `user@host` (with the state first when a server is connecting,
+  failed or blocked) spelled on a second line, and compact, one line
+  with those details in the tooltip. Switch at the foot of the
+  sidebar, on the phone's Home, or with View ▸ Use Compact/Comfortable
+  Sidebar Rows; the choice is kept per device.
+  - A server's colour leads its row as a line again, a connected server
+    wears a green ring, a blocked host key has its own mark, and an
+    unreachable host shows a red ring.
+  - Saved remote folders are favorites again, listed under Favorites
+    beside local folders; "Save to Servers…" is now "Save to
+    Favorites…". Servers lists your Séance account's servers (marked as
+    such) and live Quick Connect sessions, and a Pinned section keeps
+    the ones you pin at the top.
+  - A folded group or a filter never hides a live connection: the
+    header shows its dot. The filter appears at five servers again,
+    says "↵ opens the first", and offers Clear filter.
 - **New verbs.** Connect (⌘K), New Folder, New File, Duplicate, Move to
   Trash with a clear confirmation, Copy and Move to Other Pane (F5, F6),
   Show in Finder / File Manager / Explorer, and Help ▸ Keyboard

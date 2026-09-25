@@ -4674,7 +4674,7 @@ abstract class AppLocalizations {
   /// **'Ungrouped'**
   String get sidebarCatalogUngrouped;
 
-  /// Body copy inside the expanded Séance-servers section when the pulled catalog is empty.
+  /// Empty-Servers hint in shared mode (the Séance account's servers list under SERVERS) while the pulled catalog is empty.
   ///
   /// In en, this message translates to:
   /// **'No servers on this account yet. Add one in Séance and sync to see it here.'**
@@ -4692,19 +4692,19 @@ abstract class AppLocalizations {
   /// **'Filter servers'**
   String get sidebarCatalogFilter;
 
-  /// Helper text under the catalog filter while a query is active and no row can be opened: the match count against the catalog total.
+  /// The sidebar filter's count while a query is active and no row can be opened (and on the phone's Home, always): the matching rows against every row the filter considered.
   ///
   /// In en, this message translates to:
   /// **'{matches} of {total}'**
   String sidebarCatalogFilterCount(int matches, int total);
 
-  /// Helper text under the catalog filter while a query matches at least one row — names the Enter-opens-first-match affordance.
+  /// The sidebar filter's count under the field while a query matches at least one row: names the Enter-opens-first-match affordance (both apps' hint, restored by D33).
   ///
   /// In en, this message translates to:
   /// **'{matches} of {total} · ↵ opens the first'**
   String sidebarCatalogFilterCountOpenFirst(int matches, int total);
 
-  /// Tooltip of the catalog filter's clear button.
+  /// Tooltip of the sidebar filter's clear button, and the button under No matches that clears the query.
   ///
   /// In en, this message translates to:
   /// **'Clear filter'**
@@ -6472,11 +6472,35 @@ abstract class AppLocalizations {
   /// **'Favorites'**
   String get sidebarFavoritesSection;
 
-  /// Sidebar section header over saved servers, shared-account servers, and live Quick Connect sessions (D32 §5). Rendered in caps.
+  /// Sidebar section header over the shared account's servers and live Quick Connect sessions (D32 §5, D33). Rendered in caps.
   ///
   /// In en, this message translates to:
   /// **'Servers'**
   String get sidebarServersSection;
+
+  /// Tooltip line and spoken part of a Servers row that comes from the shared Séance account (its edits change the account's record), beside the row's small cloud mark (D33).
+  ///
+  /// In en, this message translates to:
+  /// **'From your Séance account'**
+  String get sidebarFromSeanceAccount;
+
+  /// Sidebar section header over the servers the user pinned (D33), drawn above Servers while any is pinned. Rendered in caps. Séance uses the same word.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinned'**
+  String get sidebarPinnedSection;
+
+  /// Server row menu verb: moves the server into the Pinned shortlist above Servers, on this device only. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin to top'**
+  String get sidebarPinToTop;
+
+  /// Server row menu verb on a pinned server: files it back under Servers. Séance uses the same word.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get sidebarUnpin;
 
   /// Tooltip of a collapsed sidebar section's chevron.
   ///
@@ -6616,10 +6640,10 @@ abstract class AppLocalizations {
   /// **'Drag folders here to keep them close.'**
   String get sidebarFavoritesEmpty;
 
-  /// Empty-Servers hint.
+  /// Empty-Servers hint without the shared Séance account (D33): SERVERS then holds only live Quick Connect sessions, and a saved server lands in Favorites.
   ///
   /// In en, this message translates to:
-  /// **'No servers yet. Connect to one, then save it here.'**
+  /// **'Quick Connect sessions show here. Save one to keep it in Favorites.'**
   String get sidebarServersEmpty;
 
   /// Placeholder row inside a group created with New Group… that has no members yet.
@@ -6640,17 +6664,17 @@ abstract class AppLocalizations {
   /// **'Eject'**
   String get sidebarEject;
 
-  /// Menu verb on an unsaved Quick Connect session in the sidebar: saves it as a server.
+  /// Verb on an unsaved Quick Connect session (the sidebar's italic row, the pane's Not saved banner, and Server ▸ Save to Favorites…): saves its endpoint and folder as a favorite, which lists under Favorites (D33).
   ///
   /// In en, this message translates to:
-  /// **'Save to Servers…'**
-  String get sidebarSaveToServers;
+  /// **'Save to Favorites…'**
+  String get sidebarSaveToFavorites;
 
-  /// Title of the name dialog that saves a Quick Connect session.
+  /// Title of the name dialog that saves a Quick Connect session as a favorite.
   ///
   /// In en, this message translates to:
-  /// **'Save to Servers'**
-  String get sidebarSaveToServersTitle;
+  /// **'Save to Favorites'**
+  String get sidebarSaveToFavoritesTitle;
 
   /// Announced after a live Quick Connect session's name in the sidebar (the row is shown in italics).
   ///
@@ -6675,6 +6699,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Filter Sidebar'**
   String get viewFilterSidebarLabel;
+
+  /// View menu command (view.toggleSidebarDensity) while the sidebar's rows are comfortable: switches them to one line with details in tooltips. The label names the density it switches to, because the macOS menu cannot show a check mark. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Use Compact Sidebar Rows'**
+  String get viewUseCompactSidebarRowsLabel;
+
+  /// View menu command (view.toggleSidebarDensity) while the sidebar's rows are compact: switches them to two lines with the path or address spelled out. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Use Comfortable Sidebar Rows'**
+  String get viewUseComfortableSidebarRowsLabel;
 
   /// Shown when the OS refuses to eject a volume.
   ///
@@ -6922,6 +6958,18 @@ abstract class AppLocalizations {
   /// **'More actions'**
   String get sidebarRowMenu;
 
+  /// Tooltip (and screen-reader name) of the compact half of the sidebar's density switch in the bottom bar: one-line rows with details in tooltips. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Compact rows'**
+  String get sidebarCompactRows;
+
+  /// Tooltip (and screen-reader name) of the comfortable half of the sidebar's density switch in the bottom bar: two-line rows with the path or address spelled out. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Comfortable rows'**
+  String get sidebarComfortableRows;
+
   /// D32 §9: second line of the compact Home's "This device" row. The local pane on a phone is the app's own storage, not the whole device.
   ///
   /// In en, this message translates to:
@@ -6958,16 +7006,22 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 tab open} other{{count} tabs open}}'**
   String compactHomeTabsOpen(int count);
 
-  /// D32 §9: title of the compact Home's empty SERVERS state, above the Quick Connect and Import from ssh config buttons.
+  /// D32 §9: title of the compact Home's empty SERVERS state, above the Quick Connect button.
   ///
   /// In en, this message translates to:
   /// **'Connect to a server'**
   String get compactHomeServersEmptyTitle;
 
-  /// D32 §9: body of the compact Home's empty SERVERS state.
+  /// D32 §9: body of the compact Home's empty SERVERS state in shared mode, while the Séance account's server list is empty.
   ///
   /// In en, this message translates to:
-  /// **'Servers you save appear here, with their status.'**
+  /// **'Servers on your Séance account appear here, with their status.'**
+  String get compactHomeServersEmptyAccountBody;
+
+  /// D32 §9: body of the compact Home's empty SERVERS state without the shared Séance account (D33): SERVERS then holds only live sessions, and a saved server lands in Favorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Connect sessions appear here, with their status. Save one to keep it in Favorites.'**
   String get compactHomeServersEmptyBody;
 
   /// D32 §9: title of the compact Home's empty FAVORITES state.
@@ -6982,17 +7036,11 @@ abstract class AppLocalizations {
   /// **'Open a folder, then choose Add Current Folder to Favorites from its menu.'**
   String get compactHomeFavoritesEmptyBody;
 
-  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local folder (Home, where the row appears, is a screen away).
+  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local or remote folder (Home, where the row appears, is a screen away).
   ///
   /// In en, this message translates to:
   /// **'Added “{label}” to Favorites.'**
   String compactAddedToFavorites(String label);
-
-  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a remote folder, which lands under Servers.
-  ///
-  /// In en, this message translates to:
-  /// **'Saved “{label}” to Servers.'**
-  String compactSavedToServers(String label);
 
   /// Command label: browse the tab's home, the user's home folder locally or the login folder on a server (go.home, ⇧⌘H, 02 §8.3, 10 §8's Go menu).
   ///
@@ -7018,7 +7066,7 @@ abstract class AppLocalizations {
   /// **'Requires a tab connected to a server'**
   String get commandDisabledNotConnected;
 
-  /// Disabled-command reason for Server ▸ Save to Servers… (connect.saveToServers): the active tab is not browsing a Quick Connect session that is not saved yet.
+  /// Disabled-command reason for Server ▸ Save to Favorites… (connect.saveToServers): the active tab is not browsing a Quick Connect session that is not saved yet.
   ///
   /// In en, this message translates to:
   /// **'Requires an unsaved Quick Connect session'**

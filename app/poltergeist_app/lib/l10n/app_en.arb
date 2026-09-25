@@ -3888,7 +3888,7 @@
   },
   "sidebarCatalogEmpty": "No servers on this account yet. Add one in Séance and sync to see it here.",
   "@sidebarCatalogEmpty": {
-    "description": "Body copy inside the expanded Séance-servers section when the pulled catalog is empty."
+    "description": "Empty-Servers hint in shared mode (the Séance account's servers list under SERVERS) while the pulled catalog is empty."
   },
   "sidebarCatalogNoMatches": "No servers match the filter.",
   "@sidebarCatalogNoMatches": {
@@ -3900,7 +3900,7 @@
   },
   "sidebarCatalogFilterCount": "{matches} of {total}",
   "@sidebarCatalogFilterCount": {
-    "description": "Helper text under the catalog filter while a query is active and no row can be opened: the match count against the catalog total.",
+    "description": "The sidebar filter's count while a query is active and no row can be opened (and on the phone's Home, always): the matching rows against every row the filter considered.",
     "placeholders": {
       "matches": {
         "type": "int",
@@ -3914,7 +3914,7 @@
   },
   "sidebarCatalogFilterCountOpenFirst": "{matches} of {total} · ↵ opens the first",
   "@sidebarCatalogFilterCountOpenFirst": {
-    "description": "Helper text under the catalog filter while a query matches at least one row — names the Enter-opens-first-match affordance.",
+    "description": "The sidebar filter's count under the field while a query matches at least one row: names the Enter-opens-first-match affordance (both apps' hint, restored by D33).",
     "placeholders": {
       "matches": {
         "type": "int",
@@ -3928,7 +3928,7 @@
   },
   "sidebarCatalogFilterClear": "Clear filter",
   "@sidebarCatalogFilterClear": {
-    "description": "Tooltip of the catalog filter's clear button."
+    "description": "Tooltip of the sidebar filter's clear button, and the button under No matches that clears the query."
   },
   "sidebarCatalogSyncNow": "Sync now",
   "@sidebarCatalogSyncNow": {
@@ -5537,7 +5537,23 @@
   },
   "sidebarServersSection": "Servers",
   "@sidebarServersSection": {
-    "description": "Sidebar section header over saved servers, shared-account servers, and live Quick Connect sessions (D32 §5). Rendered in caps."
+    "description": "Sidebar section header over the shared account's servers and live Quick Connect sessions (D32 §5, D33). Rendered in caps."
+  },
+  "sidebarFromSeanceAccount": "From your Séance account",
+  "@sidebarFromSeanceAccount": {
+    "description": "Tooltip line and spoken part of a Servers row that comes from the shared Séance account (its edits change the account's record), beside the row's small cloud mark (D33)."
+  },
+  "sidebarPinnedSection": "Pinned",
+  "@sidebarPinnedSection": {
+    "description": "Sidebar section header over the servers the user pinned (D33), drawn above Servers while any is pinned. Rendered in caps. Séance uses the same word."
+  },
+  "sidebarPinToTop": "Pin to top",
+  "@sidebarPinToTop": {
+    "description": "Server row menu verb: moves the server into the Pinned shortlist above Servers, on this device only. Séance uses the same words."
+  },
+  "sidebarUnpin": "Unpin",
+  "@sidebarUnpin": {
+    "description": "Server row menu verb on a pinned server: files it back under Servers. Séance uses the same word."
   },
   "sidebarShowSection": "Show",
   "@sidebarShowSection": {
@@ -5651,9 +5667,9 @@
   "@sidebarFavoritesEmpty": {
     "description": "Empty-Favorites hint when none of the standard folders exist to offer."
   },
-  "sidebarServersEmpty": "No servers yet. Connect to one, then save it here.",
+  "sidebarServersEmpty": "Quick Connect sessions show here. Save one to keep it in Favorites.",
   "@sidebarServersEmpty": {
-    "description": "Empty-Servers hint."
+    "description": "Empty-Servers hint without the shared Séance account (D33): SERVERS then holds only live Quick Connect sessions, and a saved server lands in Favorites."
   },
   "sidebarGroupEmpty": "Drag favorites here",
   "@sidebarGroupEmpty": {
@@ -5667,13 +5683,13 @@
   "@sidebarEject": {
     "description": "Device row verb (menu and hover glyph) for removable volumes."
   },
-  "sidebarSaveToServers": "Save to Servers…",
-  "@sidebarSaveToServers": {
-    "description": "Menu verb on an unsaved Quick Connect session in the sidebar: saves it as a server."
+  "sidebarSaveToFavorites": "Save to Favorites…",
+  "@sidebarSaveToFavorites": {
+    "description": "Verb on an unsaved Quick Connect session (the sidebar's italic row, the pane's Not saved banner, and Server ▸ Save to Favorites…): saves its endpoint and folder as a favorite, which lists under Favorites (D33)."
   },
-  "sidebarSaveToServersTitle": "Save to Servers",
-  "@sidebarSaveToServersTitle": {
-    "description": "Title of the name dialog that saves a Quick Connect session."
+  "sidebarSaveToFavoritesTitle": "Save to Favorites",
+  "@sidebarSaveToFavoritesTitle": {
+    "description": "Title of the name dialog that saves a Quick Connect session as a favorite."
   },
   "sidebarUnsavedSession": "not saved",
   "@sidebarUnsavedSession": {
@@ -5690,6 +5706,14 @@
   "viewFilterSidebarLabel": "Filter Sidebar",
   "@viewFilterSidebarLabel": {
     "description": "Command label: shows and focuses the sidebar's filter field (view.filterSidebar, ⌥⌘F / Ctrl+Alt+F)."
+  },
+  "viewUseCompactSidebarRowsLabel": "Use Compact Sidebar Rows",
+  "@viewUseCompactSidebarRowsLabel": {
+    "description": "View menu command (view.toggleSidebarDensity) while the sidebar's rows are comfortable: switches them to one line with details in tooltips. The label names the density it switches to, because the macOS menu cannot show a check mark. Séance uses the same words."
+  },
+  "viewUseComfortableSidebarRowsLabel": "Use Comfortable Sidebar Rows",
+  "@viewUseComfortableSidebarRowsLabel": {
+    "description": "View menu command (view.toggleSidebarDensity) while the sidebar's rows are compact: switches them to two lines with the path or address spelled out. Séance uses the same words."
   },
   "sidebarEjectFailed": "Couldn't eject “{name}”. Close anything using it and try again.",
   "@sidebarEjectFailed": {
@@ -5939,6 +5963,14 @@
   "@sidebarRowMenu": {
     "description": "Tooltip of a sidebar row's visible ⋮ button, which opens the row's verbs (the shared sidebar kit's showMenuButton; Séance uses the same words)."
   },
+  "sidebarCompactRows": "Compact rows",
+  "@sidebarCompactRows": {
+    "description": "Tooltip (and screen-reader name) of the compact half of the sidebar's density switch in the bottom bar: one-line rows with details in tooltips. Séance uses the same words."
+  },
+  "sidebarComfortableRows": "Comfortable rows",
+  "@sidebarComfortableRows": {
+    "description": "Tooltip (and screen-reader name) of the comfortable half of the sidebar's density switch in the bottom bar: two-line rows with the path or address spelled out. Séance uses the same words."
+  },
   "compactHomeThisDeviceSubtitle": "App storage",
   "@compactHomeThisDeviceSubtitle": {
     "description": "D32 §9: second line of the compact Home's \"This device\" row. The local pane on a phone is the app's own storage, not the whole device."
@@ -6002,11 +6034,15 @@
   },
   "compactHomeServersEmptyTitle": "Connect to a server",
   "@compactHomeServersEmptyTitle": {
-    "description": "D32 §9: title of the compact Home's empty SERVERS state, above the Quick Connect and Import from ssh config buttons."
+    "description": "D32 §9: title of the compact Home's empty SERVERS state, above the Quick Connect button."
   },
-  "compactHomeServersEmptyBody": "Servers you save appear here, with their status.",
+  "compactHomeServersEmptyAccountBody": "Servers on your Séance account appear here, with their status.",
+  "@compactHomeServersEmptyAccountBody": {
+    "description": "D32 §9: body of the compact Home's empty SERVERS state in shared mode, while the Séance account's server list is empty."
+  },
+  "compactHomeServersEmptyBody": "Quick Connect sessions appear here, with their status. Save one to keep it in Favorites.",
   "@compactHomeServersEmptyBody": {
-    "description": "D32 §9: body of the compact Home's empty SERVERS state."
+    "description": "D32 §9: body of the compact Home's empty SERVERS state without the shared Séance account (D33): SERVERS then holds only live sessions, and a saved server lands in Favorites."
   },
   "compactHomeFavoritesEmptyTitle": "Keep folders close",
   "@compactHomeFavoritesEmptyTitle": {
@@ -6018,16 +6054,7 @@
   },
   "compactAddedToFavorites": "Added “{label}” to Favorites.",
   "@compactAddedToFavorites": {
-    "description": "D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local folder (Home, where the row appears, is a screen away).",
-    "placeholders": {
-      "label": {
-        "type": "String"
-      }
-    }
-  },
-  "compactSavedToServers": "Saved “{label}” to Servers.",
-  "@compactSavedToServers": {
-    "description": "D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a remote folder, which lands under Servers.",
+    "description": "D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local or remote folder (Home, where the row appears, is a screen away).",
     "placeholders": {
       "label": {
         "type": "String"
@@ -6052,7 +6079,7 @@
   },
   "commandDisabledNoQuickConnect": "Requires an unsaved Quick Connect session",
   "@commandDisabledNoQuickConnect": {
-    "description": "Disabled-command reason for Server ▸ Save to Servers… (connect.saveToServers): the active tab is not browsing a Quick Connect session that is not saved yet."
+    "description": "Disabled-command reason for Server ▸ Save to Favorites… (connect.saveToServers): the active tab is not browsing a Quick Connect session that is not saved yet."
   },
   "connectDialogHighlightAnnouncement": "{server}, {detail}. Press Return to open it.",
   "@connectDialogHighlightAnnouncement": {

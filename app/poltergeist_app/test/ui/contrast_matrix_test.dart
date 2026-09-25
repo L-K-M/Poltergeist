@@ -159,17 +159,27 @@ void main() {
         // D32 §5: the 7 px dot composed into a row's mark sits on the
         // rail at rest, on the 6 % hover fill, and on the selection
         // pill of the row the active pane shows — the pill is where a
-        // single green once fell below the floor.
+        // single green once fell below the floor. Home's list sits on
+        // the page surface instead.
         final rail = chrome.sidebarBackground;
+        final home = chrome.paneBackground;
         final rowStates = <(String, Color)>[
           ('rail', rail),
           ('hover', Color.alphaBlend(chrome.hoverFill, rail)),
           ('pill', Color.alphaBlend(chrome.inactiveSelectionFill, rail)),
+          ('home list', home),
+          ('home pill', Color.alphaBlend(chrome.inactiveSelectionFill, home)),
         ];
+        // D33's marks: a blocked host key cuts a bar of the row's own
+        // colour across the red dot, and an unreachable host is a red
+        // ring with the row showing through, so both lean on the error
+        // colour against the row; the connected ring is the green one.
         final dots = <(String, Color)>[
-          ('connected', chrome.statusConnected),
+          ('connected dot and ring', chrome.statusConnected),
           ('connecting', chrome.statusConnecting),
           ('failed', scheme.error),
+          ('blocked bar', scheme.error),
+          ('unreachable ring', scheme.error),
         ];
         for (final (dot, color) in dots) {
           for (final (state, surface) in rowStates) {

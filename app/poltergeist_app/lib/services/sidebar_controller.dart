@@ -6,8 +6,10 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'application_error_reporter.dart';
 import 'uuid.dart';
 
-/// The sidebar's three fixed sections (10 §5), in rail order.
-enum SidebarSection { devices, favorites, servers }
+/// The sidebar's fixed sections (10 §5), in rail order. [pinned] is the
+/// shortlist of the account's servers the user pinned (D33), drawn only
+/// while one is listed.
+enum SidebarSection { devices, favorites, pinned, servers }
 
 /// The persisted collapse-key vocabulary (02 §4: device-local). Every key
 /// carries its surface's namespace — `sec:` for the three fixed sections,
@@ -70,6 +72,13 @@ abstract final class SidebarCollapseKeys {
   }
 }
 
+/// How roomy the sidebar's rows are (D33), a device-local choice the
+/// sidebar kit draws: [compact] is 10 §5's one-line rail, [comfortable]
+/// the two-line rows with the address or path spelled out. Comfortable
+/// is the default on every platform. The view maps it onto the kit's own
+/// enum, so this layer stays free of widget types.
+enum SidebarDensity { compact, comfortable }
+
 /// The favorites list's own load state — distinct from the connections
 /// truth the sidebar composes beside it (a ready list can hold no live
 /// connections, and a failed load has no sections to describe).
@@ -95,7 +104,11 @@ final class SidebarController extends ChangeNotifier {
   SidebarController({
     required BookmarkStore store,
     Set<String> initiallyCollapsed = const {},
+    SidebarDensity density = SidebarDensity.comfortable,
+    Set<String> initiallyPinned = const {},
     this.onCollapsedChanged,
+    this.onDensityChanged,
+    this.onPinnedChanged,
     this.onBookmarksChanged,
     this.onBookmarkRemoved,
     ApplicationErrorReporter? errors,
@@ -103,6 +116,11 @@ final class SidebarController extends ChangeNotifier {
        // ignore: prefer_initializing_formals
        _store = store,
        _collapsed = SidebarCollapseKeys.migrate(initiallyCollapsed),
+       // A named parameter cannot be private; the field stays mutable
+       // behind setDensity.
+       // ignore: prefer_initializing_formals
+       _density = density,
+       _pinned = Set.unmodifiable(initiallyPinned),
        // Keep the reporter private while allowing test-only injection.
        // ignore: prefer_initializing_formals
        _errors = errors ?? ApplicationErrorReporter() {
@@ -118,6 +136,16 @@ final class SidebarController extends ChangeNotifier {
   /// memory in-process (tests, alternate boot paths).
   final void Function(Set<String> collapsed)? onCollapsedChanged;
 
+  /// The persist sink for [density] (device-local, like collapse state).
+  /// Called after every change the user makes; null keeps the choice
+  /// in-process.
+  final void Function(SidebarDensity density)? onDensityChanged;
+
+  /// The persist sink for the pinned-server set (device-local, like
+  /// Séance's pins, which never sync). Called after every toggle with
+  /// the full set; null keeps pins in-process.
+  final void Function(Set<String> pinned)? onPinnedChanged;
+
   /// Fires after every store-driven reload — the shell reloads the
   /// connections list and re-syncs the probe owner here, so all three
   /// surfaces re-derive from one store truth.
@@ -132,6 +160,8 @@ final class SidebarController extends ChangeNotifier {
   List<BookmarkGroupSection> _sections = const [];
   SidebarLoad _load = SidebarLoad.idle;
   Set<String> _collapsed;
+  SidebarDensity _density;
+  Set<String> _pinned;
   int _generation = 0;
   bool _disposed = false;
   String _filterQuery = '';
@@ -170,6 +200,53 @@ final class SidebarController extends ChangeNotifier {
     if (sink == null) return;
     try {
       sink(Set.unmodifiable(next));
+    } on Object catch (error, stackTrace) {
+      _errors.report(error, stackTrace);
+    }
+  }
+
+  /// The rows' density (D33): the bottom bar's switch, Home's app bar
+  /// and View ▸ Use Compact/Comfortable Sidebar Rows all set it here, so
+  /// the rail, the drawer and Home read one choice.
+  SidebarDensity get density => _density;
+
+  /// Sets the density and reports it to the persist seam. Like a
+  /// collapse toggle, a failed write keeps the change: the state is
+  /// cosmetic and the next launch's re-read is honest.
+  void setDensity(SidebarDensity density) {
+    if (_disposed || density == _density) return;
+    _density = density;
+    notifyListeners();
+    final sink = onDensityChanged;
+    if (sink == null) return;
+    try {
+      sink(density);
+    } on Object catch (error, stackTrace) {
+      _errors.report(error, stackTrace);
+    }
+  }
+
+  /// The ids of the account's servers pinned to PINNED (10 §5's "pinned
+  /// servers come first", D33). An id whose server is no longer listed
+  /// keeps its pin: it draws nothing, and comes back pinned if the
+  /// server does.
+  Set<String> get pinnedServers => _pinned;
+
+  bool isPinned(String serverId) => _pinned.contains(serverId);
+
+  /// Pin to top / Unpin: toggles [serverId] and reports the full set to
+  /// the persist seam. Like a collapse toggle, a failed write keeps the
+  /// change.
+  void togglePinned(String serverId) {
+    if (_disposed) return;
+    final next = Set<String>.of(_pinned);
+    if (!next.add(serverId)) next.remove(serverId);
+    _pinned = Set.unmodifiable(next);
+    notifyListeners();
+    final sink = onPinnedChanged;
+    if (sink == null) return;
+    try {
+      sink(_pinned);
     } on Object catch (error, stackTrace) {
       _errors.report(error, stackTrace);
     }
