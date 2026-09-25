@@ -286,6 +286,34 @@ void main() {
       expect(channel.listCalls.length, before + 1);
     });
 
+    testWidgets('the error card\'s Cancel returns to the folder it left', (
+      tester,
+    ) async {
+      final harness = CompactHarness();
+      await harness.pump(tester);
+      await _openThisDevice(tester);
+      final pane = harness.activePane(tester);
+      harness.engine.localChannels[2].listingFailures['/root'] =
+          const RemoteFileException(
+            kind: RemoteFileErrorKind.permissionDenied,
+            operation: 'list',
+            path: '/root',
+            message: 'Could not list "/root": Permission denied',
+          );
+
+      pane.navigate('/root');
+      await tester.pumpAndSettle();
+      expect(_key(CompactKey.errorRetry), findsOneWidget);
+
+      await tester.tap(_key(CompactKey.errorCancel));
+      await tester.pumpAndSettle();
+
+      expect(_key(CompactKey.errorCancel), findsNothing);
+      expect(pane.error, isNull);
+      expect(pane.location?.path, '/home/deploy');
+      expect(find.text('notes.txt'), findsOneWidget);
+    });
+
     testWidgets('the row ⋮ opens the registry row sheet and releases its '
         'subject when dismissed', (tester) async {
       final harness = CompactHarness();

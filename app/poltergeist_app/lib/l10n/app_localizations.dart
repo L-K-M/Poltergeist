@@ -940,6 +940,12 @@ abstract class AppLocalizations {
   /// **'The folder could not be opened.'**
   String get paneErrorOther;
 
+  /// The inline error's cancel action, beside Retry: abandons what failed and returns the pane to the last folder that opened (or leaves a connection that failed).
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get paneErrorCancel;
+
   /// Diagnostic line for a non-VFS fault while opening a remote connection.
   ///
   /// In en, this message translates to:
@@ -2261,14 +2267,20 @@ abstract class AppLocalizations {
   /// The journal-flush failure dialog's body (07 §3.5): the raw error is machine data rendered inside ARB copy.
   ///
   /// In en, this message translates to:
-  /// **'Saving the transfer journal failed: {error}. The window stayed open so queued and in-flight transfers are not lost — quit again to retry.'**
+  /// **'Saving the transfer journal failed: {error}. The window stayed open so queued and in-flight transfers are not lost. Quit again to retry, or choose Quit Anyway to close without saving their latest state.'**
   String quitFlushFailedBody(String error);
 
-  /// Closes the journal-flush failure dialog; the window stays open either way.
+  /// Closes the journal-flush failure dialog; the window stays open.
   ///
   /// In en, this message translates to:
   /// **'Dismiss'**
   String get quitFlushFailedDismiss;
+
+  /// The journal-flush failure dialog's way out when the write keeps failing: closes the window without the journal write (the journal stays crash-consistent, so the next launch restores what it last recorded).
+  ///
+  /// In en, this message translates to:
+  /// **'Quit Anyway'**
+  String get quitFlushFailedQuitAnyway;
 
   /// Task state: waiting behind the queue's admission order.
   ///

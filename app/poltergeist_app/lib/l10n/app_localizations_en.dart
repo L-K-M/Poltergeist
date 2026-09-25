@@ -519,6 +519,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneErrorOther => 'The folder could not be opened.';
 
   @override
+  String get paneErrorCancel => 'Cancel';
+
+  @override
   String get paneFaultConnectionOpen =>
       'The connection to this server could not be opened.';
 
@@ -1442,11 +1445,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String quitFlushFailedBody(String error) {
-    return 'Saving the transfer journal failed: $error. The window stayed open so queued and in-flight transfers are not lost — quit again to retry.';
+    return 'Saving the transfer journal failed: $error. The window stayed open so queued and in-flight transfers are not lost. Quit again to retry, or choose Quit Anyway to close without saving their latest state.';
   }
 
   @override
   String get quitFlushFailedDismiss => 'Dismiss';
+
+  @override
+  String get quitFlushFailedQuitAnyway => 'Quit Anyway';
 
   @override
   String get transferStateQueued => 'Queued';

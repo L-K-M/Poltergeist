@@ -412,9 +412,26 @@ class _CompactListingState extends State<CompactListing> {
           _ErrorCard(
             error: controller.error!,
             onRetry: () => unawaited(controller.retry()),
+            onCancel: controller.errorExit == PaneErrorExit.none
+                ? null
+                : _cancelError,
           ),
       ],
     );
+  }
+
+  /// The error card's Cancel: the pane backs out on its own, or the
+  /// shell's sibling-aware detach runs when only leaving the remote
+  /// binding gets out (the desktop pane's routing).
+  void _cancelError() {
+    switch (_controller.errorExit) {
+      case PaneErrorExit.none:
+        return;
+      case PaneErrorExit.pane:
+        _controller.cancelError();
+      case PaneErrorExit.unbind:
+        widget.onCancelRecovery();
+    }
   }
 
   Widget _connecting(BuildContext context, AppLocalizations l10n) {
@@ -915,10 +932,18 @@ class _CompactBanner extends StatelessWidget {
 
 /// 02 §2.8's inline error, as a card over the disowned listing.
 class _ErrorCard extends StatelessWidget {
-  const _ErrorCard({required this.error, required this.onRetry});
+  const _ErrorCard({
+    required this.error,
+    required this.onRetry,
+    required this.onCancel,
+  });
 
   final RemoteFileException error;
   final VoidCallback onRetry;
+
+  /// Backs out of the failure; null only when the pane has nothing to
+  /// fall back to ([PaneErrorExit.none]).
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -957,14 +982,27 @@ class _ErrorCard extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 8),
-                  Align(
-                    alignment: AlignmentDirectional.centerEnd,
-                    child: FilledButton.tonalIcon(
-                      key: const ValueKey(CompactKey.errorRetry),
-                      onPressed: onRetry,
-                      icon: const Icon(Icons.refresh),
-                      label: Text(l10n.connectionRetry),
-                    ),
+                  // Side by side while they fit, stacked when a long
+                  // label or a large text scale runs out of width.
+                  OverflowBar(
+                    alignment: MainAxisAlignment.end,
+                    overflowAlignment: OverflowBarAlignment.end,
+                    spacing: 8,
+                    overflowSpacing: 4,
+                    children: [
+                      if (onCancel != null)
+                        TextButton(
+                          key: const ValueKey(CompactKey.errorCancel),
+                          onPressed: onCancel,
+                          child: Text(l10n.paneErrorCancel),
+                        ),
+                      FilledButton.tonalIcon(
+                        key: const ValueKey(CompactKey.errorRetry),
+                        onPressed: onRetry,
+                        icon: const Icon(Icons.refresh),
+                        label: Text(l10n.connectionRetry),
+                      ),
+                    ],
                   ),
                 ],
               ),

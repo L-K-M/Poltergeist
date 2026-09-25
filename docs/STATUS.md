@@ -8629,6 +8629,35 @@ Validation: `flutter analyze` is clean; the full app suite passes (2521
 tests, 18 of them new: the link and host suite, the window app, and the
 settings routing tests).
 
+## Every inline error has a way out (2026-09-25)
+
+The pane's inline error offered only Retry, and Esc also retried, so a
+folder the user may not read (`/root`, permission denied) looped
+forever: Retry, the same error, Retry. The overlay and the compact
+error card now carry Cancel beside Retry (02 §2.8's new bullet). Esc
+cancels and Enter retries, like a dialog. A failed navigation restores
+the last committed folder, whose rows are still on screen, and leaves
+the failed target as Forward history. A failed file Open or a rejected
+typed path just clears. A folder that failed its own re-list moves up
+to its parent, and a root falls back to home. A failed connect leaves
+through the connecting state's sibling-aware Cancel, which the error
+had hidden. Only a local pane whose home root itself fails keeps Retry
+alone; the path field and the sidebar still navigate it away. The same
+audit found one more loop: a journal flush that
+keeps failing vetoed every quit, so the only way out was killing the
+process. Its warning now offers Quit Anyway, which loses nothing a
+crash would not (the journal is crash-consistent).
+
+Verification: `flutter analyze` clean; `pane_error_cancel_test.dart`
+covers every Cancel landing and the in-flight answer it must retire
+(that case fails with the retirement removed); `pane_view_test.dart`
+covers the overlay's Cancel, Esc, Enter, and the failed-connect exit,
+all five failing against the old code; `compact_posture_test.dart`
+covers the card and `quit_guard_test.dart` Quit Anyway. Checked and left
+as is: the backup switch dialog's conflict phase has no Close on the
+desktop, by the 04 §4.4 rule that the user decides each held pin before
+the switch completes (every decision moves it forward).
+
 ## D37: More than one workspace window (2026-09-25)
 
 The owner asked for a "new window" feature so different views,
