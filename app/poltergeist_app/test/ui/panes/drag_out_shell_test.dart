@@ -136,21 +136,7 @@ void main() {
 
   testWidgets('the shell hands its drag-out controller to the panes and '
       'lists a refused promise under Alerts', (tester) async {
-    tester.view.physicalSize = const Size(1400, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: WorkspaceShell(
-          transferQueue: queue,
-          dragOutBackend: backend,
-          dragOutProducer: FakeDragOutProducer(),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
+    await pumpShell(tester);
 
     final controllers = {
       for (final pane in tester.widgetList<PaneView>(find.byType(PaneView)))
@@ -163,32 +149,9 @@ void main() {
 
     // A folder promise while the queue is paused: refused at once.
     queue.pauseQueue();
-    await tester.runAsync(() async {
-      await dragOut.handOff(
-        PaneEntryDrag(
-          source: const ServerFsLocation('srv-1'),
-          rootPaths: const ['/srv/site'],
-          entries: const [
-            RemoteFileEntry(
-              path: '/srv/site',
-              name: 'site',
-              type: RemoteFileType.directory,
-            ),
-          ],
-        ),
-        position: const Offset(1500, 10),
-        style: DragOutImageStyle(
-          palette: const DragOutImagePalette(
-            background: Colors.white,
-            foreground: Colors.black,
-            badge: Colors.blue,
-            onBadge: Colors.white,
-          ),
-          devicePixelRatio: 1,
-          itemCountLabel: (count) => '$count',
-        ),
-      );
-      await expectLater(
+    await handOffSite(tester, dragOut);
+    await tester.runAsync(
+      () => expectLater(
         dragOut.fulfilPromise(
           DragOutPromiseRequest(
             sessionId: backend.requests.single.sessionId,
@@ -197,8 +160,8 @@ void main() {
           ),
         ),
         throwsA(isA<DragOutPromiseException>()),
-      );
-    });
+      ),
+    );
     await runShellCommand(tester, kViewShowAlertsCommandId);
     expect(find.text("Couldn't drag “site” out"), findsOneWidget);
     expect(
