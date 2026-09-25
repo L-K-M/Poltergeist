@@ -270,8 +270,14 @@ void main() {
       final record = await manager.checkout(serverId: 's1', entry: entry);
 
       await manager.localFile(record).writeAsString('edited');
+      // Wait for the reconcile's own change rather than a fixed delay: the
+      // reconcile hashes the file for real, and a slow runner (Windows CI)
+      // can outlast settle()'s 40 ms.
+      final reconciled = manager.changes.firstWhere(
+        (_) => manager.copiesFor('s1')[record.remotePath]?.dirty ?? false,
+      );
       emitWatchEvent(record, basenameOf(record));
-      await settle();
+      await reconciled.timeout(const Duration(seconds: 10));
 
       final updated = manager.copiesFor('s1')[record.remotePath]!;
       expect(updated.dirty, isTrue);
