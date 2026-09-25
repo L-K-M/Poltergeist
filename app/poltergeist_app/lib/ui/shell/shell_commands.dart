@@ -439,7 +439,20 @@ List<RegisteredCommand> buildShellCommands({
       scope: CommandScope.selection,
       label: (l10n) => l10n.selectionCopyToOtherPaneLabel,
       icon: Icons.content_copy_outlined,
-      activators: (_) => const [SingleActivator(LogicalKeyboardKey.f5)],
+      // F5 / ⇧⌘C (10 §4). A Mac laptop's F5 is a media key unless Fn is
+      // held, so ⇧⌘C leads there: the first chord is the one the header
+      // tooltip and the native key equivalent carry. Elsewhere F5 is
+      // the Commander convention and leads.
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyC, meta: true, shift: true),
+          SingleActivator(LogicalKeyboardKey.f5),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.f5),
+          SingleActivator(LogicalKeyboardKey.keyC, control: true, shift: true),
+        ],
+      ),
       enabled: () =>
           _canTransfer(workspace, dropDelegate, TransferOperation.copy),
       disabledReason: (l10n) => l10n.commandDisabledNeedsTwoPanes,

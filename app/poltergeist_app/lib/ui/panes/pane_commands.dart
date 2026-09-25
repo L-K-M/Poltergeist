@@ -472,10 +472,11 @@ List<RegisteredCommand> buildPaneCommands({
       scope: CommandScope.app,
       label: (l10n) => l10n.viewToggleSidebarLabel,
       icon: Icons.view_sidebar_outlined,
-      // ⌥⌘S on macOS, Ctrl+Alt+S elsewhere (02 §8.3's table).
+      // ⌃⌘S on macOS, the platform's sidebar standard (10 §4, which
+      // supersedes 02 §8.3's ⌥⌘S); Ctrl+Alt+S elsewhere.
       activators: _perPlatform(
         macOS: const [
-          SingleActivator(LogicalKeyboardKey.keyS, meta: true, alt: true),
+          SingleActivator(LogicalKeyboardKey.keyS, control: true, meta: true),
         ],
         // Windows reports AltGr as Ctrl+Alt, so AltGr+S (ś/ş on Polish
         // and Turkish layouts) also matches this activator — a known
