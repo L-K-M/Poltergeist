@@ -54,13 +54,14 @@ RegisteredCommand buildCheckForUpdatesCommand({
     menuPlacement: const CommandMenuPlacement(
       menu: AppMenuId.file,
       order: 165,
-      group: 5,
+      group: 6,
       appMenuOnMac: true,
     ),
   );
 }
 
-/// 10 §8's File ▸ Quit for Linux and Windows. Register it there only:
+/// 10 §8's File ▸ Quit for Linux and Windows, closing the menu in
+/// Settings…'s group as the spec's table lists them. Register it there only:
 /// macOS has AppKit's own Quit in the application menu, and a phone has
 /// no quit at all.
 ///
@@ -78,7 +79,7 @@ RegisteredCommand buildQuitCommand({Future<void> Function()? requestClose}) {
     menuPlacement: const CommandMenuPlacement(
       menu: AppMenuId.file,
       order: 180,
-      group: 5,
+      group: 6,
     ),
   );
 }

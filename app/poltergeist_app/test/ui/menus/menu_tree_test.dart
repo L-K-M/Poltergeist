@@ -262,6 +262,7 @@ List<String> _desktopFile(TargetPlatform platform) {
     'Close Tab Ctrl+W',
     _divider,
     'Settings… Ctrl+,',
+    'Quit',
   ];
 }
 
@@ -337,6 +338,7 @@ const _macMenus = <String, List<String>>{
   'Poltergeist': [
     '<about>',
     _divider,
+    'Check for Updates…',
     'Settings… ⌘,',
     _divider,
     '<servicesSubmenu>',
