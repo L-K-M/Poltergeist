@@ -107,12 +107,17 @@ void main() {
     WidgetTester tester, {
     SidebarPresentation presentation = SidebarPresentation.home,
     SidebarDensity density = SidebarDensity.comfortable,
+    Set<String> pinned = const {},
   }) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
-    final controller = SidebarController(store: store, density: density);
+    final controller = SidebarController(
+      store: store,
+      density: density,
+      initiallyPinned: pinned,
+    );
     addTearDown(controller.dispose);
     unawaited(controller.reload());
     final connections = ConnectionStatusController(
@@ -551,6 +556,60 @@ void main() {
       expect(
         find.byKey(const ValueKey('sidebar.favorite.docs')),
         findsOneWidget,
+      );
+    });
+  });
+
+  group('pinned', () {
+    Finder header(SidebarSection section) => find.byKey(
+      ValueKey('sidebar.section.${SidebarCollapseKeys.section(section)}'),
+    );
+
+    testWidgets('a remote favorite pins from its sheet and leads Home, '
+        'above DEVICES', (tester) async {
+      store.bookmarks = [_server('demo', label: 'demo')];
+      await pumpHome(tester);
+      expect(header(SidebarSection.pinned), findsNothing);
+
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('sidebar.favorite.demo')),
+          matching: find.byIcon(Icons.more_vert),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.sidebarPinToTop));
+      await tester.pumpAndSettle();
+
+      final pinnedY = tester.getTopLeft(header(SidebarSection.pinned)).dy;
+      final rowY = tester
+          .getTopLeft(find.byKey(const ValueKey('sidebar.favorite.demo')))
+          .dy;
+      expect(pinnedY, lessThan(rowY));
+      expect(
+        rowY,
+        lessThan(tester.getTopLeft(header(SidebarSection.devices)).dy),
+      );
+      // The row keeps Home's list anatomy there: a 56 dp item.
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('sidebar.favorite.demo')))
+            .height,
+        56,
+      );
+    });
+
+    testWidgets('every favorite pinned keeps the empty offer away', (
+      tester,
+    ) async {
+      volumes.standard = ['/home/deploy/Documents'];
+      store.bookmarks = [_server('demo')];
+      await pumpHome(tester, pinned: {'demo'});
+
+      expect(header(SidebarSection.pinned), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('sidebar.favorites.empty')),
+        findsNothing,
       );
     });
   });

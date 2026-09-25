@@ -6538,19 +6538,19 @@ abstract class AppLocalizations {
   /// **'From your Séance account'**
   String get sidebarFromSeanceAccount;
 
-  /// Sidebar section header over the servers the user pinned (D33), drawn above Servers while any is pinned. Rendered in caps. Séance uses the same word.
+  /// Sidebar section header over the servers the user pinned (D33), account servers and remote favorites alike, drawn first in the sidebar while any is pinned. Rendered in caps. Séance uses the same word.
   ///
   /// In en, this message translates to:
   /// **'Pinned'**
   String get sidebarPinnedSection;
 
-  /// Server row menu verb: moves the server into the Pinned shortlist above Servers, on this device only. Séance uses the same words.
+  /// Server row menu verb (an account server or a remote favorite): moves the server into the Pinned shortlist at the top of the sidebar, on this device only. Séance uses the same words.
   ///
   /// In en, this message translates to:
   /// **'Pin to top'**
   String get sidebarPinToTop;
 
-  /// Server row menu verb on a pinned server: files it back under Servers. Séance uses the same word.
+  /// Server row menu verb on a pinned server: files it back under Servers or Favorites, where it came from. Séance uses the same word.
   ///
   /// In en, this message translates to:
   /// **'Unpin'**

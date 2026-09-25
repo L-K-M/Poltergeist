@@ -256,9 +256,11 @@ class AppPreferences {
       _store.set(_sidebarDensityKey, density.name);
 
   /// The ids of the servers pinned to the sidebar's PINNED shortlist
-  /// (D33): device-local, like Séance's pins. A malformed stored value
-  /// decodes to no pins (non-string entries are dropped) rather than
-  /// failing startup.
+  /// (D33), the account's and the remote favorites alike: device-local,
+  /// like Séance's pins. The key keeps its `pinnedServers` spelling from
+  /// the build where only the account's servers pinned, so those pins
+  /// survive. A malformed stored value decodes to no pins (non-string
+  /// entries are dropped) rather than failing startup.
   Future<Set<String>> loadSidebarPinnedServers() async {
     Object? stored;
     try {

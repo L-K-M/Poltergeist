@@ -45,6 +45,7 @@ part 'sidebar_dialogs.dart';
 part 'sidebar_drop_zone.dart';
 part 'sidebar_favorites_section.dart';
 part 'sidebar_home.dart';
+part 'sidebar_pinned_section.dart';
 part 'sidebar_servers_section.dart';
 
 /// How a row's activation resolves against the panes (02 §4): [plain]
@@ -84,8 +85,9 @@ final class SidebarSyncStatus {
 /// while a query is live or after ⌥⌘F.
 const _filterServerThreshold = 5;
 
-/// The D32 sidebar (10 §5): DEVICES, FAVORITES, and SERVERS over the
-/// shared kit, a filter field that spans all three, and the bottom bar.
+/// The D32 sidebar (10 §5): PINNED (D33), DEVICES, FAVORITES, and
+/// SERVERS over the shared kit, a filter field that spans them all, and
+/// the bottom bar.
 /// Every store mutation routes through [controller]; the shell owns pane
 /// resolution and every verb that reaches past the rail.
 class SidebarView extends StatefulWidget {
@@ -390,7 +392,11 @@ class _SidebarViewState extends State<SidebarView> {
       facts: _facts,
     );
 
+    // Built in rail order: every row counts against the filter as its
+    // section builds, so the first match and "3 of 12" read the rail top
+    // to bottom.
     final children = <Widget>[
+      ..._pinnedSection(data),
       ..._devicesSection(data),
       ..._favoritesSection(data),
       ..._serversSection(data),
@@ -805,7 +811,8 @@ final class _SidebarData {
   int matched = 0;
 
   /// How many servers the rail lists (SERVERS' rows and the remote
-  /// favorites), for the filter's appearance threshold.
+  /// favorites, each once wherever PINNED put it), for the filter's
+  /// appearance threshold.
   int serverCount = 0;
 
   VoidCallback? _firstMatch;

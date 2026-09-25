@@ -34,6 +34,9 @@
     Favorites…". Servers lists your Séance account's servers (marked as
     such) and live Quick Connect sessions, and a Pinned section keeps
     the ones you pin at the top.
+  - Pinned is the sidebar's first section, and saved remote folders pin
+    too ("Pin to top" in their menu), so it works without a Séance
+    account.
   - A folded group or a filter never hides a live connection: the
     header shows its dot. The filter appears at five servers again,
     says "↵ opens the first", and offers Clear filter.

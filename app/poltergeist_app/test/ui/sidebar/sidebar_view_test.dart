@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
@@ -183,6 +184,8 @@ void main() {
     // The one-line rail most of these tests describe; null leaves the
     // controller's own default (comfortable) in force.
     SidebarDensity? density = SidebarDensity.compact,
+    Set<String> pinned = const {},
+    void Function(Set<String> pinned)? onPinnedChanged,
   }) async {
     // Wider than the rail: the drop tests park a drag source beside it,
     // and a context menu needs room to open where it was asked.
@@ -193,16 +196,20 @@ void main() {
     final controller = density == null
         ? SidebarController(
             store: store,
+            initiallyPinned: pinned,
             onCollapsedChanged: collapsedWrites.add,
             onDensityChanged: densityWrites.add,
+            onPinnedChanged: onPinnedChanged,
             onBookmarkRemoved: removedIds.add,
             errors: errors,
           )
         : SidebarController(
             store: store,
             density: density,
+            initiallyPinned: pinned,
             onCollapsedChanged: collapsedWrites.add,
             onDensityChanged: densityWrites.add,
+            onPinnedChanged: onPinnedChanged,
             onBookmarkRemoved: removedIds.add,
             errors: errors,
           );
@@ -1293,6 +1300,220 @@ void main() {
         store.bookmarks.firstWhere((bookmark) => bookmark.id == 'u').group,
         'work',
       );
+    });
+  });
+
+  // D33 as the owner confirmed it: remote favorites pin like the
+  // account's servers, and PINNED leads the rail.
+  group('pinned remote favorites', () {
+    Finder header(String key) => find.byKey(ValueKey('sidebar.section.$key'));
+    Finder row(String id) => find.byKey(ValueKey('sidebar.favorite.$id'));
+    SidebarSectionHeader headerOf(WidgetTester tester, String key) =>
+        tester.widget<SidebarSectionHeader>(
+          find.ancestor(
+            of: header(key),
+            matching: find.byType(SidebarSectionHeader),
+          ),
+        );
+    List<String> order(SidebarController controller) => [
+      for (final section in controller.sections)
+        for (final bookmark in section.bookmarks) bookmark.id,
+    ];
+
+    testWidgets('Pin to top lifts a remote favorite out of FAVORITES and its '
+        'group into PINNED, above DEVICES, with no account; Unpin files it '
+        'back', (tester) async {
+      store.bookmarks = [
+        _remote('r1', group: 'prod', sortKey: 'ma'),
+        _remote('r2', group: 'prod', sortKey: 'mb'),
+        _local('l1', sortKey: 'mc'),
+      ];
+      final writes = <Set<String>>[];
+      final volumes = _FakeVolumes()..volumes = const [_home, _root];
+      final controller = await pumpSidebar(
+        tester,
+        volumes: volumes,
+        onPinnedChanged: writes.add,
+      );
+      expect(header('sec:pinned'), findsNothing);
+      expect(headerOf(tester, 'sec:favorites').count, 3);
+      expect(headerOf(tester, 'fav:prod').count, 2);
+
+      await openMenu(tester, 'r1');
+      await tester.tap(find.text('Pin to top'));
+      await tester.pumpAndSettle();
+
+      expect(writes, [
+        {'r1'},
+      ]);
+      expect(controller.isPinned('r1'), isTrue);
+      // One row, not two: first in the rail, as Séance lists PINNED.
+      expect(row('r1'), findsOneWidget);
+      final pinnedY = tester.getTopLeft(header('sec:pinned')).dy;
+      final rowY = tester.getTopLeft(row('r1')).dy;
+      expect(pinnedY, lessThan(rowY));
+      expect(rowY, lessThan(tester.getTopLeft(header('sec:devices')).dy));
+      expect(headerOf(tester, 'sec:pinned').count, 1);
+      // FAVORITES and the group count what they still list.
+      expect(headerOf(tester, 'sec:favorites').count, 2);
+      expect(headerOf(tester, 'fav:prod').count, 1);
+      // The row is the favorite's own: its endpoint, landing path, open.
+      expect(
+        rowOf(tester, row('r1')).tooltip,
+        'deploy@r1.example.com:22\n/srv/r1',
+      );
+      await tester.tap(row('r1'));
+      await tester.pump();
+      expect(opens.single.$1.id, 'r1');
+
+      await openMenu(tester, 'r1');
+      await tester.tap(find.text('Unpin'));
+      await tester.pumpAndSettle();
+
+      expect(writes.last, isEmpty);
+      expect(header('sec:pinned'), findsNothing);
+      expect(
+        tester.getTopLeft(row('r1')).dy,
+        greaterThan(tester.getTopLeft(header('fav:prod')).dy),
+      );
+      expect(headerOf(tester, 'fav:prod').count, 2);
+      expect(order(controller), ['r1', 'r2', 'l1']);
+    });
+
+    testWidgets('a screen reader pins and unpins through the row actions', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        store.bookmarks = [_remote('r1')];
+        final controller = await pumpSidebar(tester);
+        final node = find.semantics.byLabel(RegExp('^label-r1'));
+
+        tester.semantics.customAction(
+          node,
+          const CustomSemanticsAction(label: 'Pin to top'),
+        );
+        await tester.pumpAndSettle();
+        expect(controller.isPinned('r1'), isTrue);
+        expect(header('sec:pinned'), findsOneWidget);
+
+        tester.semantics.customAction(
+          find.semantics.byLabel(RegExp('^label-r1')),
+          const CustomSemanticsAction(label: 'Unpin'),
+        );
+        await tester.pumpAndSettle();
+        expect(controller.isPinned('r1'), isFalse);
+        expect(header('sec:pinned'), findsNothing);
+      } finally {
+        semantics.dispose();
+      }
+    });
+
+    testWidgets('the filter reads PINNED before DEVICES, and a pinned '
+        'favorite counts once', (tester) async {
+      // Four servers stay under the field's threshold of five, pinned or
+      // not: a pinned row is still one server.
+      store.bookmarks = [
+        for (var i = 0; i < 4; i++) _remote('srv$i', sortKey: 'm$i'),
+      ];
+      final volumes = _FakeVolumes()..volumes = const [_home, _root];
+      final controller = await pumpSidebar(
+        tester,
+        volumes: volumes,
+        pinned: {'srv2', 'srv3'},
+      );
+      expect(find.byKey(const ValueKey('sidebar.filter')), findsNothing);
+
+      controller.requestFilter();
+      await tester.pumpAndSettle();
+      // "deploy" names the home volume and every server's user.
+      await tester.enterText(
+        find.byKey(const ValueKey('sidebar.filter.field')),
+        'deploy',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('5 of 6 · ↵ opens the first'), findsOneWidget);
+      await tester.testTextInput.receiveAction(TextInputAction.go);
+      await tester.pump();
+      expect(opens.single.$1.id, 'srv2');
+    });
+
+    testWidgets('with every favorite pinned, FAVORITES keeps its header and '
+        'offers no empty state', (tester) async {
+      store.bookmarks = [_remote('r1', group: 'solo')];
+      final volumes = _FakeVolumes()..standard = ['/home/deploy/Documents'];
+      await pumpSidebar(
+        tester,
+        volumes: volumes,
+        pinned: {'r1'},
+        onImportSshConfig: () {},
+      );
+
+      expect(header('sec:pinned'), findsOneWidget);
+      expect(row('r1'), findsOneWidget);
+      expect(headerOf(tester, 'sec:favorites').count, 0);
+      expect(
+        find.byKey(const ValueKey('sidebar.favorites.empty')),
+        findsNothing,
+      );
+      // Its group left with it: no header over nothing, and no "Drag
+      // favorites here" claim about a group that has a member.
+      expect(header('fav:solo'), findsNothing);
+      expect(find.text('Drag favorites here'), findsNothing);
+    });
+
+    testWidgets('a pinned row neither drags nor takes drops, and FAVORITES '
+        'reorders around its hidden member', (tester) async {
+      store.bookmarks = [
+        _remote('a', sortKey: 'ma'),
+        _remote('b', sortKey: 'mb'),
+        _remote('c', sortKey: 'mc'),
+      ];
+      final controller = await pumpSidebar(tester, pinned: {'b'});
+
+      // PINNED's order is by label, so there is no place in it to drop
+      // on or drag to; Move to Group stays in the row's menu.
+      expect(
+        find.descendant(
+          of: row('b'),
+          matching: find.byType(Draggable<Bookmark>),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: row('b'),
+          matching: find.byType(DragTarget<Object>),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: row('a'),
+          matching: find.byType(Draggable<Bookmark>),
+        ),
+        findsOneWidget,
+      );
+
+      Future<void> dragOnto(String id, Offset target) async {
+        final gesture = await tester.startGesture(
+          tester.getTopLeft(row(id)) + const Offset(10, 2),
+        );
+        await tester.pump();
+        await gesture.moveTo(target);
+        await tester.pump();
+        await gesture.up();
+        await tester.pumpAndSettle();
+      }
+
+      await dragOnto('a', tester.getCenter(row('b')) + const Offset(0, 8));
+      expect(order(controller), ['a', 'b', 'c']);
+
+      // Below a: between a and its next member in the store, the hidden
+      // b, so c shows right under a now and b returns after it.
+      await dragOnto('c', tester.getCenter(row('a')) + const Offset(0, 8));
+      expect(order(controller), ['a', 'c', 'b']);
     });
   });
 

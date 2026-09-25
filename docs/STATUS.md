@@ -7929,9 +7929,10 @@ Poltergeist host.
   order with the other kinds and in mixed groups; SERVERS is the
   account's list plus live Quick Connect sessions, and "Save to
   Servers…" became "Save to Favorites…" (the command id stays
-  `connect.saveToServers`). PINNED holds the account's servers the user
-  pinned (`sidebar.pinnedServers`, device-local), above SERVERS. The
-  account's rows carry a cloud mark and "From your Séance account". A
+  `connect.saveToServers`). PINNED holds the servers the user pinned,
+  the account's and the remote favorites alike (`sidebar.pinnedServers`,
+  device-local), as the rail's first section. The account's rows carry
+  a cloud mark and "From your Séance account". A
   header that folds or filters away a live server shows its dot. The
   ssh_config offer moved to the empty FAVORITES state, where the hosts
   it imports land.
@@ -7954,12 +7955,24 @@ here: anything needing macOS (the native View menu item), a device
 (TalkBack, a real tablet), or a real engine's probe states on the
 rail (unit tests cover the unreachable ring).
 
-Left for later: pinning remote favorites (only the account's servers
-pin, so without the shared account PINNED never appears; this and
-PINNED's place above SERVERS rather than first, as in Séance, await the
-owner's confirmation), and Enter's
-first match still follows rail order rather than preferring server
-rows (inventory M8).
+PINNED as the owner confirmed it (a follow-up to the first build,
+which pinned only the account's servers and drew PINNED above
+SERVERS): a remote favorite has "Pin to top" / "Unpin" in its menu,
+its long-press sheet and its screen-reader actions, leaves FAVORITES
+and its group while pinned, and draws its own row in PINNED, which
+now leads the rail and orders the mix by label (case folded, then id).
+PINNED builds first, so the filter counts and opens its rows first;
+each server still counts once toward the filter's threshold. A pinned
+row neither drags nor takes drops (PINNED has no user order), while
+FAVORITES' drops still resolve by id around a pinned member. A fully
+pinned FAVORITES keeps its header without the empty-state offer, and
+deleting a pinned favorite drops its pin. Tests in
+`sidebar_view_test.dart`, `sidebar_catalog_test.dart`,
+`sidebar_home_test.dart` and `sidebar_controller_test.dart`; the full
+app suite (2381 tests) and `flutter analyze` pass locally.
+
+Left for later: Enter's first match still follows rail order rather
+than preferring server rows (inventory M8).
 
 ## D32 — adversarial review fixes (2026-09-25)
 

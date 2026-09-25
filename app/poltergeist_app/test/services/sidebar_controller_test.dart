@@ -379,6 +379,30 @@ void main() {
       expect(errors, hasLength(1));
       expect(controller.isPinned('s1'), isTrue);
     });
+
+    test('deleting a pinned favorite drops its pin; other deletes and '
+        'unlisted pins leave the set alone', () async {
+      store.bookmarks = [_remote('a'), _remote('b')];
+      final writes = <Set<String>>[];
+      final controller = SidebarController(
+        store: store,
+        // `server` is an account server's pin: not a bookmark, so no
+        // delete here speaks for it.
+        initiallyPinned: {'a', 'server'},
+        onPinnedChanged: writes.add,
+      );
+      addTearDown(controller.dispose);
+      await controller.reload();
+
+      expect(await controller.remove('b'), isTrue);
+      expect(writes, isEmpty);
+
+      expect(await controller.remove('a'), isTrue);
+      expect(controller.pinnedServers, {'server'});
+      expect(writes, [
+        {'server'},
+      ]);
+    });
   });
 
   group('filter', () {
