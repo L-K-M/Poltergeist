@@ -1941,6 +1941,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'history.filter'",
     "'history.clear'",
     "'history.list'",
+    r"'history.copy.${entry.taskId}'",
     "''",
     r"'\n'",
     "', '",
@@ -1952,6 +1953,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$route · $outcome'",
     r"' · ${entry.error}'",
     r"'${entry.error == null ? '' : ' · ${entry.error}'}'",
+    r"'$title\n$details'",
   },
   // The popover's per-direction widget keys — test plumbing composed
   // from the direction prefix, never authored copy.

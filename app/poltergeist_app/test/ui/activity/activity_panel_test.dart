@@ -1,6 +1,9 @@
 import 'dart:ui' show Tristate;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/activity_panel_controller.dart';
@@ -501,6 +504,71 @@ void main() {
     await settle(tester);
     expect(queue.clearHistoryCalls, 1);
     expect(find.text('No transfer history yet.'), findsOneWidget);
+  });
+
+  testWidgets('a long History title ends in an ellipsis and still copies '
+      'whole; the filter reads on Clear History\'s line', (tester) async {
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await pumpPanel(tester);
+    const name = 'quarterly-report-final-revised-for-the-board-2026-'
+        'with-appendices-and-every-last-footnote.pdf';
+    queue.addHistory(rootPaths: const ['/home/tester/$name']);
+    await settle(tester);
+    await tester.tap(find.byKey(const ValueKey('activity.tab.history')));
+    await settle(tester);
+
+    // The title is one ellipsized line, not a field clipped mid-glyph.
+    final title = tester
+        .renderObjectList<RenderParagraph>(find.byType(RichText))
+        .singleWhere((p) => p.text.toPlainText().contains('quarterly'));
+    expect(title.overflow, TextOverflow.ellipsis);
+    expect(title.didExceedMaxLines, isTrue);
+
+    // 02 §6's copyable text: the row's menu copies the record whole,
+    // the part the ellipsis hides included.
+    await tester.tap(
+      find.textContaining('quarterly'),
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('history.copy.done-1')));
+    await tester.pumpAndSettle();
+    expect(copied, contains(name));
+    expect(copied, contains('\n'), reason: 'one line per row line');
+
+    // The hint and the button label share a size and a line.
+    RenderParagraph paragraph(Finder of, String text) => tester
+        .renderObjectList<RenderParagraph>(
+          find.descendant(of: of, matching: find.byType(RichText)),
+        )
+        .singleWhere((p) => p.text.toPlainText() == text);
+    final hint = paragraph(
+      find.byKey(const ValueKey('history.filter')),
+      'Filter history',
+    );
+    final label = paragraph(
+      find.byKey(const ValueKey('history.clear')),
+      'Clear History',
+    );
+    expect(hint.text.style?.fontSize, label.text.style?.fontSize);
+    double centerY(RenderParagraph p) =>
+        p.localToGlobal(p.size.center(Offset.zero)).dy;
+    expect(centerY(hint), moreOrLessEquals(centerY(label), epsilon: 0.5));
   });
 
   testWidgets('the restored banner offers Resume and Discard', (

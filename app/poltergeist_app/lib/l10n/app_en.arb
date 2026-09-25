@@ -1672,6 +1672,10 @@
   "@activityCopyError": {
     "description": "Per-task row action: copies the failure text to the clipboard (02 §6)."
   },
+  "activityHistoryCopy": "Copy",
+  "@activityHistoryCopy": {
+    "description": "History row context-menu item: copies the whole record (time, verb, names, route, result, error) to the clipboard (02 §6)."
+  },
   "activityTaskRemoteUnavailable": "Remote transfers aren't available yet — this build moves local files only.",
   "@activityTaskRemoteUnavailable": {
     "description": "Failure sentence on a task naming a remote endpoint before the engine protocol grows transfer verbs (open item 23)."

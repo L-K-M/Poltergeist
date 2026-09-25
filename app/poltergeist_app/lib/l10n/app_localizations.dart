@@ -2060,6 +2060,12 @@ abstract class AppLocalizations {
   /// **'Copy error'**
   String get activityCopyError;
 
+  /// History row context-menu item: copies the whole record (time, verb, names, route, result, error) to the clipboard (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get activityHistoryCopy;
+
   /// Failure sentence on a task naming a remote endpoint before the engine protocol grows transfer verbs (open item 23).
   ///
   /// In en, this message translates to:
