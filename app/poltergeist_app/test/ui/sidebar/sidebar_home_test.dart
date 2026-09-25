@@ -502,7 +502,7 @@ void main() {
   });
 
   group('empty states', () {
-    testWidgets('no servers invites a connection: Quick Connect and Import', (
+    testWidgets('no servers invites a connection with Quick Connect', (
       tester,
     ) async {
       await pumpHome(tester);
@@ -515,11 +515,31 @@ void main() {
         ),
         findsOneWidget,
       );
+      // Without the shared account, a saved server is a favorite.
+      expect(
+        find.descendant(
+          of: empty,
+          matching: find.text(l10n.compactHomeServersEmptyBody),
+        ),
+        findsOneWidget,
+      );
       await tester.tap(
         find.byKey(const ValueKey('sidebar.servers.quickConnect')),
       );
-      await tester.tap(find.byKey(const ValueKey('sidebar.importSshConfig')));
-      expect(calls, ['quickConnect', 'import']);
+      expect(calls, ['quickConnect']);
+    });
+
+    testWidgets('no favorites offers the ssh_config import', (tester) async {
+      await pumpHome(tester);
+
+      // Imported hosts land in FAVORITES, so the offer sits there.
+      final offer = find.descendant(
+        of: find.byKey(const ValueKey('sidebar.favorites.empty')),
+        matching: find.byKey(const ValueKey('sidebar.importSshConfig')),
+      );
+      expect(offer, findsOneWidget);
+      await tester.tap(offer);
+      expect(calls, ['import']);
     });
 
     testWidgets('no favorites says where one comes from, and offers the '

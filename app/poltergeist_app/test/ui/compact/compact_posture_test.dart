@@ -363,7 +363,7 @@ void main() {
       expect(find.text('~'), findsOneWidget);
     });
 
-    testWidgets('⋮ saves a remote folder to Servers', (tester) async {
+    testWidgets('⋮ saves a remote folder to Favorites', (tester) async {
       final harness = CompactHarness();
       await harness.pump(tester);
       await tester.tap(find.byKey(const ValueKey('sidebar.favorite.demo')));
@@ -380,7 +380,7 @@ void main() {
       expect(saved, hasLength(1));
       expect(saved.single.kind, BookmarkKind.remotePath);
       expect(saved.single.label, 'www');
-      expect(find.text('Saved “www” to Servers.'), findsOneWidget);
+      expect(find.text('Added “www” to Favorites.'), findsOneWidget);
     });
 
     testWidgets('the filter narrows the listing and back clears it', (

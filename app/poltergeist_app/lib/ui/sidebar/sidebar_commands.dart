@@ -91,7 +91,7 @@ RegisteredCommand buildSidebarDensityCommand({
 /// The sidebar verbs that act on the active pane, as registered commands
 /// (D21), so the menus and the palette reach them too: the "+" menu's
 /// Add Current Folder to Favorites and an unsaved Quick Connect row's
-/// Save to Servers…. Both run the rail's own flows.
+/// Save to Favorites…. Both run the rail's own flows.
 List<RegisteredCommand> buildSidebarVerbCommands({
   required SidebarController sidebar,
   required WorkspaceController workspace,
@@ -133,7 +133,7 @@ List<RegisteredCommand> buildSidebarVerbCommands({
     RegisteredCommand(
       id: kConnectSaveToServersCommandId,
       scope: CommandScope.pane,
-      label: (l10n) => l10n.sidebarSaveToServers,
+      label: (l10n) => l10n.sidebarSaveToFavorites,
       icon: Icons.bookmark_add_outlined,
       enabled: () => unsavedSession() != null,
       disabledReason: (l10n) => l10n.commandDisabledNoQuickConnect,

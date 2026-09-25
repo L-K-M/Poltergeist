@@ -1415,7 +1415,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // D33's View ▸ Use Compact/Comfortable Sidebar Rows.
       if (sidebar != null) buildSidebarDensityCommand(sidebar: sidebar),
       // The rail's active-pane verbs (D21): Add Current Folder to
-      // Favorites and Save to Servers… run from the menus too.
+      // Favorites and Save to Favorites… run from the menus too.
       if (workspace != null && sidebar != null)
         ...buildSidebarVerbCommands(sidebar: sidebar, workspace: workspace),
       if (workspace != null)
@@ -1492,7 +1492,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // file.preview's enablement keys off the live surface state too
       // (an open Quick Look / visible panel keeps the verb live).
       ?preview,
-      // Save to Servers… retires once the store carries the endpoint.
+      // Save to Favorites… retires once the store carries the endpoint.
       ?sidebar,
     ]);
 
@@ -1921,9 +1921,6 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final l10n = AppLocalizations.of(context);
     final message = switch (result.outcome) {
       SidebarAddOutcome.favorite => l10n.compactAddedToFavorites(result.label),
-      SidebarAddOutcome.serverLocation => l10n.compactSavedToServers(
-        result.label,
-      ),
       // Already a favorite, or failed: the shared verb has said so.
       SidebarAddOutcome.alreadyFavorite || SidebarAddOutcome.failed => null,
     };
@@ -2149,8 +2146,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
   }
 
-  /// The Connect dialog's one-click servers (D32 §4): the SERVERS rows —
-  /// saved server locations and the shared-account catalog — used most
+  /// The Connect dialog's one-click servers (D32 §4): the rail's servers —
+  /// saved remote favorites and the shared-account catalog — used most
   /// recently first, each opening a new tab exactly as the sidebar's
   /// new-tab open does.
   List<ConnectServerChoice> _connectChoices() {

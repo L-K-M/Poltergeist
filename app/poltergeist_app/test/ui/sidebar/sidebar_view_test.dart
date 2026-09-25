@@ -296,7 +296,7 @@ void main() {
   });
 
   group('sections', () {
-    testWidgets('every bookmark kind lands in its section on one line', (
+    testWidgets('every bookmark kind lands in FAVORITES on one line', (
       tester,
     ) async {
       store.bookmarks = [
@@ -326,23 +326,20 @@ void main() {
       for (final id in ['r1', 'l1', 'w1', 's1']) {
         expect(inSection(id), findsOneWidget, reason: 'missing row for $id');
       }
-      // Local folders, workspaces and syncs sit under FAVORITES; the
-      // remote bookmark is a saved server under SERVERS, below them.
+      // Every kind sits under FAVORITES (10 §5, D33): the remote
+      // location beside the local folder, the workspace and the sync.
+      // SERVERS below keeps the account's servers and live sessions.
       final favoritesHeader = tester.getTopLeft(
         find.byKey(const ValueKey('sidebar.section.sec:favorites')),
       );
       final serversHeader = tester.getTopLeft(
         find.byKey(const ValueKey('sidebar.section.sec:servers')),
       );
-      for (final id in ['l1', 'w1', 's1']) {
+      for (final id in ['r1', 'l1', 'w1', 's1']) {
         final y = tester.getTopLeft(inSection(id)).dy;
         expect(y, greaterThan(favoritesHeader.dy));
         expect(y, lessThan(serversHeader.dy));
       }
-      expect(
-        tester.getTopLeft(inSection('r1')).dy,
-        greaterThan(serversHeader.dy),
-      );
 
       // One line per row (10 §5): paths are tooltips, never subtitles.
       expect(find.text('/home/deploy/docs'), findsNothing);
@@ -397,7 +394,12 @@ void main() {
       await pumpSidebar(tester);
 
       expect(find.textContaining('Drag folders here'), findsOneWidget);
-      expect(find.textContaining('No servers yet'), findsOneWidget);
+      // Without the shared account SERVERS holds only live sessions, and
+      // says where a saved one goes.
+      expect(
+        find.textContaining('Quick Connect sessions show here'),
+        findsOneWidget,
+      );
       // No import seam: D22's offer stays absent, not dead.
       expect(
         find.byKey(const ValueKey('sidebar.importSshConfig')),
@@ -407,27 +409,33 @@ void main() {
       expect(store.bookmarks, isEmpty);
     });
 
-    testWidgets('the empty servers state offers the ssh_config import', (
+    testWidgets('the empty favorites state offers the ssh_config import', (
       tester,
     ) async {
       var taps = 0;
       await pumpSidebar(tester, onImportSshConfig: () => taps++);
 
-      final offer = find.byKey(const ValueKey('sidebar.importSshConfig'));
+      // Imported hosts land in FAVORITES, so the offer sits there.
+      final offer = find.descendant(
+        of: find.byKey(const ValueKey('sidebar.favorites.empty')),
+        matching: find.byKey(const ValueKey('sidebar.importSshConfig')),
+      );
       expect(offer, findsOneWidget);
       await tester.tap(offer);
       expect(taps, 1);
     });
 
-    testWidgets('the import offer hides once a server exists', (tester) async {
-      store.bookmarks = [_remote('r1')];
+    testWidgets('the import offer hides once any favorite exists', (
+      tester,
+    ) async {
+      store.bookmarks = [_local('l1')];
       await pumpSidebar(tester, onImportSshConfig: () {});
 
       expect(
         find.byKey(const ValueKey('sidebar.importSshConfig')),
         findsNothing,
       );
-      expect(find.byKey(const ValueKey('sidebar.favorite.r1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('sidebar.favorite.l1')), findsOneWidget);
     });
 
     testWidgets('a failed load shows the error and retry recovers', (
@@ -488,21 +496,51 @@ void main() {
       expect(collapsedWrites.last, isEmpty);
     });
 
-    testWidgets('a server group and a favorite group of one name fold '
-        'independently (the namespaced keys)', (tester) async {
+    testWidgets('a remote favorite and a local one share their group', (
+      tester,
+    ) async {
       store.bookmarks = [
         _local('f', group: 'work'),
-        _remote('s', group: 'work'),
+        _remote('s', group: 'work', sortKey: 'mn'),
       ];
       await pumpSidebar(tester);
 
-      expect(find.text('work'), findsNWidgets(2));
-      await tester.tap(find.byKey(const ValueKey('sidebar.section.srv:work')));
+      // One group under FAVORITES holds both kinds, as before D32. (A
+      // catalog group of the same name folds apart: the catalog test.)
+      expect(find.text('work'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sidebar.section.fav:work')));
       await tester.pumpAndSettle();
 
-      expect(collapsedWrites.last, {'srv:work'});
+      expect(collapsedWrites.last, {'fav:work'});
       expect(find.byKey(const ValueKey('sidebar.favorite.s')), findsNothing);
-      expect(find.byKey(const ValueKey('sidebar.favorite.f')), findsOneWidget);
+      expect(find.byKey(const ValueKey('sidebar.favorite.f')), findsNothing);
+    });
+
+    testWidgets('a local folder reorders among remote favorites', (
+      tester,
+    ) async {
+      store.bookmarks = [
+        _remote('a', sortKey: 'ma'),
+        _local('b', sortKey: 'mb'),
+        _remote('c', sortKey: 'mc'),
+      ];
+      final controller = await pumpSidebar(tester);
+      Finder row(String id) => find.byKey(ValueKey('sidebar.favorite.$id'));
+
+      final gesture = await tester.startGesture(
+        tester.getTopLeft(row('b')) + const Offset(10, 2),
+      );
+      await tester.pump();
+      await gesture.moveTo(tester.getCenter(row('c')) + const Offset(0, 8));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      final order = [
+        for (final section in controller.sections)
+          for (final bookmark in section.bookmarks) bookmark.id,
+      ];
+      expect(order, ['a', 'c', 'b']);
     });
 
     testWidgets('a section folds whole and shows its count only then', (
@@ -681,42 +719,6 @@ void main() {
       expect(opens.single.$1.id, 'a');
     });
 
-    testWidgets('the arrows and Tab get past the SERVERS header and its +', (
-      tester,
-    ) async {
-      store.bookmarks = [
-        _remote('a', sortKey: 'ma'),
-        _remote('b', sortKey: 'mb'),
-      ];
-      var added = 0;
-      await pumpSidebar(tester, onAddServer: () => added++);
-      Future<void> press(LogicalKeyboardKey key) async {
-        await tester.sendKeyEvent(key);
-        await tester.pumpAndSettle();
-      }
-
-      await tester.tap(find.byKey(const ValueKey('sidebar.favorite.a')));
-      await tester.pumpAndSettle();
-      opens.clear();
-
-      // Up lands on the header (its "+" drawn for the keyboard); Down
-      // comes straight back to the row rather than bouncing off the "+".
-      await press(LogicalKeyboardKey.arrowUp);
-      await press(LogicalKeyboardKey.arrowDown);
-      await press(LogicalKeyboardKey.enter);
-      expect(opens.single.$1.id, 'a');
-      opens.clear();
-
-      // Tab takes the header's "+" as a stop of its own, then the row.
-      await press(LogicalKeyboardKey.arrowUp);
-      await press(LogicalKeyboardKey.tab);
-      await press(LogicalKeyboardKey.enter);
-      expect(added, 1);
-      await press(LogicalKeyboardKey.tab);
-      await press(LogicalKeyboardKey.enter);
-      expect(opens.single.$1.id, 'a');
-    });
-
     testWidgets('Shift+F10 raises the focused row\'s context menu', (
       tester,
     ) async {
@@ -825,10 +827,10 @@ void main() {
         final live = dataOf(find.bySemanticsLabel('label-r1, Connected'));
         expect(live.flagsCollection.isButton, isTrue);
 
-        controller.toggleCollapsed('srv:work');
+        controller.toggleCollapsed('fav:work');
         await tester.pumpAndSettle();
         final group = dataOf(
-          find.byKey(const ValueKey('sidebar.section.srv:work')),
+          find.byKey(const ValueKey('sidebar.section.fav:work')),
         );
         expect(group.flagsCollection.isHeader, isTrue);
         expect(group.flagsCollection.isButton, isTrue);
@@ -1353,7 +1355,7 @@ void main() {
     ) async {
       store.bookmarks = [_remote('a', group: 'work')];
       final controller = await pumpSidebar(tester);
-      controller.toggleCollapsed('srv:work');
+      controller.toggleCollapsed('fav:work');
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sidebar.favorite.a')), findsNothing);
 

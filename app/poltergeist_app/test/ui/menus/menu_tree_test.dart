@@ -312,7 +312,7 @@ const _desktopMenus = <AppMenuId, List<String>>{
   AppMenuId.server: [
     'Connect… Ctrl+K',
     'Disconnect Ctrl+Shift+K',
-    'Save to Servers…',
+    'Save to Favorites…',
     _divider,
     'Synchronize… Ctrl+Alt+Y',
     'New Saved Sync…',
@@ -421,7 +421,7 @@ const _macMenus = <String, List<String>>{
   'Server': [
     'Connect… ⌘K',
     'Disconnect ⇧⌘K',
-    'Save to Servers…',
+    'Save to Favorites…',
     _divider,
     'Synchronize… ⌥⌘Y',
     'New Saved Sync…',

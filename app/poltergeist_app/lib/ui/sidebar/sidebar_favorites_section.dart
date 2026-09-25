@@ -1,13 +1,16 @@
 part of 'sidebar_view.dart';
 
-bool _isFavoriteKind(Bookmark bookmark) =>
-    bookmark.kind != BookmarkKind.remotePath;
+/// FAVORITES takes every bookmark kind (10 §5, D33), so a drop of any
+/// bookmark reorders or refiles there.
+bool _anyBookmark(Bookmark bookmark) => true;
 
-/// FAVORITES (10 §5): local folders, workspaces, and saved syncs. Loose
-/// favorites first, then each named group as a nested disclosure row
-/// with its members indented. The empty state offers Desktop, Documents,
-/// and Downloads as one click — never seeded silently, because favorites
-/// sync to other devices.
+/// FAVORITES (10 §5, D33): every bookmark kind — local folders, remote
+/// locations, workspaces, and saved syncs — in the store's one user
+/// order. Loose favorites first, then each named group as a nested
+/// disclosure row with its members indented, a group holding any mix of
+/// kinds. The empty state offers Desktop, Documents, and Downloads as
+/// one click — never seeded silently, because favorites sync to other
+/// devices — and the ssh_config import, whose hosts land here.
 List<Widget> _favoritesSection(_SidebarData data) {
   final l10n = data.l10n;
   final view = data.view;
@@ -59,7 +62,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
     // that hold nothing yet.
     final groups = <({String name, String key, List<Bookmark> members})>[];
     for (final section in sections) {
-      final members = section.bookmarks.where(_isFavoriteKind).toList();
+      final members = section.bookmarks;
       if (section.name == null) {
         count += members.length;
         for (final bookmark in members) {
@@ -69,7 +72,6 @@ List<Widget> _favoritesSection(_SidebarData data) {
         }
         continue;
       }
-      // A group that files only servers belongs to SERVERS.
       if (members.isEmpty) continue;
       groups.add((name: section.name!, key: section.key, members: members));
     }
@@ -98,7 +100,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
                 view,
                 payload,
                 group: group.name,
-                accepts: _isFavoriteKind,
+                accepts: _anyBookmark,
               ) ??
               _addFavoritePlan(
                 context,
@@ -152,7 +154,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
     _SidebarDropZone(
       key: const ValueKey('sidebar.favorites.header'),
       planner: (payload, _) =>
-          _regroupPlan(view, payload, group: null, accepts: _isFavoriteKind) ??
+          _regroupPlan(view, payload, group: null, accepts: _anyBookmark) ??
           _addFavoritePlan(
             context,
             view,
@@ -176,7 +178,9 @@ List<Widget> _favoritesSection(_SidebarData data) {
 }
 
 bool _favoriteShows(_SidebarData data, Bookmark bookmark) => data.countRow(
-  [bookmark.label, ?bookmark.localPath, ?bookmark.group].join(' '),
+  _isServerKind(bookmark)
+      ? _remoteHaystack(bookmark)
+      : [bookmark.label, ?bookmark.localPath, ?bookmark.group].join(' '),
   open: data.view.onOpenFavorite == null
       ? null
       : () => data.view.onOpenFavorite!(bookmark, SidebarOpenAction.plain),
@@ -184,9 +188,11 @@ bool _favoriteShows(_SidebarData data, Bookmark bookmark) => data.countRow(
 
 /// Home's empty state (D32 §9): what FAVORITES keeps and where a folder
 /// is added from, with the standard-folders offer when the platform has
-/// any of the three (a phone's app storage usually has none).
+/// any of the three (a phone's app storage usually has none), and D22's
+/// adoption beat, the ssh_config import.
 Widget _homeEmptyFavorites(_SidebarData data) {
   final l10n = data.l10n;
+  final view = data.view;
   final offered = data.standardFolders;
   return _HomeEmptyState(
     key: const ValueKey('sidebar.favorites.empty'),
@@ -202,12 +208,22 @@ Widget _homeEmptyFavorites(_SidebarData data) {
           icon: const Icon(Icons.add),
           label: Text(l10n.sidebarFavoritesAddStandard),
         ),
+      if (view.onImportSshConfig != null)
+        OutlinedButton.icon(
+          key: const ValueKey('sidebar.importSshConfig'),
+          onPressed: view.onImportSshConfig,
+          icon: const Icon(Icons.download_outlined),
+          label: Text(l10n.sidebarImportSshConfig),
+        ),
     ],
   );
 }
 
 /// The empty state: the one-click standard folders (only those that
-/// exist), else a hint — and either way a drop target for folders.
+/// exist), else a hint — and either way a drop target for folders. D22's
+/// adoption beat rides here too: an empty list is the moment the
+/// ssh_config import earns its keep, and the hosts it imports land in
+/// FAVORITES.
 Widget _emptyFavorites(_SidebarData data) {
   final l10n = data.l10n;
   final view = data.view;
@@ -230,35 +246,62 @@ Widget _emptyFavorites(_SidebarData data) {
       child: _SidebarHint(
         text: l10n.sidebarFavoritesEmpty,
         presentation: view.presentation,
-        action: offered.isEmpty
+        action: offered.isEmpty && view.onImportSshConfig == null
             ? null
-            : TextButton.icon(
-                key: const ValueKey('sidebar.favorites.addStandard'),
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                ),
-                onPressed: () => unawaited(_addFolders(context, view, offered)),
-                icon: const Icon(Icons.add, size: 14),
-                label: Text(l10n.sidebarFavoritesAddStandard),
+            : Wrap(
+                children: [
+                  if (offered.isNotEmpty)
+                    TextButton.icon(
+                      key: const ValueKey('sidebar.favorites.addStandard'),
+                      style: _hintButtonStyle,
+                      onPressed: () =>
+                          unawaited(_addFolders(context, view, offered)),
+                      icon: const Icon(Icons.add, size: 14),
+                      label: Text(l10n.sidebarFavoritesAddStandard),
+                    ),
+                  if (view.onImportSshConfig != null)
+                    TextButton.icon(
+                      key: const ValueKey('sidebar.importSshConfig'),
+                      style: _hintButtonStyle,
+                      onPressed: view.onImportSshConfig,
+                      icon: const Icon(Icons.download_outlined, size: 14),
+                      label: Text(l10n.sidebarImportSshConfig),
+                    ),
+                ],
               ),
       ),
     ),
   );
 }
 
+/// The compact buttons under a rail hint.
+final ButtonStyle _hintButtonStyle = TextButton.styleFrom(
+  visualDensity: VisualDensity.compact,
+  padding: const EdgeInsets.symmetric(horizontal: 6),
+);
+
+/// One FAVORITES row: a remote location is a server's row (its live dot
+/// and connection verbs), every other kind a place's.
 Widget _favoriteRow(
   _SidebarData data,
   Bookmark bookmark, {
   required String? group,
   required int depth,
-}) => _FavoriteRow(
-  key: ValueKey('sidebar.favorite.${bookmark.id}'),
-  data: data,
-  bookmark: bookmark,
-  group: group,
-  depth: depth,
-);
+}) => _isServerKind(bookmark)
+    ? _SavedServerRow(
+        key: ValueKey('sidebar.favorite.${bookmark.id}'),
+        data: data,
+        bookmark: bookmark,
+        group: group,
+        depth: depth,
+      )
+    : _FavoriteRow(
+        key: ValueKey('sidebar.favorite.${bookmark.id}'),
+        data: data,
+        bookmark: bookmark,
+        group: group,
+        depth: depth,
+      );
 
 /// One favorite: its kind glyph (tinted by the favorite's colour), the
 /// label, the path in the tooltip, and both halves of the drag contract
@@ -330,7 +373,7 @@ class _FavoriteRow extends StatelessWidget {
           fraction,
           target: bookmark,
           group: group,
-          accepts: _isFavoriteKind,
+          accepts: _anyBookmark,
         );
         if (reorder != null || payload is Bookmark) return reorder;
         // The middle half of a folder favorite is INTO it; its edges add

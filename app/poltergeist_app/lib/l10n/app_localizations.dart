@@ -4668,7 +4668,7 @@ abstract class AppLocalizations {
   /// **'Ungrouped'**
   String get sidebarCatalogUngrouped;
 
-  /// Body copy inside the expanded Séance-servers section when the pulled catalog is empty.
+  /// Empty-Servers hint in shared mode (the Séance account's servers list under SERVERS) while the pulled catalog is empty.
   ///
   /// In en, this message translates to:
   /// **'No servers on this account yet. Add one in Séance and sync to see it here.'**
@@ -6610,10 +6610,10 @@ abstract class AppLocalizations {
   /// **'Drag folders here to keep them close.'**
   String get sidebarFavoritesEmpty;
 
-  /// Empty-Servers hint.
+  /// Empty-Servers hint without the shared Séance account (D33): SERVERS then holds only live Quick Connect sessions, and a saved server lands in Favorites.
   ///
   /// In en, this message translates to:
-  /// **'No servers yet. Connect to one, then save it here.'**
+  /// **'Quick Connect sessions show here. Save one to keep it in Favorites.'**
   String get sidebarServersEmpty;
 
   /// Placeholder row inside a group created with New Group… that has no members yet.
@@ -6634,17 +6634,17 @@ abstract class AppLocalizations {
   /// **'Eject'**
   String get sidebarEject;
 
-  /// Menu verb on an unsaved Quick Connect session in the sidebar: saves it as a server.
+  /// Verb on an unsaved Quick Connect session (the sidebar's italic row, the pane's Not saved banner, and Server ▸ Save to Favorites…): saves its endpoint and folder as a favorite, which lists under Favorites (D33).
   ///
   /// In en, this message translates to:
-  /// **'Save to Servers…'**
-  String get sidebarSaveToServers;
+  /// **'Save to Favorites…'**
+  String get sidebarSaveToFavorites;
 
-  /// Title of the name dialog that saves a Quick Connect session.
+  /// Title of the name dialog that saves a Quick Connect session as a favorite.
   ///
   /// In en, this message translates to:
-  /// **'Save to Servers'**
-  String get sidebarSaveToServersTitle;
+  /// **'Save to Favorites'**
+  String get sidebarSaveToFavoritesTitle;
 
   /// Announced after a live Quick Connect session's name in the sidebar (the row is shown in italics).
   ///
@@ -6976,16 +6976,22 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 tab open} other{{count} tabs open}}'**
   String compactHomeTabsOpen(int count);
 
-  /// D32 §9: title of the compact Home's empty SERVERS state, above the Quick Connect and Import from ssh config buttons.
+  /// D32 §9: title of the compact Home's empty SERVERS state, above the Quick Connect button.
   ///
   /// In en, this message translates to:
   /// **'Connect to a server'**
   String get compactHomeServersEmptyTitle;
 
-  /// D32 §9: body of the compact Home's empty SERVERS state.
+  /// D32 §9: body of the compact Home's empty SERVERS state in shared mode, while the Séance account's server list is empty.
   ///
   /// In en, this message translates to:
-  /// **'Servers you save appear here, with their status.'**
+  /// **'Servers on your Séance account appear here, with their status.'**
+  String get compactHomeServersEmptyAccountBody;
+
+  /// D32 §9: body of the compact Home's empty SERVERS state without the shared Séance account (D33): SERVERS then holds only live sessions, and a saved server lands in Favorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Connect sessions appear here, with their status. Save one to keep it in Favorites.'**
   String get compactHomeServersEmptyBody;
 
   /// D32 §9: title of the compact Home's empty FAVORITES state.
@@ -7000,17 +7006,11 @@ abstract class AppLocalizations {
   /// **'Open a folder, then choose Add Current Folder to Favorites from its menu.'**
   String get compactHomeFavoritesEmptyBody;
 
-  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local folder (Home, where the row appears, is a screen away).
+  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local or remote folder (Home, where the row appears, is a screen away).
   ///
   /// In en, this message translates to:
   /// **'Added “{label}” to Favorites.'**
   String compactAddedToFavorites(String label);
-
-  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a remote folder, which lands under Servers.
-  ///
-  /// In en, this message translates to:
-  /// **'Saved “{label}” to Servers.'**
-  String compactSavedToServers(String label);
 
   /// Command label: browse the tab's home, the user's home folder locally or the login folder on a server (go.home, ⇧⌘H, 02 §8.3, 10 §8's Go menu).
   ///
@@ -7036,7 +7036,7 @@ abstract class AppLocalizations {
   /// **'Requires a tab connected to a server'**
   String get commandDisabledNotConnected;
 
-  /// Disabled-command reason for Server ▸ Save to Servers… (connect.saveToServers): the active tab is not browsing a Quick Connect session that is not saved yet.
+  /// Disabled-command reason for Server ▸ Save to Favorites… (connect.saveToServers): the active tab is not browsing a Quick Connect session that is not saved yet.
   ///
   /// In en, this message translates to:
   /// **'Requires an unsaved Quick Connect session'**

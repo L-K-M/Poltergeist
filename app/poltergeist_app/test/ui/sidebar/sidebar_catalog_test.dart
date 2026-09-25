@@ -139,14 +139,30 @@ void main() {
     deletes = [];
   });
 
-  testWidgets('no catalog and no saved server renders the empty SERVERS', (
+  testWidgets('no catalog renders SERVERS for live sessions only', (
     tester,
   ) async {
     await pump(tester, withCatalog: false);
     expect(find.text('SERVERS'), findsOneWidget);
-    expect(find.textContaining('No servers yet'), findsOneWidget);
+    expect(
+      find.textContaining('Quick Connect sessions show here'),
+      findsOneWidget,
+    );
     // The retired section title never renders.
     expect(find.text('Séance servers'), findsNothing);
+  });
+
+  testWidgets('an empty catalog says the account has no servers yet', (
+    tester,
+  ) async {
+    await pump(tester);
+    expect(
+      find.text(
+        'No servers on this account yet. Add one in Séance and sync to '
+        'see it here.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('catalog servers join SERVERS, grouped by the Séance rules', (
@@ -178,9 +194,8 @@ void main() {
     );
   });
 
-  testWidgets('a saved server and a catalog server share one group row', (
-    tester,
-  ) async {
+  testWidgets('a remote favorite files under FAVORITES, apart from the '
+      'catalog group of the same name', (tester) async {
     final now = DateTime.utc(2026, 10, 1);
     store.bookmarks = [
       Bookmark(
@@ -202,11 +217,23 @@ void main() {
       ),
     ];
     catalog.replace([_server('a1', label: 'alpha', group: 'prod')]);
-    await pump(tester);
+    final controller = await pump(tester);
 
+    // Two groups: the bookmark's under FAVORITES, the account's under
+    // SERVERS, each folding on its own namespaced key.
     expect(find.text('Prod'), findsOneWidget);
+    expect(find.text('prod'), findsOneWidget);
+    final servers = tester
+        .getTopLeft(find.byKey(const ValueKey('sidebar.section.sec:servers')))
+        .dy;
+    expect(tester.getTopLeft(find.text('saved-web')).dy, lessThan(servers));
+    expect(tester.getTopLeft(find.text('alpha')).dy, greaterThan(servers));
+
+    await tester.tap(find.byKey(const ValueKey('sidebar.section.srv:prod')));
+    await tester.pumpAndSettle();
+    expect(controller.isCollapsed('srv:prod'), isTrue);
+    expect(find.text('alpha'), findsNothing);
     expect(find.text('saved-web'), findsOneWidget);
-    expect(find.text('alpha'), findsOneWidget);
   });
 
   testWidgets('the section and its groups collapse under srv: keys', (
@@ -378,6 +405,40 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(add);
     expect(addCalls, 1);
+  });
+
+  // Moved here with the account's servers (D33): SERVERS' "+" header now
+  // sits over catalog rows.
+  testWidgets('the arrows and Tab get past the SERVERS header and its +', (
+    tester,
+  ) async {
+    catalog.replace([_server('a1', label: 'a'), _server('b1', label: 'b')]);
+    await pump(tester);
+    Future<void> press(LogicalKeyboardKey key) async {
+      await tester.sendKeyEvent(key);
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(row('a1'));
+    await tester.pumpAndSettle();
+    opens.clear();
+
+    // Up lands on the header (its "+" drawn for the keyboard); Down
+    // comes straight back to the row rather than bouncing off the "+".
+    await press(LogicalKeyboardKey.arrowUp);
+    await press(LogicalKeyboardKey.arrowDown);
+    await press(LogicalKeyboardKey.enter);
+    expect(opens.single.$1.id, 'a1');
+    opens.clear();
+
+    // Tab takes the header's "+" as a stop of its own, then the row.
+    await press(LogicalKeyboardKey.arrowUp);
+    await press(LogicalKeyboardKey.tab);
+    await press(LogicalKeyboardKey.enter);
+    expect(addCalls, 1);
+    await press(LogicalKeyboardKey.tab);
+    await press(LogicalKeyboardKey.enter);
+    expect(opens.single.$1.id, 'a1');
   });
 
   testWidgets('the row menu offers and fires the management verbs', (

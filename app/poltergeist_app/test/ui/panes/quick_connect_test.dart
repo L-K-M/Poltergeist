@@ -401,13 +401,13 @@ void main() {
       await rig(tester);
       expect(bar, findsOneWidget);
       expect(find.text('Not saved · deploy@example.com'), findsOneWidget);
-      expect(find.text('Save to Servers…'), findsOneWidget);
+      expect(find.text('Save to Favorites…'), findsOneWidget);
       // One line, not a form: no field until the name prompt opens.
       expect(tester.getSize(bar).height, lessThanOrEqualTo(32));
       expect(find.byType(TextField), findsNothing);
     });
 
-    testWidgets('Save to Servers… runs the sidebar\'s prompt and saves '
+    testWidgets('Save to Favorites… runs the sidebar\'s prompt and saves '
         'with no password anywhere', (tester) async {
       final store = FakeBookmarkStore();
       await rig(tester, store: store);
@@ -415,7 +415,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('saveFavorite.save')));
       await tester.pumpAndSettle();
       // The sidebar's name prompt, prefilled with the endpoint.
-      expect(find.text('Save to Servers'), findsOneWidget);
+      expect(find.text('Save to Favorites'), findsOneWidget);
       final field = tester.widget<TextFormField>(
         find.byKey(const ValueKey('saveFavorite.name')),
       );
@@ -453,7 +453,7 @@ void main() {
       await rig(tester, store: store);
       expect(bar, findsOneWidget);
 
-      // The rail's "Save to Servers…" writes the same endpoint.
+      // The rail's "Save to Favorites…" writes the same endpoint.
       await tester.runAsync(
         () => store.save(
           adhocBookmark(id: 'saved-1', label: 'deploy'),

@@ -150,10 +150,11 @@ class SidebarView extends StatefulWidget {
   final void Function(Bookmark bookmark)? onLocalEdits;
 
   /// D22's adoption affordance: the ssh_config import. Offered in the
-  /// empty SERVERS state and the + menu; null hides both.
+  /// empty FAVORITES state (where the imported hosts land) and the +
+  /// menu; null hides both.
   final VoidCallback? onImportSshConfig;
 
-  /// The shared-mode Séance server catalog (04 §4.2), merged into SERVERS.
+  /// The shared-mode Séance server catalog (04 §4.2): SERVERS lists it.
   /// Null in separate mode.
   final SeanceServerCatalog? catalog;
 
@@ -658,13 +659,14 @@ SidebarDensity sidebarDensityOf(SidebarKitDensity density) => switch (density) {
 };
 
 /// What an "Add Current Folder to Favorites" landed: a new favorite, a
-/// folder that already was one (the caller has said so), a saved server
-/// location, or nothing (the failure has been reported and said).
-enum SidebarAddOutcome { favorite, alreadyFavorite, serverLocation, failed }
+/// folder that already was one (the caller has said so), or nothing
+/// (the failure has been reported and said).
+enum SidebarAddOutcome { favorite, alreadyFavorite, failed }
 
 /// "Add Current Folder to Favorites" (10 §5) for [location]: a local
-/// folder becomes a favorite; a remote one becomes a saved server
-/// location under SERVERS, saved from its live [remote] binding. One
+/// folder becomes a favorite; a remote one becomes a remote favorite,
+/// saved from its live [remote] binding, beside them under FAVORITES
+/// (D33). One
 /// owner for the rail's "+" and the compact browser's ⋮, so both land
 /// the same bookmark and say the same thing when the folder already is
 /// one or the write fails. [label] names what was added, for a caller
@@ -707,7 +709,7 @@ Future<({SidebarAddOutcome outcome, String label})> addLocationToFavorites(
           path: path,
           label: label,
         );
-        return (outcome: SidebarAddOutcome.serverLocation, label: label);
+        return (outcome: SidebarAddOutcome.favorite, label: label);
     }
   } on Object catch (error, stackTrace) {
     ApplicationErrorReporter().report(error, stackTrace);
@@ -781,7 +783,8 @@ final class _SidebarData {
   int total = 0;
   int matched = 0;
 
-  /// SERVERS' size, for the filter's appearance threshold.
+  /// How many servers the rail lists (SERVERS' rows and the remote
+  /// favorites), for the filter's appearance threshold.
   int serverCount = 0;
 
   VoidCallback? _firstMatch;

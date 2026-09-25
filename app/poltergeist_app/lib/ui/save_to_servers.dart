@@ -93,7 +93,7 @@ Future<String?> promptSaveToServers(
   final l10n = AppLocalizations.of(context);
   return showNamePrompt(
     context,
-    title: l10n.sidebarSaveToServersTitle,
+    title: l10n.sidebarSaveToFavoritesTitle,
     fieldLabel: l10n.saveFavoriteNameLabel,
     fieldKey: fieldKey,
     saveKey: saveKey,

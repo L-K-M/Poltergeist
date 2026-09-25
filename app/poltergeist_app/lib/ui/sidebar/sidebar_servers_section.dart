@@ -1,25 +1,26 @@
 part of 'sidebar_view.dart';
 
+/// A remote location (a remotePath bookmark): a server's row, listed
+/// under FAVORITES with the other bookmark kinds (10 §5, D33).
 bool _isServerKind(Bookmark bookmark) =>
     bookmark.kind == BookmarkKind.remotePath;
 
-/// One SERVERS group: saved server rows (in the store's user order) and
-/// shared-account catalog servers (by label), under one disclosure row.
+/// One SERVERS group: the shared account's catalog servers (by label)
+/// under one disclosure row.
 final class _ServerGroup {
   _ServerGroup(this.name);
 
   final String name;
-  final stored = <Bookmark>[];
   final catalog = <ServerConfig>[];
 
-  int get length => stored.length + catalog.length;
+  int get length => catalog.length;
 }
 
-/// SERVERS (10 §5): live Quick Connect sessions (italic, top), then the
-/// saved server locations and the shared-account catalog merged into one
-/// grouped list — each row carrying its live state as its one dot. This
-/// replaces the separate Connections section: a connected server is the
-/// same row, not a second copy of it.
+/// SERVERS (10 §5, D33): live Quick Connect sessions (italic, top), then
+/// the shared account's server list, grouped by Séance's rules — each
+/// row carrying its live state as its one dot. Saved remote locations
+/// are favorites and list under FAVORITES with their own dots, so
+/// without the shared account this section holds only live sessions.
 List<Widget> _serversSection(_SidebarData data) {
   final l10n = data.l10n;
   final view = data.view;
@@ -28,16 +29,6 @@ List<Widget> _serversSection(_SidebarData data) {
 
   final loose = _ServerGroup('');
   final groups = <String, _ServerGroup>{};
-  for (final section in controller.sections) {
-    for (final bookmark in section.bookmarks.where(_isServerKind)) {
-      final name = section.name;
-      (name == null
-              ? loose
-              : groups.putIfAbsent(section.key, () => _ServerGroup(name)))
-          .stored
-          .add(bookmark);
-    }
-  }
   final catalog = view.catalog?.servers ?? const <ServerConfig>[];
   for (final server in catalog) {
     final name = normalizeServerGroup(server.group);
@@ -50,25 +41,25 @@ List<Widget> _serversSection(_SidebarData data) {
         .catalog
         .add(server);
   }
-  // A saved endpoint is the session's saved row: once "Save to Servers…"
-  // (or the pane's save bar) lands, the italic duplicate retires.
+  final remoteFavorites = controller.bookmarks.where(_isServerKind).toList();
+  // A saved endpoint is the session's saved row: once "Save to
+  // Favorites…" (or the pane's save bar) lands, the italic duplicate
+  // retires.
   final saved = <String>{
-    for (final group in [loose, ...groups.values]) ...[
-      for (final bookmark in group.stored) ?_endpointKeyOf(bookmark),
-      for (final server in group.catalog)
-        _endpointKey(server.host, server.port, server.username),
-    ],
+    for (final bookmark in remoteFavorites) ?_endpointKeyOf(bookmark),
+    for (final server in catalog)
+      _endpointKey(server.host, server.port, server.username),
   };
   final sessions = [
     for (final session in data.facts.adhoc)
       if (!saved.contains(_endpointKeyOf(session.bookmark))) session,
   ];
 
-  final total =
-      sessions.length +
-      loose.length +
-      groups.values.fold<int>(0, (sum, group) => sum + group.length);
-  data.serverCount = total;
+  final total = sessions.length + catalog.length;
+  // The filter's threshold counts every server the rail lists, the
+  // remote favorites included: without the shared account they are
+  // the user's servers.
+  data.serverCount = total + remoteFavorites.length;
 
   final body = <Widget>[];
   for (final session in sessions) {
@@ -89,33 +80,27 @@ List<Widget> _serversSection(_SidebarData data) {
       ),
     );
   }
-  body.addAll(_serverRows(data, loose, group: null, depth: 0));
+  body.addAll(_serverRows(data, loose, depth: 0));
 
   final sortedKeys = groups.keys.toList()..sort();
   for (final key in sortedKeys) {
     final group = groups[key]!;
     final collapseKey = SidebarCollapseKeys.serverGroup(key);
-    final rows = _serverRows(data, group, group: group.name, depth: 1);
+    final rows = _serverRows(data, group, depth: 1);
     if (data.filtering && rows.isEmpty) continue;
     final collapsed = data.collapsed(collapseKey);
+    // The account's groups take no bookmark drops: a catalog server's
+    // group is edited in the server editor, and bookmarks file under
+    // FAVORITES.
     body.add(
-      _SidebarDropZone(
+      SidebarSectionHeader(
         key: ValueKey('sidebar.group.$collapseKey'),
-        planner: (payload, _) => _regroupPlan(
-          view,
-          payload,
-          group: group.name,
-          accepts: _isServerKind,
-        ),
-        builder: (indicator) => SidebarSectionHeader(
-          headerKey: ValueKey('sidebar.section.$collapseKey'),
-          nested: true,
-          title: group.name,
-          count: group.length,
-          collapsed: collapsed,
-          dropHighlight: indicator != SidebarDropIndicator.none,
-          onToggle: () => controller.toggleCollapsed(collapseKey),
-        ),
+        headerKey: ValueKey('sidebar.section.$collapseKey'),
+        nested: true,
+        title: group.name,
+        count: group.length,
+        collapsed: collapsed,
+        onToggle: () => controller.toggleCollapsed(collapseKey),
       ),
     );
     if (!collapsed) body.addAll(rows);
@@ -131,22 +116,12 @@ List<Widget> _serversSection(_SidebarData data) {
     body.add(
       _SidebarHint(
         key: const ValueKey('sidebar.servers.empty'),
-        text: l10n.sidebarServersEmpty,
+        // With the shared account SERVERS is its server list; without
+        // it, the live sessions only.
+        text: view.catalog == null
+            ? l10n.sidebarServersEmpty
+            : l10n.sidebarCatalogEmpty,
         presentation: view.presentation,
-        // D22's adoption beat: an empty server list is the moment the
-        // ssh_config import earns its keep.
-        action: view.onImportSshConfig == null
-            ? null
-            : TextButton.icon(
-                key: const ValueKey('sidebar.importSshConfig'),
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                ),
-                onPressed: view.onImportSshConfig,
-                icon: const Icon(Icons.download_outlined, size: 14),
-                label: Text(l10n.sidebarImportSshConfig),
-              ),
       ),
     );
   }
@@ -155,30 +130,26 @@ List<Widget> _serversSection(_SidebarData data) {
   final collapsed = data.collapsed(sectionKey);
   final VoidCallback? onAdd = view.onAddCatalogServer ?? view.onQuickConnect;
   return [
-    _SidebarDropZone(
+    SidebarSectionHeader(
       key: const ValueKey('sidebar.servers.header'),
-      planner: (payload, _) =>
-          _regroupPlan(view, payload, group: null, accepts: _isServerKind),
-      builder: (indicator) => SidebarSectionHeader(
-        headerKey: ValueKey('sidebar.section.$sectionKey'),
-        title: l10n.sidebarServersSection,
-        count: total,
-        collapsed: collapsed,
-        dropHighlight: indicator != SidebarDropIndicator.none,
-        onToggle: () => controller.toggleCollapsed(sectionKey),
-        onAdd: onAdd,
-        addKey: const ValueKey('sidebar.servers.add'),
-        addTooltip: view.onAddCatalogServer != null
-            ? l10n.sidebarServersAddNew
-            : l10n.sidebarServersAddConnect,
-      ),
+      headerKey: ValueKey('sidebar.section.$sectionKey'),
+      title: l10n.sidebarServersSection,
+      count: total,
+      collapsed: collapsed,
+      onToggle: () => controller.toggleCollapsed(sectionKey),
+      onAdd: onAdd,
+      addKey: const ValueKey('sidebar.servers.add'),
+      addTooltip: view.onAddCatalogServer != null
+          ? l10n.sidebarServersAddNew
+          : l10n.sidebarServersAddConnect,
     ),
     if (!collapsed) ...body,
   ];
 }
 
 /// Home's empty SERVERS (D32 §9): an invitation to connect, with Quick
-/// Connect and — D22's adoption beat — the ssh_config import as buttons.
+/// Connect as its button. The ssh_config import is FAVORITES' offer now,
+/// where the hosts it imports land (D33).
 Widget _homeEmptyServers(_SidebarData data) {
   final l10n = data.l10n;
   final view = data.view;
@@ -186,7 +157,9 @@ Widget _homeEmptyServers(_SidebarData data) {
     key: const ValueKey('sidebar.servers.empty'),
     icon: Icons.dns_outlined,
     title: l10n.compactHomeServersEmptyTitle,
-    body: l10n.compactHomeServersEmptyBody,
+    body: view.catalog == null
+        ? l10n.compactHomeServersEmptyBody
+        : l10n.compactHomeServersEmptyAccountBody,
     actions: [
       if (view.onQuickConnect != null)
         FilledButton.tonalIcon(
@@ -195,44 +168,26 @@ Widget _homeEmptyServers(_SidebarData data) {
           icon: const Icon(Icons.power_outlined),
           label: Text(l10n.sidebarAddQuickConnect),
         ),
-      if (view.onImportSshConfig != null)
-        OutlinedButton.icon(
-          key: const ValueKey('sidebar.importSshConfig'),
-          onPressed: view.onImportSshConfig,
-          icon: const Icon(Icons.download_outlined),
-          label: Text(l10n.sidebarImportSshConfig),
-        ),
     ],
   );
 }
 
+/// The filter haystack of a remote location's row: its name, endpoint,
+/// landing path and group.
+String _remoteHaystack(Bookmark bookmark) => [
+  bookmark.label,
+  ?_endpointKeyOf(bookmark),
+  ?bookmark.remotePath,
+  ?bookmark.group,
+].join(' ');
+
 List<Widget> _serverRows(
   _SidebarData data,
   _ServerGroup members, {
-  required String? group,
   required int depth,
 }) {
   final view = data.view;
   return [
-    for (final bookmark in members.stored)
-      if (data.countRow(
-        [
-          bookmark.label,
-          ?_endpointKeyOf(bookmark),
-          ?bookmark.remotePath,
-          ?bookmark.group,
-        ].join(' '),
-        open: view.onOpenFavorite == null
-            ? null
-            : () => view.onOpenFavorite!(bookmark, SidebarOpenAction.plain),
-      ))
-        _SavedServerRow(
-          key: ValueKey('sidebar.favorite.${bookmark.id}'),
-          data: data,
-          bookmark: bookmark,
-          group: group,
-          depth: depth,
-        ),
     for (final server in members.catalog)
       if (data.countRow(
         serverSearchHaystack(server),
@@ -283,7 +238,7 @@ ServerStatus? _liveStatus(_SidebarData data, String serverId) {
 }
 
 /// The live Quick Connect session a saved row stands in for (10 §5):
-/// "Save to Servers…" leaves the session browsing under its adhoc id and
+/// "Save to Favorites…" leaves the session browsing under its adhoc id and
 /// retires its italic row, so the saved row of the same endpoint paints
 /// that session's status and its Disconnect drops it.
 SidebarAdhocSession? _sessionSavedAs(_SidebarData data, Bookmark bookmark) {
@@ -346,9 +301,9 @@ SidebarMenuEntry? _disconnectVerb(
   );
 }
 
-/// A saved server location (a remotePath bookmark): its badge, the live
-/// dot, the endpoint and any failure in the tooltip, and the connection
-/// verbs beside the store edits.
+/// A saved remote location (a remotePath bookmark), listed under
+/// FAVORITES (D33): its badge, the live dot, the endpoint and any failure
+/// in the tooltip, and the connection verbs beside the store edits.
 class _SavedServerRow extends StatelessWidget {
   const _SavedServerRow({
     required this.data,
@@ -487,14 +442,31 @@ class _SavedServerRow extends StatelessWidget {
       probes: view.probes,
       id: id,
       child: _SidebarDropZone(
-        planner: (payload, fraction) => _reorderPlan(
-          view,
-          payload,
-          fraction,
-          target: bookmark,
-          group: group,
-          accepts: _isServerKind,
-        ),
+        // A bookmark of any kind reorders around it (FAVORITES keeps one
+        // user order); a dragged folder adds itself beside it.
+        planner: (payload, fraction) {
+          final reorder = _reorderPlan(
+            view,
+            payload,
+            fraction,
+            target: bookmark,
+            group: group,
+            accepts: _anyBookmark,
+          );
+          if (reorder != null || payload is Bookmark) return reorder;
+          final before = fraction < 0.5;
+          return _addFavoritePlan(
+            context,
+            view,
+            payload,
+            indicator: before
+                ? SidebarDropIndicator.before
+                : SidebarDropIndicator.after,
+            group: group,
+            beforeId: before ? null : bookmark.id,
+            afterId: before ? bookmark.id : null,
+          );
+        },
         builder: (indicator) => _bookmarkDraggable(
           context,
           bookmark: bookmark,
@@ -676,7 +648,7 @@ class _CatalogServerRow extends StatelessWidget {
 }
 
 /// A live Quick Connect session with no saved row (10 §5): italic, at the
-/// top of SERVERS, with "Save to Servers…" beside the connection verbs.
+/// top of SERVERS, with "Save to Favorites…" beside the connection verbs.
 class _AdhocRow extends StatelessWidget {
   const _AdhocRow({required this.data, required this.session, super.key});
 
@@ -761,7 +733,7 @@ class _AdhocRow extends StatelessWidget {
         const SidebarMenuDivider(),
         SidebarMenuAction(
           key: const ValueKey('sidebar.adhoc.menu.save'),
-          label: l10n.sidebarSaveToServers,
+          label: l10n.sidebarSaveToFavorites,
           onSelected: () => unawaited(
             saveSessionToServers(context, view.controller, session),
           ),
