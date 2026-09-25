@@ -219,7 +219,7 @@ void main() {
     await capture('pathbar-invalid');
 
     // go.toFolder on a healthy pane: the same field, seeded empty.
-    // Clear the error first — Esc on the focused listing retries it.
+    // Clear the error first — Esc on the focused listing cancels it.
     leftNode.requestFocus();
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();

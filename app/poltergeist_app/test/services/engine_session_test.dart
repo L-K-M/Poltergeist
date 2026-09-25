@@ -302,12 +302,17 @@ class FakeAppBrowseChannel implements AppBrowseChannel {
   /// Per-path scripted listings; paths without an entry answer empty.
   final listings = <String, List<RemoteFileEntry>>{};
 
+  /// Per-path listing refusals, checked before [listings].
+  final listingFailures = <String, Object>{};
+
   final listCalls = <String>[];
   int closeCalls = 0;
 
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
     listCalls.add(path);
+    final failure = listingFailures[path];
+    if (failure != null) throw failure;
     return listings[path] ?? const [];
   }
 

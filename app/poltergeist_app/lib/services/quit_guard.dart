@@ -19,7 +19,8 @@ const _defaultFlushTimeout = Duration(seconds: 2);
 /// waits for the answer; then — task set or not — the journal flush is
 /// the hard gate. A failed or wedged flush reports, warns, and keeps the
 /// window open rather than destroying it with queued/paused/in-flight
-/// state still unwritten.
+/// state still unwritten, unless the user chooses the warning's Quit
+/// Anyway: the one way out of a write that keeps failing.
 ///
 /// The queue itself is bound by the workspace shell — the only object
 /// that sees the live seam — so a later-arriving or swapped
@@ -109,8 +110,7 @@ final class QuitGuard {
       await queue.flushJournal().timeout(_flushTimeout);
     } on Object catch (error, stack) {
       _report(error, stack);
-      await _warnFlushFailed(error);
-      return false;
+      return _warnFlushFailed(error);
     }
     return true;
   }
@@ -140,10 +140,13 @@ final class QuitGuard {
     );
   }
 
-  Future<void> _warnFlushFailed(Object error) async {
+  /// Whether the close goes ahead after all: only the warning's Quit
+  /// Anyway says so. With no surface left to warn on, the close stays
+  /// vetoed (the failure is already reported via _onError).
+  Future<bool> _warnFlushFailed(Object error) async {
     final context = _dialogContext;
-    if (context == null) return; // already reported via _onError
-    await showQuitFlushFailedDialog(context, error: error.toString());
+    if (context == null) return false;
+    return showQuitFlushFailedDialog(context, error: error.toString());
   }
 
   BuildContext? get _dialogContext {

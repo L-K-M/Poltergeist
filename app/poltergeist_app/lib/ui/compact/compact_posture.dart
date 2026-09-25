@@ -77,6 +77,7 @@ enum CompactKey {
   bannerCancel,
   connectCancel,
   errorRetry,
+  errorCancel,
   emptyFolder,
   filterEmptyClear,
   noticeDismiss,

@@ -711,6 +711,10 @@
   "@paneErrorOther": {
     "description": "Inline error sentence for the other taxonomy kind."
   },
+  "paneErrorCancel": "Cancel",
+  "@paneErrorCancel": {
+    "description": "The inline error's cancel action, beside Retry: abandons what failed and returns the pane to the last folder that opened (or leaves a connection that failed)."
+  },
   "paneFaultConnectionOpen": "The connection to this server could not be opened.",
   "@paneFaultConnectionOpen": {
     "description": "Diagnostic line for a non-VFS fault while opening a remote connection."
@@ -1852,7 +1856,7 @@
   "@quitFlushFailedTitle": {
     "description": "The journal-flush failure dialog's title (07 §3.5): shown when the close-path journal write fails or times out."
   },
-  "quitFlushFailedBody": "Saving the transfer journal failed: {error}. The window stayed open so queued and in-flight transfers are not lost — quit again to retry.",
+  "quitFlushFailedBody": "Saving the transfer journal failed: {error}. The window stayed open so queued and in-flight transfers are not lost. Quit again to retry, or choose Quit Anyway to close without saving their latest state.",
   "@quitFlushFailedBody": {
     "description": "The journal-flush failure dialog's body (07 §3.5): the raw error is machine data rendered inside ARB copy.",
     "placeholders": {
@@ -1863,7 +1867,11 @@
   },
   "quitFlushFailedDismiss": "Dismiss",
   "@quitFlushFailedDismiss": {
-    "description": "Closes the journal-flush failure dialog; the window stays open either way."
+    "description": "Closes the journal-flush failure dialog; the window stays open."
+  },
+  "quitFlushFailedQuitAnyway": "Quit Anyway",
+  "@quitFlushFailedQuitAnyway": {
+    "description": "The journal-flush failure dialog's way out when the write keeps failing: closes the window without the journal write (the journal stays crash-consistent, so the next launch restores what it last recorded)."
   },
   "transferStateQueued": "Queued",
   "@transferStateQueued": {
