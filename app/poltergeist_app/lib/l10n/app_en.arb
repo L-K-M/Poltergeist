@@ -6029,5 +6029,21 @@
         "type": "String"
       }
     }
+  },
+  "connectDialogHighlightAnnouncement": "{server}, {detail}. Press Return to open it.",
+  "@connectDialogHighlightAnnouncement": {
+    "description": "Screen-reader announcement when ↑/↓ in the Connect dialog's (⌘K) address field highlight a saved server row: focus stays in the field, so this says which server Return now opens. {detail} is the row's user@host.",
+    "placeholders": {
+      "server": {
+        "type": "String"
+      },
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "connectDialogHighlightCleared": "No server highlighted. Press Return to connect to the address.",
+  "@connectDialogHighlightCleared": {
+    "description": "Screen-reader announcement when ↑/↓ in the Connect dialog's address field move the highlight past the saved server rows, so Return submits the typed address again."
   }
 }

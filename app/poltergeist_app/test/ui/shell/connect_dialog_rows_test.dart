@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
@@ -151,6 +152,67 @@ void main() {
       await tester.pumpAndSettle();
       expect(opened, isEmpty);
       expect(connected, ['other.example.com']);
+    });
+
+    testWidgets('a highlight left behind never takes Return from another '
+        'control', (tester) async {
+      await pumpDialog(tester, 2);
+      await tester.enterText(field, 'me@typed.example.com');
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      // Tab to the Connect button: Return there is the button's.
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      final connect = find.descendant(
+        of: find.byType(FilledButton),
+        matching: find.byType(Text),
+      );
+      expect(Focus.of(tester.element(connect)).hasPrimaryFocus, isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(opened, isEmpty);
+      expect(connected, ['typed.example.com']);
+    });
+
+    testWidgets('a screen reader hears what Return will open as the '
+        'highlight moves', (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(supportsAnnounce: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await pumpDialog(tester, 2);
+      tester.takeAnnouncements();
+
+      for (var i = 0; i < 3; i++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+        await tester.pump();
+      }
+      final l10n = lookupAppLocalizations(const Locale('en'));
+      expect(tester.takeAnnouncements().map((a) => a.message), [
+        l10n.connectDialogHighlightAnnouncement(
+          'Server s0',
+          'me@s0.example.com',
+        ),
+        l10n.connectDialogHighlightAnnouncement(
+          'Server s1',
+          'me@s1.example.com',
+        ),
+        l10n.connectDialogHighlightCleared,
+      ]);
+    });
+
+    testWidgets('a row answers a screen reader\'s activation', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpDialog(tester, 2);
+      final row = find.semantics.byLabel('Server s1, me@s1.example.com');
+      final node = row.evaluate().single;
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      tester.semantics.tap(row);
+      await tester.pumpAndSettle();
+      expect(opened, ['s1']);
+      semantics.dispose();
     });
 
     testWidgets('a click opens a row', (tester) async {

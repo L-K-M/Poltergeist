@@ -4589,4 +4589,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String compactSavedToServers(String label) {
     return 'Saved “$label” to Servers.';
   }
+
+  @override
+  String connectDialogHighlightAnnouncement(String server, String detail) {
+    return '$server, $detail. Press Return to open it.';
+  }
+
+  @override
+  String get connectDialogHighlightCleared =>
+      'No server highlighted. Press Return to connect to the address.';
 }
