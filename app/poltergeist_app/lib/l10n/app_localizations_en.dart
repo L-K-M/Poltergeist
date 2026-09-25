@@ -638,7 +638,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get goEditPathLabel => 'Edit Path';
 
   @override
-  String get goEnclosingLabel => 'Parent Folder';
+  String get goEnclosingLabel => 'Enclosing Folder';
 
   @override
   String get goForwardLabel => 'Forward';
@@ -1198,7 +1198,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get workspaceMenuEmpty => 'No Saved Workspaces';
 
   @override
-  String get viewToggleActivityPanelLabel => 'Show/Hide Activity';
+  String get viewToggleActivityPanelLabel => 'Transfers';
 
   @override
   String get queueTogglePauseLabel => 'Pause/Resume Transfers';
@@ -1537,7 +1537,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsTitle => 'Settings';
 
   @override
-  String get settingsBackupCommand => 'Back up bookmarks…';
+  String get settingsBackupCommand => 'Back up and sync…';
 
   @override
   String get settingsCommand => 'Settings…';
@@ -2146,7 +2146,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get filePreviewLabelNeutral => 'Preview';
 
   @override
-  String get viewTogglePreviewLabel => 'Show/Hide Preview';
+  String get viewTogglePreviewLabel => 'Info';
 
   @override
   String get previewPanelLabel => 'Preview';
@@ -2881,7 +2881,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get syncSynchronizePanes => 'Synchronize Panes';
+  String get syncSynchronizePanes => 'Synchronize…';
 
   @override
   String get syncRescan => 'Rescan';
@@ -4589,6 +4589,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String compactSavedToServers(String label) {
     return 'Saved “$label” to Servers.';
   }
+
+  @override
+  String get goHomeLabel => 'Home';
+
+  @override
+  String get viewEnterFullScreenLabel => 'Enter Full Screen';
+
+  @override
+  String get viewExitFullScreenLabel => 'Exit Full Screen';
 
   @override
   String get commandDisabledNotConnected =>

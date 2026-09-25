@@ -10,6 +10,7 @@ import '../../services/pane_drop.dart';
 import '../../services/pane_file_ops.dart';
 import '../../services/pane_tabs_controller.dart';
 import '../../services/registered_command.dart';
+import '../../services/window_full_screen.dart';
 import '../../services/workspace_controller.dart';
 import 'delete_confirm_dialog.dart';
 import 'keyboard_shortcuts_dialog.dart';
@@ -18,6 +19,7 @@ const kViewToggleInspectorCommandId = 'view.toggleInspector';
 const kViewShowAlertsCommandId = 'view.showAlerts';
 const kConnectQuickConnectCommandId = 'connect.quickConnect';
 const kConnectDisconnectCommandId = 'connect.disconnect';
+const kViewToggleFullScreenCommandId = 'view.toggleFullScreen';
 const kSelectionTransferToOtherPaneCommandId =
     'selection.transferToOtherPane';
 const kSelectionMoveToOtherPaneCommandId = 'selection.moveToOtherPane';
@@ -164,7 +166,9 @@ List<RegisteredCommand> buildShellCommands({
   /// Disconnect, which Server ▸ Disconnect reuses. Null leaves the menu
   /// row disabled.
   Future<void> Function(String serverId)? disconnectServer,
+  WindowFullScreen? fullScreen,
 }) {
+  final window = fullScreen ?? WindowManagerFullScreen.instance;
   bool browsing() => workspace.activeTabController?.verbsEnabled ?? false;
   bool hasSelection() {
     final pane = workspace.activeTabController;
@@ -298,7 +302,7 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 72,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -323,7 +327,7 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 90,
-        group: 3,
+        group: 4,
       ),
       toolbarPlacement: const CommandToolbarPlacement(
         slot: ToolbarSlot.actions,
@@ -353,7 +357,7 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 92,
-        group: 3,
+        group: 4,
       ),
     ),
     RegisteredCommand(
@@ -382,10 +386,10 @@ List<RegisteredCommand> buildShellCommands({
       label: (l10n) => l10n.helpReleaseNotesLabel,
       icon: Icons.new_releases_outlined,
       run: (_) => openUrl(_releasesPage),
+      // 10 §8's Help menu is one section.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.help,
         order: 20,
-        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -397,7 +401,6 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.help,
         order: 30,
-        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -418,9 +421,10 @@ List<RegisteredCommand> buildShellCommands({
         ],
       ),
       run: (_) async => workspace.toggleInspector(),
+      // 10 §8's View menu: Sidebar (60), Inspector, Second Pane (70).
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
-        order: 75,
+        order: 65,
       ),
       toolbarPlacement: const CommandToolbarPlacement(
         slot: ToolbarSlot.status,
@@ -434,9 +438,11 @@ List<RegisteredCommand> buildShellCommands({
       label: (l10n) => l10n.viewShowAlertsLabel,
       icon: Icons.warning_amber_outlined,
       run: (_) async => workspace.showInspector(InspectorTab.alerts),
+      // 10 §8's View menu: Info (80), Transfers (85), Alerts.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
-        order: 95,
+        order: 90,
+        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -515,7 +521,7 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 80,
-        group: 2,
+        group: 3,
       ),
       toolbarPlacement: const CommandToolbarPlacement(
         slot: ToolbarSlot.actions,
@@ -536,7 +542,7 @@ List<RegisteredCommand> buildShellCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 82,
-        group: 2,
+        group: 3,
       ),
     ),
       if (revealer.supported)
@@ -559,6 +565,26 @@ List<RegisteredCommand> buildShellCommands({
           menu: AppMenuId.file,
           order: 68,
           group: 1,
+        ),
+      ),
+    // 10 §8's View menu ends with Enter Full Screen on every platform;
+    // macOS renders AppKit's own item there instead of this command.
+    // No F11 chord yet: the chord layer binds unmodified keys only from
+    // its function-key list, and the menu row alone keeps the command
+    // reachable (02 §8.1).
+    if (window.supported)
+      RegisteredCommand(
+        id: kViewToggleFullScreenCommandId,
+        scope: CommandScope.app,
+        label: (l10n) => window.isFullScreen
+            ? l10n.viewExitFullScreenLabel
+            : l10n.viewEnterFullScreenLabel,
+        icon: Icons.fullscreen,
+        run: (_) => window.toggle(),
+        menuPlacement: const CommandMenuPlacement(
+          menu: AppMenuId.view,
+          order: 120,
+          group: 4,
         ),
       ),
   ];

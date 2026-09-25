@@ -49,8 +49,14 @@ RegisteredCommand buildSidebarFilterCommand({
     }
     sidebar.requestFilter();
   },
-  // 10 §8's View menu: beside Show/Hide Sidebar (slot 60).
-  menuPlacement: const CommandMenuPlacement(menu: AppMenuId.view, order: 61),
+  // Beside Filter in the Edit menu's last section: 10 §8's table does
+  // not list this chord's row, and its View section is Sidebar,
+  // Inspector, Second Pane with nothing between them.
+  menuPlacement: const CommandMenuPlacement(
+    menu: AppMenuId.edit,
+    order: 95,
+    group: 4,
+  ),
 );
 
 /// The sidebar verbs that act on the active pane, as registered commands

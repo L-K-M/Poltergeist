@@ -1156,6 +1156,15 @@ class PaneController extends ChangeNotifier {
     navigate(parent);
   }
 
+  /// Browses the binding's home (02 §8.3's `go.home`): the user's home
+  /// on a local tab, the login directory on a remote one — the folder
+  /// path input's `~` names.
+  void goHome() {
+    final channel = _channel;
+    if (channel == null) return;
+    navigate(channel.homePath);
+  }
+
   /// Re-lists the current location (a fresh generation, so in-flight
   /// answers for the same path go stale).
   void refresh() {

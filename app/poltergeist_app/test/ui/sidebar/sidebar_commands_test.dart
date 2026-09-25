@@ -37,7 +37,7 @@ void main() {
     workspace.dispose();
   });
 
-  test('⌥⌘F on macOS, Ctrl+Alt+F elsewhere, in the View menu', () {
+  test('⌥⌘F on macOS, Ctrl+Alt+F elsewhere, beside Filter in Edit', () {
     expect(command.id, kViewFilterSidebarCommandId);
     expect(command.activators!(TargetPlatform.macOS), const [
       SingleActivator(LogicalKeyboardKey.keyF, meta: true, alt: true),
@@ -45,7 +45,7 @@ void main() {
     expect(command.activators!(TargetPlatform.linux), const [
       SingleActivator(LogicalKeyboardKey.keyF, control: true, alt: true),
     ]);
-    expect(command.menuPlacement?.menu, AppMenuId.view);
+    expect(command.menuPlacement?.menu, AppMenuId.edit);
   });
 
   testWidgets('running it reveals a hidden sidebar and asks for the field', (

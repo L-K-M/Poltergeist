@@ -458,8 +458,8 @@ void main() {
       [const SingleActivator(LogicalKeyboardKey.keyL, control: true)],
     );
 
-    // 02 §9's Go menu: Back 10, Forward 20, Enclosing 30, then the
-    // field commands at 50/60 (slot 40 stays open for Home).
+    // 10 §8's Go menu: Back 10, Forward 20, Enclosing 30, Home 40,
+    // then the path-field section at 50/60.
     expect(back.menuPlacement?.menu, AppMenuId.go);
     expect(back.menuPlacement?.order, 10);
     expect(forward.menuPlacement?.order, 20);
@@ -505,6 +505,55 @@ void main() {
     expect(back.enabled(), isFalse);
     expect(editPath.enabled(), isFalse);
     expect(toFolder.enabled(), isFalse);
+  });
+
+  testWidgets('go.home browses the binding\'s home with ⇧⌘H / '
+      'Ctrl+Shift+H from 10 §8\'s Go menu', (tester) async {
+    final lanes = controller_test.FakePaneLanes();
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('a')];
+    channel.listings['/home/tester/a'] = [_entry('inner')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
+    addTearDown(workspace.dispose);
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await tester.pump();
+    workspace.setActivePane(leftStrip);
+
+    final home = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((command) => command.id == kGoHomeCommandId);
+
+    expect(home.scope, CommandScope.pane);
+    expect(home.activators!(TargetPlatform.macOS), const [
+      SingleActivator(LogicalKeyboardKey.keyH, meta: true, shift: true),
+    ]);
+    expect(home.activators!(TargetPlatform.linux), const [
+      SingleActivator(LogicalKeyboardKey.keyH, control: true, shift: true),
+    ]);
+    expect(home.menuPlacement?.menu, AppMenuId.go);
+    expect(home.menuPlacement?.order, 40);
+    expect(home.menuPlacement?.group, 0);
+
+    await tester.pumpWidget(const SizedBox());
+    final context = tester.element(find.byType(SizedBox));
+    left.navigate('/home/tester/a');
+    await tester.pump();
+    expect(home.enabled(), isTrue);
+    await home.run(context);
+    await tester.pump();
+    expect(left.location?.path, '/home/tester');
+
+    // An unbound pane has no home to browse.
+    workspace.setActivePane(rightStrip);
+    expect(home.enabled(), isFalse);
   });
 
   testWidgets('file.rename is selection-scoped, opens the editor on '
@@ -614,11 +663,11 @@ void main() {
       getInfo.activators!(TargetPlatform.windows),
       [const SingleActivator(LogicalKeyboardKey.enter, alt: true)],
     );
-    // 02 §9's File menu: between Edit in Poltergeist and Duplicate —
-    // ahead of Rename at 70.
+    // 10 §8's File menu: Get Info leads its section, ahead of Rename
+    // at 70.
     expect(getInfo.menuPlacement?.menu, AppMenuId.file);
     expect(getInfo.menuPlacement?.order, 65);
-    expect(getInfo.menuPlacement?.group, 1);
+    expect(getInfo.menuPlacement?.group, 2);
 
     // D32: the Info tab follows the focused item and shows its own
     // empty state, so the verb is live whenever a browsing tab exists —

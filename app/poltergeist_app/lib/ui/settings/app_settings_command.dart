@@ -33,12 +33,12 @@ RegisteredCommand buildAppSettingsCommand({
     disabledReason: (l10n) => l10n.commandDisabledBusy,
     run: (context) =>
         showGeneralSettingsDialog(context, settings: settings()),
-    // 10 §8: the macOS app menu on Mac (AppKit convention), File
-    // elsewhere.
+    // 10 §8: the macOS app menu on Mac (AppKit convention), File's
+    // last section elsewhere, after the tab section (group 5).
     menuPlacement: const CommandMenuPlacement(
       menu: AppMenuId.file,
       order: 170,
-      group: 5,
+      group: 6,
       appMenuOnMac: true,
     ),
   );

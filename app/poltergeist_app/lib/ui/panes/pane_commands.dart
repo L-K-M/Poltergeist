@@ -18,6 +18,7 @@ const kGoBackCommandId = 'go.back';
 const kGoEditPathCommandId = 'go.editPath';
 const kGoEnclosingCommandId = 'go.enclosing';
 const kGoForwardCommandId = 'go.forward';
+const kGoHomeCommandId = 'go.home';
 const kGoOpenCommandId = 'go.open';
 const kGoToFolderCommandId = 'go.toFolder';
 const kFileEditBuiltInCommandId = 'file.editBuiltIn';
@@ -183,9 +184,29 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.goUp();
       },
-      // 02 §9's Go menu: Back, Forward, Enclosing Folder, Home, then
-      // the path-field commands — slot 40 stays open for Home.
+      // 10 §8's Go menu opens with Back, Forward, Enclosing Folder, Home.
       menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 30),
+    ),
+    RegisteredCommand(
+      id: kGoHomeCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.goHomeLabel,
+      icon: Icons.home_outlined,
+      // ⇧⌘H on macOS, Ctrl+Shift+H elsewhere (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyH, meta: true, shift: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyH, control: true, shift: true),
+        ],
+      ),
+      enabled: () => activeTab()?.verbsEnabled ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      run: (_) async {
+        activeTab()?.goHome();
+      },
+      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 40),
     ),
     RegisteredCommand(
       id: kGoToFolderCommandId,
@@ -207,7 +228,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.goToFolder();
       },
-      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 50),
+      // 10 §8's Go menu: the path-field section.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 50,
+        group: 1,
+      ),
     ),
     RegisteredCommand(
       id: kGoEditPathCommandId,
@@ -224,7 +250,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.editPath();
       },
-      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 60),
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 60,
+        group: 1,
+      ),
     ),
     RegisteredCommand(
       id: kGoOpenCommandId,
@@ -262,8 +292,7 @@ List<RegisteredCommand> buildPaneCommands({
         }
         pane.openEntry(pane.entries[cursor]);
       },
-      // 02 §9's File menu, after the (unregistered) New Folder/New File
-      // slots; the second group splits file verbs from the tab block.
+      // 10 §8's File menu: the open section follows the New block.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 60,
@@ -340,12 +369,12 @@ List<RegisteredCommand> buildPaneCommands({
       enabled: () => activeTab() != null,
       disabledReason: (l10n) => l10n.commandDisabledNoListing,
       run: (_) async => workspace.toggleInspectorTab(InspectorTab.info),
-      // 02 §9's File menu: between Edit in Poltergeist and Duplicate —
-      // the still-unregistered verbs' slots — ahead of Rename.
+      // 10 §8's File menu: Get Info leads the Get Info, Rename,
+      // Duplicate section.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 65,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -381,8 +410,8 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         preview?.previewFocused();
       },
-      // 02 §9's File menu: Quick Look sits in the file-verb group
-      // between Get Info and the (unregistered) Duplicate slot.
+      // 10 §8's File menu: Quick Look follows Edit in Poltergeist in the
+      // open section.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 67,
@@ -431,11 +460,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.startRename();
       },
-      // 02 §9's File menu: Rename follows Open among the file verbs.
+      // 10 §8's File menu: Rename follows Get Info.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 70,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -459,12 +488,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.refresh();
       },
-      // 02 §9's View table ends at Customize Sidebar (slot 100); Refresh
-      // and the interim Connections entry sit in the trailing group.
+      // 10 §8's View menu: Refresh in its own section, above Enter
+      // Full Screen.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 110,
-        group: 2,
+        group: 3,
       ),
     ),
     RegisteredCommand(
@@ -506,8 +535,7 @@ List<RegisteredCommand> buildPaneCommands({
         workspace.toggleSidebar();
       },
       checked: () => !workspace.sidebarHidden,
-      // 02 §9's View menu: the Show/Hide Sidebar slot, before
-      // Show/Hide Second Pane.
+      // 10 §8's View menu: Sidebar, Inspector, Second Pane.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 60,
@@ -536,8 +564,7 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         workspace.toggleSecondPane();
       },
-      // 02 §9's View menu: between Show/Hide Sidebar (60) and Show/Hide
-      // Activity (80) — the sidebar slot stays open for its slice.
+      // 10 §8's View menu: after Show/Hide Inspector (65).
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 70,
@@ -562,8 +589,8 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         workspace.toggleActivityPanel();
       },
-      // 02 §9's View menu: the Show/Hide Activity slot the §8.1 note
-      // reserves between Show/Hide Second Pane and Customize Sidebar.
+      // 10 §8's View menu names the inspector tab it toggles: Info,
+      // Transfers, Alerts.
       checked: () => !workspace.activityPanelHidden,
       toolbarPlacement: const CommandToolbarPlacement(
         slot: ToolbarSlot.status,
@@ -572,7 +599,8 @@ List<RegisteredCommand> buildPaneCommands({
       ),
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
-        order: 80,
+        order: 85,
+        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -596,11 +624,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         preview?.togglePanel();
       },
-      // 02 §9's View menu: the Show/Hide Preview slot between Show/Hide
-      // Activity (80) and Customize Sidebar (100).
+      // 10 §8's View menu: the Info tab, where the preview renders,
+      // leads the inspector-tab section.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
-        order: 90,
+        order: 80,
+        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -626,9 +655,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         workspace.syncBrowsing.toggle();
       },
-      // 02 §9's Go menu: after Edit Path and the (unregistered) Recent
-      // slot, before Open in Terminal.
-      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 80),
+      // 10 §8's Go menu: after Focus Left/Right Pane.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 80,
+        group: 2,
+      ),
     ),
     RegisteredCommand(
       id: kPaneFocusLeftCommandId,
@@ -657,6 +689,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         focusLeft();
       },
+      // 10 §8's Go menu: Focus Left/Right Pane, Sync Browsing.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 70,
+        group: 2,
+      ),
     ),
     RegisteredCommand(
       id: kPaneFocusRightCommandId,
@@ -681,6 +719,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         focusRight();
       },
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 72,
+        group: 2,
+      ),
     ),
     RegisteredCommand(
       id: kPaneSwapFocusCommandId,
@@ -708,12 +751,16 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.selectAll();
       },
-      // 02 §9's Edit menu: the clipboard block (slots 10–50) is empty
-      // today, so the selection block opens the rendered menu.
+      // 10 §8's Edit menu: Undo/Redo (group 0) and Cut/Copy/Paste
+      // (group 1) come first. Their commands (02 §8.3's `edit.undo`,
+      // `edit.cut`/`edit.copy`/`edit.paste`: rename/trash undo and the
+      // file clipboard) do not exist yet, and a menu renders no
+      // placeholder for a missing command, so the selection section
+      // opens the rendered menu until they land.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.edit,
         order: 60,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -738,7 +785,7 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.edit,
         order: 70,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -759,7 +806,7 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.edit,
         order: 80,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -781,11 +828,11 @@ List<RegisteredCommand> buildPaneCommands({
         }
         activeTab()?.openFilter();
       },
-      // 02 §9 puts Filter in the Edit menu (after Quick Select).
+      // 10 §8's Edit menu: Filter in its own last section.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.edit,
         order: 90,
-        group: 1,
+        group: 4,
       ),
     ),
     RegisteredCommand(
@@ -802,7 +849,7 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         workspace.activePane.newTab();
       },
-      // 02 §9's File menu opens with the tab block (slots 10–30).
+      // 10 §8's File menu opens with New Tab, New Folder, New File.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 10,
@@ -830,6 +877,7 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 30,
+        group: 5,
       ),
     ),
     RegisteredCommand(
@@ -851,9 +899,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         await workspace.activePane.reopenClosedTab();
       },
+      // 10 §8's File menu: Reopen Closed Tab and Close Tab share their
+      // own section after Move to Trash.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 20,
+        group: 5,
       ),
     ),
     RegisteredCommand(
@@ -946,7 +997,7 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 100,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -986,7 +1037,7 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 105,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -1014,11 +1065,12 @@ List<RegisteredCommand> buildPaneCommands({
         if (pane == null || text == null) return;
         await copyPanePath(pane, text);
       },
-      // 10 §8's Edit menu: Copy Path between Quick Select and Filter.
+      // 10 §8's Edit menu: Copy Path in its own section between the
+      // selection verbs and Filter.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.edit,
         order: 85,
-        group: 1,
+        group: 3,
       ),
     ),
   ];

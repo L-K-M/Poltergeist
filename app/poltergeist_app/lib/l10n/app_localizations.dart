@@ -1124,10 +1124,10 @@ abstract class AppLocalizations {
   /// **'Edit Path'**
   String get goEditPathLabel;
 
-  /// Command label: navigate to the parent folder.
+  /// Command label: navigate to the parent folder (go.enclosing; 10 §8's Go menu names it Enclosing Folder, Finder's term).
   ///
   /// In en, this message translates to:
-  /// **'Parent Folder'**
+  /// **'Enclosing Folder'**
   String get goEnclosingLabel;
 
   /// Command label: navigate to the next location in the tab's history (go.forward, 02 §2.1).
@@ -1928,10 +1928,10 @@ abstract class AppLocalizations {
   /// **'No Saved Workspaces'**
   String get workspaceMenuEmpty;
 
-  /// Menu label for view.toggleActivityPanel (02 §9's View table: Show/Hide Activity).
+  /// Menu label for view.toggleActivityPanel, which shows or hides the inspector's Transfers tab (10 §8's View menu: Info, Transfers, Alerts). Also the header activity button's tooltip.
   ///
   /// In en, this message translates to:
-  /// **'Show/Hide Activity'**
+  /// **'Transfers'**
   String get viewToggleActivityPanelLabel;
 
   /// Commands-menu label for queue.togglePause (02 §9's Commands table names it verbatim).
@@ -2431,10 +2431,10 @@ abstract class AppLocalizations {
   /// **'Settings'**
   String get settingsTitle;
 
-  /// Menu command opening Settings at the Bookmark backup section (D21).
+  /// Menu command opening Settings at the Bookmark backup section (D21). 10 §8's Server menu wording; 10 §10 says Sync in both sibling apps.
   ///
   /// In en, this message translates to:
-  /// **'Back up bookmarks…'**
+  /// **'Back up and sync…'**
   String get settingsBackupCommand;
 
   /// 02 §9's app.settings menu command — opens the Settings surface.
@@ -3415,10 +3415,10 @@ abstract class AppLocalizations {
   /// **'Preview'**
   String get filePreviewLabelNeutral;
 
-  /// Command label: hide or show the docked preview rail (view.togglePreview, 02 §8.3/§9, 06 §5.2). While it shows on macOS, Space owns the panel and Quick Look is suppressed.
+  /// Command label for view.togglePreview, which shows or hides the inspector's Info tab, where the preview renders (10 §8's View menu: Info, Transfers, Alerts; D32 merged 06 §5.2's preview rail into Info).
   ///
   /// In en, this message translates to:
-  /// **'Show/Hide Preview'**
+  /// **'Info'**
   String get viewTogglePreviewLabel;
 
   /// Accessibility label of the docked preview rail (06 §5.2).
@@ -4434,10 +4434,10 @@ abstract class AppLocalizations {
   /// **'{left} ⇄ {right}'**
   String syncPairLabel(String left, String right);
 
-  /// Command label: build an ad-hoc pair from the two panes and open its plan view (05 §7, sync.synchronizePanes, ⌥⌘Y).
+  /// Command label: build an ad-hoc pair from the two panes and open the Sync sheet (05 §7, 10 §7/§8, sync.synchronizePanes, ⌥⌘Y). The ellipsis says a sheet opens before anything runs.
   ///
   /// In en, this message translates to:
-  /// **'Synchronize Panes'**
+  /// **'Synchronize…'**
   String get syncSynchronizePanes;
 
   /// Plan-view verb: re-run the scan and diff (05 §7).
@@ -6987,6 +6987,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Saved “{label}” to Servers.'**
   String compactSavedToServers(String label);
+
+  /// Command label: browse the tab's home, the user's home folder locally or the login folder on a server (go.home, ⇧⌘H, 02 §8.3, 10 §8's Go menu).
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get goHomeLabel;
+
+  /// View menu command on Windows and Linux while the window is not full screen (10 §8). macOS shows AppKit's own item instead.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter Full Screen'**
+  String get viewEnterFullScreenLabel;
+
+  /// The same View menu command's label while the window is full screen (Windows and Linux, 10 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Exit Full Screen'**
+  String get viewExitFullScreenLabel;
 
   /// Disabled-command reason for Server ▸ Disconnect (connect.disconnect): the active tab shows no live server connection.
   ///
