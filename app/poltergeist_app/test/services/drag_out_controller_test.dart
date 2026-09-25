@@ -109,8 +109,8 @@ void main() {
   );
 
   group('hand-off', () {
-    test('a local drag offers file URLs the destination may copy, move, '
-        'or link', () async {
+    test('a local drag offers file URLs the destination may copy or link, '
+        'never move', () async {
       build(support: DragOutSupport.localFiles);
       final drag = _localDrag([
         _entry('/home/tester/report.txt', size: 12),
@@ -119,11 +119,9 @@ void main() {
       expect(await handOff(drag), DragOutHandOff.started);
       final request = backend.requests.single;
       expect(request.position, const Offset(1500, 40));
-      expect(request.allowedOperations, {
-        DragOutOperation.copy,
-        DragOutOperation.move,
-        DragOutOperation.link,
-      });
+      // The owner's rule (00 D14's drag-out amendment): no trash may
+      // take the source, so no destination may move it.
+      expect(request.allowedOperations, {DragOutOffer.copy, DragOutOffer.link});
       expect(request.items.map((item) => item.toChannel()), [
         {
           'kind': 'file',
@@ -171,7 +169,7 @@ void main() {
       );
       expect(result, DragOutHandOff.started);
       final request = backend.requests.single;
-      expect(request.allowedOperations, {DragOutOperation.copy});
+      expect(request.allowedOperations, {DragOutOffer.copy});
       expect(request.items.map((item) => item.toChannel()), [
         {
           'kind': 'promise',
@@ -265,6 +263,29 @@ void main() {
       expect(controller.activeEchoPayload, same(second));
       now = now.add(const Duration(seconds: 10));
       expect(controller.claimEcho(const ['/home/tester/a.txt']), isNull);
+    });
+
+    test('a session end that reports a move is only an end: nothing is '
+        'transferred or deleted', () async {
+      build(support: DragOutSupport.localFiles);
+      final drag = _localDrag([_entry('/home/tester/report.txt')]);
+      await handOff(drag);
+      // Never offered, but a target may claim one anyway.
+      controller.sessionEnded(
+        backend.requests.single.sessionId,
+        DragOutOperation.move,
+      );
+      expect(controller.activeEchoPayload, isNull);
+      expect(queue.enqueuedSpecs, isEmpty);
+      expect(queue.prepareDeleteCalls, isEmpty);
+      expect(queue.enqueuedDeletes, isEmpty);
+      expect(files.produces, isEmpty);
+      // The echo still counts: a drop back into the window moments later
+      // lands with the in-app verb.
+      expect(
+        controller.claimEcho(const ['/home/tester/report.txt']),
+        same(drag),
+      );
     });
 
     test('sessionEnded ends the echo window for hover labels', () async {

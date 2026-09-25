@@ -56,7 +56,7 @@ void main() {
       PromisedDragOutItem(promiseId: 'p1', name: 'site', isDirectory: true),
     ],
     position: Offset(1500, 40),
-    allowedOperations: {DragOutOperation.move, DragOutOperation.copy},
+    allowedOperations: {DragOutOffer.link, DragOutOffer.copy},
   );
 
   test('startDrag sends the documented argument map', () async {
@@ -87,8 +87,8 @@ void main() {
     expect(sent!.arguments, {
       'sessionId': 'dragout-1',
       'position': [1500.0, 40.0],
-      // Declaration order, never delete.
-      'allowedOperations': ['copy', 'move'],
+      // Declaration order; there is no move or delete to send.
+      'allowedOperations': ['copy', 'link'],
       'items': [
         {
           'kind': 'file',

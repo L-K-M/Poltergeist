@@ -340,15 +340,12 @@ class DragOutController extends ChangeNotifier
         sessionId: session.id,
         items: items,
         position: position,
-        // Local items: the destination decides (Finder's rules). Remote
+        // Local items: the destination picks copy or link, never move
+        // (no trash may take the source; see DragOutOffer). Remote
         // promises can only ever be copies.
         allowedOperations: promises.isEmpty
-            ? const {
-                DragOutOperation.copy,
-                DragOutOperation.move,
-                DragOutOperation.link,
-              }
-            : const {DragOutOperation.copy},
+            ? const {DragOutOffer.copy, DragOutOffer.link}
+            : const {DragOutOffer.copy},
         image: image,
       ),
     );
@@ -418,6 +415,9 @@ class DragOutController extends ChangeNotifier
   // DragOutBackendDelegate
   // -------------------------------------------------------------------
 
+  /// [operation] changes nothing here: a copy or a link needs no
+  /// follow-up, and a reported move (never offered) is not acted on, so
+  /// nothing on the source side ever deletes.
   @override
   void sessionEnded(String sessionId, DragOutOperation? operation) {
     final session = _sessions[sessionId];

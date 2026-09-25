@@ -77,13 +77,15 @@ known-divergent surface.
 - [ ] OWNER MANUAL QA: OS drag-out (D14 amendment 2026-09-25). On each
   desktop platform, drag a local file, a local folder, and a
   three-item selection from a pane past the window edge into the file
-  manager: the items arrive, the destination's default verb applies
-  (Finder/Explorer move within a volume, copy across), a move away
-  refreshes the source pane, and nothing is ever moved to the Trash. Esc
-  mid-drag cancels, and the next click in the pane still selects. The
-  drag image shows the name, or "N items" with a count badge. Drag out
-  and back into the other pane: it lands like an in-app drag (a
-  same-volume move stays a move).
+  manager: the items arrive as copies, within a volume as well as
+  across (a drag out only ever offers copy and link, never move), and
+  the originals stay in the pane. A drag onto the Trash (the Dock Trash,
+  the file manager's Trash, the Recycle Bin) is refused and nothing is
+  trashed; a drag into a folder copies. Esc mid-drag cancels, and the
+  next click in the pane still selects. The drag image shows the name,
+  or "N items" with a count badge. Drag out and back into the other
+  pane: it lands like an in-app drag (a same-volume move stays a move),
+  and a drag between the two panes still moves.
 - [ ] OWNER MANUAL QA (macOS): drag a remote file and a remote folder
   from a server pane onto the Desktop and into a Finder window: each
   arrives complete, Transfers shows the download, and Finder shows
@@ -102,7 +104,9 @@ known-divergent surface.
   1. Drag a local file past the window edge: the image is its Finder
      icon and name, in the spot the in-app avatar held (no jump at the
      edge), and it follows the pointer at that offset. Drop it on the
-     Desktop: it arrives; ⌥ forces a copy and ⌘⌥ makes an alias.
+     Desktop (the same volume): it arrives as a copy and the original
+     stays. ⌘⌥ makes an alias; ⌘ (Finder's forced move) does not move
+     it: record whether Finder refuses the drop or copies.
   2. Without moving the mouse first, click a row: it selects on the
      first click (no stuck press), and hover highlights come back.
   3. Start drags from a row near the toolbar band and from rows across
@@ -110,8 +114,9 @@ known-divergent surface.
   4. Drag three items: a pile of icons under AppKit's count badge "3".
   5. Press Esc mid-drag: the image slides back, nothing lands, and
      typing and shortcuts still work afterwards (no stuck key).
-  6. Drop a local file on the Dock's Trash: it must not be trashed
-     (delete is never offered). Record what the Dock does.
+  6. Drag a local file onto the Dock's Trash: the Trash refuses the
+     drop (it does not highlight, and the image slides back) and the
+     file stays where it was.
   7. During a large remote file promise, record whether Finder shows a
      progress pie (the write lands in a hidden temp file first, so it
      may not) and whether Finder offers a cancel; if it does, cancel:
@@ -138,9 +143,11 @@ known-divergent surface.
   is a bug to fix, not to silence. Then, in a debug build started from
   a console (`flutter run -d windows`):
   1. Drag a local file past the window edge into an Explorer window on
-     the same drive: the cursor shows a move and the file moves, and
-     the source pane refreshes. On another drive it copies. Shift,
-     Ctrl, and Alt while dragging force a move, a copy, and a shortcut.
+     the same drive: the cursor shows a copy, the file is copied, and
+     the original stays. On another drive it copies too. Ctrl and Alt
+     while dragging force a copy and a shortcut; Shift (a forced move)
+     does not move it: record whether Explorer refuses the drop or
+     copies.
      (No "Move to …" caption is expected: drop descriptions are not
      enabled yet.)
   2. The drag image is Poltergeist's pill (the name, or "N items" with
@@ -159,9 +166,9 @@ known-divergent surface.
      in-app verb, and a same-drive drop moves in-app.
   8. Drop onto the Desktop, a browser upload field (Edge or Chrome),
      Outlook or Teams, and Notepad: each receives the files.
-  9. Drop a local file on the Recycle Bin and record what happens.
-     Poltergeist deletes nothing itself (D15); if the shell recycles
-     the file, it restores from the Recycle Bin.
+  9. Drag a local file onto the Recycle Bin, on the Desktop and in
+     Explorer's navigation pane: each refuses the drop (the no-drop
+     cursor) and the file stays where it was.
   10. With a pen or a touch screen, a row drag past the edge stays
       in-app (no OS drag starts and nothing stays pressed).
   11. The console shows no assertion or error from the embedder or the

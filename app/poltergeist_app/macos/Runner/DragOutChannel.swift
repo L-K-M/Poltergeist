@@ -62,9 +62,13 @@ private struct ActiveSession {
 ///   the provider's private queue to the main queue, invokes
 ///   `fulfilPromise`, and returns; Dart's reply completes the promise
 ///   whenever it arrives, which can be minutes later.
-/// * Delete is never offered (D15): a Dock-Trash drop would be a delete
-///   outside the confirmed flow. Nothing here removes a file; a
-///   destination that moves a local file moves it itself.
+/// * Only copy and link are ever offered, whatever Dart sends, in one
+///   mask for both dragging contexts: the owner's rule (00 D14's
+///   drag-out amendment) is that no trash may take the source, and the
+///   Dock Trash accepts a move, so no drop may move a file out of
+///   Poltergeist. Delete is never offered either (D15: a Dock-Trash drop
+///   would be a delete outside the confirmed flow), and nothing here
+///   removes a file.
 final class DragOutChannel: NSObject {
   private static let channelName = "poltergeist/dragout"
 
@@ -233,8 +237,8 @@ final class DragOutChannel: NSObject {
       if case .promise = item { return true }
       return false
     }
-    // Promises can only ever be copies. Local files offer what Dart
-    // allowed, and the destination picks (Finder's rules).
+    // Promises can only ever be copies. Local files offer the copy and
+    // link Dart allowed, and the destination picks between them.
     let operations: NSDragOperation = carriesPromises
       ? .copy
       : Self.dragOperations(args["allowedOperations"])
@@ -422,14 +426,15 @@ final class DragOutChannel: NSObject {
     return UTType(filenameExtension: pathExtension) ?? .data
   }
 
-  /// `allowedOperations` as AppKit's mask. Only copy, move, and link
-  /// exist here: never delete (D15), never generic.
+  /// `allowedOperations` as AppKit's mask. Only copy and link exist
+  /// here: never move (no trash may take the source), never delete
+  /// (D15), never generic, which destinations may read as a move. Copy
+  /// alone when neither name is present.
   private static func dragOperations(_ value: Any?) -> NSDragOperation {
     var operations: NSDragOperation = []
     for name in (value as? [String]) ?? [] {
       switch name {
       case "copy": operations.insert(.copy)
-      case "move": operations.insert(.move)
       case "link": operations.insert(.link)
       default: break
       }
@@ -549,6 +554,8 @@ final class DragOutChannel: NSObject {
     }
   }
 
+  /// The operation a destination reported. A move is never offered, but
+  /// one reported anyway is still named for Dart, which acts on none.
   private static func operationName(_ operation: NSDragOperation) -> String {
     if operation.contains(.move) { return "move" }
     if operation.contains(.link) { return "link" }
@@ -562,8 +569,9 @@ extension DragOutChannel: NSDraggingSource {
     _ session: NSDraggingSession,
     sourceOperationMaskFor context: NSDraggingContext
   ) -> NSDragOperation {
-    // The same inside the app: a drag back over Poltergeist lands on
-    // desktop_drop, which answers copy, and Dart routes it in-app.
+    // The same mask inside the app: a drag back over Poltergeist lands
+    // on desktop_drop, which answers copy, and Dart routes it in-app
+    // with the in-app verb (a same-volume move stays a move there).
     activeSession?.operations ?? []
   }
 

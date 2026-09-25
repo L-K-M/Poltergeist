@@ -27,7 +27,7 @@
 /// |---------------------|--------------------------|---------|
 /// | `sessionId`         | `String`                 | Dart-minted id; echoed on every callback for this session |
 /// | `position`          | `List<double>` [x, y]    | the pointer, already outside the view bounds; where the native side ends the embedder's press |
-/// | `allowedOperations` | `List<String>`           | subset of `copy`, `move`, `link`; never `delete` (D15: a Dock-Trash drop would be an unguarded delete) |
+/// | `allowedOperations` | `List<String>`           | subset of `copy`, `link`; never `move` or `delete` (see below) |
 /// | `items`             | `List<Map>`              | one entry per dragged root, in listing order (see below) |
 /// | `image`             | `Uint8List?` (PNG)       | Dart-rendered drag image (glyph, name or "N items", count badge); null when rendering failed |
 /// | `imageSize`         | `List<double>` [w, h]    | the image's logical size (the PNG is rendered at the view's device pixel ratio) |
@@ -37,9 +37,9 @@
 ///
 /// * `{kind: 'file', path: String, name: String, isDirectory: bool}`: a
 ///   local item, offered as a plain file URL (`public.file-url` /
-///   `text/uri-list` / `CF_HDROP`). The destination picks copy, move,
-///   or link within `allowedOperations`. The native side never deletes
-///   the source: on Linux it must not handle `drag-data-delete`.
+///   `text/uri-list` / `CF_HDROP`). The destination picks copy or link
+///   within `allowedOperations`. The native side never deletes the
+///   source: on Linux it must not handle `drag-data-delete`.
 /// * `{kind: 'promise', promiseId: String, name: String,
 ///   isDirectory: bool, size: int?}`: a remote item, offered as a file
 ///   promise (macOS `NSFilePromiseProvider`, file type from the name's
@@ -47,6 +47,21 @@
 ///   unknown). `name` is what `fileNameForType` returns. Only sent
 ///   when the backend reports [DragOutSupport.localFilesAndPromises];
 ///   a session's items are either all `file` or all `promise`.
+///
+/// **Never move, never delete.** The owner's rule (00 D14's drag-out
+/// amendment): no trash may take a drag-out's source, on any platform.
+/// The Windows Recycle Bin, a Linux file manager's Trash, and the macOS
+/// Dock Trash each accept a move, so a drag out of Poltergeist only
+/// ever offers copy and link, and no drop elsewhere can move the source
+/// either. Delete was never offered (D15: a trash drop would be a
+/// delete outside the confirmed flow). Each native backend enforces
+/// this itself, whatever the request says: it maps only the `copy` and
+/// `link` names to the OS's operations (GTK actions, `NSDragOperation`
+/// for both dragging contexts, `DROPEFFECT`), falls back to copy alone
+/// when neither is present, and ignores `move`. Drags between
+/// Poltergeist's own panes are in-app drags and still move; so does a
+/// drag that leaves and comes back (the own-drag echo below), since
+/// Dart lands it with the in-app verb rules.
 ///
 /// Reply: `{started: true}` once the native session is running, or
 /// `{started: false, reason: String, message: String?}` with `reason`
@@ -114,7 +129,10 @@
 /// **`sessionEnded`** (arguments: a map): `{sessionId: String,
 /// operation: 'copy' | 'move' | 'link' | 'none'}`. The OS session
 /// ended: dropped (with the operation the destination chose), refused,
-/// or cancelled (Esc). Promises may still be fulfilled after this (macOS
+/// or cancelled (Esc). `move` is never offered, but it stays a name the
+/// native side may report and Dart reads, so a target that claims one
+/// anyway is still understood; nothing on either side acts on it, and
+/// nothing deletes. Promises may still be fulfilled after this (macOS
 /// calls `writePromiseTo` after the drag completes), so Dart keeps a
 /// session's promises answerable for a while after it ends. Reply:
 /// `null`.
@@ -128,9 +146,17 @@ import 'package:flutter/services.dart';
 /// The channel both ends agree on (03 §7.1's `poltergeist/*` naming).
 const String dragOutChannelName = 'poltergeist/dragout';
 
-/// What a native session may let the destination do with the items.
-/// There is deliberately no `delete`: moving a local file onto the Dock
-/// Trash would be a delete outside D15's confirmed `enqueueDelete`.
+/// What a native session offers the destination: copy or link, never
+/// move or delete. The owner's rule (00 D14's drag-out amendment): no
+/// trash may take a drag-out's source, and every desktop trash accepts
+/// a move (the Windows Recycle Bin, a Linux file manager's Trash, the
+/// macOS Dock Trash), so no drop may move it. Nor is delete offered:
+/// that would be a delete outside D15's confirmed `enqueueDelete`.
+enum DragOutOffer { copy, link }
+
+/// What the destination reported doing when the session ended. `move`
+/// is read although it is never offered (a target may report one
+/// anyway); it means nothing to the source, where nothing deletes.
 enum DragOutOperation { copy, move, link }
 
 /// What this platform's backend can start.
@@ -234,15 +260,15 @@ final class DragOutRequest {
   /// The pointer in the view's logical coordinates.
   final Offset position;
 
-  final Set<DragOutOperation> allowedOperations;
+  final Set<DragOutOffer> allowedOperations;
   final DragOutImage? image;
 
   Map<String, Object?> toChannel() => {
     'sessionId': sessionId,
     'position': [position.dx, position.dy],
     'allowedOperations': [
-      for (final operation in DragOutOperation.values)
-        if (allowedOperations.contains(operation)) operation.name,
+      for (final offer in DragOutOffer.values)
+        if (allowedOperations.contains(offer)) offer.name,
     ],
     'items': [for (final item in items) item.toChannel()],
     'image': image?.png,

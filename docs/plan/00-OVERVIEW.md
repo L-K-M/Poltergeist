@@ -506,9 +506,24 @@ D32 inspector workspace · D33 sidebar density
       payload (every selected item) to a native session, once per
       gesture; the pane then cancels its own pointer, and the native side
       ends the embedder's view of the press so no click stays stuck.
-    - *Local items* travel as plain file URLs; the destination picks copy,
-      move, or link. Delete is never offered (a Dock-Trash drop would be
-      an unguarded delete, D15), and no backend deletes on a move.
+    - *Local items* travel as plain file URLs; the destination picks copy
+      or link. Delete is never offered (a Dock-Trash drop would be an
+      unguarded delete, D15), and nothing on the source side deletes.
+    - *Never move (owner decision, 2026-09-25).* The owner decided the
+      Windows Recycle Bin must not accept a drag-out, and applied the
+      rule on every platform: a drag out of Poltergeist only ever offers
+      copy and link, never move, on Windows, Linux, and macOS. So no
+      trash (the Recycle Bin, a Linux file manager's Trash, the macOS
+      Dock Trash) can take the source by a move, and no drop elsewhere
+      can move it either: a destination that would have moved copies
+      instead. Dart's `allowedOperations` is the source of truth, and
+      each native backend enforces the rule itself whatever a request
+      says (GTK actions, the `NSDragOperation` mask for both dragging
+      contexts, `DROPEFFECT`). A session end that reports a move anyway
+      is read and acted on by nothing. Drags between Poltergeist's own
+      panes are in-app drags and still move, and a drag that leaves and
+      comes back (the own-drag echo below) still lands with the in-app
+      verb.
     - *Remote items* are file promises on macOS (`NSFilePromiseProvider`,
       `public.folder` for directories). A file is produced straight into
       the path the OS gave: an exclusive produce hop (never replacing a
@@ -554,10 +569,11 @@ D32 inspector workspace · D33 sidebar density
       message's handler sends the view a synthetic `WM_LBUTTONUP` and
       runs `SHDoDragDrop` under the Dart PNG (decoded through WIC).
       `sessionEnded` reports the logical performed effect first, since
-      the shell's optimized move returns none. Nothing is deleted on a
-      move; a Recycle Bin drop is the shell's own recycle, if it does
-      one. Not yet run on Windows; virtual files for remote items are
-      the follow-up.
+      the shell's optimized move returns none. Move is never offered
+      (the owner decision above), so the Recycle Bin has no move to
+      take and Explorer copies where it would have moved; nothing is
+      deleted. Not yet run on Windows; virtual files for remote items
+      are the follow-up.
 - **D17 — Editor.** Séance's editor stack (document I/O with BOM/CRLF
   fidelity, syntax engine, find bar, conflict-aware save-and-upload) is
   ported per D2 and kept behaviorally identical; external editors reuse the

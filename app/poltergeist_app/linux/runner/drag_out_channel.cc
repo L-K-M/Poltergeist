@@ -22,9 +22,14 @@
 // Flutter before the `started` reply, and over a pane Flutter would read
 // it as an in-app drop of the items the session is about to carry.
 //
-// Deletes never happen here (D15): "drag-data-delete" is not handled, so
-// a destination that picked MOVE moves the file itself (file managers
-// do) and nothing is ever unlinked on its behalf.
+// Moves are never offered, whatever Dart sends: the owner's rule (00
+// D14's drag-out amendment) is that no trash may take the source, and a
+// file manager's Trash takes a drop as a move. So GTK is offered copy
+// and link at most (offered_actions below), and no drop can move the
+// file.
+// Deletes never happen here either (D15): "drag-data-delete" is not
+// handled, so even a destination that performed a move anyway would
+// get nothing unlinked on its behalf.
 
 namespace {
 
@@ -172,6 +177,27 @@ void synthesize_release(DragOutChannel* self, double x, double y) {
   gdk_event_free(release);
 }
 
+// The actions a destination may pick from |args|' allowedOperations:
+// only the copy and link names map to one, so a move, an ask, or a
+// delete is never offered (see the file comment). Copy alone when
+// neither name is present.
+GdkDragAction offered_actions(FlValue* args) {
+  int actions = 0;
+  FlValue* operations = fl_value_lookup_string(args, "allowedOperations");
+  if (operations != nullptr &&
+      fl_value_get_type(operations) == FL_VALUE_TYPE_LIST) {
+    for (size_t i = 0; i < fl_value_get_length(operations); i++) {
+      FlValue* operation = fl_value_get_list_value(operations, i);
+      if (fl_value_get_type(operation) != FL_VALUE_TYPE_STRING) continue;
+      const gchar* name = fl_value_get_string(operation);
+      if (g_strcmp0(name, "copy") == 0) actions |= GDK_ACTION_COPY;
+      if (g_strcmp0(name, "link") == 0) actions |= GDK_ACTION_LINK;
+    }
+  }
+  if (actions == 0) actions = GDK_ACTION_COPY;
+  return static_cast<GdkDragAction>(actions);
+}
+
 void set_icon(GdkDragContext* context, GtkWidget* view, FlValue* args) {
   FlValue* image = fl_value_lookup_string(args, "image");
   double anchor_x = 0;
@@ -271,29 +297,13 @@ void start_drag(DragOutChannel* self, FlMethodCall* call) {
     return;
   }
 
-  // Never an ask or a delete: copy, move, and link at most (D15).
-  int actions = 0;
-  FlValue* operations = fl_value_lookup_string(args, "allowedOperations");
-  if (operations != nullptr &&
-      fl_value_get_type(operations) == FL_VALUE_TYPE_LIST) {
-    for (size_t i = 0; i < fl_value_get_length(operations); i++) {
-      FlValue* operation = fl_value_get_list_value(operations, i);
-      if (fl_value_get_type(operation) != FL_VALUE_TYPE_STRING) continue;
-      const gchar* name = fl_value_get_string(operation);
-      if (g_strcmp0(name, "copy") == 0) actions |= GDK_ACTION_COPY;
-      if (g_strcmp0(name, "move") == 0) actions |= GDK_ACTION_MOVE;
-      if (g_strcmp0(name, "link") == 0) actions |= GDK_ACTION_LINK;
-    }
-  }
-  if (actions == 0) actions = GDK_ACTION_COPY;
-
   synthesize_release(self, x, y);
 
   GtkTargetList* targets = gtk_target_list_new(nullptr, 0);
   gtk_target_list_add_uri_targets(targets, 0);
   GdkDragContext* context = gtk_drag_begin_with_coordinates(
-      self->view, targets, static_cast<GdkDragAction>(actions),
-      GDK_BUTTON_PRIMARY, self->last_press, -1, -1);
+      self->view, targets, offered_actions(args), GDK_BUTTON_PRIMARY,
+      self->last_press, -1, -1);
   gtk_target_list_unref(targets);
   if (context == nullptr) {
     respond(call, refusal("failed", "gtk_drag_begin refused the drag"));
@@ -357,6 +367,8 @@ void on_drag_end(GtkWidget* widget,
   if (context != self->context || self->session_id == nullptr) return;
   const gchar* operation = "none";
   if (!self->failed) {
+    // MOVE is never offered; a destination that reports one anyway is
+    // still named, and nothing acts on it.
     const GdkDragAction action = gdk_drag_context_get_selected_action(context);
     if (action & GDK_ACTION_MOVE) {
       operation = "move";
