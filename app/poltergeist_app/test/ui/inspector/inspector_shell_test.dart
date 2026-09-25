@@ -110,6 +110,25 @@ void main() {
       find.descendant(of: badgeOn(toggle), matching: find.text('1')),
       findsOneWidget,
     );
+    // The count sits on the glyph's corner, not over the glyph: Material's
+    // default overlap is sized for 24 px icons and hid these small ones.
+    for (final host in [
+      toggle,
+      find.byKey(const ValueKey('inspector.tab.alerts')),
+    ]) {
+      final icon = find.descendant(
+        of: badgeOn(host),
+        matching: find.byType(Icon),
+      );
+      final count = find.descendant(
+        of: badgeOn(host),
+        matching: find.text('1'),
+      );
+      expect(
+        tester.getCenter(count).dx,
+        greaterThanOrEqualTo(tester.getRect(icon).right),
+      );
+    }
 
     // View ▸ Alerts opens the tab that lists it, with its verbs.
     await runShellCommand(tester, kViewShowAlertsCommandId);

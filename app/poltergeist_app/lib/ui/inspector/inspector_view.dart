@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../activity/activity_panel.dart';
 import '../panes/info_panel.dart';
 import '../preview_panel.dart';
+import '../shell/corner_count_badge.dart';
 import 'alerts_view.dart';
 
 /// Inspector width bounds (10 §3.1).
@@ -157,10 +158,8 @@ class _TabSwitcher extends StatelessWidget {
         color: isSelected ? colors.primary : chrome.secondaryText,
       );
       if (badge > 0) {
-        glyph = Badge(
-          label: Text(
-            badge > 99 ? l10n.badgeCountOverflow : l10n.badgeCount(badge),
-          ),
+        glyph = CornerCountBadge(
+          label: badge > 99 ? l10n.badgeCountOverflow : l10n.badgeCount(badge),
           backgroundColor: errorBadge ? colors.error : colors.primary,
           textColor: errorBadge ? colors.onError : colors.onPrimary,
           child: glyph,

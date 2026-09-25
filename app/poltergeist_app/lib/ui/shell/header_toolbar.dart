@@ -8,6 +8,7 @@ import '../../l10n/app_localizations.dart';
 import '../../services/registered_command.dart';
 import '../../services/shortcut_format.dart';
 import '../../theme/app_theme.dart';
+import 'corner_count_badge.dart';
 
 /// How far the header has shed detail (10 §4's overflow order): the
 /// filter field narrows, the primary buttons drop their labels, then the
@@ -379,12 +380,10 @@ class _ToolbarButton extends StatelessWidget {
     final badge = this.badge;
     final badged = badge != null && badge.count > 0;
     if (badged) {
-      icon = Badge(
-        label: Text(
-          badge.count > 99
-              ? l10n.badgeCountOverflow
-              : l10n.badgeCount(badge.count),
-        ),
+      icon = CornerCountBadge(
+        label: badge.count > 99
+            ? l10n.badgeCountOverflow
+            : l10n.badgeCount(badge.count),
         backgroundColor: theme.colorScheme.error,
         textColor: theme.colorScheme.onError,
         child: icon,
