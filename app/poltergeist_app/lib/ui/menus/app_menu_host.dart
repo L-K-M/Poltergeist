@@ -379,6 +379,10 @@ class AppMainMenuButton extends StatelessWidget {
   final List<RegisteredCommand> commands;
   final Future<void> Function(RegisteredCommand command) onRun;
 
+  /// The panel's floor width, and how far it is pulled back from the
+  /// button's trailing edge: a panel this wide ends where the button does.
+  static const double _panelWidth = 160;
+
   @override
   Widget build(BuildContext context) {
     final platform = Theme.of(context).platform;
@@ -389,6 +393,23 @@ class AppMainMenuButton extends StatelessWidget {
       platform: platform,
     );
     return MenuAnchor(
+      // Hung from the button's trailing edge, so the panel keeps the
+      // header's end inset. Opened from the leading edge it overflowed
+      // the window, and MenuAnchor pushes an overflowing panel back only
+      // as far as the overlay's very edge (reservedPadding bounds its
+      // size, not its position; OverlayPortal swaps in the Overlay's own
+      // MediaQuery padding, so no inset can be injected around the
+      // anchor): flush with the window, its rounded corner cut off.
+      alignmentOffset: const Offset(-_panelWidth, 0),
+      // The floor must reach the panel itself, not only the box around it,
+      // and at its stated width: desktop's compact density would take 8 px
+      // off it, leaving the panel short of the button's edge.
+      crossAxisUnconstrained: false,
+      style: const MenuStyle(
+        alignment: AlignmentDirectional.bottomEnd,
+        minimumSize: WidgetStatePropertyAll(Size(_panelWidth, 0)),
+        visualDensity: VisualDensity.standard,
+      ),
       menuChildren: [
         for (final menu in menus)
           SubmenuButton(
