@@ -10,11 +10,14 @@
 // replaced"; Additive never deletes; and the size-only fallback the
 // controller applies for an mtime-untrusted pair is spelled out rather
 // than hidden behind the dropdown's stored value.
+import 'dart:math' as math;
+
 import 'package:poltergeist_core/poltergeist_core.dart' show RemoteTrash;
 import 'package:poltergeist_sync/poltergeist_sync.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../services/pane_location.dart' show paneLastSegment;
+import '../../services/pane_location.dart'
+    show paneLastSegment, paneParentPath, paneSeparator;
 
 /// How a clause renders: destructive clauses (deletions, backup-less
 /// overwrites) are red-tinted with an icon, the no-deletion assurance
@@ -97,8 +100,9 @@ List<SyncPolicyClause> _oneWay(
   final toRight = rules.direction == SyncDirection.leftToRight;
   final source = toRight ? pair.left : pair.right;
   final destination = toRight ? pair.right : pair.left;
-  final sourceName = syncEndpointFolderName(source);
-  final destinationName = syncEndpointFolderName(destination);
+  final (leftName, rightName) = syncEndpointFolderNames(pair);
+  final sourceName = toRight ? leftName : rightName;
+  final destinationName = toRight ? rightName : leftName;
   final destinationTrash = toRight ? rules.trashPathRight : rules.trashPathLeft;
   final trashLabel = destinationTrash ?? RemoteTrash.rootDirectoryName;
   return [
@@ -157,8 +161,7 @@ List<SyncPolicyClause> _bothWays(
   bool flaggedClock,
 ) {
   final rules = pair.rules;
-  final leftName = syncEndpointFolderName(pair.left);
-  final rightName = syncEndpointFolderName(pair.right);
+  final (leftName, rightName) = syncEndpointFolderNames(pair);
   // The differ's newerWins guard (diff.dart `_resolveConflict`): an
   // untrusted clock — preserveMtime off or a flagged side — degrades
   // the default to ask, so the sentence must not promise newer-wins.
@@ -213,7 +216,55 @@ String _kindOf(SyncEndpoint endpoint) =>
 
 /// The folder name a sentence quotes: the endpoint path's last
 /// segment (a root names itself).
-String syncEndpointFolderName(SyncEndpoint endpoint) => switch (endpoint) {
-  LocalEndpoint(:final path) => paneLastSegment(path),
-  RemoteEndpoint(:final path) => paneLastSegment(path),
+String syncEndpointFolderName(SyncEndpoint endpoint) =>
+    paneLastSegment(_pathOf(endpoint));
+
+/// The two names a sentence quotes for [pair]'s sides: each folder's
+/// last segment, unless both sides are the same kind and end in the same
+/// name. "Your local folder “website” will be updated from your local
+/// folder “website”" says nothing, so the names then take parent
+/// segments up to the first that differs ("Backups/website" and
+/// "Projects/website"). A local and a remote side are told apart by
+/// their kind already.
+(String, String) syncEndpointFolderNames(SyncPair pair) {
+  final left = syncEndpointFolderName(pair.left);
+  final right = syncEndpointFolderName(pair.right);
+  if (left != right || _kindOf(pair.left) != _kindOf(pair.right)) {
+    return (left, right);
+  }
+  final leftPath = _pathOf(pair.left);
+  final rightPath = _pathOf(pair.right);
+  final leftSegments = _segmentsOf(leftPath);
+  final rightSegments = _segmentsOf(rightPath);
+  final deepest = math.max(leftSegments.length, rightSegments.length);
+  for (var depth = 2; depth <= deepest; depth++) {
+    final leftTail = _tail(leftSegments, depth, paneSeparator(leftPath));
+    final rightTail = _tail(rightSegments, depth, paneSeparator(rightPath));
+    if (leftTail != rightTail) return (leftTail, rightTail);
+  }
+  return (left, right);
+}
+
+String _pathOf(SyncEndpoint endpoint) => switch (endpoint) {
+  LocalEndpoint(:final path) => path,
+  RemoteEndpoint(:final path) => path,
 };
+
+/// [path]'s folder names below its root, outermost first, found by
+/// walking up with the panes' own path rules.
+List<String> _segmentsOf(String path) {
+  final segments = <String>[];
+  var current = path;
+  while (true) {
+    final parent = paneParentPath(current);
+    if (parent == current || parent.length >= current.length) break;
+    segments.insert(0, paneLastSegment(current));
+    current = parent;
+  }
+  return segments;
+}
+
+/// The last [count] of [segments] (all of them, past the root), joined
+/// with the path's own [separator].
+String _tail(List<String> segments, int count, String separator) =>
+    segments.sublist(math.max(0, segments.length - count)).join(separator);

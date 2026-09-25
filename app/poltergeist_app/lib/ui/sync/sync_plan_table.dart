@@ -17,7 +17,7 @@ import '../../services/sync_plan_controller.dart';
 import '../../theme/app_theme.dart';
 import '../panes/pane_format.dart' show formatPaneModified;
 import 'sync_plan_format.dart';
-import 'sync_policy_sentence.dart' show syncEndpointFolderName;
+import 'sync_policy_sentence.dart' show syncEndpointFolderName, syncEndpointFolderNames;
 
 /// The review's sections, in display order.
 enum SyncSection { copy, update, delete, conflicts, skipped }
@@ -89,8 +89,7 @@ String syncRowActionLabel(
   SyncPair pair,
   SyncActionType action,
 ) {
-  final left = syncEndpointFolderName(pair.left);
-  final right = syncEndpointFolderName(pair.right);
+  final (left, right) = syncEndpointFolderNames(pair);
   return switch (action) {
     SyncActionType.copyLeftToRight => l10n.syncRowActionCopy(right),
     SyncActionType.copyRightToLeft => l10n.syncRowActionCopy(left),

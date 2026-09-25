@@ -56,6 +56,21 @@ void main() {
       );
     });
 
+    test('two folders of one name are told apart by their parents', () {
+      final clauses = syncPolicySentence(
+        _l10n,
+        _pair(
+          left: const LocalEndpoint('/home/alex/Projects/website'),
+          right: const LocalEndpoint('/home/alex/Backups/website'),
+        ),
+      );
+      expect(
+        clauses.first.text,
+        'Your local folder “Backups/website” will be updated from your '
+        'local folder “Projects/website”.',
+      );
+    });
+
     test('right to left swaps source and destination', () {
       final clauses = syncPolicySentence(
         _l10n,
