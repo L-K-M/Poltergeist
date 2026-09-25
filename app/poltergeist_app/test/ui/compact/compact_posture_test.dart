@@ -67,7 +67,8 @@ void main() {
       expect(_key(CompactKey.home), findsOneWidget);
       expect(find.byType(AdaptiveShell), findsNothing);
       expect(find.byType(Drawer), findsNothing);
-      for (final section in ['DEVICES', 'FAVORITES', 'SERVERS']) {
+      // Material list subheaders, as authored rather than in caps.
+      for (final section in ['Devices', 'Favorites', 'Servers']) {
         expect(find.text(section), findsOneWidget);
       }
       // The phone's own files stand in for DEVICES' volumes.
@@ -96,23 +97,36 @@ void main() {
       expect(find.text('backup box'), findsNothing);
     });
 
-    testWidgets('the FAB offers the add menu, Quick Connect included', (
+    testWidgets('the FAB offers only the verbs that make sense on Home', (
       tester,
     ) async {
       final harness = CompactHarness();
-      await harness.pump(tester);
+      await harness.pump(tester, serverEditor: true, sshConfigImport: true);
 
       await tester.tap(find.byKey(const ValueKey('sidebar.home.add')));
       await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey('sidebar.add.quickConnect')),
-        findsOneWidget,
-      );
+      final sheet = find.byType(BottomSheet);
+      final verbs = [
+        for (final tile in tester.widgetList<ListTile>(
+          find.descendant(of: sheet, matching: find.byType(ListTile)),
+        ))
+          (tile.key! as ValueKey<String>).value,
+      ];
+      expect(verbs, [
+        'sidebar.add.newServer',
+        'sidebar.add.quickConnect',
+        'sidebar.add.importSshConfig',
+        'sidebar.add.newGroup',
+      ]);
+      // No folder is in view on Home: the current-folder verb stays in
+      // the rail and the browser.
       expect(
         find.byKey(const ValueKey('sidebar.add.currentFolder')),
-        findsOneWidget,
+        findsNothing,
       );
+      expect(find.text('New Server…'), findsOneWidget);
+      expect(find.text('Import from ssh config…'), findsOneWidget);
     });
 
     testWidgets('a server row pushes the browser on its location', (

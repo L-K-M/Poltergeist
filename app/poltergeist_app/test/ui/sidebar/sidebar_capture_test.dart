@@ -120,6 +120,9 @@ final class _CaptureVolumes implements LocalVolumeSource {
   Future<List<String>> standardFolders() async => const [];
 
   @override
+  String? get homeDirectory => '/home/deploy';
+
+  @override
   Future<bool> isDirectory(String path) async => false;
 
   @override

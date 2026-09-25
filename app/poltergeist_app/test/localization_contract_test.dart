@@ -1514,6 +1514,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.home.add'",
     "'sidebar.home.search.clear'",
     "''",
+    // A Home row's announcement joins its localized parts.
+    "', '",
   },
   'lib/ui/sidebar/sidebar_dialogs.dart': {
     "''",
@@ -1550,6 +1552,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'sidebar.group.$collapseKey'",
     r"'sidebar.section.$collapseKey'",
     "'sidebar.servers.empty'",
+    "'sidebar.servers.quickConnect'",
     "'sidebar.importSshConfig'",
     "'sidebar.servers.header'",
     r"'sidebar.section.$sectionKey'",
@@ -1586,6 +1589,15 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'/'",
     r"r'\'",
     r"r'^[A-Za-z]:[\\/]$'",
+    // The compact Home's home-relative paths and `user@host:port`
+    // endpoints — path and address grammar over machine data.
+    "'~'",
+    r"'$base$separator'",
+    r"'~$separator${here.substring(base.length + 1)}'",
+    "':'",
+    r"'[$host]:$port'",
+    r"'$host:$port'",
+    r"'$username@$address'",
   },
   // The sidebar filter command's registry id.
   'lib/ui/sidebar/sidebar_commands.dart': {
@@ -1622,6 +1634,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // names (on-disk names, not display copy — rows show the folder's own
   // name), and the df/diskutil/gio/umount invocations and parsing.
   'lib/services/local_volumes.dart': {
+    // The home anchor the engine expands (`homeDirectory`).
+    "'~'",
     "'/Volumes'",
     "'/media'",
     "'/run/media'",

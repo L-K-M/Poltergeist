@@ -245,6 +245,32 @@ void main() {
     }
   });
 
+  test('the home is the folder the local pane opens as ~', () {
+    String? home(String os, Map<String, String> environment) =>
+        SystemLocalVolumes(
+          operatingSystem: os,
+          environment: environment,
+          directories: _Tree(),
+          run: _Runner().call,
+        ).homeDirectory;
+
+    // A phone lists no volumes, but its app storage still has a home.
+    expect(
+      home('android', const {'HOME': '/data/user/0/app/files'}),
+      '/data/user/0/app/files',
+    );
+    // The engine's `~` rule: a sandboxed macOS HOME points into the app
+    // container, and `~` still means the user's own home.
+    expect(
+      home('macos', const {
+        'HOME': '/Users/me/Library/Containers/com.lkm.poltergeistApp/Data',
+      }),
+      '/Users/me',
+    );
+    expect(home('linux', const {'HOME': '/home/me/'}), '/home/me');
+    expect(home('android', const {}), isNull);
+  });
+
   group('df parsing', () {
     test('reads the Available column', () {
       expect(

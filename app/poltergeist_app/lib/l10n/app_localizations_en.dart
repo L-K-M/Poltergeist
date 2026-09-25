@@ -4531,4 +4531,52 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sidebarRowMenu => 'More actions';
+
+  @override
+  String get compactHomeThisDeviceSubtitle => 'App storage';
+
+  @override
+  String compactHomeFreeSpace(String size) {
+    return '$size free';
+  }
+
+  @override
+  String compactHomeRemoteLocation(String server, String path) {
+    return '$server · $path';
+  }
+
+  @override
+  String compactHomeSyncRoute(String source, String destination) {
+    return '$source → $destination';
+  }
+
+  @override
+  String compactHomeServerState(String state, String endpoint) {
+    return '$state · $endpoint';
+  }
+
+  @override
+  String compactHomeTabsOpen(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tabs open',
+      one: '1 tab open',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get compactHomeServersEmptyTitle => 'Connect to a server';
+
+  @override
+  String get compactHomeServersEmptyBody =>
+      'Servers you save appear here, with their status.';
+
+  @override
+  String get compactHomeFavoritesEmptyTitle => 'Keep folders close';
+
+  @override
+  String get compactHomeFavoritesEmptyBody =>
+      'Folders you add to Favorites appear here, one tap from Home.';
 }

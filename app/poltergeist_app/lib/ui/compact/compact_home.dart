@@ -46,11 +46,16 @@ class CompactHome extends StatelessWidget {
       for (final command in commands)
         if (command.scope == CommandScope.app) command,
     ];
+    // The page surface, like the browser Home pushes: the two screens
+    // read as one app rather than a sidebar and a pane.
     return Scaffold(
       key: const ValueKey(CompactKey.home),
-      backgroundColor: chrome.sidebarBackground,
+      backgroundColor: chrome.paneBackground,
       appBar: AppBar(
-        backgroundColor: chrome.sidebarBackground,
+        backgroundColor: chrome.paneBackground,
+        // Flat under a scrolled list: the search bar below is part of the
+        // header, and a tint on the bar alone would split the two.
+        scrolledUnderElevation: 0,
         title: Text(l10n.appTitle),
         actions: [
           if (settings != null)
