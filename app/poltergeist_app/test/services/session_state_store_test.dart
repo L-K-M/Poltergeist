@@ -110,7 +110,7 @@ void main() {
     expect(settingsJson()['session.state'], 'not-a-map');
   });
 
-  group('the windows beside the first (00 D37)', () {
+  group('the windows beside the first (00 D38)', () {
     test('load none when none were persisted', () async {
       expect(await store.loadWindows(), isEmpty);
     });

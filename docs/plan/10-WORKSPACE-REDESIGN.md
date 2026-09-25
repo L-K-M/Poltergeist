@@ -483,7 +483,7 @@ Poltergeist and Séance are one product family. The contract:
 ## 12. What is intentionally not in this chapter
 
 - Icon, column, and cover-flow view modes: 02 §2.2 stands.
-- Multi-window: D37 (it was D13 / D25).
+- Multi-window: D38 (it was D13 / D25).
 - Tree disclosure in lists: ForkLift's inline expansion needs a flattened
   tree model in the controller, so it is its own slice.
 - Remote free space: this needs `statvfs@openssh.com` exposed through the

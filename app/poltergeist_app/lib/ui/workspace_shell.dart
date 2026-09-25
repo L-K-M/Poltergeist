@@ -55,6 +55,7 @@ import '../services/sync_environment.dart';
 import '../services/sync_plan_controller.dart';
 import '../services/sync_queue_facade.dart';
 import '../services/update_check_controller.dart';
+import '../services/transfer_limits_controller.dart';
 import '../services/uuid.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
@@ -146,6 +147,7 @@ class WorkspaceShell extends StatefulWidget {
     this.initialUploadLimit,
     this.onDownloadLimitChanged,
     this.onUploadLimitChanged,
+    this.transferLimits,
     this.autoClearCompletedTransfers = true,
     this.probeSettings,
     this.initialSidebarHidden = false,
@@ -322,6 +324,11 @@ class WorkspaceShell extends StatefulWidget {
   final FutureOr<void> Function(int? bytesPerSecond)? onDownloadLimitChanged;
   final FutureOr<void> Function(int? bytesPerSecond)? onUploadLimitChanged;
 
+  /// D37's per-server transfer caps, bound to the queue by the
+  /// composition root; the popover beside the bandwidth limits sets their
+  /// default. Null leaves that choice out of the popover.
+  final TransferLimitsController? transferLimits;
+
   /// 02 §6's "auto-remove on success" setting (default on).
   final bool autoClearCompletedTransfers;
 
@@ -434,7 +441,7 @@ class WorkspaceShell extends StatefulWidget {
   /// test that does not wire a window.
   final SettingsWindowHost? settingsWindow;
 
-  /// The workspace window this shell fills (00 D37), or null for the
+  /// The workspace window this shell fills (00 D38), or null for the
   /// single-window app. With a window the shell registers New Window and
   /// Close Window, leaves out what only the main window supports
   /// ([WorkspaceWindow.capabilities]), and runs the app-wide reactions
@@ -542,7 +549,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   /// D32: Space is Quick Look on every desktop — the native panel on
   /// macOS, the in-window overlay on Linux and Windows. Touch platforms
   /// have no surface; Space answers on the Info tab there. A window the
-  /// panel does not serve (00 D37) takes the overlay on macOS too.
+  /// panel does not serve (00 D38) takes the overlay on macOS too.
   QuickLookChannel _platformQuickLook() =>
       switch (defaultTargetPlatform) {
         TargetPlatform.macOS when !_capabilities.nativeQuickLook =>
@@ -642,6 +649,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
       uploadLimit: widget.initialUploadLimit,
       persistDownloadLimit: widget.onDownloadLimitChanged,
       persistUploadLimit: widget.onUploadLimitChanged,
+      transferLimits: widget.transferLimits,
       onError: ApplicationErrorReporter().report,
       // D16's anti-hiding rule made concrete: the first live task
       // re-opens the chrome — the panel's rows are the queue's only
@@ -726,7 +734,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // The Settings window binds the active window's sections (00 D37): the
+    // The Settings window binds the active window's sections (00 D38): the
     // sections are the same models in every window, but a closed window's
     // shell must not stay the one answering.
     final active = WorkspaceWindowScope.activeOf(context);
@@ -913,7 +921,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   }
 
   /// Whether a live binding other than [excluding] keeps [serverId] in the
-  /// pool: in this workspace, or in another window's (00 D37). The
+  /// pool: in this workspace, or in another window's (00 D38). The
   /// last-binding close drops the server's pool reference, which would
   /// disconnect every window's panes on it.
   bool _serverBoundBesides(String serverId, PaneController excluding) =>
@@ -1055,7 +1063,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   /// for a missing or disconnected one.
   void _scanDirtyCheckouts() {
     final session = _checkoutListener;
-    // One window asks: every window hears the session (00 D37).
+    // One window asks: every window hears the session (00 D38).
     if (session == null || !_isActiveWindow) return;
     final dirtyIds = {
       for (final record in session.records)
@@ -1408,7 +1416,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
     // for them. The seed deliberately wins over a restored session's
     // hidden flag — saved chrome intent yields to un-acknowledged work.
     // A window opened later has no such claim: the work is showing in
-    // the window the user came from (00 D37).
+    // the window the user came from (00 D38).
     if ((widget.window?.isLaunchWindow ?? true) &&
         _activity.tasks.any((task) => !task.isTerminal)) {
       workspace.setActivityPanelHidden(false);
@@ -1614,7 +1622,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
       if (Theme.of(context).platform
           case TargetPlatform.linux || TargetPlatform.windows)
         buildQuitCommand(requestClose: widget.window?.quitApplication),
-      // 00 D37's File ▸ New Window and Close Window.
+      // 00 D38's File ▸ New Window and Close Window.
       if (widget.window case final window? when window.canOpenWindows)
         ...buildWindowCommands(window: window),
       if (workspace != null && widget.workspaces != null)

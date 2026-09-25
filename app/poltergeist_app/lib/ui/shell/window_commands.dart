@@ -7,7 +7,7 @@ import '../../services/workspace_windows/workspace_windows.dart';
 const kWindowNewCommandId = 'window.new';
 const kWindowCloseCommandId = 'window.close';
 
-/// 00 D37's File ▸ New Window and Close Window, for a shell that fills a
+/// 00 D38's File ▸ New Window and Close Window, for a shell that fills a
 /// workspace window whose runner hosts more of them.
 ///
 /// New Window opens the default workspace (a local home tab in each pane),

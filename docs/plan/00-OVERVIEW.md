@@ -66,7 +66,8 @@ stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
 D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
 permissions · D29 mobile hooks · D30 Séance license · D31 no mounting ·
 D32 inspector workspace · D33 sidebar density · D34 colour vocabulary ·
-D35 Android supported · D36 settings window · D37 workspace windows
+D35 Android supported · D36 settings window · D37 transfers per
+server · D38 workspace windows
 
 ### Stack and shape
 
@@ -462,7 +463,7 @@ D35 Android supported · D36 settings window · D37 workspace windows
 - **D13 — Single window in v1.** One window, dual pane, tabs per pane; a
   `WorkspaceController` owns one window's state so multi-window becomes
   mechanical when Flutter's windowing API stabilizes. Multi-window itself
-  is parked in D25. *Superseded by D37 (2026-09-25): the desktops open
+  is parked in D25. *Superseded by D38 (2026-09-25): the desktops open
   more than one workspace window, each with its own `WorkspaceController`.*
 - **D16 — The activity panel is a trust organ.** A first-class
   `TransferQueue` service above panes drives the optional bottom panel:
@@ -780,9 +781,37 @@ D35 Android supported · D36 settings window · D37 workspace windows
     the termination handler, so the window forwards exit requests to the
     app's isolate, whose quit guard and exit flush decide them.
   - **Still parked (D25):** more than one workspace window. D13's single
-    workspace window stands. *D37 lifted this the same day.*
+    workspace window stands. *D38 lifted this the same day.*
+- **D37 — Simultaneous transfers per server (2026-09-25, owner-directed;
+  amends 03 §4.3).** The owner asked for a limit on concurrent transfers
+  beside the bandwidth limits, counted per server, that never slows
+  browsing or editing. Binding:
+  - **What it counts:** files the queue has in flight to or from one
+    server. A download or upload counts against its server; a
+    server-to-server file counts against both. The app-wide cap of
+    `maxGlobalInFlightTransfers` (6) stays the ceiling.
+  - **What it leaves alone:** browsing, managed checkouts (editing),
+    previews and drag-out, none of which pass through the queue's
+    dispatch (03 §4.7), and directory listing, including a queued task's
+    scan. Sync runs keep their own per-pair Transfer concurrency (05 §6)
+    and are not counted. Delete tasks run one item at a time already and
+    are not counted either.
+  - **Where it is set:** a default for every server in the Transfers
+    popover, next to the bandwidth limits (Automatic, or 1 to 5), and an
+    override in the server editor (Default, Automatic, or 1 to 5). Both
+    are device-local settings: the server record belongs to Séance's
+    shared model (D2), which has no field for it.
+  - **Dispatch:** a task whose server is at its cap is passed over, not
+    waited on: it waits only on the servers it touches, and later tasks
+    for other servers go ahead of it. Tasks that touch the same servers
+    keep their queue order among themselves. With every server on
+    Automatic, dispatch is exactly the pre-D37 behavior. A changed cap applies at once: a raised one
+    dispatches waiting files, a lowered one lets in-flight files finish.
+  - **Not SSH connections:** capping connections would slow browsing,
+    which shares them. The pool's two connections per server (D9) stay
+    as they are.
 
-- **D37 — More than one workspace window (2026-09-25, owner-directed;
+- **D38 — More than one workspace window (2026-09-25, owner-directed;
   supersedes D13's single window and D25's multi-window item).** The owner
   asked for a New Window command so different views, connections, and
   running actions can sit side by side. Binding:
@@ -965,7 +994,7 @@ D35 Android supported · D36 settings window · D37 workspace windows
   builds them early): true two-way sync with baseline DB; resumable
   transfers (ranged read/write); rsync accelerator; S3/WebDAV behind a
   capability matrix; browsable archives; scheduled/watched sync;
-  multi-window (landed as D37); Custom Tools (user scripts); content search on remotes;
+  multi-window (landed as D38); Custom Tools (user scripts); content search on remotes;
   byte-preserving *operations* on non-UTF-8 remote filenames — v1's
   policy for them (strict-decode; lossy display with a warning badge,
   paired with a byte-accurate escaped rendering wherever a lossy-render

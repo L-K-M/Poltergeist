@@ -6,7 +6,9 @@
 // security-scoped identity-file bookmark machinery (`_keyBookmark`,
 // `_bookmarkFor`, `draftIdentityBookmark`) is dropped: Poltergeist is not
 // sandboxed, so Browse… returns a plain path and the referenced key opens
-// by path at connect.
+// by path at connect. Poltergeist adds the D37 "Simultaneous transfers"
+// override, which Séance has no use for and which is stored on the device
+// rather than in the synced config.
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -14,6 +16,8 @@ import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../l10n/app_localizations.dart';
+import '../services/transfer_limits_controller.dart'
+    show transferConcurrencyChoices;
 import '../services/uuid.dart';
 import 'connection_test_report.dart';
 import 'server_appearance.dart';
@@ -47,6 +51,21 @@ abstract class ServerEditorDelegate {
   /// Persist the config and, when [secret] is given, its credential. Throws
   /// when the vault is unavailable or the write fails.
   Future<void> save(ServerConfig config, {Secret? secret});
+
+  /// D37: the cap every server follows unless it chose its own — what the
+  /// editor's "Default (…)" choice names.
+  TransferConcurrency get defaultTransferConcurrency;
+
+  /// [serverId]'s own cap on simultaneous transfers, or null when it
+  /// follows [defaultTransferConcurrency].
+  TransferConcurrency? transferConcurrencyFor(String serverId);
+
+  /// Store [serverId]'s own cap, or clear it with null. Device-local, not
+  /// part of the synced config. Throws when the write fails.
+  Future<void> saveTransferConcurrency(
+    String serverId,
+    TransferConcurrency? value,
+  );
 
   /// Authenticate against the form's draft state — typed-but-unsaved
   /// credential fields included — and report it.
@@ -277,6 +296,11 @@ class _ServerEditorState extends State<_ServerEditor> {
   /// the precedence between them lives in one place (see [ServerMark]).
   late ServerMark _mark;
   bool _referenceKeyFile = true;
+
+  /// This server's own D37 cap, null to follow the default; and the one it
+  /// had when the editor opened, so a Save writes it only when it changed.
+  TransferConcurrency? _transferLimit;
+  TransferConcurrency? _storedTransferLimit;
   late bool _syncSecret;
   late bool _excludeFromSync;
   bool _busy = false;
@@ -320,6 +344,10 @@ class _ServerEditorState extends State<_ServerEditor> {
     _keyPath.text = e?.identityFilePath ?? '';
     _referenceKeyFile = e?.identityFilePath != null;
     _loginScript.text = e?.loginScript ?? '';
+    _storedTransferLimit = e == null
+        ? null
+        : widget.delegate.transferConcurrencyFor(e.id);
+    _transferLimit = _storedTransferLimit;
     // New credentials default to syncable (a no-op until the global "sync
     // saved passwords & keys" is on); existing servers keep their stored
     // choice.
@@ -547,6 +575,8 @@ class _ServerEditorState extends State<_ServerEditor> {
             const SizedBox(height: 20),
             ..._loginScriptFields(),
             const SizedBox(height: 20),
+            ..._transferFields(),
+            const SizedBox(height: 20),
             ..._appearanceFields(),
             const SizedBox(height: 20),
             Row(
@@ -736,6 +766,51 @@ class _ServerEditorState extends State<_ServerEditor> {
       const SizedBox(height: 4),
       Text(
         l10n.serverEditorLoginScriptNote,
+        style: Theme.of(
+          context,
+        ).textTheme.bodySmall?.copyWith(color: Theme.of(context).hintColor),
+      ),
+    ];
+  }
+
+  /// D37's override: how many files the queue moves to or from this server
+  /// at once. Kept apart from the connection fields it sits near because it
+  /// never reaches the config — it is stored on this device alone.
+  List<Widget> _transferFields() {
+    final l10n = AppLocalizations.of(context);
+    String describe(TransferConcurrency value) =>
+        value.files?.toString() ?? l10n.transferLimitAutomatic;
+    return [
+      const Divider(),
+      const SizedBox(height: 8),
+      DropdownButtonFormField<_TransferLimitChoice>(
+        key: const ValueKey('serverEditor.transferLimit'),
+        initialValue: _TransferLimitChoice(_transferLimit),
+        decoration: InputDecoration(labelText: l10n.serverEditorTransferLimit),
+        items: [
+          DropdownMenuItem(
+            value: const _TransferLimitChoice(null),
+            child: Text(
+              l10n.serverEditorTransferLimitDefault(
+                describe(widget.delegate.defaultTransferConcurrency),
+              ),
+            ),
+          ),
+          DropdownMenuItem(
+            value: const _TransferLimitChoice(TransferConcurrency.automatic()),
+            child: Text(l10n.transferLimitAutomatic),
+          ),
+          for (final files in transferConcurrencyChoices)
+            DropdownMenuItem(
+              value: _TransferLimitChoice(TransferConcurrency.fixed(files)),
+              child: Text('$files'),
+            ),
+        ],
+        onChanged: (choice) => setState(() => _transferLimit = choice?.own),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        l10n.serverEditorTransferLimitNote,
         style: Theme.of(
           context,
         ).textTheme.bodySmall?.copyWith(color: Theme.of(context).hintColor),
@@ -1116,6 +1191,7 @@ class _ServerEditorState extends State<_ServerEditor> {
     // corruption the carry-over logic exists to prevent.
     final auth = _auth;
     final referenceKeyFile = _referenceKeyFile;
+    final transferLimit = _transferLimit;
     // The config too, and not only the credential fields: it reads seven more
     // controllers. Its `secretRef` is the one thing that cannot be known yet
     // — whether a credential is written depends on what the vault answers —
@@ -1175,8 +1251,46 @@ class _ServerEditorState extends State<_ServerEditor> {
       );
       return;
     }
+    // After the config, so a server that failed to save never gains a cap,
+    // and only when the choice changed, so a settings file that cannot be
+    // written does not fail a Save that never touched it.
+    if (transferLimit != _storedTransferLimit) {
+      try {
+        await widget.delegate.saveTransferConcurrency(config.id, transferLimit);
+        _storedTransferLimit = transferLimit;
+      } catch (e) {
+        // The server is saved; the editor stays open so Save retries the
+        // part that failed.
+        if (!mounted) return;
+        setState(() => _busy = false);
+        showTopToastIn(
+          context,
+          message: AppLocalizations.of(
+            context,
+          ).serverEditorTransferLimitSaveFailed('$e'),
+        );
+        return;
+      }
+    }
     if (mounted) Navigator.of(context).pop();
   }
+}
+
+/// One entry of the "Simultaneous transfers" menu: the server's own cap, or
+/// null for the default. A wrapper because a dropdown reads a null value as
+/// nothing selected.
+@immutable
+class _TransferLimitChoice {
+  const _TransferLimitChoice(this.own);
+
+  final TransferConcurrency? own;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _TransferLimitChoice && other.own == own;
+
+  @override
+  int get hashCode => own.hashCode;
 }
 
 /// Return, in the editor: save the server, unless the focus is somewhere the

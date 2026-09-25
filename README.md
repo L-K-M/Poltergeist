@@ -41,7 +41,7 @@ Windows, Linux, and Android. Built as a sibling of
   from other apps, drag files out to other apps, and on macOS show the
   unified toolbar, the system Quick Look panel (it uses Quick Look in the
   window), or anything to screen readers. Use the first window for those
-  ([STATUS D37](docs/STATUS.md)).
+  ([STATUS D38](docs/STATUS.md)).
 - **Windows IME (IMM32).** Text input on Windows uses the legacy IMM32
   path: candidate-window positioning and composition-event delivery have
   known upstream defects (e.g.

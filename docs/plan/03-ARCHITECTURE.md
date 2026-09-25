@@ -1131,15 +1131,23 @@ self followed by unlinking the only copy.
   `effectiveTransports × maxTransferChannelsPerTransport`, where
   `effectiveTransports` is 1 for interactively-authenticated servers
   (§3.2 rule 2) and `maxTransports` otherwise (default capacity 2 × 4).
+- **User cap per server** (00 D37): an optional limit on one server's
+  files in flight, a default for every server plus per-server overrides
+  (`ServerTransferLimits` on `TransferQueue`). Dispatch passes over a task
+  whose server is at its cap rather than waiting on it, so a capped server
+  never holds a global slot; a server-to-server file counts on both
+  sides. Checkouts and produce hops (§4.7) sit outside it, as they sit
+  outside the global limit. With no cap set, dispatch is unchanged.
 - **Global limit**: at most 6 files in flight across all tasks and servers
   (a compile-time constant next to `PoolPolicy`, not user-configurable —
-  02's settings screen exposes the two directional bandwidth limits and
-  nothing else from this section, matching §6's settings-home table). This
+  02's settings screen exposes the two directional bandwidth limits and,
+  since D37, the per-server cap, and nothing else from this section,
+  matching §6's settings-home table). This
   deliberately stays below the default per-server pool capacity of 8: the
   two extra channel slots are headroom, not permission to raise process-wide
   work. One busy server may own all 6 global slots for that task's entire
   duration, and strict FIFO keeps behavior predictable — the user's reorder
-  is the escape hatch. Cross-server
+  and, since D37, a per-server cap are the escape hatches. Cross-server
   round-robin dispatch is a recorded non-goal for v1 (revisit only with
   evidence of real starvation).
 - Dispatch order: queue order (user-reorderable), one task's files dispatched
@@ -1848,7 +1856,7 @@ queue). Composition, all `ChangeNotifier`s unless noted:
 
 | Notifier | Scope | Owns |
 |---|---|---|
-| `WorkspaceController` | one per workspace window (D37) | pane list, tabs per pane, active pane/tab, sidebar + activity panel visibility, layout ratios |
+| `WorkspaceController` | one per workspace window (D38) | pane list, tabs per pane, active pane/tab, sidebar + activity panel visibility, layout ratios |
 | `PaneController` | one per pane-tab | navigation, entries, sort/filter/hidden, selection, per-location view prefs — a fork of Séance's `RemoteFilesController` — a D2 port with divergences, so it gets a PORTS.md entry and recorded divergence lines per §8.2/§8.3 like any other ported file — with the terminal-follow inputs (`shellDirectory`, `terminalTitle`) deleted and the filesystem reached through `EngineClient` |
 | `CheckoutManager` | app-wide, records keyed by server | the managed-checkout pipeline extracted from `RemoteFilesController`: checkout, watch, reconcile, upload-back, rename-migration. Wraps the ported `ManagedRemoteFileStore`; `editSessionId` is a per-server constant (D17 — checkout ownership is per server, never per pane/tab) |
 | `TransferQueue` UI mirror | app-wide | queue rows, history, throttle state — rebuilt from engine events |

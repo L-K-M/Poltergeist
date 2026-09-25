@@ -1010,7 +1010,7 @@ Per-milestone invariant check (item 5 of §3.12):
 | Byte-level transfer resume beyond journal restart | v2+ (D25) |
 | rsync accelerator | v2+ (D25) |
 | S3/WebDAV backends | v2+ (D25) |
-| Multi-window | shipped after v1.0.1 (D37) |
+| Multi-window | shipped after v1.0.1 (D38) |
 | Scheduled sync | v2+ (D25) |
 | Custom tools | v2+ (D25) |
 | Remote content search | v2+ (D25) |

@@ -17,7 +17,7 @@ import 'package:flutter/widgets.dart';
 import '../services/workspace_windows/workspace_window_scope.dart';
 import '../services/workspace_windows/workspace_windows.dart';
 
-/// The desktop app's root (00 D37): one [View] per open workspace window,
+/// The desktop app's root (00 D38): one [View] per open workspace window,
 /// each rendering the app [buildWindow] builds for it, over the one
 /// engine and isolate every window shares.
 ///

@@ -38,6 +38,7 @@ import 'services/sidebar_probe_owner.dart';
 import 'services/ssh_config_import_setup.dart';
 import 'services/sync_environment.dart';
 import 'services/sync_queue_facade.dart';
+import 'services/transfer_limits_controller.dart';
 import 'services/update_check_controller.dart';
 import 'services/workspace_library.dart';
 import 'services/workspace_windows/workspace_windows.dart';
@@ -83,6 +84,7 @@ class PoltergeistApp extends StatefulWidget {
     this.initialUploadLimit,
     this.onDownloadLimitChanged,
     this.onUploadLimitChanged,
+    this.transferLimits,
     this.autoClearCompletedTransfers = true,
     this.probeSettings,
     this.initialSidebarHidden = false,
@@ -229,6 +231,10 @@ class PoltergeistApp extends StatefulWidget {
   onDownloadLimitChanged;
   final FutureOr<void> Function(int? bytesPerSecond)? onUploadLimitChanged;
 
+  /// D37's per-server transfer caps, already bound to the queue; the
+  /// Activity panel's popover sets their default.
+  final TransferLimitsController? transferLimits;
+
   /// 02 §6's "auto-remove on success" setting (default on).
   final bool autoClearCompletedTransfers;
 
@@ -313,7 +319,7 @@ class PoltergeistApp extends StatefulWidget {
   /// windowed layout.
   final ValueListenable<bool>? toolbarBand;
 
-  /// The workspace window this app renders (00 D37), or null for the
+  /// The workspace window this app renders (00 D38), or null for the
   /// single-window app. A window's app takes its navigator and messenger
   /// from the window and leaves the app lifecycle to the windows root,
   /// which owns the one listener for every window.
@@ -466,6 +472,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       initialUploadLimit: widget.initialUploadLimit,
       onDownloadLimitChanged: widget.onDownloadLimitChanged,
       onUploadLimitChanged: widget.onUploadLimitChanged,
+      transferLimits: widget.transferLimits,
       autoClearCompletedTransfers: widget.autoClearCompletedTransfers,
       probeSettings: widget.probeSettings,
       initialSidebarHidden: widget.initialSidebarHidden,

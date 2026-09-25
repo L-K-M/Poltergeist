@@ -46,7 +46,7 @@ final class SessionStateStore {
     await _store.set(_settingsKey, state.toJson());
   });
 
-  /// The windows the last session had open beside the first (00 D37),
+  /// The windows the last session had open beside the first (00 D38),
   /// empty when none was persisted. Throws [FormatException] like [load].
   Future<List<SessionState>> loadWindows() => _serialized(() async {
     final stored = await _store.get<Object>(_windowsKey);

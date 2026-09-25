@@ -8629,6 +8629,50 @@ Validation: `flutter analyze` is clean; the full app suite passes (2521
 tests, 18 of them new: the link and host suite, the window app, and the
 settings routing tests).
 
+## D37: simultaneous transfers per server (2026-09-25)
+
+The owner asked for a concurrency limit beside the bandwidth limits,
+counted per server, that leaves browsing and editing alone. D37 records
+the decision and amends 03 §4.3.
+
+- **What changed for the user.** The Transfers popover gains
+  "Simultaneous transfers per server": Automatic (up to 6, the app's
+  total) or 1 to 5. The server editor gains a "Simultaneous transfers"
+  menu that overrides it for that server (Default, Automatic, 1 to 5).
+  The header's limits button shows the speed glyph while a default cap
+  is set, and its tooltip and the popover title now read "Transfer
+  limits".
+- **Shape.** `ServerTransferLimits` (a default plus per-server
+  `TransferConcurrency` overrides) sits on `TransferQueue`, which counts
+  files in flight per server beside the global count. `_nextDispatchable`
+  passes over a task whose server is at its cap, so a capped server never
+  holds a global slot another server could use; a server-to-server file
+  counts on both sides. Checkouts and produce hops never enter that
+  accounting, so editing, previews and drag-out are exempt by
+  construction, as is browsing. Sync runs keep their per-pair Transfer
+  concurrency; deletes are not counted. `TransferLimitsController` owns
+  the caps in the app, persists them device-locally
+  (`transfer.perServerConcurrency`, `transfer.serverConcurrency`) and
+  pushes every change into the queue at once.
+- **Why device-local.** The server record is Séance's shared
+  `ServerConfig` (D2), which has no field for it, so the override does
+  not sync; the editor says so.
+
+Verification: eight new queue tests cover a cap binding, a capped server
+being passed over, both sides of a server-to-server copy counting, a copy
+within one server counting once, a raised cap dispatching at once and a
+lowered one cancelling nothing, and editing and previews staying exempt. The four enforcement tests fail
+with the dispatch check disabled. App tests cover persistence and its
+tolerance of hand-edited values, the controller's ordering (the default
+applies before its write, an override only after its write lands), the
+popover's chips and the header glyph, and the editor's override: shown,
+stored only when changed, cleared back to the default, stored under a
+new server's id, and retried after a failed write.
+
+Known limits: an override for a server that is later deleted stays in
+settings, where it is harmless (server ids are never reused). Not
+measured: the throughput effect of a cap against a real server.
+
 ## Every inline error has a way out (2026-09-25)
 
 The pane's inline error offered only Retry, and Esc also retried, so a
@@ -8658,10 +8702,10 @@ as is: the backup switch dialog's conflict phase has no Close on the
 desktop, by the 04 §4.4 rule that the user decides each held pin before
 the switch completes (every decision moves it forward).
 
-## D37: More than one workspace window (2026-09-25)
+## D38: More than one workspace window (2026-09-25)
 
 The owner asked for a "new window" feature so different views,
-connections and actions can run side by side (D37 records the decision;
+connections and actions can run side by side (D38 records the decision;
 it supersedes D13's single window and D25's parked multi-window item).
 
 - **What changed for the user.** On macOS, Linux and Windows, File ▸
@@ -8681,7 +8725,7 @@ it supersedes D13's single window and D25's parked multi-window item).
   windows on `poltergeist/windows` (`linux/runner/workspace_windows.cc`,
   `macos/Runner/WorkspaceWindows.swift` with `PoltergeistMultiView.m`,
   `windows/runner/workspace_windows.cpp`). The engine calls behind them
-  are D37's: Linux `fl_view_new_for_engine` (public), Windows
+  are D38's: Linux `fl_view_new_for_engine` (public), Windows
   `FlutterDesktopEngineCreateViewController` and
   `FlutterDesktopEngineForId` (exported, internal header), macOS
   `initWithEngine:` after setting the engine's multi-view flag by
@@ -9588,7 +9632,7 @@ close hook, and OS drops refused in an extra window.
     made Android supported with these slices still open; the README's
     known issues name them and the release checklist's Android row
     carries the device checks.
-34. **2026-09-25: D37 — what an extra workspace window lacks.** Each is
+34. **2026-09-25: D38 — what an extra workspace window lacks.** Each is
     its own follow-up: drops from other apps (desktop_drop registers on
     the main view only and reports positions in its coordinates; a
     per-view drop target with the view id on every event is needed);

@@ -67,7 +67,7 @@ final class WindowManagerFullScreen
   void onWindowLeaveFullScreen() => _fullScreen = false;
 }
 
-/// An extra workspace window's own full screen (00 D37): window_manager
+/// An extra workspace window's own full screen (00 D38): window_manager
 /// only knows the main window, so the runner that hosts the window takes
 /// it in and out.
 final class HostWindowFullScreen implements WindowFullScreen {

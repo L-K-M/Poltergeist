@@ -40,6 +40,10 @@ final class _FakeDelegate extends ServerEditorDelegate {
   Secret? storedSecret;
   ConnectionTestResult? testResult;
   int testCalls = 0;
+  TransferConcurrency defaultLimit = const TransferConcurrency.automatic();
+  final Map<String, TransferConcurrency> limits = {};
+  final List<(String, TransferConcurrency?)> limitWrites = [];
+  Object? limitWriteFailure;
 
   @override
   List<ServerConfig> get servers => serverList;
@@ -60,6 +64,27 @@ final class _FakeDelegate extends ServerEditorDelegate {
   Future<void> save(ServerConfig config, {Secret? secret}) async {
     saved = (config, secret);
     serverList = [...serverList, config];
+  }
+
+  @override
+  TransferConcurrency get defaultTransferConcurrency => defaultLimit;
+
+  @override
+  TransferConcurrency? transferConcurrencyFor(String serverId) =>
+      limits[serverId];
+
+  @override
+  Future<void> saveTransferConcurrency(
+    String serverId,
+    TransferConcurrency? value,
+  ) async {
+    limitWrites.add((serverId, value));
+    if (limitWriteFailure case final failure?) throw failure;
+    if (value == null) {
+      limits.remove(serverId);
+    } else {
+      limits[serverId] = value;
+    }
   }
 
   @override
@@ -221,6 +246,119 @@ void main() {
 
       final (config, _) = delegate.saved!;
       expect(config.updatedAt, greaterThan(pulled));
+    });
+  });
+
+  // D37: the server's own cap on simultaneous transfers, stored on the
+  // device beside the config rather than in it.
+  group('simultaneous transfers', () {
+    Finder menu() => find.byKey(const ValueKey('serverEditor.transferLimit'));
+
+    Future<void> choose(WidgetTester tester, String entry) async {
+      await scrollTo(tester, menu());
+      await tester.tap(menu());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(entry).last);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> save(WidgetTester tester) async {
+      await scrollTo(tester, find.widgetWithText(FilledButton, 'Save'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('names the default in force and stores a changed choice', (
+      tester,
+    ) async {
+      delegate.defaultLimit = const TransferConcurrency.fixed(2);
+      final existing = _server('web');
+      delegate.serverList = [existing];
+      await openEditor(tester, existing: existing);
+      await scrollTo(tester, menu());
+      expect(
+        find.descendant(of: menu(), matching: find.text('Default (2)')),
+        findsOneWidget,
+      );
+
+      await choose(tester, '1');
+      await save(tester);
+      expect(delegate.limitWrites, [
+        ('web', const TransferConcurrency.fixed(1)),
+      ]);
+      expect(find.text('Edit server'), findsNothing);
+    });
+
+    testWidgets('an untouched choice is not written', (tester) async {
+      final existing = _server('web');
+      delegate.serverList = [existing];
+      delegate.limits['web'] = const TransferConcurrency.automatic();
+      await openEditor(tester, existing: existing);
+      await scrollTo(tester, menu());
+      expect(
+        find.descendant(of: menu(), matching: find.text('Automatic')),
+        findsOneWidget,
+      );
+
+      await save(tester);
+      expect(delegate.saved, isNotNull);
+      expect(delegate.limitWrites, isEmpty);
+    });
+
+    testWidgets('going back to the default clears the server\'s own cap', (
+      tester,
+    ) async {
+      final existing = _server('web');
+      delegate.serverList = [existing];
+      delegate.limits['web'] = const TransferConcurrency.fixed(3);
+      await openEditor(tester, existing: existing);
+
+      await choose(tester, 'Default (Automatic)');
+      await save(tester);
+      expect(delegate.limitWrites, [('web', null)]);
+      expect(delegate.limits, isEmpty);
+    });
+
+    testWidgets('a new server\'s cap is stored under the id it saves as', (
+      tester,
+    ) async {
+      await openEditor(tester);
+      await fillRequired(tester);
+      await choose(tester, 'Automatic');
+      await save(tester);
+
+      final (config, _) = delegate.saved!;
+      expect(delegate.limitWrites, [
+        (config.id, const TransferConcurrency.automatic()),
+      ]);
+    });
+
+    testWidgets('a cap that cannot be stored keeps the editor open to retry', (
+      tester,
+    ) async {
+      final existing = _server('web');
+      delegate.serverList = [existing];
+      delegate.limitWriteFailure = StateError('settings are read-only');
+      await openEditor(tester, existing: existing);
+
+      await choose(tester, '2');
+      await save(tester);
+      // The server itself saved; only the cap failed, and the editor says
+      // so and stays up with the choice still in it.
+      expect(delegate.saved, isNotNull);
+      expect(find.text('Edit server'), findsOneWidget);
+      expect(
+        find.textContaining('its transfer limit wasn\'t'),
+        findsOneWidget,
+      );
+
+      delegate.limitWriteFailure = null;
+      await save(tester);
+      expect(delegate.limits['web'], const TransferConcurrency.fixed(2));
+      expect(find.text('Edit server'), findsNothing);
+      // Let the failure toast's dismissal timer run out.
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
     });
   });
 

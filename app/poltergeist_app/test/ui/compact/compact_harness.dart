@@ -130,6 +130,19 @@ final class InertServerEditor extends ServerEditorDelegate {
   Future<void> save(ServerConfig config, {Secret? secret}) async {}
 
   @override
+  TransferConcurrency get defaultTransferConcurrency =>
+      const TransferConcurrency.automatic();
+
+  @override
+  TransferConcurrency? transferConcurrencyFor(String serverId) => null;
+
+  @override
+  Future<void> saveTransferConcurrency(
+    String serverId,
+    TransferConcurrency? value,
+  ) async {}
+
+  @override
   Future<ConnectionTestResult> testConnection(
     ServerConfig config, {
     String? draftPassword,

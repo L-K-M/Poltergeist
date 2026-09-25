@@ -316,7 +316,7 @@ final class SessionState {
   }
 }
 
-/// The windows open beside the first one (00 D37), each a whole
+/// The windows open beside the first one (00 D38), each a whole
 /// [SessionState]. It lives under its own key beside the first window's
 /// document, which keeps its v1 shape: a build from before multiple windows
 /// reads that one and restores the first window as it always did.

@@ -201,7 +201,7 @@ known-divergent surface.
   with it. On Windows the window stays above the workspace. Linux was
   run under Xvfb (STATUS D36 section); macOS and Windows are compiled
   by CI only, so this row is their first run.
-- [ ] OWNER MANUAL QA: more than one workspace window (D37). On each
+- [ ] OWNER MANUAL QA: more than one workspace window (D38). On each
   desktop platform: File ▸ New Window (⌘N / Ctrl+N) opens a window with
   a local home tab in each pane, as the active window, at the size of
   the one it came from; typing and shortcuts go to the window you are
@@ -221,7 +221,7 @@ known-divergent surface.
   windows open and relaunch: both come back with their tabs. On macOS
   with VoiceOver on, open a second window: the first window's elements
   still read correctly. Linux was run under Xvfb with openbox (STATUS
-  D37 section); macOS and Windows are compiled by CI only, so this row
+  D38 section); macOS and Windows are compiled by CI only, so this row
   is their first run.
 - [ ] OWNER MANUAL QA: theme flip (light/dark) live-restyles listing,
   plan view, and editor; HiDPI scaling at 100 %/150 %/200 % shows no

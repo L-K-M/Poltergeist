@@ -48,6 +48,11 @@ abstract interface class AppTransferQueue {
   BandwidthLimiter get downloadLimiter;
   BandwidthLimiter get uploadLimiter;
 
+  /// 00 D37's per-server caps on simultaneous transfers, in force from
+  /// the next dispatch. `TransferLimitsController` is their one writer.
+  ServerTransferLimits get serverTransferLimits;
+  set serverTransferLimits(ServerTransferLimits limits);
+
   void pauseQueue();
   void resumeQueue();
 
@@ -160,6 +165,13 @@ final class TransferQueueAdapter implements AppTransferQueue {
 
   @override
   BandwidthLimiter get uploadLimiter => _queue.uploadLimiter;
+
+  @override
+  ServerTransferLimits get serverTransferLimits => _queue.serverTransferLimits;
+
+  @override
+  set serverTransferLimits(ServerTransferLimits limits) =>
+      _queue.serverTransferLimits = limits;
 
   @override
   void pauseQueue() => _queue.pauseQueue();

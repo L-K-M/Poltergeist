@@ -11,6 +11,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/badge_image.dart';
+import 'selected_tab_view.dart';
 import 'server_appearance.dart';
 
 /// A starting point for the emoji tab, so the feature is usable without going
@@ -146,7 +147,7 @@ class _MarkPickerDialog extends StatelessWidget {
                 ],
               ),
               Expanded(
-                child: TabBarView(
+                child: SelectedTabView(
                   children: [
                     _IconsTab(current: current),
                     _EmojiTab(current: current),

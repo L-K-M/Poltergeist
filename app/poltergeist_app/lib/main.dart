@@ -42,6 +42,7 @@ import 'services/sidebar_probe_owner.dart';
 import 'services/ssh_config_import_setup.dart';
 import 'services/sync_credentials.dart';
 import 'services/sync_environment.dart';
+import 'services/transfer_limits_controller.dart';
 import 'services/sync_queue_facade.dart';
 import 'services/sync_transport.dart';
 import 'services/sync_verdict_stores.dart';
@@ -148,6 +149,18 @@ Future<void> main(List<String> args) async {
   final inspectorWidth = await preferences.loadInspectorWidth();
   final downloadLimit = await preferences.loadDownloadLimit();
   final uploadLimit = await preferences.loadUploadLimit();
+  // D37's per-server transfer caps: the popover's default and each
+  // server's own choice from its editor, device-local like the bandwidth
+  // limits. Bound to the queue once it exists.
+  final transferLimits = TransferLimitsController(
+    initial: ServerTransferLimits(
+      perServer: await preferences.loadTransferConcurrency(),
+      overrides: await preferences.loadServerTransferConcurrency(),
+    ),
+    persistDefault: preferences.saveTransferConcurrency,
+    persistOverride: preferences.setServerTransferConcurrency,
+    onError: errorReporter.report,
+  );
   final autoClearCompleted =
       await preferences.loadAutoClearCompletedTransfers();
   // The sidebar's persisted chrome state (02 §1/§4, D33): visibility
@@ -176,7 +189,7 @@ Future<void> main(List<String> args) async {
   } on Object catch (error, stack) {
     errorReporter.report(error, stack);
   }
-  // The windows open beside the first one (00 D37), under their own key
+  // The windows open beside the first one (00 D38), under their own key
   // with the same fail-closed decode: a bad document restores none of
   // them and stays on disk.
   var restoredWindows = const <SessionState>[];
@@ -216,7 +229,7 @@ Future<void> main(List<String> args) async {
   } on Object catch (error, stack) {
     errorReporter.report(error, stack);
   }
-  // The desktop runners host more than one workspace window (00 D37):
+  // The desktop runners host more than one workspace window (00 D38):
   // views on this one engine, sharing every model composed here.
   final windows = Platform.isMacOS || Platform.isLinux || Platform.isWindows
       ? WorkspaceWindows(
@@ -234,7 +247,7 @@ Future<void> main(List<String> args) async {
   // 07 §3.5's quit gate: the intercepted close consults the guard, which
   // warns over live transfers and gates the destroy on the journal
   // flush. The workspace shell binds its queue seam onto the guard; with
-  // several windows the composition binds it once, below (00 D37).
+  // several windows the composition binds it once, below (00 D38).
   final quitGuard = QuitGuard(
     navigatorKey: navigatorKey,
     onError: errorReporter.report,
@@ -307,6 +320,8 @@ Future<void> main(List<String> args) async {
     serverConfigs: serverConfigs,
   );
   final transferQueue = transferQueueSession?.queue;
+  // Before anything can dispatch: a restored queue boots paused (03 §4.6).
+  transferLimits.queue = transferQueue;
   // D32 §11: Dock/taskbar progress while transfers run (macOS/Windows —
   // window_manager has no Linux progress surface). It stays silent until
   // the window is ready: on Windows an earlier setProgressBar crashes
@@ -450,6 +465,7 @@ Future<void> main(List<String> args) async {
       ),
     ),
     navigatorKey: navigatorKey,
+    transferLimits: transferLimits,
   );
 
   // The D19 link-only update check (07 §3.10, 01 §6): one plain GET of
@@ -467,7 +483,7 @@ Future<void> main(List<String> args) async {
   final toolbarBand = Platform.isMacOS ? MacosToolbarBandChannel() : null;
   if (toolbarBand != null) errorReporter.observe(toolbarBand.start());
 
-  // What every window shares beyond the models above (00 D37): the
+  // What every window shares beyond the models above (00 D38): the
   // reachability owner (it drives the engine's one probe target set),
   // the live preview threshold, the dirty-checkout prompt's guards, and
   // the chrome a window opened later starts from.
@@ -502,7 +518,7 @@ Future<void> main(List<String> args) async {
       Platform.isMacOS || Platform.isLinux || Platform.isWindows
       ? SettingsWindowHost()
       : null;
-  // An extra window has no unified toolbar band on macOS (00 D37).
+  // An extra window has no unified toolbar band on macOS (00 D38).
   final noToolbarBand = ValueNotifier(false);
 
   // The app for one window, or the single-window app. Built once per
@@ -553,6 +569,7 @@ Future<void> main(List<String> args) async {
           : transferQueue?.uploadLimiter.bytesPerSecond,
       onDownloadLimitChanged: preferences.saveDownloadLimit,
       onUploadLimitChanged: preferences.saveUploadLimit,
+      transferLimits: transferLimits,
       autoClearCompletedTransfers: autoClearCompleted,
       probeSettings: probeSettings,
       initialSidebarHidden: seeds.sidebarHidden,
@@ -642,7 +659,7 @@ Future<void> main(List<String> args) async {
   }
 }
 
-/// Quit with several windows open (00 D37): the engine asks the app's
+/// Quit with several windows open (00 D38): the engine asks the app's
 /// lifecycle listener, whose quit guard and exit flush decide, then
 /// closes every window with the process. The same path ⌘Q takes.
 Future<void> _quitApplication() async {

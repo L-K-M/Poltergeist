@@ -1,5 +1,5 @@
 /// 06 §3.3's dirty-prompt guards, kept for the whole app rather than per
-/// window (00 D37): every window hears the checkout session, only the
+/// window (00 D38): every window hears the checkout session, only the
 /// active one prompts, and whichever window that is must know what an
 /// earlier one already asked and what any window is uploading.
 final class CheckoutPromptLedger {

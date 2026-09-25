@@ -56,7 +56,7 @@ static void my_application_activate(GApplication* application) {
   // OS drag-out of local items (poltergeist/dragout, D14's amendment).
   drag_out_channel_register(view);
   settings_window_install(GTK_APPLICATION(application), window, view);
-  // More workspace windows on this engine (00 D37).
+  // More workspace windows on this engine (00 D38).
   workspace_windows_install(GTK_APPLICATION(application), window, view);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));

@@ -299,7 +299,7 @@ class WorkspaceController extends ChangeNotifier {
       _bindsServer(serverId, excluding: excluding);
 
   /// Whether any tab in this workspace binds [serverId] live: another
-  /// window's half of the last-binding check (00 D37).
+  /// window's half of the last-binding check (00 D38).
   bool bindsServer(String serverId) => _bindsServer(serverId);
 
   bool _bindsServer(String serverId, {PaneController? excluding}) {

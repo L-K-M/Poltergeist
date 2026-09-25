@@ -375,6 +375,15 @@ final class CompositeAppTransferQueue implements AppTransferQueue {
   @override
   BandwidthLimiter get uploadLimiter => _inner.uploadLimiter;
 
+  // Sync runs keep their own per-pair concurrency (05 §6): the caps bound
+  // the queue's transfers only.
+  @override
+  ServerTransferLimits get serverTransferLimits => _inner.serverTransferLimits;
+
+  @override
+  set serverTransferLimits(ServerTransferLimits limits) =>
+      _inner.serverTransferLimits = limits;
+
   @override
   void pauseQueue() => _inner.pauseQueue();
 

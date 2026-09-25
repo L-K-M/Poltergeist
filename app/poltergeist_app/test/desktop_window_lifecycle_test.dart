@@ -514,7 +514,7 @@ void main() {
 
     expect(errors, contains(isA<StateError>()));
   });
-  test('another window taking the close skips the whole quit path (00 D37)',
+  test('another window taking the close skips the whole quit path (00 D38)',
       () async {
     final window = FakeWindowAdapter();
     var guardCalls = 0;

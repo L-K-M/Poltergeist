@@ -100,8 +100,7 @@ class _ActivityHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final paused = controller.queuePaused;
-    final limited =
-        controller.downloadLimit != null || controller.uploadLimit != null;
+    final limited = controller.anyLimitSet;
     return SizedBox(
       height: 40,
       child: Padding(
@@ -225,8 +224,9 @@ class _PanelTab extends StatelessWidget {
   }
 }
 
-/// The header's bandwidth button: the ∞ glyph while unlimited (02 §6),
-/// a filled speed glyph while any direction is limited. The popover is
+/// The header's limits button: the ∞ glyph while nothing is limited
+/// (02 §6), a filled speed glyph while a bandwidth limit or a default
+/// per-server cap (D37) is set. The popover is
 /// an anchored overlay — a `MenuAnchor` cannot host the custom-rate
 /// field.
 class _BandwidthButton extends StatefulWidget {

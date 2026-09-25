@@ -383,7 +383,7 @@ void main() {
     expect(decoded.panes[0].tabs[0].kind, SessionTabKind.remote);
   });
 
-  group('SessionWindowsState (00 D37)', () {
+  group('SessionWindowsState (00 D38)', () {
     test('round-trips every window', () {
       final state = SessionWindowsState(windows: [_fixture(), _fixture()]);
       final decoded = SessionWindowsState.fromJson(state.toJson());

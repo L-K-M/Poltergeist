@@ -5,7 +5,7 @@ import 'package:poltergeist_app/services/workspace_windows/window_host.dart';
 
 String _read(String path) => File(path).readAsStringSync();
 
-/// The workspace windows' runner contract (00 D37). The Linux host is
+/// The workspace windows' runner contract (00 D38). The Linux host is
 /// exercised for real under Xvfb (docs/STATUS.md); the macOS and Windows
 /// hosts only compile in CI. These checks keep each runner serving the
 /// protocol the Dart side speaks, and keep the load-bearing choices from

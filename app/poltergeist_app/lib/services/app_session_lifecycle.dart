@@ -20,7 +20,7 @@ const _exitFlushTimeout = Duration(seconds: 2);
 /// Exactly one may exist per app. With several windows the framework asks
 /// every listener whether the app may exit, one after another, so a
 /// listener per window would ask the quit guard once per window and show
-/// its dialog again after the first answer (00 D37).
+/// its dialog again after the first answer (00 D38).
 ///
 /// Engine lifetime follows the app's: `detached` is the last state a
 /// desktop process sees (the window is gone), so the session shuts the
