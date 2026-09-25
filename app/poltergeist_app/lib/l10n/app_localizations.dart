@@ -5454,10 +5454,10 @@ abstract class AppLocalizations {
   /// **'Transfers are paused. Resume them, then drag it to {folder} again.'**
   String alertDragOutPaused(String folder);
 
-  /// D32 alert row detail: the transfer queue was paused while a remote folder dragged to another app was downloading, so that download was cancelled.
+  /// D32 alert row detail: a remote item dragged to another app was downloading when its download was paused (the whole transfer queue, or the download's own Pause in Transfers), so that download was cancelled rather than keep the other app waiting.
   ///
   /// In en, this message translates to:
-  /// **'Transfers were paused, so the download to {folder} stopped.'**
+  /// **'The download to {folder} was paused, so it stopped.'**
   String alertDragOutPausedMidway(String folder);
 
   /// D32 alert row detail: the receiving app asked for a remote folder under another name, which a download cannot honor.

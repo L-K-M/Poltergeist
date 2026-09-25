@@ -531,7 +531,9 @@ D32 inspector workspace · D33 sidebar density
       Look's. A folder is an ordinary recursive download task, awaited to
       its end. It does not bypass the queue pause: a paused queue fails
       the promise at once, and a pause mid-download cancels the task,
-      each with an Alert, so the OS never waits on a pause. Both show in
+      each with an Alert, so the OS never waits on a pause. A Pause on
+      a drag-out's own Transfers row (a file hop or a folder download)
+      cancels it the same way, with the same Alert. Both show in
       Transfers; the OS-side cancel cancels the task; a failure fails the
       promise and keeps its failed row and Alert. A receiver that asks
       for a different folder name fails with an Alert (the queue lands a

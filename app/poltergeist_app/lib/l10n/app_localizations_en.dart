@@ -3498,7 +3498,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String alertDragOutPausedMidway(String folder) {
-    return 'Transfers were paused, so the download to $folder stopped.';
+    return 'The download to $folder was paused, so it stopped.';
   }
 
   @override

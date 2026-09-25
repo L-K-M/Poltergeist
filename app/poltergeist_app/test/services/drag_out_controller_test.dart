@@ -371,6 +371,41 @@ void main() {
       await expectLater(done, failsWith(DragOutPromiseFailure.cancelled));
     });
 
+    test('a Pause on its Transfers row cancels the produce and fails the '
+        'promise, with an Alert', () async {
+      build();
+      final session = await startRemote([_entry('/srv/a.txt', size: 300)]);
+      final done = fulfil(session, 'p1', '/Users/me/Desktop/a.txt');
+      await pumpEventQueue();
+      final produce = files.produces.single;
+      // The produce hop is a row on the same queue: its per-task pause
+      // would park it until a resume that may never come, while the OS
+      // waits on the promise.
+      queue.pauseTask(produce.taskId);
+      await expectLater(
+        done.timeout(const Duration(seconds: 2)),
+        failsWith(DragOutPromiseFailure.paused),
+      );
+      expect(files.cancelled, [produce.taskId]);
+      final notice = controller.notices.single;
+      expect(notice.kind, DragOutNoticeKind.pausedMidway);
+      expect(notice.itemName, 'a.txt');
+      expect(notice.destinationDir, '/Users/me/Desktop');
+    });
+
+    test('a pause of another row leaves the produce running', () async {
+      build();
+      final session = await startRemote([_entry('/srv/a.txt', size: 3)]);
+      final done = fulfil(session, 'p1', '/Users/me/Desktop/a.txt');
+      await pumpEventQueue();
+      queue.pauseTask('task-elsewhere');
+      await pumpEventQueue();
+      expect(files.cancelled, isEmpty);
+      files.produces.single.complete();
+      await done;
+      expect(controller.notices, isEmpty);
+    });
+
     test('promises stay answerable after the session ended', () async {
       build();
       final session = await startRemote([_entry('/srv/a.txt')]);
@@ -453,6 +488,30 @@ void main() {
         expect(controller.notices.single.kind, DragOutNoticeKind.pausedMidway);
       },
     );
+
+    test('a Pause on its Transfers row cancels the download and fails the '
+        'promise, with an Alert', () async {
+      build();
+      final session = await startRemote([
+        _entry('/srv/site', type: RemoteFileType.directory),
+      ]);
+      final done = fulfil(session, 'p1', '/Users/me/Desktop/site');
+      await pumpEventQueue();
+      final task = queue.tasks.single..state = TransferTaskState.running;
+      // Unlike the queue pause, nothing polls for this one: the row's
+      // pause event is the signal.
+      queue.pauseTask(task.id);
+      await expectLater(
+        done.timeout(const Duration(seconds: 2)),
+        failsWith(DragOutPromiseFailure.paused),
+      );
+      expect(queue.cancelTaskCalls, [task.id]);
+      expect(task.state, TransferTaskState.cancelled);
+      final notice = controller.notices.single;
+      expect(notice.kind, DragOutNoticeKind.pausedMidway);
+      expect(notice.itemName, 'site');
+      expect(notice.destinationDir, '/Users/me/Desktop');
+    });
 
     test('a renamed destination fails instead of landing elsewhere', () async {
       build();
