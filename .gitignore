@@ -33,12 +33,9 @@ app/poltergeist_app/ios/Pods/
 app/poltergeist_app/android/.gradle/
 app/poltergeist_app/**/GeneratedPluginRegistrant.*
 
-# Local build byproducts the platform folders' own ignores miss: the Kotlin
-# Gradle plugin's session and error logs, and Xcode's pins for plugins'
-# remote Swift packages (iOS file_picker's DKImagePickerController), which
-# every build re-resolves from the plugins' Package.swift.
+# The Kotlin Gradle plugin's session and error logs, which the Android
+# folder's own ignores miss.
 app/poltergeist_app/android/.kotlin/
-app/poltergeist_app/*/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 # `dart test --coverage` / `flutter test --coverage` output, and the Flutter
 # tool's crash logs, which land in whatever directory it ran from.

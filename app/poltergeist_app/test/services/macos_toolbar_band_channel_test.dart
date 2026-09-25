@@ -55,6 +55,16 @@ void main() {
     expect(band.value, isTrue);
   });
 
+  test('dispose detaches the runner switch handler', () async {
+    final band = MacosToolbarBandChannel();
+    await fromNative('toolbarBandChanged', false);
+    expect(band.value, isFalse);
+
+    band.dispose();
+    await fromNative('toolbarBandChanged', true);
+    expect(band.value, isFalse);
+  });
+
   test('a malformed switch is refused and changes nothing', () async {
     final band = MacosToolbarBandChannel();
     addTearDown(band.dispose);

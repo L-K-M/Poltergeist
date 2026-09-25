@@ -85,7 +85,8 @@ is no Play Store listing; you install the APK yourself:
 2. Open the APK on the phone. Android asks you to allow installs from
    the app that opened it (your file manager or browser): allow it, then
    install. Or, with USB debugging on, run
-   `adb install poltergeist-android.apk` from the computer.
+   `adb install -r poltergeist-android.apk` from the computer (`-r`
+   replaces an installed copy, keeping its data).
 
 A later release's APK installs over the current one and keeps your
 servers, favorites, and settings.

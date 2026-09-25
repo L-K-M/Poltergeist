@@ -628,6 +628,7 @@ void main() {
     expect(notes, contains('**Android APK**: sideload'));
     expect(notes, isNot(contains('rehearsal artifact')));
     expect(notes, contains('unsigned'));
+    expect(notes, contains('iOS is not a supported'));
     expect(notes, contains('## SHA256 checksums'));
     expect(notes, contains('$apkHash  poltergeist-android.apk'));
     // The ceremony is gone; its template promises must not return.
