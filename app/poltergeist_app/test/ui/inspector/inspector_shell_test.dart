@@ -150,7 +150,7 @@ void main() {
   testWidgets('a narrow window folds the inspector into an overlay, not a '
       'persisted hide (10 §3.2)', (tester) async {
     // No sidebar in this composition, so the inline inspector needs its
-    // width plus two 240 px panes and the splitters (774 px).
+    // width plus two 260 px panes and the splitters (814 px).
     await pumpShell(tester, size: const Size(700, 800));
     expect(region, findsNothing);
     expect(splitter, findsNothing);

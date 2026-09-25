@@ -1182,9 +1182,10 @@ void main() {
         // hides pane B — the same mechanism view.toggleSecondPane
         // feeds, so focus and the active pane move to the survivor.
         // pumpApp pins devicePixelRatio to 1.0, so these sizes are
-        // logical pixels straddling the real stage-2 breakpoint (600
-        // since D32 §3.2; the sidebar and inspector fold away first).
-        tester.view.physicalSize = const Size(560, 900);
+        // logical pixels straddling the real stage-2 breakpoint (two
+        // 260 px panes and the splitter, 527, since D32 §3.2; the
+        // sidebar and inspector fold away first).
+        tester.view.physicalSize = const Size(500, 900);
         await tester.pumpAndSettle();
 
         expect(
