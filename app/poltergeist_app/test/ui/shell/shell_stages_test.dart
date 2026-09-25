@@ -96,4 +96,22 @@ void main() {
     expect(tester.getSize(sidebarRegion).width, 180);
     expect(workspaceOf(tester).sidebarHidden, isFalse);
   });
+
+  testWidgets('widening a region stops where the panes need the room, so '
+      'it never flips to the drawer or overlay mid-drag', (tester) async {
+    final harness = CompactHarness();
+    await harness.pump(tester, size: const Size(1100, 900));
+
+    // 1100 − (232 + 7) − 7 − 527: the inspector's inline room.
+    await mouseDrag(tester, inspectorSplitter, -200, step: 8);
+    expect(inspectorOverlay, findsNothing);
+    expect(tester.getSize(inspectorRegion).width, 327);
+    expect(panes, findsNWidgets(2));
+
+    // 1100 − (327 + 7) − 7 − 527: what is left for the sidebar.
+    await mouseDrag(tester, sidebarSplitter, 200, step: 8);
+    expect(sidebarRegion, findsOneWidget);
+    expect(tester.getSize(sidebarRegion).width, 232);
+    expect(inspectorRegion, findsOneWidget);
+  });
 }

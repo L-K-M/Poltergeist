@@ -1532,6 +1532,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// between the inline intent and the drawer.
   bool _sidebarInline = true;
 
+  /// The inspector's half of the same answer, read by the resize clamps.
+  bool _inspectorInline = true;
+
   /// D32's window anatomy (10 §3): sidebar | header over (pane A | pane B
   /// | inspector), with the staged collapse evaluated on the content
   /// width — the inspector folds into an overlay first, then the sidebar
@@ -1553,13 +1556,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }) {
     final strings = AppLocalizations.of(context);
     final chrome = PoltergeistChrome.of(context);
-    const paneRegionMin = 2 * minPaneWidth + paneSplitterExtent;
     final sidebarWidth = _sidebarWidth;
     final inspectorWidth = _inspectorWidth;
     final sidebarWanted = sidebar != null && !workspace.sidebarHidden;
     final sidebarInline =
         sidebarWanted &&
-        width >= sidebarWidth + shellSplitterExtent + paneRegionMin;
+        width >= sidebarWidth + shellSplitterExtent + _paneRegionMin;
     _sidebarInline = sidebarInline;
     final inspectorWanted = !workspace.inspectorHidden;
     final usedBySidebar = sidebarInline
@@ -1568,7 +1570,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final inspectorInline =
         inspectorWanted &&
         width >=
-            usedBySidebar + inspectorWidth + shellSplitterExtent + paneRegionMin;
+            usedBySidebar +
+                inspectorWidth +
+                shellSplitterExtent +
+                _paneRegionMin;
+    _inspectorInline = inspectorInline;
     final inspectorOverlay = inspectorWanted && !inspectorInline;
 
     final inspector = InspectorView(
@@ -1879,7 +1885,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       return;
     }
     setState(() {
-      _sidebarWidth = next.clamp(sidebarMinWidth, sidebarMaxWidth);
+      _sidebarWidth = next.clamp(
+        sidebarMinWidth,
+        _inlineRoom(
+          windowWidth,
+          otherRegion: _inspectorInline ? _inspectorWidth : null,
+        ).clamp(sidebarMinWidth, sidebarMaxWidth),
+      );
     });
   }
 
@@ -1893,9 +1905,26 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       return;
     }
     setState(() {
-      _inspectorWidth = next.clamp(inspectorMinWidth, inspectorMaxWidth);
+      _inspectorWidth = next.clamp(
+        inspectorMinWidth,
+        _inlineRoom(
+          windowWidth,
+          otherRegion: _sidebarInline ? _sidebarWidth : null,
+        ).clamp(inspectorMinWidth, inspectorMaxWidth),
+      );
     });
   }
+
+  /// The widest a region can grow and stay inline (10 §3.2): the window
+  /// less the [otherRegion] still inline beside it, both splitters, and
+  /// the panes' floor. A drag past it would flip the region into the
+  /// drawer or overlay under the pointer and unmount its splitter before
+  /// the width could persist.
+  double _inlineRoom(double windowWidth, {required double? otherRegion}) =>
+      windowWidth -
+      (otherRegion == null ? 0 : otherRegion + shellSplitterExtent) -
+      shellSplitterExtent -
+      _paneRegionMin;
 
   void _commitSidebarWidth() =>
       _persist(widget.onSidebarWidthChanged, _sidebarWidth);
@@ -3851,6 +3880,10 @@ const _macTrafficLightsInset = 76.0;
 /// How far past a region's minimum a drag must go before it hides the
 /// region (10 §3.1): a deliberate fling, never an accidental nudge.
 const _collapseOvershoot = 48.0;
+
+/// The panes' floor the sidebar and inspector yield to (10 §3.2): two
+/// minimum panes and their splitter.
+const _paneRegionMin = 2 * minPaneWidth + paneSplitterExtent;
 
 /// Sidebar width bounds (10 §3.1).
 const sidebarDefaultWidth = 232.0;
