@@ -2241,7 +2241,7 @@ class _SyncChip extends StatelessWidget {
         color: color,
       ),
     };
-    Widget chip = TextButton(
+    final Widget chip = TextButton(
       key: data.key,
       onPressed: data.onPressed,
       style: TextButton.styleFrom(
@@ -2275,10 +2275,9 @@ class _SyncChip extends StatelessWidget {
               ],
             ),
     );
-    // An icon alone keeps its label within reach of a pointer.
-    final tooltip = data.tooltip ?? (iconOnly ? data.label : null);
-    if (tooltip != null) chip = Tooltip(message: tooltip, child: chip);
-    return chip;
+    // An icon alone, or a label the slot ellipsizes, keeps the whole
+    // label within reach of a pointer.
+    return Tooltip(message: data.tooltip ?? data.label, child: chip);
   }
 }
 
