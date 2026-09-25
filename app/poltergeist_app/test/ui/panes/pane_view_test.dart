@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
@@ -87,8 +88,11 @@ void main() {
   });
 
 
-  Future<void> pumpShell(WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1400, 900);
+  Future<void> pumpShell(
+    WidgetTester tester, {
+    Size size = const Size(1400, 900),
+  }) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
@@ -244,6 +248,29 @@ void main() {
     expect(find.textContaining('9/11/2026'), findsOneWidget);
     // Links carry null metadata: no date cell content beyond the dash.
     expect(channel.listCalls, ['/home/tester']);
+  });
+
+  testWidgets('the Date Modified column prints its widest dates whole', (
+    tester,
+  ) async {
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entry('late.txt', size: 1, modified: DateTime(2026, 9, 14, 22, 58)),
+      _entry('old.txt', size: 1, modified: DateTime(2025, 12, 28, 22, 58)),
+    ];
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    // Wide enough for the test font, whose every glyph is a square: the
+    // column gives a date up to 35% of the pane.
+    await pumpShell(tester, size: const Size(2000, 900));
+
+    // Matched by prefix: intl puts a narrow no-break space before "PM".
+    for (final date in ['Yesterday at 10:58', '12/28/2025 10:58']) {
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.textContaining(date),
+      );
+      expect(paragraph.didExceedMaxLines, isFalse, reason: date);
+    }
   });
 
   testWidgets('rows render in natural name order, directories first',

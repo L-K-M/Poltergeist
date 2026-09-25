@@ -1269,6 +1269,7 @@ class _PaneSurface extends StatelessWidget {
           metrics: PaneColumnMetrics.forWidth(
             constraints.maxWidth,
             MediaQuery.textScalerOf(context),
+            modifiedWidth: PaneColumnMetrics.modifiedWidthIn(context),
           ),
           // Below the scope, so the surface's own reads (the rename
           // editor's name-column bounds) see the width the rows use.

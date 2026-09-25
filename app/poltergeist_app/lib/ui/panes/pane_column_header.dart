@@ -1,9 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart'
     show FileSortDirection, FileSortKey;
 
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_theme.dart';
+import 'pane_format.dart' show formatPaneModified;
 
 /// The listing's column geometry (D32 §6), shared by the column header,
 /// the rows, and the inline-rename editor's insets: one table, so a
@@ -20,12 +23,63 @@ class PaneColumnMetrics {
   /// the Size column folds away (Finder drops columns right-to-left of
   /// the name rather than starving it), so a narrow pane still shows
   /// readable names and dates.
-  factory PaneColumnMetrics.forWidth(double width, TextScaler scaler) {
+  ///
+  /// [modifiedWidth] is the Date Modified column's measured width
+  /// ([modifiedWidthIn]); without one the column takes its floor. The
+  /// column never takes more than [_modifiedShare] of the pane beyond
+  /// that floor, so a narrow pane keeps its names and an ellipsis only
+  /// returns to the longest dates there.
+  factory PaneColumnMetrics.forWidth(
+    double width,
+    TextScaler scaler, {
+    double? modifiedWidth,
+  }) {
     final showSize = width >= scaler.scale(_sizeColumnBreakpoint);
+    final floor = scaler.scale(_modifiedColumnWidth);
     return PaneColumnMetrics._(
       sizeWidth: showSize ? scaler.scale(_sizeColumnWidth) : 0,
-      modifiedWidth: scaler.scale(_modifiedColumnWidth),
+      modifiedWidth: modifiedWidth == null
+          ? floor
+          : math.min(modifiedWidth, math.max(floor, width * _modifiedShare)),
     );
+  }
+
+  /// The Date Modified column's width in [context]: the widest date a
+  /// row can print ("Today at", "Yesterday at" or a full date, each at a
+  /// two-digit month, day and hour) in the rows' style, locale and text
+  /// scale, and never below the spec's 116 px. A fixed width cut most
+  /// full dates to an ellipsis on Linux's default font.
+  static double modifiedWidthIn(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final localeName = Localizations.localeOf(context).toString();
+    final scaler = MediaQuery.textScalerOf(context);
+    final style = Theme.of(context).textTheme.bodySmall?.copyWith(
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    final now = DateTime(2026, 12, 29, 23);
+    var widest = 0.0;
+    for (final sample in [
+      DateTime(2026, 12, 29, 22, 58),
+      DateTime(2026, 12, 28, 22, 58),
+      DateTime(2025, 12, 28, 22, 58),
+    ]) {
+      final text = formatPaneModified(
+        sample,
+        now: now,
+        localeName: localeName,
+        today: l10n.paneDateToday,
+        yesterday: l10n.paneDateYesterday,
+      );
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      widest = math.max(widest, painter.width);
+      painter.dispose();
+    }
+    return math.max(scaler.scale(_modifiedColumnWidth), widest.ceilToDouble());
   }
 
   /// The metrics the nearest [PaneColumnMetricsScope] provides — the
@@ -43,6 +97,7 @@ class PaneColumnMetrics {
 
   static const _sizeColumnWidth = 60.0;
   static const _modifiedColumnWidth = 116.0;
+  static const _modifiedShare = 0.35;
   static const _sizeColumnBreakpoint = 360.0;
 
   /// Leading inset of every row, before the kind glyph.
