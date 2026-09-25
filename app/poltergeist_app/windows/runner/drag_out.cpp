@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -277,9 +278,20 @@ DWORD PerformedEffect(IDataObject* data, DWORD returned) {
   return returned;
 }
 
+// Owns a shell item ID list as the SDK's own pointer type. On x64 that
+// type is `ITEMIDLIST_* UNALIGNED *` (`__unaligned`): holding it as a
+// plain `ITEMIDLIST_*` pointer drops the qualifier, which MSVC reports
+// as C4090 and the runner's /WX turns into an error. ILFree takes the
+// unaligned relative type, which the absolute one converts to.
+template <typename Pidl>
 struct PidlFree {
-  void operator()(void* pidl) const { CoTaskMemFree(pidl); }
+  using pointer = Pidl;
+  void operator()(Pidl pidl) const { ILFree(pidl); }
 };
+using OwnedAbsolutePidl =
+    std::unique_ptr<ITEMIDLIST_ABSOLUTE, PidlFree<PIDLIST_ABSOLUTE>>;
+using OwnedRelativePidl =
+    std::unique_ptr<ITEMIDLIST_RELATIVE, PidlFree<PIDLIST_RELATIVE>>;
 
 enum class DataObjectStatus { kCreated, kUnsupported, kFailed };
 
@@ -337,7 +349,7 @@ DataObjectStatus CreateDataObject(HWND owner,
   PIDLIST_ABSOLUTE raw_folder = nullptr;
   HRESULT hr = SHParseDisplayName(folder_path.c_str(), nullptr, &raw_folder,
                                   0, nullptr);
-  std::unique_ptr<ITEMIDLIST_ABSOLUTE, PidlFree> folder_pidl(raw_folder);
+  OwnedAbsolutePidl folder_pidl(raw_folder);
   if (FAILED(hr)) {
     *error = HresultMessage("SHParseDisplayName", hr);
     return DataObjectStatus::kFailed;
@@ -350,7 +362,7 @@ DataObjectStatus CreateDataObject(HWND owner,
     return DataObjectStatus::kFailed;
   }
 
-  std::vector<std::unique_ptr<ITEMIDLIST_RELATIVE, PidlFree>> owned;
+  std::vector<OwnedRelativePidl> owned;
   std::vector<PCUITEMID_CHILD> children;
   for (std::wstring& name : names) {
     PIDLIST_RELATIVE raw_child = nullptr;
