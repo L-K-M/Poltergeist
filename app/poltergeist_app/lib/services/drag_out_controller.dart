@@ -298,6 +298,15 @@ class DragOutController extends ChangeNotifier
     }
     if (items.isEmpty) return DragOutHandOff.unavailable;
 
+    // The OS runs one drag at a time: a session still marked running
+    // lost its end report, and must not keep claiming hovers and drops.
+    final now = _clock();
+    for (final stale in _sessions.values) {
+      if (!stale.running) continue;
+      stale
+        ..running = false
+        ..endedAt = now;
+    }
     final session = _Session(
       id: 'dragout-${++_sequence}',
       payload: drag,

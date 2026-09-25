@@ -254,6 +254,19 @@ void main() {
       },
     );
 
+    test('a new session ends one whose end never arrived', () async {
+      build(support: DragOutSupport.localFiles);
+      final first = _localDrag([_entry('/home/tester/a.txt')]);
+      final second = _localDrag([_entry('/home/tester/b.txt')]);
+      await handOff(first);
+      // No sessionEnded for the first: the OS runs one drag at a time,
+      // so the next start retires it.
+      await handOff(second);
+      expect(controller.activeEchoPayload, same(second));
+      now = now.add(const Duration(seconds: 10));
+      expect(controller.claimEcho(const ['/home/tester/a.txt']), isNull);
+    });
+
     test('sessionEnded ends the echo window for hover labels', () async {
       build(support: DragOutSupport.localFiles);
       await handOff(_localDrag([_entry('/home/tester/report.txt')]));
