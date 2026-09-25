@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show debugDefaultTargetPlatformOverride;
@@ -7,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_app/ui/panes/pane_commands.dart';
+import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
@@ -19,6 +21,22 @@ RemoteFileEntry _entry(String name) => RemoteFileEntry(
   type: RemoteFileType.file,
   size: 10,
 );
+
+/// A channel whose next listing waits on [hold] — a re-list the test
+/// keeps in flight.
+class _HeldChannel extends session_test.FakeAppBrowseChannel {
+  _HeldChannel() : super(homePath: '/home/tester');
+
+  Completer<void>? hold;
+
+  @override
+  Future<List<RemoteFileEntry>> listDirectory(String path) async {
+    final gate = hold;
+    hold = null;
+    if (gate != null) await gate.future;
+    return super.listDirectory(path);
+  }
+}
 
 /// D32 §4's header filter field: it filters the ACTIVE pane's listing
 /// (the pane's own strip no longer opens for ⌘F), counts `n of total`
@@ -135,6 +153,40 @@ void main() {
 
     await runShellCommand(tester, kTabPreviousCommandId);
     expect(fieldText(tester), 'alp');
+  });
+
+  testWidgets('a re-list neither disables the field nor takes its '
+      'focus, and keeps what was typed', (tester) async {
+    final channel = _HeldChannel()
+      ..listings['/home/tester'] = [_entry('alpha.txt'), _entry('beta.txt')];
+    engine.localChannels[0] = channel;
+    await pumpApp(tester);
+    await tester.enterText(field, 'a');
+    await tester.pumpAndSettle();
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'header.filter');
+
+    // A watch or post-transfer refresh: the listing re-lists in place.
+    final pane = tester
+        .widget<PaneTabsView>(find.byType(PaneTabsView).first)
+        .workspace
+        .activeTabController!;
+    final held = Completer<void>();
+    channel.hold = held;
+    pane.refresh();
+    await tester.pump();
+    expect(pane.loading, isTrue);
+    expect(tester.widget<TextField>(field).enabled, isTrue);
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'header.filter');
+
+    // Typing on mid-re-list lands, and the landed listing honors it.
+    tester.testTextInput.enterText('alp');
+    await tester.pump();
+    expect(pane.filterQuery, 'alp');
+    held.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('alpha.txt'), findsOneWidget);
+    expect(find.text('beta.txt'), findsNothing);
+    expect(FocusManager.instance.primaryFocus?.debugLabel, 'header.filter');
   });
 
   testWidgets('Ctrl+F (view.filter) focuses the header field', (

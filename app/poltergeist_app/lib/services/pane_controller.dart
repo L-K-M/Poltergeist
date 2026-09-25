@@ -2728,12 +2728,25 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether the header filter field takes input: [verbsEnabled]'s
+  /// browsing surface, but NOT paused by [loading]. A directory watch's
+  /// re-list or a post-transfer refresh must never disable the field
+  /// mid-typing (focus would fall to the listing and the next keys
+  /// become type-ahead); the query survives navigation like the strip
+  /// filter's and re-applies when the listing lands.
+  bool get acceptsFilterQuery =>
+      !_disposed &&
+      _phase == PanePhase.browsing &&
+      _location != null &&
+      (_error == null || _error is OpenEntryError) &&
+      !connectionLost;
+
   /// D32 §4's header filter field: sets the query directly. The header
   /// owns the text surface, so no pane strip opens; an empty query shows
   /// the whole listing again (Esc in the pane still clears through
   /// [clearFilter]'s below-navigation tier).
   void setFilterQuery(String query) {
-    if (_disposed || !verbsEnabled || query == _filterQuery) return;
+    if (!acceptsFilterQuery || query == _filterQuery) return;
     _filterQuery = query;
     _applyEntries(_filteredListing());
     notifyListeners();

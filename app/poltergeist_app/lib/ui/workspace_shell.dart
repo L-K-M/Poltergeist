@@ -3985,7 +3985,7 @@ class _HeaderFilterFieldState extends State<_HeaderFilterField> {
           key: const ValueKey('header.filter'),
           controller: _text,
           focusNode: widget.focusNode,
-          enabled: pane != null && pane.verbsEnabled,
+          enabled: pane != null && pane.acceptsFilterQuery,
           style: theme.textTheme.bodyMedium,
           textAlignVertical: TextAlignVertical.center,
           onChanged: (value) => pane?.setFilterQuery(value),
