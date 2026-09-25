@@ -73,6 +73,8 @@ void main() {
     await pumpPanel(tester);
     expect(find.text('No transfers in progress.'), findsOneWidget);
     expect(find.byKey(const ValueKey('activity.taskList')), findsNothing);
+    // Nor a footer counting "0 of 0 items · 0 B of 0 B so far".
+    expect(find.byKey(const ValueKey('activity.footer')), findsNothing);
   });
 
   testWidgets('task rows render while tasks exist, with honest state '

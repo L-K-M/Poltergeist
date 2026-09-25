@@ -74,7 +74,10 @@ class ActivityPanel extends StatelessWidget {
                 ActivityHistoryView(controller: controller),
             },
           ),
-          if (controller.tab == ActivityPanelTab.activity)
+          // Totals of nothing ("0 of 0 items · 0 B of 0 B so far") only
+          // repeat the empty state above them.
+          if (controller.tab == ActivityPanelTab.activity &&
+              controller.tasks.isNotEmpty)
             _TotalsFooter(controller: controller),
         ],
       ),
