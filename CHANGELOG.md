@@ -55,6 +55,11 @@
     focus. Pressed in the sidebar or the inspector, they no longer send
     the pane's selection to the Trash.
   - A local file dropped on a device copies unless Move is held.
+  - The workspace is saved and restored again after connecting to a
+    server at its home folder (a Quick Connect to `sftp://user@host`,
+    or a server opened from SERVERS). Such a tab used to stop every
+    later save and lose the layout on the next launch, and its recent
+    entry disappeared.
   - A hung network mount no longer freezes or hides DEVICES.
   - Screen readers can activate every header button, inspector tab and
     Sync control, and hear the alert and transfer counts.

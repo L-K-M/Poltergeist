@@ -31,7 +31,7 @@ void main() {
         onError: onError,
       );
 
-  Bookmark remoteBookmark(String id) => Bookmark(
+  Bookmark remoteBookmark(String id, {String? remotePath}) => Bookmark(
     id: id,
     kind: BookmarkKind.remotePath,
     label: 'label-$id',
@@ -43,7 +43,7 @@ void main() {
         authMethod: AuthMethod.agent,
       ),
     ),
-    remotePath: '/srv/$id',
+    remotePath: remotePath ?? '/srv/$id',
     sortKey: 'mm',
     createdAt: DateTime.utc(2026),
     updatedAt: DateTime.utc(2026),
@@ -108,6 +108,34 @@ void main() {
     expect(reloaded.entries.first.path, '/srv/web');
     expect(reloaded.entries.first.remoteBookmark?.id, 'alpha');
     expect(reloaded.entries.last.path, '/tmp/one');
+  });
+
+  test('a server opened at its home survives the reload', () async {
+    // A Quick Connect to `sftp://user@host` or a SERVERS catalog open
+    // binds a bookmark with no landing path; the Bookmark model refuses
+    // to decode one, so the entry used to drop out on every relaunch.
+    final homeless = Bookmark(
+      id: 'adhoc:1',
+      kind: BookmarkKind.remotePath,
+      label: 'deploy@box',
+      server: remoteBookmark('box').server,
+      sortKey: 'mm',
+      createdAt: DateTime.utc(2026),
+      updatedAt: DateTime.utc(2026),
+    );
+    final errors = <Object>[];
+    final recents = store(onError: (error, _) => errors.add(error));
+    recents.recordLocation(
+      const RemotePaneLocation('adhoc:1', '/home/deploy'),
+      remoteBookmark: homeless,
+    );
+    await recents.flush();
+
+    final reloaded = store(onError: (error, _) => errors.add(error));
+    await reloaded.load();
+    expect(errors, isEmpty);
+    expect(reloaded.entries.single.path, '/home/deploy');
+    expect(reloaded.entries.single.remoteBookmark?.remotePath, '/');
   });
 
   test('a malformed document reports and loads empty', () async {

@@ -1,5 +1,7 @@
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import 'bookmark_landing_path.dart';
+
 /// 02 §3's session-state document — what launch restoration persists per
 /// pane and per tab. Pure data with strict decoding (the sibling stores'
 /// posture: unknown fields ignored, malformed present fields fail, an
@@ -82,7 +84,7 @@ final class SessionTabState {
       case SessionTabKind.remote:
         base['serverId'] = serverId;
         base['path'] = path;
-        base['bookmark'] = bookmark!.toJson();
+        base['bookmark'] = withRemoteLandingPath(bookmark!.toJson());
     }
     if (listing.isNotEmpty) {
       base['listing'] = [for (final entry in listing) _entryToJson(entry)];
@@ -120,7 +122,7 @@ final class SessionTabState {
           serverId: serverId,
           path: _requiredPath(json),
           bookmark: Bookmark.fromJson(
-            bookmarkJson.cast<String, dynamic>(),
+            withRemoteLandingPath(bookmarkJson.cast<String, dynamic>()),
             recordId: 'bookmark:${bookmarkJson['id']}',
           ),
           listing: listing,
