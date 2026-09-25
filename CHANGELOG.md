@@ -51,6 +51,15 @@
     and those servers show their address instead of an internal id.
   - The editor keeps a second leading byte-order mark as content, and
     Perl's `$#array` and `s#…#…#` no longer highlight as comments.
+  - Delete, Shift+Delete and ⌘⌫ act only while the file list has
+    focus. Pressed in the sidebar or the inspector, they no longer send
+    the pane's selection to the Trash.
+  - A local file dropped on a device copies unless Move is held.
+  - A hung network mount no longer freezes or hides DEVICES.
+  - Screen readers can activate every header button, inspector tab and
+    Sync control, and hear the alert and transfer counts.
+  - On a Mac, Control-click opens a sidebar row's menu. The app menu
+    gains Check for Updates…, and Linux and Windows gain File ▸ Quit.
 - Pre-1.0 history lives in the commit log and the GitHub pre-releases
   (v0.1.0, v0.2.0).
 

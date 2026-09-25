@@ -7894,6 +7894,66 @@ Deferred: drag-out to Finder (file promises, D14), column resizing and
 per-location sort persistence, free space in the pane header, and the
 Android slices listed under item 33.
 
+## D32 — adversarial review fixes (2026-09-25)
+
+Before merge, a ten-agent review read the whole redesign along five
+lines (shell and inspector, data safety, accessibility and the sidebar
+kit, platform integration, menus and chords). It confirmed 46 findings
+and refuted 4. Each confirmed finding was reproduced by a failing test
+before its fix, and the fixes landed in five batches:
+
+- **Shell and inspector.** Info work keeps running when new work
+  switches the inspector to Transfers. Info and the header filter follow
+  the active tab. An alert dismissal ends once its cause resolves, so a
+  recurrence alerts again. A gradual drag past a region's minimum hides
+  it, and a resize stops where the panes need the room. Pane B hides only
+  when two 260 px panes no longer fit. The header folds by measured
+  content and keeps its title, which now carries the server dot and
+  `user@host`.
+- **Data safety.** Delete and Shift+Delete fire only from a pane listing,
+  and so does the macOS menu's ⌘⌫ when a key equivalent reaches it with
+  nothing in the window having taken the key. Delete and Duplicate are
+  disabled without selected rows. The delete dialog's final choice
+  decides the disposition. A local file dropped on a device copies
+  unless Move is held.
+- **Accessibility and the kit.** Tab and the arrows get past a section
+  header's "+". Menu items, the ⋮ button and a row's verbs reach a screen
+  reader, including as custom actions. Header buttons, inspector tabs,
+  the Sync sheet's direction toggle, a plan row's glyph and the
+  splitters all answer a screen reader's activation, and badge counts
+  are announced. The Séance review added two kit fixes: hover clears
+  when the pointer leaves from the "+", and a click on an already focused
+  row drops the ring. On macOS, Control-click opens a row's menu.
+- **Platform.** Dock and taskbar progress waits for the window to be
+  ready. Non-shell surfaces, the drawer and the splitter sit below the
+  macOS toolbar band. A dead mount can no longer block or hide DEVICES,
+  since each probe times out and free space fills in per row. Show in
+  File Manager survives commas and missing tools, and says so when every
+  route fails.
+- **Menus.** The tree follows 10 §8's table, with Disconnect, Save to
+  Servers, Add to Favorites, Go Home and Linux/Windows Enter Full Screen
+  as new commands. Check for Updates… sits beside Settings… on macOS,
+  and Quit closes the Linux/Windows File menu through the same guarded
+  close as the titlebar.
+
+Deferred:
+- The empty-tab launcher's recent locations, server grid and Open Home
+  (C18).
+- Optional Kind, Permissions, Owner and Group columns (C25).
+- Undo/Redo and Cut/Copy/Paste for files.
+- F11 for full screen.
+- A native `SHOpenFolderAndSelectItems` reveal on Windows.
+- Quick Open's "File ▸" path for app-menu commands on macOS.
+- Withdrawing the header's toolbar passthrough views while an opaque
+  route covers the shell. Today the only cost is a few band spots that
+  do not drag the window.
+
+Validation: the full app suite (2293 tests) and `flutter analyze` pass
+locally, and the protocol guard is clean. Not verified here: anything
+that needs macOS, Windows or a device (native hit testing in the toolbar
+band, the Windows taskbar and reveal, VoiceOver, TalkBack, a real hung
+NFS mount).
+
 ## D32 — Android and the compact posture (2026-09-24)
 
 Below 600 dp on a touch platform the workspace takes 10 §9's compact
