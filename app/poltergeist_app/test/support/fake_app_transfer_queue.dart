@@ -23,6 +23,9 @@ class FakeAppTransferQueue implements AppTransferQueue {
   @override
   final uploadLimiter = BandwidthLimiter();
 
+  @override
+  ServerTransferLimits serverTransferLimits = ServerTransferLimits.none;
+
   // ── Verb call log ───────────────────────────────────────────────────
   final cancelItemCalls = <(String taskId, String itemId)>[];
   final retryItemCalls = <(String taskId, String itemId)>[];

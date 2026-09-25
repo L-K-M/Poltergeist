@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'app_transfer_queue.dart';
+import 'transfer_limits_controller.dart';
 import 'transfer_rate_tracker.dart';
 
 /// Which body the activity panel renders (02 §6's header tabs).
@@ -39,6 +40,11 @@ final class ActivityPanelController extends ChangeNotifier {
     this.persistUploadLimit,
     this.onError,
 
+    /// D37's per-server caps, whose default the throttle popover sets
+    /// beside the bandwidth limits. Null leaves that part of the popover
+    /// out: nothing here would carry the choice to a queue.
+    this.transferLimits,
+
     /// Fires on the no-tasks → some-tasks edge so the shell can un-hide
     /// the panel for new work. Optional: a panel without it still shows
     /// every row once visible.
@@ -48,6 +54,7 @@ final class ActivityPanelController extends ChangeNotifier {
        _desiredDownloadLimit = downloadLimit,
        _desiredUploadLimit = uploadLimit {
     this.queue = queue;
+    transferLimits?.addListener(_onTransferLimitsChanged);
   }
 
   final bool autoClearCompleted;
@@ -59,6 +66,7 @@ final class ActivityPanelController extends ChangeNotifier {
   /// Write-failure sink for the persist callbacks (the same posture as
   /// the other controllers' onError seams).
   final void Function(Object, StackTrace)? onError;
+  final TransferLimitsController? transferLimits;
   final TransferRateTracker _rateTracker;
   int? _desiredDownloadLimit;
   int? _desiredUploadLimit;
@@ -183,6 +191,19 @@ final class ActivityPanelController extends ChangeNotifier {
   /// user last chose.
   int? get downloadLimit => _desiredDownloadLimit;
   int? get uploadLimit => _desiredUploadLimit;
+
+  /// Whether the popover's settings hold anything back — a bandwidth
+  /// limit or a default per-server cap — which the header's button shows.
+  /// A single server's own cap is that server's business, set in its
+  /// editor, and does not light the button.
+  bool get anyLimitSet =>
+      _desiredDownloadLimit != null ||
+      _desiredUploadLimit != null ||
+      transferLimits?.perServer.isAutomatic == false;
+
+  void _onTransferLimitsChanged() {
+    if (!_disposed) notifyListeners();
+  }
 
   void _persist(
     FutureOr<void> Function(int?)? persist,
@@ -391,6 +412,7 @@ final class ActivityPanelController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    transferLimits?.removeListener(_onTransferLimitsChanged);
     unawaited(_subscription?.cancel());
     for (final timer in _lingerTimers.values) {
       timer.cancel();

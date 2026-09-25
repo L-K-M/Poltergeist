@@ -780,6 +780,34 @@ D35 Android supported · D36 settings window
     app's isolate, whose quit guard and exit flush decide them.
   - **Still parked (D25):** more than one workspace window. D13's single
     workspace window stands.
+- **D37 — Simultaneous transfers per server (2026-09-25, owner-directed;
+  amends 03 §4.3).** The owner asked for a limit on concurrent transfers
+  beside the bandwidth limits, counted per server, that never slows
+  browsing or editing. Binding:
+  - **What it counts:** files the queue has in flight to or from one
+    server. A download or upload counts against its server; a
+    server-to-server file counts against both. The app-wide cap of
+    `maxGlobalInFlightTransfers` (6) stays the ceiling.
+  - **What it leaves alone:** browsing, managed checkouts (editing),
+    previews and drag-out, none of which pass through the queue's
+    dispatch (03 §4.7), and directory listing, including a queued task's
+    scan. Sync runs keep their own per-pair Transfer concurrency (05 §6)
+    and are not counted. Delete tasks run one item at a time already and
+    are not counted either.
+  - **Where it is set:** a default for every server in the Transfers
+    popover, next to the bandwidth limits (Automatic, or 1 to 5), and an
+    override in the server editor (Default, Automatic, or 1 to 5). Both
+    are device-local settings: the server record belongs to Séance's
+    shared model (D2), which has no field for it.
+  - **Dispatch:** a task whose server is at its cap is passed over, not
+    waited on: it waits only on the servers it touches, and later tasks
+    for other servers go ahead of it. Tasks that touch the same servers
+    keep their queue order among themselves. With every server on
+    Automatic, dispatch is exactly the pre-D37 behavior. A changed cap applies at once: a raised one
+    dispatches waiting files, a lowered one lets in-flight files finish.
+  - **Not SSH connections:** capping connections would slow browsing,
+    which shares them. The pool's two connections per server (D9) stay
+    as they are.
 
 ### Security, trust, distribution
 

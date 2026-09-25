@@ -315,6 +315,8 @@ export 'src/transfer/recursive_walker.dart'
         WalkNode,
         WalkPurpose,
         WalkRootFailedEvent;
+export 'src/transfer/server_transfer_limits.dart'
+    show ServerTransferLimits, TransferConcurrency;
 export 'src/transfer/transfer_queue.dart'
     show
         ManagedCheckoutQueue,

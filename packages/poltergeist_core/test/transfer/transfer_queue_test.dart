@@ -53,6 +53,7 @@ void main() {
   TransferQueue newQueue({
     int? leaseCap,
     int? maxInFlightFiles,
+    ServerTransferLimits serverTransferLimits = ServerTransferLimits.none,
     int? pipeBufferBytes,
     int taskRetryLimit = 5,
     bool Function(FsLocation)? isCaseInsensitiveDestination,
@@ -62,6 +63,7 @@ void main() {
       connections: connections,
       poolPolicy: PoolPolicy(taskRetryLimit: taskRetryLimit),
       maxInFlightFiles: maxInFlightFiles ?? maxGlobalInFlightTransfers,
+      serverTransferLimits: serverTransferLimits,
       pipeBufferBytes: pipeBufferBytes ?? 4 * 1024 * 1024,
       isCaseInsensitiveDestination: isCaseInsensitiveDestination,
     );
@@ -425,6 +427,235 @@ void main() {
       // here it never does, and nothing waits on it.
       connections.leaseGate!.complete();
       await pump();
+    });
+  });
+
+  // 00 D37: the user's per-server caps on files in flight.
+  group('per-server caps', () {
+    TransferTaskSpec download(String server, String root) => copySpec(
+      source: ServerFsLocation(server),
+      destination: const LocalFsLocation(),
+      rootPaths: [root],
+      destinationDir: tempDir.path,
+    );
+
+    test('a cap bounds that server\'s files in flight', () async {
+      queue = newQueue(
+        serverTransferLimits: const ServerTransferLimits(
+          perServer: TransferConcurrency.fixed(2),
+        ),
+      );
+      for (var i = 0; i < 6; i++) {
+        s1.addFile('/src/f$i.bin', List.filled(4, i));
+      }
+      final gate = Completer<void>();
+      s1.downloadGate = (_) => gate;
+
+      final task = enqueue(download('s1', '/src'));
+      await pumpUntil(
+        () => task.scanComplete && s1.activeDownloads == 2,
+        reason: 'the cap should admit two downloads',
+      );
+      await pump();
+      expect(s1.activeDownloads, 2);
+
+      gate.complete();
+      await awaitTaskDone(task);
+      expect(task.state, TransferTaskState.completed);
+      expect(task.completedFiles, 6);
+      expect(s1.maxActiveDownloads, 2);
+    });
+
+    test('a capped server is passed over, not waited on', () async {
+      // Two global slots: s1's cap takes one, and the other must go to
+      // the next task in line instead of sitting behind s1.
+      queue = newQueue(
+        maxInFlightFiles: 2,
+        serverTransferLimits: const ServerTransferLimits(
+          overrides: {'s1': TransferConcurrency.fixed(1)},
+        ),
+      );
+      for (var i = 0; i < 4; i++) {
+        s1.addFile('/a/f$i.bin', List.filled(4, i));
+        s2.addFile('/b/g$i.bin', List.filled(4, i));
+      }
+      final gate = Completer<void>();
+      s1.downloadGate = (_) => gate;
+
+      final first = enqueue(download('s1', '/a'));
+      final second = enqueue(download('s2', '/b'));
+      await awaitTaskDone(second);
+      expect(second.state, TransferTaskState.completed);
+      expect(second.completedFiles, 4);
+      // The earlier task is still waiting on its one slot at a time.
+      expect(first.isTerminal, isFalse);
+      expect(s1.activeDownloads, 1);
+
+      gate.complete();
+      await awaitTaskDone(first);
+      expect(first.state, TransferTaskState.completed);
+      expect(s1.maxActiveDownloads, 1);
+    });
+
+    test('a server-to-server file counts against both servers', () async {
+      queue = newQueue(
+        serverTransferLimits: const ServerTransferLimits(
+          overrides: {'s2': TransferConcurrency.fixed(1)},
+        ),
+      );
+      for (var i = 0; i < 3; i++) {
+        s1.addFile('/src/f$i.bin', List.filled(4, i));
+      }
+      final gate = Completer<void>();
+      s1.downloadGate = (_) => gate;
+
+      // Only the destination is capped; the source side still moves one
+      // file at a time because every file lands on s2.
+      final task = enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s2'),
+          rootPaths: ['/src'],
+          destinationDir: '/dst',
+        ),
+      );
+      await pumpUntil(() => task.scanComplete && s1.activeDownloads == 1);
+      await pump();
+      expect(s1.activeDownloads, 1);
+
+      gate.complete();
+      await awaitTaskDone(task);
+      expect(task.state, TransferTaskState.completed);
+      expect(s1.maxActiveDownloads, 1);
+    });
+
+    test(
+      'a raised cap dispatches at once; a lowered one stops nothing',
+      () async {
+        queue = newQueue(
+          serverTransferLimits: const ServerTransferLimits(
+            perServer: TransferConcurrency.fixed(1),
+          ),
+        );
+        final gates = <String, Completer<void>>{};
+        for (var i = 0; i < 5; i++) {
+          s1.addFile('/src/f$i.bin', List.filled(4, i));
+          gates['/src/f$i.bin'] = Completer<void>();
+        }
+        s1.downloadGate = (path) => gates[path];
+
+        final task = enqueue(download('s1', '/src'));
+        await pumpUntil(() => task.scanComplete && s1.activeDownloads == 1);
+
+        queue.serverTransferLimits = const ServerTransferLimits(
+          perServer: TransferConcurrency.fixed(3),
+        );
+        await pumpUntil(
+          () => s1.activeDownloads == 3,
+          reason: 'raising the cap should dispatch the waiting files',
+        );
+
+        // Lowering it cancels nothing: the three keep moving, and the next
+        // file waits until fewer than one is left.
+        queue.serverTransferLimits = const ServerTransferLimits(
+          perServer: TransferConcurrency.fixed(1),
+        );
+        await pump();
+        expect(s1.activeDownloads, 3);
+        expect(
+          task.items.where((i) => i.state == TransferItemState.cancelled),
+          isEmpty,
+        );
+        final active = [
+          for (final item in task.items)
+            if (item.state == TransferItemState.active) item.sourcePath,
+        ];
+        expect(active, hasLength(3));
+        gates[active[0]]!.complete();
+        gates[active[1]]!.complete();
+        await pumpUntil(() => s1.activeDownloads == 1);
+        await pump();
+        expect(s1.activeDownloads, 1, reason: 'one still in flight: no room');
+
+        for (final gate in gates.values) {
+          if (!gate.isCompleted) gate.complete();
+        }
+        await awaitTaskDone(task);
+        expect(task.state, TransferTaskState.completed);
+        expect(task.completedFiles, 5);
+      },
+    );
+
+    test('an override wins over the default, automatic included', () {
+      const limits = ServerTransferLimits(
+        perServer: TransferConcurrency.fixed(2),
+        overrides: {
+          'fast': TransferConcurrency.automatic(),
+          'fussy': TransferConcurrency.fixed(1),
+        },
+      );
+      expect(limits.filesFor('other'), 2);
+      expect(limits.filesFor('fast'), isNull);
+      expect(limits.filesFor('fussy'), 1);
+      expect(ServerTransferLimits.none.filesFor('other'), isNull);
+    });
+
+    test('an edit\'s checkout is never held back by the cap', () async {
+      queue = newQueue(
+        serverTransferLimits: const ServerTransferLimits(
+          perServer: TransferConcurrency.fixed(1),
+        ),
+      );
+      s1.addFile('/src/big.bin', List.filled(4, 1));
+      s1.addFile('/r/edit.txt', List.filled(16, 3));
+      final gate = Completer<void>();
+      s1.downloadGate = (path) => path == '/src/big.bin' ? gate : null;
+
+      final transfer = enqueue(download('s1', '/src'));
+      await pumpUntil(() => s1.activeDownloads == 1);
+      final checkout = queue.enqueueManagedCheckout(
+        ManagedCheckoutSpec(
+          checkoutId: 'edit-1',
+          serverId: 's1',
+          remotePath: '/r/edit.txt',
+          localPath: '${tempDir.path}/edit.txt',
+          direction: ManagedCheckoutDirection.download,
+          expectedSize: 16,
+        ),
+      );
+      await awaitTaskDone(checkout);
+      expect(checkout.state, TransferTaskState.completed);
+      expect(transfer.isTerminal, isFalse);
+
+      gate.complete();
+      await awaitTaskDone(transfer);
+      expect(transfer.state, TransferTaskState.completed);
+    });
+
+    test('a preview\'s download is never held back by the cap', () async {
+      queue = newQueue(
+        serverTransferLimits: const ServerTransferLimits(
+          perServer: TransferConcurrency.fixed(1),
+        ),
+      );
+      s1.addFile('/src/big.bin', List.filled(4, 1));
+      s1.addFile('/r/photo.jpg', List.filled(8, 5));
+      final gate = Completer<void>();
+      s1.downloadGate = (path) => path == '/src/big.bin' ? gate : null;
+
+      final transfer = enqueue(download('s1', '/src'));
+      await pumpUntil(() => s1.activeDownloads == 1);
+      final entry = await queue.produceLocalCopy(
+        const ServerFsLocation('s1'),
+        '/r/photo.jpg',
+        destinationPath: '${tempDir.path}/photo.jpg',
+      );
+      expect(entry.size, 8);
+      expect(transfer.isTerminal, isFalse);
+
+      gate.complete();
+      await awaitTaskDone(transfer);
+      expect(transfer.state, TransferTaskState.completed);
     });
   });
 

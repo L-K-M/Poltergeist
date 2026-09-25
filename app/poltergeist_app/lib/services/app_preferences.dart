@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:poltergeist_core/poltergeist_core.dart'
     show
+        TransferConcurrency,
         defaultLargeDownloadThresholdBytes,
         defaultPreviewCacheCapacityBytes;
 
@@ -24,6 +25,8 @@ const _inspectorWidthKey = 'layout.inspectorWidth';
 const _downloadLimitKey = 'transfer.downloadLimitBytesPerSecond';
 const _uploadLimitKey = 'transfer.uploadLimitBytesPerSecond';
 const _autoClearCompletedKey = 'transfer.autoClearCompleted';
+const _transferConcurrencyKey = 'transfer.perServerConcurrency';
+const _serverTransferConcurrencyKey = 'transfer.serverConcurrency';
 const _sidebarHiddenKey = 'layout.sidebarHidden';
 const _sidebarCollapsedGroupsKey = 'sidebar.collapsedGroups';
 const _sidebarDensityKey = 'sidebar.density';
@@ -31,6 +34,10 @@ const _sidebarPinnedServersKey = 'sidebar.pinnedServers';
 const _previewCacheCapacityKey = 'preview.cacheCapacityBytes';
 const _previewThresholdKey = 'preview.largeDownloadThresholdBytes';
 const _updateChecksEnabledKey = 'updates.checkEnabled';
+
+/// How a server's own Automatic is spelled in the stored overrides; a
+/// fixed cap is stored as its number.
+const _automaticConcurrency = 'automatic';
 
 
 class AppPreferences {
@@ -185,6 +192,84 @@ class AppPreferences {
     final normalized =
         bytesPerSecond != null && bytesPerSecond > 0 ? bytesPerSecond : null;
     return _store.set(key, normalized);
+  }
+
+  /// D37's default cap on each server's simultaneous transfers:
+  /// device-local, Automatic unless set. Anything stored but a positive
+  /// whole number reads as Automatic, the behavior before the setting
+  /// existed.
+  Future<TransferConcurrency> loadTransferConcurrency() async {
+    Object? stored;
+    try {
+      stored = await _store.get<Object>(_transferConcurrencyKey);
+    } catch (_) {
+      return const TransferConcurrency.automatic();
+    }
+    return _decodeConcurrency(stored) ?? const TransferConcurrency.automatic();
+  }
+
+  /// Automatic is stored as null, which decodes the same as no key.
+  Future<void> saveTransferConcurrency(TransferConcurrency value) =>
+      _store.set(_transferConcurrencyKey, value.files);
+
+  /// The servers that chose their own cap (D37), keyed by server id:
+  /// device-local, beside the default. Entries that do not decode are
+  /// dropped, and an unreadable store reads as none for this launch,
+  /// which is safe because no change writes this map back whole: see
+  /// [setServerTransferConcurrency].
+  Future<Map<String, TransferConcurrency>>
+  loadServerTransferConcurrency() async {
+    Object? stored;
+    try {
+      stored = await _store.get<Object>(_serverTransferConcurrencyKey);
+    } catch (_) {
+      return const {};
+    }
+    return _decodeConcurrencyMap(stored);
+  }
+
+  /// Sets [serverId]'s own cap, or clears it with null so the server
+  /// follows the default again, in the overrides as stored when the
+  /// write runs; completes with the overrides now stored. Fails, writing
+  /// nothing, while the store cannot be read.
+  Future<Map<String, TransferConcurrency>> setServerTransferConcurrency(
+    String serverId,
+    TransferConcurrency? value,
+  ) async {
+    final written = await _store.update(_serverTransferConcurrencyKey, (
+      stored,
+    ) {
+      final overrides = _decodeConcurrencyMap(stored);
+      if (value == null) {
+        overrides.remove(serverId);
+      } else {
+        overrides[serverId] = value;
+      }
+      return <String, Object>{
+        for (final MapEntry(:key, :value) in overrides.entries)
+          key: value.files ?? _automaticConcurrency,
+      };
+    });
+    return Map.unmodifiable(_decodeConcurrencyMap(written));
+  }
+
+  static Map<String, TransferConcurrency> _decodeConcurrencyMap(
+    Object? stored,
+  ) => {
+    if (stored is Map)
+      for (final MapEntry(:key, :value) in stored.entries)
+        if (key is String)
+          if (value == _automaticConcurrency)
+            key: const TransferConcurrency.automatic()
+          else
+            key: ?_decodeConcurrency(value),
+  };
+
+  /// A positive whole number as a fixed cap, null for anything else.
+  static TransferConcurrency? _decodeConcurrency(Object? stored) {
+    if (stored is! num || !stored.isFinite) return null;
+    if (stored != stored.truncate() || stored < 1) return null;
+    return TransferConcurrency.fixed(stored.toInt());
   }
 
   /// 02 §6's "auto-remove on success" setting (default on): a
