@@ -69,6 +69,8 @@ void main() {
     bool withOpen = true,
     bool withManage = true,
     WorkspaceController? workspace,
+    // The one-line rail these tests describe (D33's compact density).
+    SidebarDensity density = SidebarDensity.compact,
   }) async {
     tester.view.physicalSize = const Size(600, 1000);
     tester.view.devicePixelRatio = 1;
@@ -76,6 +78,7 @@ void main() {
 
     final controller = SidebarController(
       store: store,
+      density: density,
       onCollapsedChanged: (_) {},
     );
     addTearDown(controller.dispose);

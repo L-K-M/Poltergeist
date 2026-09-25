@@ -362,23 +362,28 @@ class _SidebarViewState extends State<SidebarView> {
     final l10n = AppLocalizations.of(context);
     final view = widget;
     final home = view.presentation == SidebarPresentation.home;
-    return SidebarKitScope(
-      strings: _stringsOf(l10n),
-      // Home is a phone's list screen, drawn like the browser it opens:
-      // Material's list rows on the page surface.
-      layout: home ? SidebarKitLayout.list : SidebarKitLayout.rail,
-      // The rail keeps its one-line rows; Home's list is comfortable.
-      density: home ? SidebarKitDensity.comfortable : SidebarKitDensity.compact,
-      background: home ? _homeBackground(context) : null,
-      child: ListenableBuilder(
-        listenable: Listenable.merge([
-          view.controller,
-          ?view.connections,
-          ?view.probes,
-          ?view.catalogListenable,
-        ]),
-        builder: (context, _) => _buildRail(context, l10n),
-      ),
+    // Outside the scope, so a density change rebuilds the scope itself
+    // and every kit widget under it hears the new metrics.
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        view.controller,
+        ?view.connections,
+        ?view.probes,
+        ?view.catalogListenable,
+      ]),
+      builder: (context, _) {
+        final density = sidebarKitDensityOf(view.controller.density);
+        return SidebarKitScope(
+          strings: _stringsOf(l10n),
+          // A comfortable Home is a phone's list screen, drawn like the
+          // browser it opens: Material's list rows on the page surface. A
+          // compact one keeps the rail's one-line touch rows.
+          layout: home ? sidebarHomeLayout(density) : SidebarKitLayout.rail,
+          density: density,
+          background: home ? _homeBackground(context) : null,
+          child: Builder(builder: (context) => _buildRail(context, l10n)),
+        );
+      },
     );
   }
 
@@ -452,9 +457,12 @@ class _SidebarViewState extends State<SidebarView> {
             key: const ValueKey('sidebar.bottomBar'),
             addKey: const ValueKey('sidebar.add'),
             settingsKey: const ValueKey('sidebar.settings'),
+            densityKey: const ValueKey('sidebar.density'),
             addEntries: () => _addMenuEntries(data),
             sync: _syncChip(l10n),
             onSettings: widget.onOpenSettings,
+            onDensityChanged: (density) =>
+                controller.setDensity(sidebarDensityOf(density)),
           ),
         ],
       ),
@@ -603,6 +611,20 @@ class _SidebarViewState extends State<SidebarView> {
   }
 }
 
+/// The kit's density for the controller's choice (D33): the services
+/// layer keeps its own enum so it never imports a widget type.
+SidebarKitDensity sidebarKitDensityOf(SidebarDensity density) =>
+    switch (density) {
+      SidebarDensity.compact => SidebarKitDensity.compact,
+      SidebarDensity.comfortable => SidebarKitDensity.comfortable,
+    };
+
+/// The controller's density for a pick on a kit switch.
+SidebarDensity sidebarDensityOf(SidebarKitDensity density) => switch (density) {
+  SidebarKitDensity.compact => SidebarDensity.compact,
+  SidebarKitDensity.comfortable => SidebarDensity.comfortable,
+};
+
 /// What an "Add Current Folder to Favorites" landed: a new favorite, a
 /// folder that already was one (the caller has said so), a saved server
 /// location, or nothing (the failure has been reported and said).
@@ -704,9 +726,20 @@ final class _SidebarData {
   SidebarController get controller => view.controller;
   bool get filtering => query.isNotEmpty;
 
-  /// The compact Home (D32 §9) rather than the rail: rows spell their
-  /// secondary facts on a second line, since touch has no hover tooltip.
+  /// The compact Home (D32 §9) rather than the rail: the search bar, the
+  /// floating "+", the empty states' invitations. How its rows draw
+  /// follows [list] and [comfortable], as the rail's do.
   bool get home => view.presentation == SidebarPresentation.home;
+
+  /// The kit's list layout (a comfortable Home): rows take the 40 dp
+  /// disc marks the browser's rows wear.
+  late final bool list =
+      SidebarKitScope.layoutOf(context) == SidebarKitLayout.list;
+
+  /// Comfortable rows (D33): the second line is drawn, so the announced
+  /// label follows what is on screen.
+  late final bool comfortable =
+      SidebarKitScope.densityOf(context) == SidebarKitDensity.comfortable;
 
   /// The folder `~` names, for home-relative location lines.
   String? get localHome => view.volumes?.homeDirectory;

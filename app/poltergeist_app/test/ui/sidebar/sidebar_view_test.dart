@@ -154,6 +154,7 @@ void main() {
   late List<ConnectionServer> disconnected;
   late List<ConnectionServer> reviewed;
   late List<Set<String>> collapsedWrites;
+  late List<SidebarDensity> densityWrites;
   late List<String> removedIds;
   late _ConnectionLanes lanes;
   ConnectionStatusController? connections;
@@ -178,6 +179,9 @@ void main() {
     Widget? dragSource,
     double height = 800,
     bool settle = true,
+    // The one-line rail most of these tests describe; null leaves the
+    // controller's own default (comfortable) in force.
+    SidebarDensity? density = SidebarDensity.compact,
   }) async {
     // Wider than the rail: the drop tests park a drag source beside it,
     // and a context menu needs room to open where it was asked.
@@ -185,12 +189,22 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
-    final controller = SidebarController(
-      store: store,
-      onCollapsedChanged: collapsedWrites.add,
-      onBookmarkRemoved: removedIds.add,
-      errors: errors,
-    );
+    final controller = density == null
+        ? SidebarController(
+            store: store,
+            onCollapsedChanged: collapsedWrites.add,
+            onDensityChanged: densityWrites.add,
+            onBookmarkRemoved: removedIds.add,
+            errors: errors,
+          )
+        : SidebarController(
+            store: store,
+            density: density,
+            onCollapsedChanged: collapsedWrites.add,
+            onDensityChanged: densityWrites.add,
+            onBookmarkRemoved: removedIds.add,
+            errors: errors,
+          );
     addTearDown(controller.dispose);
     unawaited(controller.reload());
 
@@ -275,6 +289,7 @@ void main() {
     disconnected = [];
     reviewed = [];
     collapsedWrites = [];
+    densityWrites = [];
     removedIds = [];
     lanes = _ConnectionLanes();
     connections = null;
@@ -1378,6 +1393,52 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sidebar.filter')), findsNothing);
+    });
+  });
+
+  group('density', () {
+    testWidgets('a controller left at its default draws comfortable rows', (
+      tester,
+    ) async {
+      store.bookmarks = [_local('l1', label: 'Docs')];
+      await pumpSidebar(tester, density: null);
+
+      final row = find.byKey(const ValueKey('sidebar.favorite.l1'));
+      expect(tester.getSize(row).height, 52);
+      expect(
+        SidebarKitScope.densityOf(tester.element(find.byType(SidebarRow))),
+        SidebarKitDensity.comfortable,
+      );
+    });
+
+    testWidgets('the bottom bar switch picks the density and persists it', (
+      tester,
+    ) async {
+      store.bookmarks = [_local('l1', label: 'Docs')];
+      final controller = await pumpSidebar(tester);
+      final row = find.byKey(const ValueKey('sidebar.favorite.l1'));
+      expect(tester.getSize(row).height, 26);
+
+      final bar = find.byKey(const ValueKey('sidebar.bottomBar'));
+      expect(
+        find.descendant(of: bar, matching: find.byType(SidebarDensitySwitch)),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.descendant(of: bar, matching: find.byTooltip('Comfortable rows')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(controller.density, SidebarDensity.comfortable);
+      expect(densityWrites, [SidebarDensity.comfortable]);
+      expect(tester.getSize(row).height, 52);
+
+      await tester.tap(
+        find.descendant(of: bar, matching: find.byTooltip('Compact rows')),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.density, SidebarDensity.compact);
+      expect(tester.getSize(row).height, 26);
     });
   });
 

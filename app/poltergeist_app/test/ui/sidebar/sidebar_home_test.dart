@@ -106,12 +106,13 @@ void main() {
   Future<void> pumpHome(
     WidgetTester tester, {
     SidebarPresentation presentation = SidebarPresentation.home,
+    SidebarDensity density = SidebarDensity.comfortable,
   }) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
-    final controller = SidebarController(store: store);
+    final controller = SidebarController(store: store, density: density);
     addTearDown(controller.dispose);
     unawaited(controller.reload());
     final connections = ConnectionStatusController(
@@ -181,6 +182,35 @@ void main() {
       expect(tester.getSize(disc.first), const Size(40, 40));
       // The verbs are one visible tap away, as on the browser's rows.
       expect(rowOf(tester, 'sidebar.favorite.demo').showMenuButton, isTrue);
+    });
+
+    testWidgets('a compact Home draws the touch rail\'s one-line rows', (
+      tester,
+    ) async {
+      store.bookmarks = [_server('demo')];
+      await pumpHome(tester, density: SidebarDensity.compact);
+
+      final row = find.byKey(const ValueKey('sidebar.favorite.demo'));
+      expect(tester.getSize(row).height, 48);
+      expect(
+        SidebarKitScope.layoutOf(tester.element(find.byType(SidebarRow).first)),
+        SidebarKitLayout.rail,
+      );
+      // No list disc and no second line: the rail's own compact row.
+      final disc = find.descendant(
+        of: row,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is DecoratedBox &&
+              widget.decoration is BoxDecoration &&
+              (widget.decoration as BoxDecoration).shape == BoxShape.circle,
+        ),
+      );
+      expect(disc, findsNothing);
+      expect(find.text('deploy@demo.example.com'), findsNothing);
+      // The search bar and the "+" stay Home's own.
+      expect(find.byKey(const ValueKey('sidebar.home.search')), findsOneWidget);
+      expect(find.byKey(const ValueKey('sidebar.home.add')), findsOneWidget);
     });
 
     testWidgets('a long name ellipsizes in the middle', (tester) async {

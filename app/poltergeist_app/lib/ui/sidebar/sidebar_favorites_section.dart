@@ -286,7 +286,7 @@ class _FavoriteRow extends StatelessWidget {
     final chrome = PoltergeistChrome.of(context);
     final accent = serverAccent(context, ServerTint(named: bookmark.color));
     final home = data.home;
-    final mark = home
+    final mark = data.list
         ? _HomeDisc(
             glyph: _favoriteIcon(bookmark),
             tint: accent?.line ?? _homeFavoriteTint(context, bookmark),

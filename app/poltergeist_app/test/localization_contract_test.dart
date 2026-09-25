@@ -1485,6 +1485,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.bottomBar'",
     "'sidebar.add'",
     "'sidebar.settings'",
+    "'sidebar.density'",
     "'sidebar.add.newServer'",
     "'sidebar.add.quickConnect'",
     "'sidebar.add.currentFolder'",

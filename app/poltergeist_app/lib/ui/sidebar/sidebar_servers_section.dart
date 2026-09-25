@@ -517,7 +517,7 @@ Widget _serverMark(
   ServerMark mark, {
   String? label,
 }) {
-  if (data.home) return _homeServerMark(context, tint, mark, label: label);
+  if (data.list) return _homeServerMark(context, tint, mark, label: label);
   if (mark is ServerGlyphMark && serverAccent(context, tint) == null) {
     return Icon(
       serverIconData(mark.icon),
@@ -712,7 +712,7 @@ class _AdhocRow extends StatelessWidget {
         ? l10n.paneUnsavedSession(endpoint ?? bookmark.label)
         : null;
     return SidebarRow(
-      mark: home
+      mark: data.list
           ? _HomeDisc(
               glyph: Icons.bolt,
               tint: Theme.of(context).colorScheme.tertiary,

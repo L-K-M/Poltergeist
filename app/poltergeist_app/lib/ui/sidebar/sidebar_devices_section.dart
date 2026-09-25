@@ -90,7 +90,7 @@ List<Widget> _thisDeviceSection(_SidebarData data) {
     if (!collapsed)
       SidebarRow(
         key: const ValueKey('sidebar.device.thisDevice'),
-        mark: data.home
+        mark: data.list
             ? _HomeDisc(
                 glyph: Icons.smartphone_outlined,
                 tint: Theme.of(context).colorScheme.primary,
@@ -173,7 +173,7 @@ class _DeviceRow extends StatelessWidget {
         : '${volume.name}, ${l10n.sidebarFreeSpaceSemantics(freeSpace!)}';
     Widget row(SidebarDropIndicator indicator) => SidebarRow(
       dropIndicator: indicator,
-      mark: home
+      mark: data.list
           ? _HomeDisc(
               glyph: _iconFor(volume.kind),
               tint: Theme.of(context).colorScheme.primary,
