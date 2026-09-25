@@ -4258,6 +4258,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sidebarServersSection => 'Servers';
 
   @override
+  String get sidebarPinnedSection => 'Pinned';
+
+  @override
+  String get sidebarPinToTop => 'Pin to top';
+
+  @override
+  String get sidebarUnpin => 'Unpin';
+
+  @override
   String get sidebarShowSection => 'Show';
 
   @override

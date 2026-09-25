@@ -151,6 +151,28 @@ void main() {
     }
   });
 
+  test('pinned servers persist; a malformed value reads empty', () async {
+    final preferences = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+
+    expect(await preferences.loadSidebarPinnedServers(), isEmpty);
+    await preferences.saveSidebarPinnedServers({'s1', 's2'});
+    expect(await preferences.loadSidebarPinnedServers(), {'s1', 's2'});
+
+    for (final stored in ['"s1"', '{"s1":true}', '[1, "s3"]']) {
+      await settingsFile.writeAsString('{"sidebar.pinnedServers":$stored}');
+      final reloaded = AppPreferences(
+        store: SettingsStore(path: settingsFile.path),
+      );
+      expect(
+        await reloaded.loadSidebarPinnedServers(),
+        stored == '[1, "s3"]' ? {'s3'} : isEmpty,
+        reason: 'stored $stored',
+      );
+    }
+  });
+
   test('a non-finite persisted transfer limit decodes as unlimited',
       () async {
     // jsonDecode saturates an over-range literal to Infinity, and

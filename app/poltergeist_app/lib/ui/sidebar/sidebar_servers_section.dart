@@ -30,7 +30,14 @@ List<Widget> _serversSection(_SidebarData data) {
   final loose = _ServerGroup('');
   final groups = <String, _ServerGroup>{};
   final catalog = view.catalog?.servers ?? const <ServerConfig>[];
+  // A pinned server leaves its group for PINNED rather than showing
+  // twice (Séance's rule): its group's count drops with it.
+  final pinned = _ServerGroup('');
   for (final server in catalog) {
+    if (controller.isPinned(server.id)) {
+      pinned.catalog.add(server);
+      continue;
+    }
     final name = normalizeServerGroup(server.group);
     (name == null
             ? loose
@@ -55,11 +62,11 @@ List<Widget> _serversSection(_SidebarData data) {
       if (!saved.contains(_endpointKeyOf(session.bookmark))) session,
   ];
 
-  final total = sessions.length + catalog.length;
+  final total = sessions.length + catalog.length - pinned.length;
   // The filter's threshold counts every server the rail lists, the
   // remote favorites included: without the shared account they are
   // the user's servers.
-  data.serverCount = total + remoteFavorites.length;
+  data.serverCount = total + pinned.length + remoteFavorites.length;
 
   final body = <Widget>[];
   for (final session in sessions) {
@@ -130,6 +137,7 @@ List<Widget> _serversSection(_SidebarData data) {
   final collapsed = data.collapsed(sectionKey);
   final VoidCallback? onAdd = view.onAddCatalogServer ?? view.onQuickConnect;
   return [
+    ..._pinnedSection(data, pinned),
     SidebarSectionHeader(
       key: const ValueKey('sidebar.servers.header'),
       headerKey: ValueKey('sidebar.section.$sectionKey'),
@@ -144,6 +152,27 @@ List<Widget> _serversSection(_SidebarData data) {
           : l10n.sidebarServersAddConnect,
     ),
     if (!collapsed) ...body,
+  ];
+}
+
+/// PINNED (10 §5's "pinned servers come first", D33): the account's
+/// servers the user pinned, by label, above SERVERS. Drawn only while one
+/// is listed, like Séance's.
+List<Widget> _pinnedSection(_SidebarData data, _ServerGroup pinned) {
+  final rows = _serverRows(data, pinned, depth: 0);
+  if (rows.isEmpty) return const [];
+  final sectionKey = SidebarCollapseKeys.section(SidebarSection.pinned);
+  final collapsed = data.collapsed(sectionKey);
+  return [
+    SidebarSectionHeader(
+      key: const ValueKey('sidebar.pinned.header'),
+      headerKey: ValueKey('sidebar.section.$sectionKey'),
+      title: data.l10n.sidebarPinnedSection,
+      count: pinned.length,
+      collapsed: collapsed,
+      onToggle: () => data.controller.toggleCollapsed(sectionKey),
+    ),
+    if (!collapsed) ...rows,
   ];
 }
 
@@ -622,6 +651,14 @@ class _CatalogServerRow extends StatelessWidget {
           ),
           const SidebarMenuDivider(),
           ?_disconnectVerb(data, connection, live),
+          const SidebarMenuDivider(),
+          SidebarMenuAction(
+            key: const ValueKey('sidebar.catalog.menu.pin'),
+            label: data.controller.isPinned(server.id)
+                ? l10n.sidebarUnpin
+                : l10n.sidebarPinToTop,
+            onSelected: () => data.controller.togglePinned(server.id),
+          ),
           const SidebarMenuDivider(),
           if (view.onEditCatalogServer != null)
             SidebarMenuAction(

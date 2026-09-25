@@ -5533,7 +5533,19 @@
   },
   "sidebarServersSection": "Servers",
   "@sidebarServersSection": {
-    "description": "Sidebar section header over saved servers, shared-account servers, and live Quick Connect sessions (D32 §5). Rendered in caps."
+    "description": "Sidebar section header over the shared account's servers and live Quick Connect sessions (D32 §5, D33). Rendered in caps."
+  },
+  "sidebarPinnedSection": "Pinned",
+  "@sidebarPinnedSection": {
+    "description": "Sidebar section header over the servers the user pinned (D33), drawn above Servers while any is pinned. Rendered in caps. Séance uses the same word."
+  },
+  "sidebarPinToTop": "Pin to top",
+  "@sidebarPinToTop": {
+    "description": "Server row menu verb: moves the server into the Pinned shortlist above Servers, on this device only. Séance uses the same words."
+  },
+  "sidebarUnpin": "Unpin",
+  "@sidebarUnpin": {
+    "description": "Server row menu verb on a pinned server: files it back under Servers. Séance uses the same word."
   },
   "sidebarShowSection": "Show",
   "@sidebarShowSection": {

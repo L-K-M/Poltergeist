@@ -144,6 +144,8 @@ class WorkspaceShell extends StatefulWidget {
     this.onSidebarCollapsedGroupsChanged,
     this.initialSidebarDensity = SidebarDensity.comfortable,
     this.onSidebarDensityChanged,
+    this.initialSidebarPinnedServers = const {},
+    this.onSidebarPinnedServersChanged,
     this.previewCache,
     this.previewProducer,
     this.quickLook,
@@ -330,6 +332,11 @@ class WorkspaceShell extends StatefulWidget {
   /// by default) and its save sink — null keeps the choice in-process.
   final SidebarDensity initialSidebarDensity;
   final void Function(SidebarDensity density)? onSidebarDensityChanged;
+
+  /// The persisted PINNED shortlist (D33: device-local server ids) and
+  /// its save sink — null keeps pins in-process.
+  final Set<String> initialSidebarPinnedServers;
+  final void Function(Set<String> ids)? onSidebarPinnedServersChanged;
 
   /// 06 §5.3's preview cache — the seam the whole preview slice keys
   /// on. Null composes no [PreviewSession]: Space keeps its pre-preview
@@ -626,6 +633,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         !identical(
           oldWidget.onSidebarDensityChanged,
           widget.onSidebarDensityChanged,
+        ) ||
+        !identical(
+          oldWidget.initialSidebarPinnedServers,
+          widget.initialSidebarPinnedServers,
+        ) ||
+        !identical(
+          oldWidget.onSidebarPinnedServersChanged,
+          widget.onSidebarPinnedServersChanged,
         )) {
       _sidebar?.dispose();
       _sidebar = _buildSidebar();
@@ -764,6 +779,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       onCollapsedChanged: widget.onSidebarCollapsedGroupsChanged,
       density: widget.initialSidebarDensity,
       onDensityChanged: widget.onSidebarDensityChanged,
+      initiallyPinned: widget.initialSidebarPinnedServers,
+      onPinnedChanged: widget.onSidebarPinnedServersChanged,
       onBookmarksChanged: _onSidebarBookmarksChanged,
       onBookmarkRemoved: _forwardBookmarkRemoval,
     );

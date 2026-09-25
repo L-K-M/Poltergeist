@@ -6466,11 +6466,29 @@ abstract class AppLocalizations {
   /// **'Favorites'**
   String get sidebarFavoritesSection;
 
-  /// Sidebar section header over saved servers, shared-account servers, and live Quick Connect sessions (D32 §5). Rendered in caps.
+  /// Sidebar section header over the shared account's servers and live Quick Connect sessions (D32 §5, D33). Rendered in caps.
   ///
   /// In en, this message translates to:
   /// **'Servers'**
   String get sidebarServersSection;
+
+  /// Sidebar section header over the servers the user pinned (D33), drawn above Servers while any is pinned. Rendered in caps. Séance uses the same word.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinned'**
+  String get sidebarPinnedSection;
+
+  /// Server row menu verb: moves the server into the Pinned shortlist above Servers, on this device only. Séance uses the same words.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin to top'**
+  String get sidebarPinToTop;
+
+  /// Server row menu verb on a pinned server: files it back under Servers. Séance uses the same word.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get sidebarUnpin;
 
   /// Tooltip of a collapsed sidebar section's chevron.
   ///

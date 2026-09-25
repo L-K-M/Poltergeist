@@ -178,6 +178,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'layout.sidebarHidden'",
     "'sidebar.collapsedGroups'",
     "'sidebar.density'",
+    "'sidebar.pinnedServers'",
     // The preview panel's persisted keys (06 §8): cache capacity and the
     // large-download confirmation threshold — settings.json keys.
     "'preview.cacheCapacityBytes'",
@@ -1568,6 +1569,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.servers.header'",
     r"'sidebar.section.$sectionKey'",
     "'sidebar.servers.add'",
+    "'sidebar.pinned.header'",
+    "'sidebar.catalog.menu.pin'",
     "' '",
     r"'sidebar.catalog.row.${server.id}'",
     r"'$username@${host.toLowerCase()}:$port'",

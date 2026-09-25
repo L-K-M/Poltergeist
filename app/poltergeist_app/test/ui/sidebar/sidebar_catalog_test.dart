@@ -71,6 +71,8 @@ void main() {
     WorkspaceController? workspace,
     // The one-line rail these tests describe (D33's compact density).
     SidebarDensity density = SidebarDensity.compact,
+    Set<String> pinned = const {},
+    void Function(Set<String> pinned)? onPinnedChanged,
   }) async {
     tester.view.physicalSize = const Size(600, 1000);
     tester.view.devicePixelRatio = 1;
@@ -79,6 +81,8 @@ void main() {
     final controller = SidebarController(
       store: store,
       density: density,
+      initiallyPinned: pinned,
+      onPinnedChanged: onPinnedChanged,
       onCollapsedChanged: (_) {},
     );
     addTearDown(controller.dispose);
@@ -234,6 +238,89 @@ void main() {
     expect(controller.isCollapsed('srv:prod'), isTrue);
     expect(find.text('alpha'), findsNothing);
     expect(find.text('saved-web'), findsOneWidget);
+  });
+
+  group('PINNED', () {
+    Finder header(String key) => find.byKey(ValueKey('sidebar.section.$key'));
+
+    testWidgets('nothing pinned draws no PINNED section', (tester) async {
+      catalog.replace([_server('a1', group: 'Prod')]);
+      await pump(tester);
+      expect(find.text('PINNED'), findsNothing);
+      expect(header('sec:pinned'), findsNothing);
+    });
+
+    testWidgets('Pin to top moves a server above SERVERS, out of its group; '
+        'Unpin files it back', (tester) async {
+      catalog.replace([
+        _server('a1', label: 'alpha', group: 'Prod'),
+        _server('b1', label: 'beta', group: 'Prod'),
+        _server('c1', label: 'gamma'),
+      ]);
+      final writes = <Set<String>>[];
+      final controller = await pump(tester, onPinnedChanged: writes.add);
+
+      await tester.tap(row('a1'), buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Pin to top'));
+      await tester.pumpAndSettle();
+
+      expect(writes, [
+        {'a1'},
+      ]);
+      expect(controller.isPinned('a1'), isTrue);
+      // PINNED sits first in the server list (10 §5), above SERVERS.
+      final pinnedY = tester.getTopLeft(header('sec:pinned')).dy;
+      final serversY = tester.getTopLeft(header('sec:servers')).dy;
+      final alphaY = tester.getTopLeft(row('a1')).dy;
+      expect(pinnedY, lessThan(alphaY));
+      expect(alphaY, lessThan(serversY));
+      // One row, not two: the pinned server leaves Prod, whose count
+      // follows; SERVERS counts what it still lists.
+      expect(row('a1'), findsOneWidget);
+      final prod = tester.widget<SidebarSectionHeader>(
+        find.ancestor(
+          of: header('srv:prod'),
+          matching: find.byType(SidebarSectionHeader),
+        ),
+      );
+      expect(prod.count, 1);
+      final servers = tester.widget<SidebarSectionHeader>(
+        find.ancestor(
+          of: header('sec:servers'),
+          matching: find.byType(SidebarSectionHeader),
+        ),
+      );
+      expect(servers.count, 2);
+
+      await tester.tap(row('a1'), buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Unpin'));
+      await tester.pumpAndSettle();
+
+      expect(writes.last, isEmpty);
+      expect(header('sec:pinned'), findsNothing);
+      expect(tester.getTopLeft(row('a1')).dy, greaterThan(serversY - 1));
+    });
+
+    testWidgets('a pin for a server no longer listed draws nothing', (
+      tester,
+    ) async {
+      catalog.replace([_server('a1')]);
+      await pump(tester, pinned: {'gone'});
+      expect(header('sec:pinned'), findsNothing);
+    });
+
+    testWidgets('PINNED folds under its own key', (tester) async {
+      catalog.replace([_server('a1'), _server('b1')]);
+      final controller = await pump(tester, pinned: {'a1'});
+
+      await tester.tap(header('sec:pinned'));
+      await tester.pumpAndSettle();
+      expect(controller.isCollapsed('sec:pinned'), isTrue);
+      expect(row('a1'), findsNothing);
+      expect(row('b1'), findsOneWidget);
+    });
   });
 
   testWidgets('the section and its groups collapse under srv: keys', (

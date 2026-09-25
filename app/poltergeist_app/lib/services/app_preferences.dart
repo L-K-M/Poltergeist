@@ -27,6 +27,7 @@ const _autoClearCompletedKey = 'transfer.autoClearCompleted';
 const _sidebarHiddenKey = 'layout.sidebarHidden';
 const _sidebarCollapsedGroupsKey = 'sidebar.collapsedGroups';
 const _sidebarDensityKey = 'sidebar.density';
+const _sidebarPinnedServersKey = 'sidebar.pinnedServers';
 const _previewCacheCapacityKey = 'preview.cacheCapacityBytes';
 const _previewThresholdKey = 'preview.largeDownloadThresholdBytes';
 const _updateChecksEnabledKey = 'updates.checkEnabled';
@@ -253,6 +254,27 @@ class AppPreferences {
 
   Future<void> saveSidebarDensity(SidebarDensity density) =>
       _store.set(_sidebarDensityKey, density.name);
+
+  /// The ids of the servers pinned to the sidebar's PINNED shortlist
+  /// (D33): device-local, like Séance's pins. A malformed stored value
+  /// decodes to no pins (non-string entries are dropped) rather than
+  /// failing startup.
+  Future<Set<String>> loadSidebarPinnedServers() async {
+    Object? stored;
+    try {
+      stored = await _store.get<Object>(_sidebarPinnedServersKey);
+    } catch (_) {
+      return const {};
+    }
+    if (stored is! List) return const {};
+    return {
+      for (final entry in stored)
+        if (entry is String) entry,
+    };
+  }
+
+  Future<void> saveSidebarPinnedServers(Set<String> ids) =>
+      _store.set(_sidebarPinnedServersKey, List<String>.of(ids));
 
   /// The D19 update check's opt-out (00 D19/D23, 01 §6): ON by default
   /// — the check is a plain GET of a static URL carrying nothing — and

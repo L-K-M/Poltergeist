@@ -129,13 +129,15 @@ Future<void> main() async {
   final autoClearCompleted =
       await preferences.loadAutoClearCompletedTransfers();
   // The sidebar's persisted chrome state (02 §1/§4, D33): visibility
-  // intent, the device-local collapsed-group keys, and the row density.
+  // intent, the device-local collapsed-group keys, the row density, and
+  // the PINNED shortlist.
   // The stage-1 drawer never lands here — it is recomputed from the
   // window size per launch.
   final sidebarHidden = await preferences.loadSidebarHidden();
   final sidebarCollapsedGroups =
       await preferences.loadSidebarCollapsedGroups();
   final sidebarDensity = await preferences.loadSidebarDensity();
+  final sidebarPinnedServers = await preferences.loadSidebarPinnedServers();
   // 02 §4's reachability probes read and write device-local facts through
   // the same settings.json — one instance shared with the preferences
   // facade so their serialized tails cannot interleave clobbering writes.
@@ -449,6 +451,9 @@ Future<void> main() async {
       initialSidebarDensity: sidebarDensity,
       onSidebarDensityChanged: (density) =>
           errorReporter.observe(preferences.saveSidebarDensity(density)),
+      initialSidebarPinnedServers: sidebarPinnedServers,
+      onSidebarPinnedServersChanged: (ids) =>
+          errorReporter.observe(preferences.saveSidebarPinnedServers(ids)),
       previewCache: previewCache,
       previewProducer: previewProducer,
       initialPreviewThresholdBytes: previewThreshold,

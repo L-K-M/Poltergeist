@@ -341,6 +341,46 @@ void main() {
     });
   });
 
+  group('pins', () {
+    test('a pin toggles on and off and reports the full set', () {
+      final writes = <Set<String>>[];
+      final controller = SidebarController(
+        store: store,
+        initiallyPinned: {'seeded'},
+        onPinnedChanged: writes.add,
+      );
+      addTearDown(controller.dispose);
+      var notified = 0;
+      controller.addListener(() => notified++);
+
+      expect(controller.isPinned('seeded'), isTrue);
+      expect(controller.isPinned('s1'), isFalse);
+
+      controller.togglePinned('s1');
+      expect(controller.pinnedServers, {'seeded', 's1'});
+      expect(writes, [
+        {'seeded', 's1'},
+      ]);
+      controller.togglePinned('seeded');
+      expect(controller.isPinned('seeded'), isFalse);
+      expect(writes.last, {'s1'});
+      expect(notified, 2);
+    });
+
+    test('a failed save reports and keeps the pin', () {
+      final controller = SidebarController(
+        store: store,
+        onPinnedChanged: (_) => throw StateError('disk full'),
+        errors: ApplicationErrorReporter(sink: (error, _) => errors.add(error)),
+      );
+      addTearDown(controller.dispose);
+
+      controller.togglePinned('s1');
+      expect(errors, hasLength(1));
+      expect(controller.isPinned('s1'), isTrue);
+    });
+  });
+
   group('filter', () {
     test('a request opens the field and leaves focus to take once', () {
       final controller = buildController();

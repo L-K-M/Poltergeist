@@ -84,6 +84,8 @@ class PoltergeistApp extends StatefulWidget {
     this.onSidebarCollapsedGroupsChanged,
     this.initialSidebarDensity = SidebarDensity.comfortable,
     this.onSidebarDensityChanged,
+    this.initialSidebarPinnedServers = const {},
+    this.onSidebarPinnedServersChanged,
     this.previewCache,
     this.previewProducer,
     this.quickLook,
@@ -234,6 +236,10 @@ class PoltergeistApp extends StatefulWidget {
   /// The persisted sidebar row density and its save sink (D33).
   final SidebarDensity initialSidebarDensity;
   final void Function(SidebarDensity density)? onSidebarDensityChanged;
+
+  /// The persisted PINNED shortlist and its save sink (D33).
+  final Set<String> initialSidebarPinnedServers;
+  final void Function(Set<String> ids)? onSidebarPinnedServersChanged;
 
   /// 06 §5.3's preview cache behind the whole preview slice — null
   /// composes no preview session (Space falls through, the preview
@@ -480,6 +486,8 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
           widget.onSidebarCollapsedGroupsChanged,
       initialSidebarDensity: widget.initialSidebarDensity,
       onSidebarDensityChanged: widget.onSidebarDensityChanged,
+      initialSidebarPinnedServers: widget.initialSidebarPinnedServers,
+      onSidebarPinnedServersChanged: widget.onSidebarPinnedServersChanged,
       previewCache: widget.previewCache,
       previewProducer: widget.previewProducer,
       quickLook: widget.quickLook,
