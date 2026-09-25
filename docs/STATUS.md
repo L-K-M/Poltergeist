@@ -8558,9 +8558,9 @@ here: the Swift half (no Mac in the container; CI's macOS client leg
 compiles it) and the look on a real display, which the release
 checklist's macOS row now covers.
 
-## D34 — Android is supported (2026-09-25)
+## D35 — Android is supported (2026-09-25)
 
-Owner-directed (00 D34), effective from the first release after
+Owner-directed (00 D35), effective from the first release after
 v1.0.1, which was tagged before this change and still carries the old
 label. The release notes drop the APK's rehearsal
 label (the IPA keeps its unsigned, unsupported one), `docs/INSTALL.md`
@@ -9420,7 +9420,7 @@ container), so CI's android client leg is the build evidence.
     progress (transfers stop when Android freezes the backgrounded
     process); and a DocumentsProvider exposing servers to other apps.
     Also unverified until a device run: predictive-back animation, IME
-    insets, and TalkBack over the compact surfaces. **2026-09-25:** D34
+    insets, and TalkBack over the compact surfaces. **2026-09-25:** D35
     made Android supported with these slices still open; the README's
     known issues name them and the release checklist's Android row
     carries the device checks.

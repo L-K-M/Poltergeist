@@ -73,7 +73,7 @@ D35 Android supported
 - **D1 — Flutter/Dart monorepo mirroring Séance.** `packages/` (pure Dart) +
   `app/poltergeist_app` (Flutter). Desktop first — macOS leads the design,
   Windows and Linux ship from v1.0. Android is supported after v1.0.1
-  (D34); iOS is post-v1 (D29). Single
+  (D35); iOS is post-v1 (D29). Single
   window, dual pane, tabs per pane in v1 (D13).
 - **D2 — Code sharing, one call per layer.**
   - `seance_protocol` and `seance_core`: **git dependencies pinned to a
@@ -775,7 +775,7 @@ D35 Android supported
     publish, from every `v*` tag: the unsigned/ad-hoc macOS bundle,
     Windows zip, Linux `.deb` + AppImage + bundle, Android APK, and
     unsigned iOS IPA (all already scripted); the mobile product remains
-    post-v1 (D29; D34 has since made the APK a supported build, so this
+    post-v1 (D29; D35 has since made the APK a supported build, so this
     now covers the IPA alone) — the artifacts merely exist, and the IPA's
     filename and the release notes label it unsigned and unsupported so no one
     mistakes an artifact that cannot be installed on any device without
@@ -849,7 +849,7 @@ D35 Android supported
   `ScopedPathAccess`; the transfer queue is suspendable; no desktop-only
   assumption in `poltergeist_core`/`poltergeist_sync`. The mobile
   constraints memo (07) records what iOS/Android will demand.
-- **D34 — Android is a supported target (2026-09-25, owner-directed;
+- **D35 — Android is a supported target (2026-09-25, owner-directed;
   amends D1, D23, and D29 for Android only).** The APK every release
   already builds becomes a supported build, beside macOS, Windows, and
   Linux, from the first release after v1.0.1 (whose notes still carry
