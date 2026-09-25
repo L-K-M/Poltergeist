@@ -1,5 +1,5 @@
 // Adapted from Séance app/seance_app/test/settings_screen_test.dart's
-// Appearance group @ e77bb33; see docs/PORTS.md. The section runs over a
+// Appearance group @ f4d2f71; see docs/PORTS.md. The section runs over a
 // fake model here rather than Séance's fake settings backend, and adds the
 // cases Poltergeist's port has of its own: a Séance theme pasted with its
 // terminal block, coalesced writes, localized preset names, the font field

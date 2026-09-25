@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/lib/ui/appearance_settings.dart @ e77bb33; see docs/PORTS.md.
+// Ported from Séance app/seance_app/lib/ui/appearance_settings.dart @ f4d2f71; see docs/PORTS.md.
 // Divergences: strings localize through ARB (D20) and presets show their
 // names from it; no Terminal colours section (no terminal here); the
 // interface font is a text field only, since Poltergeist has no installed-

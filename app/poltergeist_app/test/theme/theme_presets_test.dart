@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/test/theme_presets_test.dart @ e77bb33; see docs/PORTS.md.
+// Ported from Séance app/seance_app/test/theme_presets_test.dart @ f4d2f71; see docs/PORTS.md.
 // Divergences: no terminal colours to hold; the selection's label is
 // measured over the listing, where Poltergeist paints its active
 // selection; and the status colours are also held on every row state the
@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
+import 'package:poltergeist_app/theme/family_hues.dart';
 import 'package:poltergeist_app/theme/contrast.dart';
 import 'package:poltergeist_app/theme/theme_palette.dart';
 import 'package:poltergeist_app/theme/theme_presets.dart';
@@ -197,4 +198,30 @@ void main() {
       });
     }
   }
+
+  // The family hues (lib/theme/family_hues.dart, D34) are tuned against
+  // the default neutrals; a preset moves the surfaces they sit on, so
+  // every preset is held to the same 3:1 non-text floor for every hue.
+  test('the family glyph hues keep 3:1 on every preset', () {
+    for (final preset in ThemePresets.all) {
+      for (final brightness in Brightness.values) {
+        final theme = buildPoltergeistThemeFor(preset, brightness);
+        final hues = theme.extension<FamilyPalette>()!;
+        final chrome = theme.extension<PoltergeistChrome>()!;
+        for (final hue in FamilyHue.values) {
+          for (final surface in [
+            chrome.paneBackground,
+            chrome.sidebarBackground,
+            chrome.inspectorBackground,
+          ]) {
+            expect(
+              contrastRatio(hues.glyph(hue), surface),
+              greaterThanOrEqualTo(_mark),
+              reason: '${preset.name} ${brightness.name} ${hue.name}',
+            );
+          }
+        }
+      }
+    }
+  });
 }

@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/test/color_picker_test.dart @ e77bb33; see docs/PORTS.md.
+// Ported from Séance app/seance_app/test/color_picker_test.dart @ f4d2f71; see docs/PORTS.md.
 // Divergence: the app is wrapped in AppLocalizations for the picker's ARB
 // strings.
 import 'package:flutter/material.dart';

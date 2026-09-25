@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/test/theme_palette_test.dart @ e77bb33; see docs/PORTS.md.
+// Ported from Séance app/seance_app/test/theme_palette_test.dart @ f4d2f71; see docs/PORTS.md.
 // Divergence: the terminal-block cases become the cross-app ones: a Séance
 // theme's terminal block is read past, and the rest of it applies.
 import 'dart:convert';

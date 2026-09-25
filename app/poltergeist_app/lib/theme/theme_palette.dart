@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/lib/theme/theme_palette.dart @ e77bb33; see docs/PORTS.md.
+// Ported from Séance app/seance_app/lib/theme/theme_palette.dart @ f4d2f71; see docs/PORTS.md.
 // Divergence: no terminal block. Poltergeist has no terminal, so a Séance
 // theme's `terminal` key is read past (everything else in it applies) and
 // never written back.

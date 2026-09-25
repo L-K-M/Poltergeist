@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/test/theme_build_test.dart @ e77bb33; see docs/PORTS.md.
+// Ported from Séance app/seance_app/test/theme_build_test.dart @ f4d2f71; see docs/PORTS.md.
 // Divergences: the default is compared with the whole ThemeData the app
 // built before themes (legacy_theme.dart), not a list of key colours; the
 // status colours are the chrome's; and the error colours are pinned to the

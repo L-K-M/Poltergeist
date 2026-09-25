@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/lib/theme/theme_presets.dart @ e77bb33; see docs/PORTS.md.
+// Ported from Séance app/seance_app/lib/theme/theme_presets.dart @ f4d2f71; see docs/PORTS.md.
 // Divergence: the default is Poltergeist's teal, not Séance's violet, and
 // no preset carries a terminal block. The other nine keep Séance's values,
 // so a shared preset looks the same in both apps.

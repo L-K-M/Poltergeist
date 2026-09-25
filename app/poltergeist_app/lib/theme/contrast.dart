@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/lib/theme/contrast.dart @ e77bb33; see docs/PORTS.md.
+// Ported from Séance app/seance_app/lib/theme/contrast.dart @ f4d2f71; see docs/PORTS.md.
 import 'dart:ui' show Color;
 
 /// WCAG 2's contrast ratio between two opaque colours, 1 to 21.

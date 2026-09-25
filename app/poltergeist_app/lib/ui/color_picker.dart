@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/lib/ui/color_picker.dart @ e77bb33; see docs/PORTS.md.
+// Ported from Séance app/seance_app/lib/ui/color_picker.dart @ f4d2f71; see docs/PORTS.md.
 // Divergence: strings localize through ARB (D20), so [showColorPicker]
 // takes its title rather than defaulting one, and the dialog scrolls, as
 // the server colour picker it grew out of already did here.

@@ -1,6 +1,6 @@
 // Ported from Séance app/seance_app/lib/ui/server_color_picker.dart @
 // 035b0d8 (tag v0.9.1); see docs/PORTS.md. Reduced to a wrapper over
-// color_picker.dart as Séance's was (e77bb33).
+// color_picker.dart as Séance's was (f4d2f71).
 // Divergence: strings localize through ARB (D20).
 import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';

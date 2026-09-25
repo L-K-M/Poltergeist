@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/lib/theme/app_appearance.dart @ e77bb33; see docs/PORTS.md.
+// Ported from Séance app/seance_app/lib/theme/app_appearance.dart @ f4d2f71; see docs/PORTS.md.
 import 'package:flutter/material.dart';
 
 import 'theme_palette.dart';
