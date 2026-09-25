@@ -172,3 +172,45 @@ String sidebarComparablePath(String path) {
   }
   return result;
 }
+
+/// Whether [location] can become a favorite ("Add Current Folder to
+/// Favorites"): a local folder always; a remote one only with the
+/// [remote] binding it would be saved from.
+bool canAddLocationToFavorites(PaneLocation? location, Bookmark? remote) =>
+    switch (location) {
+      null => false,
+      LocalPaneLocation() => true,
+      RemotePaneLocation() => remote != null,
+    };
+
+/// [path] relative to [home] the way a shell prints it (`~`,
+/// `~/Documents`), or [path] itself when it lies outside [home] or no
+/// home is known. The compact Home's location lines use it: an absolute
+/// app-storage path is noise on a phone.
+String sidebarHomeRelativePath(String path, String? home) {
+  if (home == null || home.isEmpty) return path;
+  final base = sidebarComparablePath(home);
+  final here = sidebarComparablePath(path);
+  final separator = base.contains(r'\') ? r'\' : '/';
+  // A home at a root would make every path "~": not a home worth naming.
+  if (base.endsWith(separator)) return path;
+  if (here == base) return '~';
+  if (!here.startsWith('$base$separator')) return path;
+  return '~$separator${here.substring(base.length + 1)}';
+}
+
+/// `user@host`, with the port only when it is not SSH's 22 (10 §4's
+/// address grammar) and an IPv6 literal bracketed so the port reads as
+/// one. The compact Home's server lines spell the endpoint with it.
+String sidebarEndpointText({
+  required String username,
+  required String host,
+  required int port,
+}) {
+  final address = port == _sshPort
+      ? host
+      : (host.contains(':') ? '[$host]:$port' : '$host:$port');
+  return username.isEmpty ? address : '$username@$address';
+}
+
+const _sshPort = 22;

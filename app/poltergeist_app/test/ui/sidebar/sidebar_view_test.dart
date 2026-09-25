@@ -88,6 +88,7 @@ final class _ConnectionLanes implements ConnectionStateBridge {
 final class _FakeVolumes implements LocalVolumeSource {
   List<LocalVolume> volumes = const [];
   List<String> standard = const [];
+  String? home = '/home/deploy';
   Set<String> directories = {};
   bool ejectResult = true;
   final ejects = <String>[];
@@ -102,6 +103,9 @@ final class _FakeVolumes implements LocalVolumeSource {
 
   @override
   Future<List<String>> standardFolders() async => standard;
+
+  @override
+  String? get homeDirectory => home;
 
   @override
   Future<bool> isDirectory(String path) async => directories.contains(path);

@@ -16,6 +16,7 @@ import '../panes/pane_commands.dart' show kEditSelectAllCommandId;
 import '../panes/pane_format.dart';
 import '../panes/pane_tabs_view.dart' show paneTabTitle;
 import '../panes/quick_connect_view.dart';
+import '../sidebar/sidebar_facts.dart' show canAddLocationToFavorites;
 import '../sync/sync_plan_view.dart';
 import 'compact_breadcrumbs.dart';
 import 'compact_command_sheet.dart';
@@ -37,6 +38,7 @@ class CompactPaneSeams {
     this.onSyncSaveAsFavorite,
     this.onSyncEditRules,
     this.onImportSshConfig,
+    this.onAddToFavorites,
   });
 
   /// The shell's sibling-aware cancel for a pane's pending bind or lost
@@ -48,6 +50,11 @@ class CompactPaneSeams {
   final void Function(SyncPlanController session)? onSyncSaveAsFavorite;
   final void Function(SyncPlanController session)? onSyncEditRules;
   final VoidCallback? onImportSshConfig;
+
+  /// "Add Current Folder to Favorites" for the shown pane — the verb the
+  /// desktop sidebar's "+" carries, offered here because the browser is
+  /// where a phone shows a folder (Home shows none). Null hides it.
+  final void Function(PaneController pane)? onAddToFavorites;
 }
 
 /// The selection's title (D32 §9): "3 selected · 42 MB" — the count,
@@ -206,6 +213,7 @@ class CompactBrowser extends StatelessWidget {
     final theme = Theme.of(context);
     final subtitle = pane == null ? null : _subtitle(l10n, pane);
     final canFilter = pane != null && pane.verbsEnabled;
+    final addToFavorites = seams.onAddToFavorites;
     return AppBar(
       key: const ValueKey((CompactKey.browser, false)),
       backgroundColor: chrome.paneBackground,
@@ -264,6 +272,21 @@ class CompactBrowser extends StatelessWidget {
               title: title,
               commands: commands,
               onRun: onRunCommand,
+              leading: [
+                if (addToFavorites != null &&
+                    pane != null &&
+                    pane.phase == PanePhase.browsing &&
+                    canAddLocationToFavorites(
+                      pane.location,
+                      pane.remoteBookmark,
+                    ))
+                  CompactSheetAction(
+                    key: const ValueKey(CompactKey.browserAddFavorite),
+                    icon: Icons.star_outline,
+                    label: l10n.sidebarAddCurrentFolder,
+                    onSelected: () => addToFavorites(pane),
+                  ),
+              ],
             ),
           ),
           icon: const Icon(Icons.more_vert),

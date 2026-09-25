@@ -67,7 +67,8 @@ void main() {
       expect(_key(CompactKey.home), findsOneWidget);
       expect(find.byType(AdaptiveShell), findsNothing);
       expect(find.byType(Drawer), findsNothing);
-      for (final section in ['DEVICES', 'FAVORITES', 'SERVERS']) {
+      // Material list subheaders, as authored rather than in caps.
+      for (final section in ['Devices', 'Favorites', 'Servers']) {
         expect(find.text(section), findsOneWidget);
       }
       // The phone's own files stand in for DEVICES' volumes.
@@ -96,23 +97,36 @@ void main() {
       expect(find.text('backup box'), findsNothing);
     });
 
-    testWidgets('the FAB offers the add menu, Quick Connect included', (
+    testWidgets('the FAB offers only the verbs that make sense on Home', (
       tester,
     ) async {
       final harness = CompactHarness();
-      await harness.pump(tester);
+      await harness.pump(tester, serverEditor: true, sshConfigImport: true);
 
       await tester.tap(find.byKey(const ValueKey('sidebar.home.add')));
       await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey('sidebar.add.quickConnect')),
-        findsOneWidget,
-      );
+      final sheet = find.byType(BottomSheet);
+      final verbs = [
+        for (final tile in tester.widgetList<ListTile>(
+          find.descendant(of: sheet, matching: find.byType(ListTile)),
+        ))
+          (tile.key! as ValueKey<String>).value,
+      ];
+      expect(verbs, [
+        'sidebar.add.newServer',
+        'sidebar.add.quickConnect',
+        'sidebar.add.importSshConfig',
+        'sidebar.add.newGroup',
+      ]);
+      // No folder is in view on Home: the current-folder verb stays in
+      // the rail and the browser.
       expect(
         find.byKey(const ValueKey('sidebar.add.currentFolder')),
-        findsOneWidget,
+        findsNothing,
       );
+      expect(find.text('New Server…'), findsOneWidget);
+      expect(find.text('Import from ssh config…'), findsOneWidget);
     });
 
     testWidgets('a server row pushes the browser on its location', (
@@ -248,6 +262,71 @@ void main() {
 
       expect(_key(CompactKey.commandSheet), findsOneWidget);
       expect(_key((CompactKey.commandRow, 'file.newFolder')), findsOneWidget);
+    });
+
+    testWidgets('⋮ adds the shown folder to Favorites, where Home cannot', (
+      tester,
+    ) async {
+      final harness = CompactHarness();
+      await harness.pump(tester);
+      await _openThisDevice(tester);
+
+      await tester.tap(_key(CompactKey.browserMore));
+      await tester.pumpAndSettle();
+      await tester.tap(_key(CompactKey.browserAddFavorite));
+      await tester.pumpAndSettle();
+
+      final added = harness.store.bookmarks.where(
+        (bookmark) => bookmark.localPath == '/home/deploy',
+      );
+      expect(added, hasLength(1));
+      expect(added.single.kind, BookmarkKind.localFolder);
+      // Home, where the row appears, is a screen away: say it landed.
+      expect(find.text('Added “deploy” to Favorites.'), findsOneWidget);
+
+      // A second time it already is one, and says so (once the first
+      // notice has timed out: snack bars queue).
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      await tester.tap(_key(CompactKey.browserMore));
+      await tester.pumpAndSettle();
+      await tester.tap(_key(CompactKey.browserAddFavorite));
+      await tester.pumpAndSettle();
+      expect(
+        harness.store.bookmarks.where((b) => b.localPath == '/home/deploy'),
+        hasLength(1),
+      );
+      expect(find.text('“deploy” is already in Favorites.'), findsOneWidget);
+
+      // Back on Home the favorite is a row, home-relative.
+      for (var i = 0; i < 4 && harness.compact(tester).browsing; i++) {
+        await harness.systemBack(tester);
+      }
+      expect(
+        find.byKey(ValueKey('sidebar.favorite.${added.single.id}')),
+        findsOneWidget,
+      );
+      expect(find.text('~'), findsOneWidget);
+    });
+
+    testWidgets('⋮ saves a remote folder to Servers', (tester) async {
+      final harness = CompactHarness();
+      await harness.pump(tester);
+      await tester.tap(find.byKey(const ValueKey('sidebar.favorite.demo')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(_key(CompactKey.browserMore));
+      await tester.pumpAndSettle();
+      await tester.tap(_key(CompactKey.browserAddFavorite));
+      await tester.pumpAndSettle();
+
+      final saved = harness.store.bookmarks.where(
+        (bookmark) => bookmark.remotePath == '/srv/www',
+      );
+      expect(saved, hasLength(1));
+      expect(saved.single.kind, BookmarkKind.remotePath);
+      expect(saved.single.label, 'www');
+      expect(find.text('Saved “www” to Servers.'), findsOneWidget);
     });
 
     testWidgets('the filter narrows the listing and back clears it', (

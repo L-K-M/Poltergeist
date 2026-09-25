@@ -26,6 +26,7 @@ Future<void> _pump(
   Widget child, {
   TargetPlatform platform = TargetPlatform.macOS,
   Color? background,
+  SidebarKitLayout layout = SidebarKitLayout.rail,
 }) async {
   tester.view.physicalSize = const Size(600, 600);
   tester.view.devicePixelRatio = 1;
@@ -37,6 +38,7 @@ Future<void> _pump(
         body: SidebarKitScope(
           strings: _strings,
           background: background,
+          layout: layout,
           child: Align(
             alignment: Alignment.topLeft,
             child: SizedBox(width: 240, child: child),
@@ -622,6 +624,153 @@ void main() {
       );
       expect(chevron.visible, isTrue);
       expect(tester.getSize(find.byKey(const ValueKey('h'))).height, 40);
+    });
+  });
+
+  group('the list layout', () {
+    Future<void> pumpList(WidgetTester tester, Widget child) => _pump(
+      tester,
+      child,
+      platform: TargetPlatform.android,
+      layout: SidebarKitLayout.list,
+    );
+
+    testWidgets('a row is a 56 dp list item with a 40 dp mark and a 16 sp '
+        'title, second line or not', (tester) async {
+      await pumpList(
+        tester,
+        Column(
+          children: [
+            SidebarRow(
+              key: const ValueKey('one'),
+              mark: Builder(
+                builder: (context) => SizedBox.square(
+                  key: const ValueKey('mark'),
+                  dimension: sidebarMarkExtent(context),
+                ),
+              ),
+              title: 'demo',
+            ),
+            const SidebarRow(
+              key: ValueKey('two'),
+              mark: Icon(Icons.dns_outlined),
+              title: 'demo',
+              subtitle: 'deploy@demo',
+              status: SidebarStatusDot(Colors.green),
+            ),
+          ],
+        ),
+      );
+      expect(tester.getSize(find.byKey(const ValueKey('one'))).height, 56);
+      expect(tester.getSize(find.byKey(const ValueKey('two'))).height, 56);
+      expect(
+        tester.getSize(find.byKey(const ValueKey('mark'))),
+        const Size(40, 40),
+      );
+      // The mark starts 16 dp in, and the title 16 dp after it.
+      expect(tester.getTopLeft(find.byKey(const ValueKey('mark'))).dx, 16);
+      final title = find.descendant(
+        of: find.byKey(const ValueKey('one')),
+        matching: find.byType(MiddleEllipsisText),
+      );
+      expect(tester.getTopLeft(title).dx, 72);
+      expect(tester.widget<MiddleEllipsisText>(title).style?.fontSize, 16);
+      // The dot grows with the mark: 12 dp inside its cut-out ring.
+      final dot = tester
+          .widgetList<Container>(
+            find.descendant(
+              of: find.byKey(const ValueKey('two')),
+              matching: find.byType(Container),
+            ),
+          )
+          .where(
+            (box) =>
+                box.decoration is BoxDecoration &&
+                (box.decoration! as BoxDecoration).color == Colors.green,
+          )
+          .single;
+      expect(dot.constraints?.maxWidth, 16);
+    });
+
+    testWidgets('a section header is a Material subheader: 48 dp, as '
+        'authored, in the accent colour, chevron drawn', (tester) async {
+      await pumpList(
+        tester,
+        SidebarSectionHeader(
+          headerKey: const ValueKey('h'),
+          title: 'Servers',
+          count: 3,
+          collapsed: false,
+          onToggle: () {},
+        ),
+      );
+      expect(tester.getSize(find.byKey(const ValueKey('h'))).height, 48);
+      expect(find.text('SERVERS'), findsNothing);
+      final title = tester.widget<Text>(find.text('Servers'));
+      expect(title.style?.fontSize, 14);
+      expect(
+        title.style?.color,
+        Theme.of(tester.element(find.text('Servers'))).colorScheme.primary,
+      );
+      expect(find.byIcon(Icons.expand_more), findsOneWidget);
+    });
+
+    testWidgets('the rail layout is unchanged beside it', (tester) async {
+      await _pump(
+        tester,
+        const SidebarRow(
+          key: ValueKey('r'),
+          mark: Icon(Icons.dns_outlined),
+          title: 'demo',
+        ),
+        platform: TargetPlatform.android,
+      );
+      expect(tester.getSize(find.byKey(const ValueKey('r'))).height, 48);
+    });
+  });
+
+  group('semantics', () {
+    testWidgets('a row and a header are one node each, focusable included', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await _pump(
+        tester,
+        Column(
+          children: [
+            SidebarSectionHeader(
+              title: 'Servers',
+              count: 1,
+              collapsed: false,
+              onToggle: () {},
+            ),
+            SidebarRow(
+              mark: const Icon(Icons.dns_outlined),
+              title: 'demo',
+              semanticLabel: 'demo, Connected',
+              onActivate: (_) {},
+              menuEntries: () => const [],
+            ),
+          ],
+        ),
+      );
+      // Outside the node, the focus node's own semantics would be a
+      // second, unlabeled stop before each row and header.
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('demo, Connected')),
+        isSemantics(
+          isButton: true,
+          isFocusable: true,
+          hasTapAction: true,
+          hasLongPressAction: true,
+          hasFocusAction: true,
+        ),
+      );
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Servers (1)')),
+        isSemantics(isHeader: true, isButton: true, isFocusable: true),
+      );
+      semantics.dispose();
     });
   });
 

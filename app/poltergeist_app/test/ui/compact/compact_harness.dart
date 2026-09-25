@@ -8,6 +8,7 @@ import 'package:poltergeist_app/services/app_transfer_queue.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_app/services/local_volumes.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
+import 'package:poltergeist_app/services/ssh_config_import_setup.dart';
 import 'package:poltergeist_app/services/sync_environment.dart';
 import 'package:poltergeist_app/services/sync_queue_facade.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
@@ -15,12 +16,14 @@ import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/compact/compact_posture.dart';
 import 'package:poltergeist_app/ui/compact/compact_workspace.dart';
 import 'package:poltergeist_app/ui/menus/app_menu_host.dart';
+import 'package:poltergeist_app/ui/server_editor.dart';
 import 'package:poltergeist_app/ui/workspace_shell.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
 import '../../support/fake_app_transfer_queue.dart';
 import '../../support/fake_bookmark_store.dart';
+import '../../support/fake_ssh_config_source.dart';
 
 /// The phone the compact tests run on: a 390 × 844 dp portrait screen.
 const phoneSize = Size(390, 844);
@@ -90,6 +93,9 @@ final class PhoneVolumes implements LocalVolumeSource {
   Future<List<String>> standardFolders() async => const [];
 
   @override
+  String? get homeDirectory => '/home/deploy';
+
+  @override
   Future<bool> isDirectory(String path) async => false;
 
   @override
@@ -98,6 +104,50 @@ final class PhoneVolumes implements LocalVolumeSource {
   @override
   Future<bool> eject(LocalVolume volume) async => false;
 }
+
+/// A server editor that is never opened: its presence is what offers
+/// "New Server…" (the shell gates the catalog verbs on the seam).
+final class InertServerEditor extends ServerEditorDelegate {
+  @override
+  List<ServerConfig> get servers => const [];
+
+  @override
+  bool get syncConfigured => false;
+
+  @override
+  Color get themeSeed => const Color(0xFF3D8A78);
+
+  @override
+  Future<String?> pickIdentityFile() async => null;
+
+  @override
+  Future<Secret?> readSecret(String secretId) async => null;
+
+  @override
+  Future<void> save(ServerConfig config, {Secret? secret}) async {}
+
+  @override
+  Future<ConnectionTestResult> testConnection(
+    ServerConfig config, {
+    String? draftPassword,
+    String? draftPrivateKey,
+    String? draftKeyPassphrase,
+    SshConnectionLog? log,
+  }) async => const ConnectionTestResult(ok: true, summary: '', log: '');
+}
+
+/// The ssh_config import wired over an empty config, so its command (and
+/// the Home verbs that run it) register.
+SshConfigImportSetup emptySshConfigImport(BookmarkRepository bookmarks) =>
+    SshConfigImportSetup(
+      service: SshConfigImportService(
+        homeDirectory: '/home/deploy',
+        source: FakeSshConfigSource(const {}),
+        mintId: () => 'imported',
+      ),
+      bookmarks: bookmarks,
+      configPath: '/home/deploy/.ssh/config',
+    );
 
 /// The real shell over a fake engine, in the compact posture: two local
 /// panes on `/home/deploy` (pane A with a small listing, pane B with a
@@ -176,6 +226,8 @@ final class CompactHarness {
     Widget Function(Widget app)? wrap,
     SyncEnvironment? syncEnvironment,
     SyncQueueTasks? syncTasks,
+    bool serverEditor = false,
+    bool sshConfigImport = false,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -220,6 +272,8 @@ final class CompactHarness {
         localVolumes: PhoneVolumes(),
         syncEnvironment: syncEnvironment,
         syncTasks: syncTasks,
+        serverEditor: serverEditor ? InertServerEditor() : null,
+        sshConfigImport: sshConfigImport ? emptySshConfigImport(store) : null,
       ),
     );
     await tester.pumpWidget(wrap == null ? app : wrap(app));

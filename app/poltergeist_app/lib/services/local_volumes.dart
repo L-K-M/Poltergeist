@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:poltergeist_core/poltergeist_core.dart' show expandHomePath;
 
 /// What kind of place a DEVICES row is (10 §5) — it picks the row's glyph
 /// and whether the row offers Eject.
@@ -62,6 +63,11 @@ abstract interface class LocalVolumeSource {
   /// The Desktop, Documents, and Downloads folders that actually exist —
   /// the empty-favorites offer adds only these (10 §5).
   Future<List<String>> standardFolders();
+
+  /// The folder `~` names for the local pane — where "This device" opens
+  /// — so a location can be shown home-relative; null when the platform
+  /// gives no home.
+  String? get homeDirectory;
 
   /// Whether [path] is a folder — the check a drop onto FAVORITES runs so
   /// a dragged file never becomes a folder favorite.
@@ -283,6 +289,15 @@ final class SystemLocalVolumes implements LocalVolumeSource {
   static int _byName(LocalVolume a, LocalVolume b) {
     final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
     return byName != 0 ? byName : a.path.compareTo(b.path);
+  }
+
+  /// The engine's own `~` rule (the local pane canonicalizes through
+  /// [expandHomePath]), so a path shown as `~/…` is one the pane reaches
+  /// as `~/…`.
+  @override
+  String? get homeDirectory {
+    final home = expandHomePath('~', environment: _env, isMacOS: _mac);
+    return home == '~' ? null : home;
   }
 
   @override

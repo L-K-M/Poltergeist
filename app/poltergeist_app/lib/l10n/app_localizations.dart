@@ -6915,6 +6915,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'More actions'**
   String get sidebarRowMenu;
+
+  /// D32 §9: second line of the compact Home's "This device" row. The local pane on a phone is the app's own storage, not the whole device.
+  ///
+  /// In en, this message translates to:
+  /// **'App storage'**
+  String get compactHomeThisDeviceSubtitle;
+
+  /// D32 §9: second line of a DEVICES row on the compact Home, e.g. '23 GB free'.
+  ///
+  /// In en, this message translates to:
+  /// **'{size} free'**
+  String compactHomeFreeSpace(String size);
+
+  /// D32 §9: a remote location on a compact Home row's second line: the server's name, then the folder, e.g. 'demo · /srv/www'.
+  ///
+  /// In en, this message translates to:
+  /// **'{server} · {path}'**
+  String compactHomeRemoteLocation(String server, String path);
+
+  /// D32 §9: second line of a saved-sync favorite on the compact Home: its source and destination, e.g. '~/site → demo · /srv/www'.
+  ///
+  /// In en, this message translates to:
+  /// **'{source} → {destination}'**
+  String compactHomeSyncRoute(String source, String destination);
+
+  /// D32 §9: second line of a server row on the compact Home while its state needs words: the state first, then user@host, e.g. 'Connecting… · deploy@example.com'.
+  ///
+  /// In en, this message translates to:
+  /// **'{state} · {endpoint}'**
+  String compactHomeServerState(String state, String endpoint);
+
+  /// D32 §9: announced on a compact Home server row shown in several tabs (the row's visible ×N).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 tab open} other{{count} tabs open}}'**
+  String compactHomeTabsOpen(int count);
+
+  /// D32 §9: title of the compact Home's empty SERVERS state, above the Quick Connect and Import from ssh config buttons.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to a server'**
+  String get compactHomeServersEmptyTitle;
+
+  /// D32 §9: body of the compact Home's empty SERVERS state.
+  ///
+  /// In en, this message translates to:
+  /// **'Servers you save appear here, with their status.'**
+  String get compactHomeServersEmptyBody;
+
+  /// D32 §9: title of the compact Home's empty FAVORITES state.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep folders close'**
+  String get compactHomeFavoritesEmptyTitle;
+
+  /// D32 §9: body of the compact Home's empty FAVORITES state: how a folder becomes a favorite on a phone (the browser's ⋮ menu offers the verb).
+  ///
+  /// In en, this message translates to:
+  /// **'Open a folder, then choose Add Current Folder to Favorites from its menu.'**
+  String get compactHomeFavoritesEmptyBody;
+
+  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local folder (Home, where the row appears, is a screen away).
+  ///
+  /// In en, this message translates to:
+  /// **'Added “{label}” to Favorites.'**
+  String compactAddedToFavorites(String label);
+
+  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a remote folder, which lands under Servers.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved “{label}” to Servers.'**
+  String compactSavedToServers(String label);
 }
 
 class _AppLocalizationsDelegate

@@ -46,6 +46,7 @@ List<Widget> _favoritesSection(_SidebarData data) {
     body.add(
       _SidebarHint(
         text: l10n.connectionsLoadFailed,
+        presentation: view.presentation,
         action: TextButton(
           key: const ValueKey('sidebar.retry'),
           onPressed: () => unawaited(controller.reload()),
@@ -123,22 +124,28 @@ List<Widget> _favoritesSection(_SidebarData data) {
         body.add(
           Padding(
             padding: const EdgeInsetsDirectional.only(start: 8),
-            child: _SidebarHint(text: l10n.sidebarGroupEmpty),
+            child: _SidebarHint(
+              text: l10n.sidebarGroupEmpty,
+              presentation: view.presentation,
+            ),
           ),
         );
       }
     }
 
     if (count == 0 && controller.pendingGroups.isEmpty && !data.filtering) {
-      body.add(_emptyFavorites(data));
+      body.add(data.home ? _homeEmptyFavorites(data) : _emptyFavorites(data));
     }
   }
 
   if (data.filtering && body.isEmpty) return const [];
 
   final collapsed = data.collapsed(sectionKey);
+  // Home shows no folder to add (D32 §9): its header keeps no "+".
   final addCurrent =
-      data.canAddCurrentFolder && data.facts.activeLocation is LocalPaneLocation
+      !data.home &&
+          data.canAddCurrentFolder &&
+          data.facts.activeLocation is LocalPaneLocation
       ? () => unawaited(data.state._addCurrentFolder(data))
       : null;
   return [
@@ -175,6 +182,30 @@ bool _favoriteShows(_SidebarData data, Bookmark bookmark) => data.countRow(
       : () => data.view.onOpenFavorite!(bookmark, SidebarOpenAction.plain),
 );
 
+/// Home's empty state (D32 §9): what FAVORITES keeps and where a folder
+/// is added from, with the standard-folders offer when the platform has
+/// any of the three (a phone's app storage usually has none).
+Widget _homeEmptyFavorites(_SidebarData data) {
+  final l10n = data.l10n;
+  final offered = data.standardFolders;
+  return _HomeEmptyState(
+    key: const ValueKey('sidebar.favorites.empty'),
+    icon: Icons.star_outline,
+    title: l10n.compactHomeFavoritesEmptyTitle,
+    body: l10n.compactHomeFavoritesEmptyBody,
+    actions: [
+      if (offered.isNotEmpty)
+        FilledButton.tonalIcon(
+          key: const ValueKey('sidebar.favorites.addStandard'),
+          onPressed: () =>
+              unawaited(_addFolders(data.context, data.view, offered)),
+          icon: const Icon(Icons.add),
+          label: Text(l10n.sidebarFavoritesAddStandard),
+        ),
+    ],
+  );
+}
+
 /// The empty state: the one-click standard folders (only those that
 /// exist), else a hint — and either way a drop target for folders.
 Widget _emptyFavorites(_SidebarData data) {
@@ -198,6 +229,7 @@ Widget _emptyFavorites(_SidebarData data) {
       ),
       child: _SidebarHint(
         text: l10n.sidebarFavoritesEmpty,
+        presentation: view.presentation,
         action: offered.isEmpty
             ? null
             : TextButton.icon(
@@ -253,18 +285,28 @@ class _FavoriteRow extends StatelessWidget {
     final open = view.onOpenFavorite;
     final chrome = PoltergeistChrome.of(context);
     final accent = serverAccent(context, ServerTint(named: bookmark.color));
-    final mark = Icon(
-      _favoriteIcon(bookmark),
-      size: 16,
-      color: accent?.line ?? chrome.secondaryText,
-    );
+    final home = data.home;
+    final mark = home
+        ? _HomeDisc(
+            glyph: _favoriteIcon(bookmark),
+            tint: accent?.line ?? _homeFavoriteTint(context, bookmark),
+          )
+        : Icon(
+            _favoriteIcon(bookmark),
+            size: 16,
+            color: accent?.line ?? chrome.secondaryText,
+          );
     final localPath = bookmark.kind == BookmarkKind.localFolder
         ? bookmark.localPath
         : null;
+    final subtitle = home ? _homeFavoriteLine(data, bookmark) : null;
 
     Widget row(SidebarDropIndicator indicator) => SidebarRow(
       mark: mark,
       title: bookmark.label,
+      subtitle: subtitle,
+      semanticLabel: home ? _homeSemantics([bookmark.label, subtitle]) : null,
+      showMenuButton: home,
       depth: depth,
       dropIndicator: indicator,
       tooltip: switch (bookmark.kind) {
@@ -322,6 +364,47 @@ class _FavoriteRow extends StatelessWidget {
         child: row(indicator),
       ),
     );
+  }
+}
+
+/// A favorite's Home disc tint by kind when it has no colour of its own:
+/// a folder in the browser's folder tint; a workspace or a saved sync —
+/// two places at once — in the secondary role, apart from the servers'.
+Color _homeFavoriteTint(BuildContext context, Bookmark bookmark) {
+  final colors = Theme.of(context).colorScheme;
+  return switch (bookmark.kind) {
+    BookmarkKind.localFolder || BookmarkKind.remotePath => colors.primary,
+    BookmarkKind.workspace || BookmarkKind.savedSync => colors.secondary,
+  };
+}
+
+/// A favorite's Home line (D32 §9): where it opens — a folder's path
+/// home-relative, a saved sync's two sides — or, for a workspace (two
+/// panes, no single place), its kind.
+String? _homeFavoriteLine(_SidebarData data, Bookmark bookmark) {
+  final l10n = data.l10n;
+  switch (bookmark.kind) {
+    case BookmarkKind.localFolder:
+      final path = bookmark.localPath;
+      return path == null
+          ? null
+          : sidebarHomeRelativePath(path, data.localHome);
+    case BookmarkKind.workspace:
+      return l10n.sidebarKindWorkspace;
+    case BookmarkKind.savedSync:
+      final sync = bookmark.sync;
+      if (sync == null) return l10n.sidebarKindSavedSync;
+      return l10n.compactHomeSyncRoute(
+        _homeLocation(data, sync.source),
+        _homeLocation(data, sync.destination),
+      );
+    case BookmarkKind.remotePath:
+      final path = bookmark.remotePath;
+      final server = bookmark.server;
+      if (path == null) return null;
+      return server == null
+          ? path
+          : _homeLocation(data, BookmarkLocation(server: server, path: path));
   }
 }
 

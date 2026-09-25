@@ -76,7 +76,9 @@ List<Widget> _thisDeviceSection(_SidebarData data) {
   }
   final sectionKey = SidebarCollapseKeys.section(SidebarSection.devices);
   final collapsed = data.collapsed(sectionKey);
-  final chrome = PoltergeistChrome.of(data.context);
+  final context = data.context;
+  final chrome = PoltergeistChrome.of(context);
+  final subtitle = data.home ? l10n.compactHomeThisDeviceSubtitle : null;
   return [
     SidebarSectionHeader(
       headerKey: ValueKey('sidebar.section.$sectionKey'),
@@ -88,12 +90,20 @@ List<Widget> _thisDeviceSection(_SidebarData data) {
     if (!collapsed)
       SidebarRow(
         key: const ValueKey('sidebar.device.thisDevice'),
-        mark: Icon(
-          Icons.smartphone_outlined,
-          size: 16,
-          color: chrome.secondaryText,
-        ),
+        mark: data.home
+            ? _HomeDisc(
+                glyph: Icons.smartphone_outlined,
+                tint: Theme.of(context).colorScheme.primary,
+              )
+            : Icon(
+                Icons.smartphone_outlined,
+                size: 16,
+                color: chrome.secondaryText,
+              ),
         title: label,
+        subtitle: subtitle,
+        semanticLabel: data.home ? _homeSemantics([label, subtitle]) : null,
+        showMenuButton: data.home,
         // No volume or favorite claims a local location here, so any
         // local folder the active pane shows is this device's.
         selected:
@@ -143,16 +153,38 @@ class _DeviceRow extends StatelessWidget {
           )
         : null;
 
-    final semanticLabel = freeSpace == null
+    final free = freeSpace;
+    // Home spells the free space (or, without it, the place) on the
+    // second line; the rail keeps free space trailing and the path in
+    // the tooltip.
+    final home = data.home;
+    final subtitle = !home
+        ? null
+        : (free == null
+              ? sidebarHomeRelativePath(volume.path, data.localHome)
+              : l10n.compactHomeFreeSpace(free));
+    final semanticLabel = home
+        ? _homeSemantics([
+            volume.name,
+            free == null ? subtitle : l10n.sidebarFreeSpaceSemantics(free),
+          ])
+        : free == null
         ? volume.name
         : '${volume.name}, ${l10n.sidebarFreeSpaceSemantics(freeSpace!)}';
     Widget row(SidebarDropIndicator indicator) => SidebarRow(
       dropIndicator: indicator,
-      mark: Icon(_iconFor(volume.kind), size: 16, color: chrome.secondaryText),
+      mark: home
+          ? _HomeDisc(
+              glyph: _iconFor(volume.kind),
+              tint: Theme.of(context).colorScheme.primary,
+            )
+          : Icon(_iconFor(volume.kind), size: 16, color: chrome.secondaryText),
       title: volume.name,
-      trailingText: freeSpace,
+      subtitle: subtitle,
+      trailingText: home ? null : freeSpace,
       tooltip: volume.path,
       semanticLabel: semanticLabel,
+      showMenuButton: home,
       selected: data.selectionKey == _deviceSelectionKey(volume.path),
       onActivate: open == null ? null : (how) => open(_openActionFor(how)),
       hoverAction: eject == null

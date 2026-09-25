@@ -326,8 +326,13 @@ class _SidebarViewState extends State<SidebarView> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final view = widget;
+    final home = view.presentation == SidebarPresentation.home;
     return SidebarKitScope(
       strings: _stringsOf(l10n),
+      // Home is a phone's list screen, drawn like the browser it opens:
+      // Material's list rows on the page surface.
+      layout: home ? SidebarKitLayout.list : SidebarKitLayout.rail,
+      background: home ? _homeBackground(context) : null,
       child: ListenableBuilder(
         listenable: Listenable.merge([
           view.controller,
@@ -361,6 +366,7 @@ class _SidebarViewState extends State<SidebarView> {
         _SidebarHint(
           key: const ValueKey('sidebar.noMatches'),
           text: l10n.sidebarNoMatches,
+          presentation: widget.presentation,
         ),
       );
     }
@@ -418,89 +424,75 @@ class _SidebarViewState extends State<SidebarView> {
     );
   }
 
-  /// The bottom bar's "+" (10 §5): creation verbs, each hidden when its
-  /// seam is absent and disabled while it has nothing to act on. [icons]
-  /// dresses the touch sheet's rows (Home's FAB); the desktop menu stays
-  /// text-only.
-  List<SidebarMenuEntry> _addMenuEntries(
-    _SidebarData data, {
-    bool icons = false,
-  }) {
+  /// The "+" (10 §5): creation verbs, each hidden when its seam is absent
+  /// and disabled while it has nothing to act on. The rail's menu is
+  /// text-only and carries "Add Current Folder to Favorites" (the active
+  /// pane sits beside it). Home's sheet (the FAB) dresses its rows with
+  /// icons and offers only what makes sense there (D32 §9): no folder is
+  /// in view on Home, so the current-folder verb stays in the browser.
+  List<SidebarMenuEntry> _addMenuEntries(_SidebarData data) {
     final l10n = data.l10n;
     final view = widget;
+    final home = data.home;
+    final newServer = view.onAddCatalogServer == null
+        ? null
+        : SidebarMenuAction(
+            key: const ValueKey('sidebar.add.newServer'),
+            label: l10n.sidebarAddNewServer,
+            icon: home ? Icons.dns_outlined : null,
+            onSelected: view.onAddCatalogServer,
+          );
+    final quickConnect = view.onQuickConnect == null
+        ? null
+        : SidebarMenuAction(
+            key: const ValueKey('sidebar.add.quickConnect'),
+            label: l10n.sidebarAddQuickConnect,
+            icon: home ? Icons.power_outlined : null,
+            onSelected: view.onQuickConnect,
+          );
+    final newGroup = SidebarMenuAction(
+      key: const ValueKey('sidebar.add.newGroup'),
+      label: l10n.sidebarNewGroup,
+      icon: home ? Icons.playlist_add : null,
+      onSelected: () => unawaited(_newPendingGroup(context, widget)),
+    );
+    final importSshConfig = view.onImportSshConfig == null
+        ? null
+        : SidebarMenuAction(
+            key: const ValueKey('sidebar.add.importSshConfig'),
+            label: l10n.sidebarImportSshConfig,
+            icon: home ? Icons.download_outlined : null,
+            onSelected: view.onImportSshConfig,
+          );
+    if (home) return [?newServer, ?quickConnect, ?importSshConfig, newGroup];
     return [
-      if (view.onAddCatalogServer != null)
-        SidebarMenuAction(
-          key: const ValueKey('sidebar.add.newServer'),
-          label: l10n.sidebarAddNewServer,
-          icon: icons ? Icons.dns_outlined : null,
-          onSelected: view.onAddCatalogServer,
-        ),
-      if (view.onQuickConnect != null)
-        SidebarMenuAction(
-          key: const ValueKey('sidebar.add.quickConnect'),
-          label: l10n.sidebarAddQuickConnect,
-          icon: icons ? Icons.power_outlined : null,
-          onSelected: view.onQuickConnect,
-        ),
+      ?newServer,
+      ?quickConnect,
       SidebarMenuAction(
         key: const ValueKey('sidebar.add.currentFolder'),
         label: l10n.sidebarAddCurrentFolder,
-        icon: icons ? Icons.star_outline : null,
         onSelected: data.canAddCurrentFolder
             ? () => unawaited(_addCurrentFolder(data))
             : null,
       ),
-      SidebarMenuAction(
-        key: const ValueKey('sidebar.add.newGroup'),
-        label: l10n.sidebarNewGroup,
-        icon: icons ? Icons.playlist_add : null,
-        onSelected: () => unawaited(_newPendingGroup(context, widget)),
-      ),
-      if (view.onImportSshConfig != null) ...[
+      newGroup,
+      if (importSshConfig != null) ...[
         const SidebarMenuDivider(),
-        SidebarMenuAction(
-          key: const ValueKey('sidebar.add.importSshConfig'),
-          label: l10n.sidebarImportSshConfig,
-          icon: icons ? Icons.download_outlined : null,
-          onSelected: view.onImportSshConfig,
-        ),
+        importSshConfig,
       ],
     ];
   }
 
-  /// "Add Current Folder to Favorites": a local pane's folder becomes a
-  /// favorite; a remote pane's becomes a saved server location (remote
-  /// bookmarks live under SERVERS).
+  /// "Add Current Folder to Favorites" for the active pane's location.
   Future<void> _addCurrentFolder(_SidebarData data) async {
     final location = _facts.activeLocation;
     if (location == null) return;
-    final l10n = data.l10n;
-    try {
-      switch (location) {
-        case LocalPaneLocation(:final path):
-          final added = await widget.controller.addLocalFolders([
-            path,
-          ], labelOf: _folderLabel);
-          if (added.isEmpty && mounted) {
-            _showSidebarNotice(
-              context,
-              l10n.sidebarAlreadyFavorite(_folderLabel(path)),
-            );
-          }
-        case RemotePaneLocation(:final path):
-          final live = _facts.activeRemote;
-          if (live == null) return;
-          await widget.controller.saveRemoteLocation(
-            live: live,
-            path: path,
-            label: path == '/' ? live.label : p.posix.basename(path),
-          );
-      }
-    } on Object catch (error, stackTrace) {
-      ApplicationErrorReporter().report(error, stackTrace);
-      if (mounted) _showSidebarError(context, l10n);
-    }
+    await addLocationToFavorites(
+      context,
+      widget.controller,
+      location: location,
+      remote: _facts.activeRemote,
+    );
   }
 
   /// The sync chip (10 §5), or null without a backup service.
@@ -574,6 +566,65 @@ class _SidebarViewState extends State<SidebarView> {
   }
 }
 
+/// What an "Add Current Folder to Favorites" landed: a new favorite, a
+/// folder that already was one (the caller has said so), a saved server
+/// location, or nothing (the failure has been reported and said).
+enum SidebarAddOutcome { favorite, alreadyFavorite, serverLocation, failed }
+
+/// "Add Current Folder to Favorites" (10 §5) for [location]: a local
+/// folder becomes a favorite; a remote one becomes a saved server
+/// location under SERVERS, saved from its live [remote] binding. One
+/// owner for the rail's "+" and the compact browser's ⋮, so both land
+/// the same bookmark and say the same thing when the folder already is
+/// one or the write fails. [label] names what was added, for a caller
+/// that confirms it (a phone's browser, where the list is not in view).
+Future<({SidebarAddOutcome outcome, String label})> addLocationToFavorites(
+  BuildContext context,
+  SidebarController controller, {
+  required PaneLocation location,
+  Bookmark? remote,
+}) async {
+  final l10n = AppLocalizations.of(context);
+  final String label;
+  switch (location) {
+    case LocalPaneLocation(:final path):
+      label = _folderLabel(path);
+    case RemotePaneLocation(:final path):
+      label = path == '/' ? (remote?.label ?? path) : p.posix.basename(path);
+  }
+  // Callers gate on [canAddLocationToFavorites]; a remote location without
+  // its binding has nothing to be saved from.
+  if (!canAddLocationToFavorites(location, remote)) {
+    return (outcome: SidebarAddOutcome.failed, label: label);
+  }
+  try {
+    switch (location) {
+      case LocalPaneLocation(:final path):
+        final added = await controller.addLocalFolders([
+          path,
+        ], labelOf: _folderLabel);
+        if (added.isNotEmpty) {
+          return (outcome: SidebarAddOutcome.favorite, label: label);
+        }
+        if (context.mounted) {
+          _showSidebarNotice(context, l10n.sidebarAlreadyFavorite(label));
+        }
+        return (outcome: SidebarAddOutcome.alreadyFavorite, label: label);
+      case RemotePaneLocation(:final path):
+        await controller.saveRemoteLocation(
+          live: remote!,
+          path: path,
+          label: label,
+        );
+        return (outcome: SidebarAddOutcome.serverLocation, label: label);
+    }
+  } on Object catch (error, stackTrace) {
+    ApplicationErrorReporter().report(error, stackTrace);
+    if (context.mounted) _showSidebarError(context, l10n);
+    return (outcome: SidebarAddOutcome.failed, label: label);
+  }
+}
+
 String _syncedAgo(AppLocalizations l10n, Duration age) {
   if (age.inMinutes < 1) return l10n.sidebarSyncedJustNow;
   if (age.inHours < 1) return l10n.sidebarSyncedMinutes(age.inMinutes);
@@ -616,6 +667,13 @@ final class _SidebarData {
   SidebarController get controller => view.controller;
   bool get filtering => query.isNotEmpty;
 
+  /// The compact Home (D32 §9) rather than the rail: rows spell their
+  /// secondary facts on a second line, since touch has no hover tooltip.
+  bool get home => view.presentation == SidebarPresentation.home;
+
+  /// The folder `~` names, for home-relative location lines.
+  String? get localHome => view.volumes?.homeDirectory;
+
   /// Rows the filter considered and kept, for "3 of 12" — every section
   /// counts through [countRow].
   int total = 0;
@@ -646,11 +704,8 @@ final class _SidebarData {
   /// broken (Séance's rule).
   bool collapsed(String key) => !filtering && controller.isCollapsed(key);
 
-  bool get canAddCurrentFolder => switch (facts.activeLocation) {
-    null => false,
-    LocalPaneLocation() => true,
-    RemotePaneLocation() => facts.activeRemote != null,
-  };
+  bool get canAddCurrentFolder =>
+      canAddLocationToFavorites(facts.activeLocation, facts.activeRemote);
 
   List<Bookmark> get favorites => [
     for (final section in controller.sections)
@@ -778,26 +833,36 @@ _serverIndicator(
 );
 
 /// A section's secondary line: loading, empty, or no-match copy, set in
-/// the rail's caption style and inset like a row title.
+/// the rail's caption style and inset like a row title — on Home, in the
+/// list's body size and inset like its marks.
 class _SidebarHint extends StatelessWidget {
-  const _SidebarHint({required this.text, this.action, super.key});
+  const _SidebarHint({
+    required this.text,
+    required this.presentation,
+    this.action,
+    super.key,
+  });
 
   final String text;
+  final SidebarPresentation presentation;
   final Widget? action;
 
   @override
   Widget build(BuildContext context) {
     final chrome = PoltergeistChrome.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final home = presentation == SidebarPresentation.home;
     return Padding(
-      padding: const EdgeInsetsDirectional.fromSTEB(14, 4, 12, 6),
+      padding: home
+          ? const EdgeInsetsDirectional.fromSTEB(16, 8, 16, 12)
+          : const EdgeInsetsDirectional.fromSTEB(14, 4, 12, 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             text,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: chrome.secondaryText),
+            style: (home ? textTheme.bodyMedium : textTheme.bodySmall)
+                ?.copyWith(color: chrome.secondaryText),
           ),
           if (action != null) ...[const SizedBox(height: 4), action!],
         ],

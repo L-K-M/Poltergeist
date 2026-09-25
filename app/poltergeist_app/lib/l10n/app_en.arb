@@ -5934,5 +5934,100 @@
   "sidebarRowMenu": "More actions",
   "@sidebarRowMenu": {
     "description": "Tooltip of a sidebar row's visible ⋮ button, which opens the row's verbs (the shared sidebar kit's showMenuButton; Séance uses the same words)."
+  },
+  "compactHomeThisDeviceSubtitle": "App storage",
+  "@compactHomeThisDeviceSubtitle": {
+    "description": "D32 §9: second line of the compact Home's \"This device\" row. The local pane on a phone is the app's own storage, not the whole device."
+  },
+  "compactHomeFreeSpace": "{size} free",
+  "@compactHomeFreeSpace": {
+    "description": "D32 §9: second line of a DEVICES row on the compact Home, e.g. '23 GB free'.",
+    "placeholders": {
+      "size": {
+        "type": "String",
+        "example": "23 GB"
+      }
+    }
+  },
+  "compactHomeRemoteLocation": "{server} · {path}",
+  "@compactHomeRemoteLocation": {
+    "description": "D32 §9: a remote location on a compact Home row's second line: the server's name, then the folder, e.g. 'demo · /srv/www'.",
+    "placeholders": {
+      "server": {
+        "type": "String"
+      },
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "compactHomeSyncRoute": "{source} → {destination}",
+  "@compactHomeSyncRoute": {
+    "description": "D32 §9: second line of a saved-sync favorite on the compact Home: its source and destination, e.g. '~/site → demo · /srv/www'.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      },
+      "destination": {
+        "type": "String"
+      }
+    }
+  },
+  "compactHomeServerState": "{state} · {endpoint}",
+  "@compactHomeServerState": {
+    "description": "D32 §9: second line of a server row on the compact Home while its state needs words: the state first, then user@host, e.g. 'Connecting… · deploy@example.com'.",
+    "placeholders": {
+      "state": {
+        "type": "String",
+        "example": "Connection failed"
+      },
+      "endpoint": {
+        "type": "String",
+        "example": "deploy@example.com"
+      }
+    }
+  },
+  "compactHomeTabsOpen": "{count, plural, =1{1 tab open} other{{count} tabs open}}",
+  "@compactHomeTabsOpen": {
+    "description": "D32 §9: announced on a compact Home server row shown in several tabs (the row's visible ×N).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "compactHomeServersEmptyTitle": "Connect to a server",
+  "@compactHomeServersEmptyTitle": {
+    "description": "D32 §9: title of the compact Home's empty SERVERS state, above the Quick Connect and Import from ssh config buttons."
+  },
+  "compactHomeServersEmptyBody": "Servers you save appear here, with their status.",
+  "@compactHomeServersEmptyBody": {
+    "description": "D32 §9: body of the compact Home's empty SERVERS state."
+  },
+  "compactHomeFavoritesEmptyTitle": "Keep folders close",
+  "@compactHomeFavoritesEmptyTitle": {
+    "description": "D32 §9: title of the compact Home's empty FAVORITES state."
+  },
+  "compactHomeFavoritesEmptyBody": "Open a folder, then choose Add Current Folder to Favorites from its menu.",
+  "@compactHomeFavoritesEmptyBody": {
+    "description": "D32 §9: body of the compact Home's empty FAVORITES state: how a folder becomes a favorite on a phone (the browser's ⋮ menu offers the verb)."
+  },
+  "compactAddedToFavorites": "Added “{label}” to Favorites.",
+  "@compactAddedToFavorites": {
+    "description": "D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local folder (Home, where the row appears, is a screen away).",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "compactSavedToServers": "Saved “{label}” to Servers.",
+  "@compactSavedToServers": {
+    "description": "D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a remote folder, which lands under Servers.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
   }
 }

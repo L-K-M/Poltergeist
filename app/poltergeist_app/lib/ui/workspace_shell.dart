@@ -1814,8 +1814,40 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         onImportSshConfig: sshImportCommand == null
             ? null
             : () => unawaited(_runCommand(sshImportCommand)),
+        onAddToFavorites: _sidebar == null
+            ? null
+            : (pane) => unawaited(_addPaneToFavorites(pane)),
       ),
     );
+  }
+
+  /// The compact browser's "Add Current Folder to Favorites": the rail's
+  /// verb over the shown pane, confirmed in words because Home — where
+  /// the new row appears — is a screen away.
+  Future<void> _addPaneToFavorites(PaneController pane) async {
+    final sidebar = _sidebar;
+    final location = pane.location;
+    if (sidebar == null || location == null) return;
+    final result = await addLocationToFavorites(
+      context,
+      sidebar,
+      location: location,
+      remote: pane.remoteBookmark,
+    );
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    final message = switch (result.outcome) {
+      SidebarAddOutcome.favorite => l10n.compactAddedToFavorites(result.label),
+      SidebarAddOutcome.serverLocation => l10n.compactSavedToServers(
+        result.label,
+      ),
+      // Already a favorite, or failed: the shared verb has said so.
+      SidebarAddOutcome.alreadyFavorite || SidebarAddOutcome.failed => null,
+    };
+    if (message == null) return;
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// An open that lands a location from the compact Home pushes the
