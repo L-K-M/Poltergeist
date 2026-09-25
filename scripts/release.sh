@@ -107,22 +107,24 @@ done
 [[ -n "$PUBSPECS" ]] || { echo "error: no pubspecs found to bump" >&2; exit 1; }
 export RELEASE_PUBSPECS="$PUBSPECS"
 
-# Every committed lockfile that path-depends on a workspace package pins that
-# package's version: the app's, and the bench shim's under tool/bench (the
-# 1.0.0 and 1.0.1 bumps both left it naming the previous version, which the
-# Séance license gate then refused as dirty). Keep them in step so the post-release
-# `dart pub get` is a no-op. The locks are the ones beside the pubspecs bumped
-# above (packages/*, tool/*, app/*), and the packages are packages/*/ read by
-# their `name:`, not their directory (packages/poltergeist_bench is
-# poltergeist_m0_bench), skipping any without a `version:` to bump, so a new
-# package or tool needs no edit here. Each lockfile entry's block ends at its
-# `version:` line, so the range substitution touches exactly that line; a
-# package absent from a lockfile makes its range a harmless no-op. The engine
-# runs this via bash -c with RELEASE_NEW_VERSION exported — hence the single
-# quotes — from the repo root on whatever host invoked the stub; probe GNU vs
-# BSD sed exactly like the engine (`sed -i ""` is BSD-only syntax, and plain
-# `sed -i` breaks macOS). ${RELEASE_NEW_VERSION} expands when the engine runs
-# this, not here.
+# Every committed lockfile that path-depends on a package the release bumps
+# pins that package's version: the app's lock, and the bench shim's under
+# tool/bench (the 1.0.0 and 1.0.1 bumps both left it naming the previous
+# version, which the Séance license gate then refused as dirty). Keep them in
+# step so the post-release `dart pub get` is a no-op. The locks are the ones
+# beside the pubspecs bumped above (packages/*, tool/*, app/*). The pinned
+# packages are packages/* and tool/*, read by their `name:`, not their
+# directory (packages/poltergeist_bench is poltergeist_m0_bench), skipping any
+# without a `version:` to bump, so a new package or tool needs no edit here.
+# The app is left out: its version carries a build code, and nothing depends
+# on it. Each lockfile entry's block ends at its `version:` line, so the range
+# substitution touches exactly that line; a package absent from a lockfile
+# makes its range a harmless no-op. The engine runs this via bash -c with
+# RELEASE_NEW_VERSION exported — hence the single quotes — from the repo root
+# on whatever host invoked the stub, then commits every tracked file it
+# changed (`git commit -am`); probe GNU vs BSD sed exactly like the engine
+# (`sed -i ""` is BSD-only syntax, and plain `sed -i` breaks macOS).
+# ${RELEASE_NEW_VERSION} expands when the engine runs this, not here.
 # shellcheck disable=SC2016
 export RELEASE_POST_BUMP='
   set -euo pipefail
@@ -138,7 +140,7 @@ export RELEASE_POST_BUMP='
     SED_I=(sed -i "")
   fi
   SED_EXPRS=()
-  for pubspec in packages/*/pubspec.yaml; do
+  for pubspec in packages/*/pubspec.yaml tool/*/pubspec.yaml; do
     [ -f "$pubspec" ] || continue
     grep -q "^version:" "$pubspec" || continue
     pkg="$(sed -n -E "s/^name:[[:space:]]*([A-Za-z0-9_]+).*/\1/p" "$pubspec")"

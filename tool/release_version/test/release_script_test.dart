@@ -199,6 +199,11 @@ exit 1
       'poltergeist_m0_bench': '0.2.0',
       'dartssh2': '3.0.2',
     });
+    // A tool the release bumps is pinned too, in a package's lock.
+    expect(
+      _lockedVersions(sandbox, 'packages/poltergeist_bench/pubspec.lock'),
+      {'fixture_tool': '0.2.0'},
+    );
     expect(_lockedVersions(sandbox, 'app/poltergeist_app/pubspec.lock'), {
       'poltergeist_core': '0.2.0',
       'unversioned_fixture': '0.0.0',
@@ -267,8 +272,9 @@ enum _PostBumpMode { skip, failSynchronization, succeedSynchronization }
 /// A repository shaped like this one where the post-bump hook reads it:
 /// a workspace package, the bench harness whose directory
 /// (poltergeist_bench) differs from its package name
-/// (poltergeist_m0_bench), a package with no version to bump, and the
-/// app's and the bench shim's locks, all at the old version.
+/// (poltergeist_m0_bench), a package with no version to bump, a tool
+/// the release bumps, and locks under app/, tool/ and packages/, all at
+/// the old version.
 void _writeLockFixture(Directory root) {
   void write(String path, String contents) {
     File(p.join(root.path, path))
@@ -281,7 +287,7 @@ void _writeLockFixture(Directory root) {
   $name:
     dependency: "direct main"
     description:
-      path: "../../packages/$directory"
+      path: "../../$directory"
       relative: true
     source: path
     version: "$version"
@@ -302,8 +308,8 @@ void _writeLockFixture(Directory root) {
   write(
     'app/poltergeist_app/pubspec.lock',
     'packages:\n'
-        '${pathEntry('poltergeist_core', 'poltergeist_core', '0.1.0')}'
-        '${pathEntry('unversioned_fixture', 'unversioned_fixture', '0.0.0')}',
+        '${pathEntry('poltergeist_core', 'packages/poltergeist_core', '0.1.0')}'
+        '${pathEntry('unversioned_fixture', 'packages/unversioned_fixture', '0.0.0')}',
   );
   write(
     'tool/bench/pubspec.lock',
@@ -312,7 +318,16 @@ void _writeLockFixture(Directory root) {
         '    dependency: transitive\n'
         '    source: hosted\n'
         '    version: "3.0.2"\n'
-        '${pathEntry('poltergeist_m0_bench', 'poltergeist_bench', '0.1.0')}',
+        '${pathEntry('poltergeist_m0_bench', 'packages/poltergeist_bench', '0.1.0')}',
+  );
+  write(
+    'tool/fixture_tool/pubspec.yaml',
+    'name: fixture_tool\nversion: 0.1.0\n',
+  );
+  write(
+    'packages/poltergeist_bench/pubspec.lock',
+    'packages:\n'
+        '${pathEntry('fixture_tool', 'tool/fixture_tool', '0.1.0')}',
   );
 }
 
