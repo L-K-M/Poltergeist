@@ -6029,5 +6029,13 @@
         "type": "String"
       }
     }
+  },
+  "commandDisabledNotConnected": "Requires a tab connected to a server",
+  "@commandDisabledNotConnected": {
+    "description": "Disabled-command reason for Server ▸ Disconnect (connect.disconnect): the active tab shows no live server connection."
+  },
+  "commandDisabledNoQuickConnect": "Requires an unsaved Quick Connect session",
+  "@commandDisabledNoQuickConnect": {
+    "description": "Disabled-command reason for Server ▸ Save to Servers… (connect.saveToServers): the active tab is not browsing a Quick Connect session that is not saved yet."
   }
 }

@@ -17,6 +17,7 @@ import 'keyboard_shortcuts_dialog.dart';
 const kViewToggleInspectorCommandId = 'view.toggleInspector';
 const kViewShowAlertsCommandId = 'view.showAlerts';
 const kConnectQuickConnectCommandId = 'connect.quickConnect';
+const kConnectDisconnectCommandId = 'connect.disconnect';
 const kSelectionTransferToOtherPaneCommandId =
     'selection.transferToOtherPane';
 const kSelectionMoveToOtherPaneCommandId = 'selection.moveToOtherPane';
@@ -128,6 +129,26 @@ String? _revealTarget(WorkspaceController workspace) {
   return roots.isEmpty ? null : roots.first;
 }
 
+/// The server Server ▸ Disconnect drops: the one the active tab browses,
+/// while its connection is live (the sidebar row's rule, which offers
+/// Disconnect only then). The pool's own state leads; before its first
+/// report the tab's binding phase stands in.
+String? _disconnectTarget(WorkspaceController workspace) {
+  final pane = workspace.activeTabController;
+  final server = pane?.remoteBookmark;
+  if (pane == null || server == null) return null;
+  final live = switch (pane.connectionStatus?.state) {
+    ServerConnectionState.connecting ||
+    ServerConnectionState.connected ||
+    ServerConnectionState.reconnecting => true,
+    null =>
+      pane.phase == PanePhase.browsing ||
+          pane.phase == PanePhase.connectingRemote,
+    _ => false,
+  };
+  return live ? server.id : null;
+}
+
 List<RegisteredCommand> buildShellCommands({
   required WorkspaceController workspace,
   required PaneDropDelegate? Function() dropDelegate,
@@ -138,6 +159,11 @@ List<RegisteredCommand> buildShellCommands({
   required void Function(Object error) reportFailure,
   required String Function(PaneController pane) locationLabel,
   FileManagerRevealer revealer = const FileManagerRevealer(),
+
+  /// Drops the pool's reference for a server: the sidebar row's
+  /// Disconnect, which Server ▸ Disconnect reuses. Null leaves the menu
+  /// row disabled.
+  Future<void> Function(String serverId)? disconnectServer,
 }) {
   bool browsing() => workspace.activeTabController?.verbsEnabled ?? false;
   bool hasSelection() {
@@ -432,6 +458,34 @@ List<RegisteredCommand> buildShellCommands({
         slot: ToolbarSlot.primary,
         order: 20,
         labelled: true,
+      ),
+    ),
+    RegisteredCommand(
+      id: kConnectDisconnectCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.sidebarDisconnect,
+      icon: Icons.eject,
+      // ⇧⌘K on macOS, Ctrl+Shift+K elsewhere (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyK, meta: true, shift: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyK, control: true, shift: true),
+        ],
+      ),
+      enabled: () =>
+          disconnectServer != null && _disconnectTarget(workspace) != null,
+      disabledReason: (l10n) => l10n.commandDisabledNotConnected,
+      run: (_) async {
+        final serverId = _disconnectTarget(workspace);
+        if (serverId == null || disconnectServer == null) return;
+        await disconnectServer(serverId);
+      },
+      // 10 §8's Server menu: Connect… ⌘K, Disconnect.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.server,
+        order: 20,
       ),
     ),
     RegisteredCommand(

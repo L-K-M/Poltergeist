@@ -1599,9 +1599,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$host:$port'",
     r"'$username@$address'",
   },
-  // The sidebar filter command's registry id.
+  // The sidebar commands' registry ids.
   'lib/ui/sidebar/sidebar_commands.dart': {
     "'view.filterSidebar'",
+    "'favorite.add'",
+    "'connect.saveToServers'",
   },
   // The ported middle-ellipsis glyph and its head/tail compositions —
   // typography, not copy.
@@ -1738,6 +1740,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'view.toggleInspector'",
     "'view.showAlerts'",
     "'connect.quickConnect'",
+    "'connect.disconnect'",
     "'selection.transferToOtherPane'",
     "'selection.moveToOtherPane'",
     "'file.reveal'",

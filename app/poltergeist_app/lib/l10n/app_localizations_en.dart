@@ -4589,4 +4589,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String compactSavedToServers(String label) {
     return 'Saved “$label” to Servers.';
   }
+
+  @override
+  String get commandDisabledNotConnected =>
+      'Requires a tab connected to a server';
+
+  @override
+  String get commandDisabledNoQuickConnect =>
+      'Requires an unsaved Quick Connect session';
 }

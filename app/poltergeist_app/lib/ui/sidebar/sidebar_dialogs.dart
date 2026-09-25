@@ -129,11 +129,12 @@ Future<void> _deleteBookmark(
 }
 
 /// "Save to Servers…" on a live Quick Connect session: the pane's
-/// save-as-favorite flow, reached from the rail — a name (prefilled from
-/// the live endpoint, never the raw address), then a store save.
-Future<void> _saveSessionToServers(
+/// save-as-favorite flow, reached from the rail's row and from Server ▸
+/// Save to Servers… — a name (prefilled from the live endpoint, never
+/// the raw address), then a store save through [controller].
+Future<void> saveSessionToServers(
   BuildContext context,
-  SidebarView view,
+  SidebarController controller,
   SidebarAdhocSession session,
 ) async {
   final l10n = AppLocalizations.of(context);
@@ -145,7 +146,7 @@ Future<void> _saveSessionToServers(
   );
   if (name == null || !context.mounted) return;
   try {
-    await view.controller.saveRemoteLocation(
+    await controller.saveRemoteLocation(
       live: session.bookmark,
       path: session.path,
       label: name,

@@ -6987,6 +6987,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Saved “{label}” to Servers.'**
   String compactSavedToServers(String label);
+
+  /// Disabled-command reason for Server ▸ Disconnect (connect.disconnect): the active tab shows no live server connection.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires a tab connected to a server'**
+  String get commandDisabledNotConnected;
+
+  /// Disabled-command reason for Server ▸ Save to Servers… (connect.saveToServers): the active tab is not browsing a Quick Connect session that is not saved yet.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires an unsaved Quick Connect session'**
+  String get commandDisabledNoQuickConnect;
 }
 
 class _AppLocalizationsDelegate
