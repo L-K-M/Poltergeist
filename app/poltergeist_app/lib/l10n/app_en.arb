@@ -4548,7 +4548,7 @@
   },
   "alertDragOutFailed": "Couldn't drag “{name}” out",
   "@alertDragOutFailed": {
-    "description": "D32 alert row: an OS drag-out of a remote item was refused before any transfer started (00 D14's drag-out amendment).",
+    "description": "D32 alert row: an OS drag-out of a remote item was refused before any transfer started, or its download was stopped midway by a pause (00 D14's drag-out amendment).",
     "placeholders": {
       "name": {
         "type": "String"

@@ -80,9 +80,11 @@ final class DragOutHandOffResult {
   final DragOutLeftOut leftOut;
 }
 
-/// A drag-out refusal that no queue task reports, shown in the Alerts
-/// tab. A failed produce or folder download needs none: its failed
-/// Transfers row already raises `TransferFailedAlert`.
+/// A drag-out stop that no queue task reports as a failure, shown in
+/// the Alerts tab: a refusal before any transfer ran, or a pause that
+/// cancelled the download midway. A failed produce or folder download
+/// needs none: its failed Transfers row already raises
+/// `TransferFailedAlert`.
 enum DragOutNoticeKind {
   /// A folder promise arrived while the transfer queue was paused.
   paused,

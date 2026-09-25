@@ -5460,7 +5460,7 @@ abstract class AppLocalizations {
   /// **'Couldn\'t transfer “{name}”'**
   String alertTransferFailed(String name);
 
-  /// D32 alert row: an OS drag-out of a remote item was refused before any transfer started (00 D14's drag-out amendment).
+  /// D32 alert row: an OS drag-out of a remote item was refused before any transfer started, or its download was stopped midway by a pause (00 D14's drag-out amendment).
   ///
   /// In en, this message translates to:
   /// **'Couldn\'t drag “{name}” out'**
