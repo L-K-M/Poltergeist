@@ -4511,6 +4511,46 @@
       }
     }
   },
+  "alertDragOutFailed": "Couldn't drag “{name}” out",
+  "@alertDragOutFailed": {
+    "description": "D32 alert row: an OS drag-out of a remote item was refused before any transfer started (00 D14's drag-out amendment).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "alertDragOutPaused": "Transfers are paused. Resume them, then drag it to {folder} again.",
+  "@alertDragOutPaused": {
+    "description": "D32 alert row detail: a remote folder dragged to another app needs the transfer queue, which was paused.",
+    "placeholders": {
+      "folder": {
+        "type": "String"
+      }
+    }
+  },
+  "alertDragOutPausedMidway": "Transfers were paused, so the download to {folder} stopped.",
+  "@alertDragOutPausedMidway": {
+    "description": "D32 alert row detail: the transfer queue was paused while a remote folder dragged to another app was downloading, so that download was cancelled.",
+    "placeholders": {
+      "folder": {
+        "type": "String"
+      }
+    }
+  },
+  "alertDragOutRenamed": "The drop in {folder} asked for a different name than the folder's own.",
+  "@alertDragOutRenamed": {
+    "description": "D32 alert row detail: the receiving app asked for a remote folder under another name, which a download cannot honor.",
+    "placeholders": {
+      "folder": {
+        "type": "String"
+      }
+    }
+  },
+  "alertDragOutUnavailable": "Remote items can't be downloaded right now.",
+  "@alertDragOutUnavailable": {
+    "description": "D32 alert row detail: a remote item was dragged to another app while no transfer queue exists to download it."
+  },
   "alertConflictsPending": "{count, plural, =1{1 conflict needs a decision} other{{count} conflicts need a decision}}",
   "@alertConflictsPending": {
     "description": "D32 alert row: parked transfer conflicts (02 §5.2).",

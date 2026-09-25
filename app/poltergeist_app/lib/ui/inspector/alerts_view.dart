@@ -3,6 +3,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/alert_center.dart';
+import '../../services/drag_out_controller.dart';
 import '../../theme/app_theme.dart';
 import '../activity/activity_format.dart';
 import '../server_label_scope.dart';
@@ -162,6 +163,26 @@ class _AlertRow extends StatelessWidget {
                   l10n.alertActionReview,
                   () => actions.reviewLocalEdits!(serverId),
                 ),
+            ],
+          ),
+          DragOutAlert(:final notice) => (
+            l10n.alertDragOutFailed(notice.itemName),
+            switch (notice.kind) {
+              DragOutNoticeKind.paused => l10n.alertDragOutPaused(
+                notice.destinationDir,
+              ),
+              DragOutNoticeKind.pausedMidway => l10n.alertDragOutPausedMidway(
+                notice.destinationDir,
+              ),
+              DragOutNoticeKind.renamed => l10n.alertDragOutRenamed(
+                notice.destinationDir,
+              ),
+              DragOutNoticeKind.unavailable => l10n.alertDragOutUnavailable,
+            },
+            [
+              if (notice.kind == DragOutNoticeKind.paused ||
+                  notice.kind == DragOutNoticeKind.pausedMidway)
+                (l10n.alertActionShow, actions.showTransfers),
             ],
           ),
           UpdateAvailableAlert(:final info) => (

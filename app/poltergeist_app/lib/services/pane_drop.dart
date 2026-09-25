@@ -19,14 +19,32 @@ import 'pane_location.dart';
 /// so a mid-drag listing change on the source pane (a spring-load, a
 /// refresh) cannot retroactively alter what the user picked up.
 class PaneEntryDrag {
-  PaneEntryDrag({required this.source, required List<String> rootPaths})
-    : rootPaths = List.unmodifiable(rootPaths);
+  PaneEntryDrag({
+    required this.source,
+    required List<String> rootPaths,
+    List<RemoteFileEntry> entries = const [],
+  }) : rootPaths = List.unmodifiable(rootPaths),
+       entries = List.unmodifiable(entries);
 
   /// The endpoint the dragged rows live on (03 §4.1's `FsLocation`).
   final FsLocation source;
 
   /// Absolute source paths — one gesture's roots, in listing order.
   final List<String> rootPaths;
+
+  /// The listing entries behind [rootPaths], snapshotted with them: the
+  /// OS drag-out hand-off (D14's amendment) reads each root's name,
+  /// type, and size here, since the source listing may change mid-drag
+  /// (a spring-load into a folder of the same pane). Empty when the
+  /// source had no entries to offer; in-app drops never read it.
+  final List<RemoteFileEntry> entries;
+
+  late final Map<String, RemoteFileEntry> _entriesByPath = {
+    for (final entry in entries) entry.path: entry,
+  };
+
+  /// The snapshotted entry for [path], when there is one.
+  RemoteFileEntry? entryFor(String path) => _entriesByPath[path];
 
   /// The verb the currently hovered target resolved, for the avatar's
   /// `+` badge; null while nothing claims the drag. Listenable so a

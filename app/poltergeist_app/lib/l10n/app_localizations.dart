@@ -5430,6 +5430,36 @@ abstract class AppLocalizations {
   /// **'Couldn\'t transfer “{name}”'**
   String alertTransferFailed(String name);
 
+  /// D32 alert row: an OS drag-out of a remote item was refused before any transfer started (00 D14's drag-out amendment).
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t drag “{name}” out'**
+  String alertDragOutFailed(String name);
+
+  /// D32 alert row detail: a remote folder dragged to another app needs the transfer queue, which was paused.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfers are paused. Resume them, then drag it to {folder} again.'**
+  String alertDragOutPaused(String folder);
+
+  /// D32 alert row detail: the transfer queue was paused while a remote folder dragged to another app was downloading, so that download was cancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfers were paused, so the download to {folder} stopped.'**
+  String alertDragOutPausedMidway(String folder);
+
+  /// D32 alert row detail: the receiving app asked for a remote folder under another name, which a download cannot honor.
+  ///
+  /// In en, this message translates to:
+  /// **'The drop in {folder} asked for a different name than the folder\'s own.'**
+  String alertDragOutRenamed(String folder);
+
+  /// D32 alert row detail: a remote item was dragged to another app while no transfer queue exists to download it.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote items can\'t be downloaded right now.'**
+  String get alertDragOutUnavailable;
+
   /// D32 alert row: parked transfer conflicts (02 §5.2).
   ///
   /// In en, this message translates to:

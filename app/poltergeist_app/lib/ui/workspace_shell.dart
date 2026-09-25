@@ -21,10 +21,13 @@ import '../services/checkout_session.dart';
 import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
 import '../services/double_click_action.dart';
+import '../services/drag_out_controller.dart';
+import '../services/drag_out_producer.dart' show DragOutProducer;
 import '../services/editor_registry_controller.dart';
 import '../services/engine_session.dart';
 import '../services/external_file_opener.dart';
 import '../services/in_app_quick_look.dart';
+import '../services/os_drag_out.dart' show DragOutBackend, NoDragOutBackend;
 import '../services/local_volumes.dart' show LocalVolumeSource;
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
@@ -66,6 +69,7 @@ import 'layout/pane_allocation.dart';
 import 'local_edits_review.dart';
 import 'menus/app_menu_commands.dart';
 import 'menus/app_menu_host.dart';
+import 'panes/drag_out_image.dart';
 import 'panes/open_with_commands.dart';
 import 'panes/pane_commands.dart';
 import 'panes/pane_tabs_view.dart';
@@ -144,6 +148,8 @@ class WorkspaceShell extends StatefulWidget {
     this.onSidebarCollapsedGroupsChanged,
     this.previewCache,
     this.previewProducer,
+    this.dragOutProducer,
+    this.dragOutBackend,
     this.quickLook,
     this.initialPreviewThresholdBytes =
         defaultLargeDownloadThresholdBytes,
@@ -337,6 +343,16 @@ class WorkspaceShell extends StatefulWidget {
   /// Download — honest absence, never a stub.
   final PreviewProducer? previewProducer;
 
+  /// OS drag-out's remote-file seam (00 D14's drag-out amendment):
+  /// null leaves remote rows without file promises (a Linux/Windows
+  /// drag of them shows the Download To… hint instead).
+  final DragOutProducer? dragOutProducer;
+
+  /// The native drag-out backend; null composes the no-op one, so a
+  /// row drag that leaves the window just ends there. Read once at
+  /// mount: the backend owns the channel's callback registration.
+  final DragOutBackend? dragOutBackend;
+
   /// The macOS `QLPreviewPanel` channel (06 §5.1) — injectable for
   /// tests; null binds the real method channel, which answers
   /// unavailable off-macOS and falls the verb back to the panel.
@@ -471,6 +487,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// and the update check (10 §3's Alerts tab).
   late final AlertCenter _alerts;
 
+  /// OS drag-out's Dart half: hands pane row drags that leave the
+  /// window to the native session, fulfils remote promises through the
+  /// queue, and reports its refusals to [_alerts].
+  late final DragOutController _dragOut;
+
   /// The region widths (10 §3.1) and the splitter/header focus nodes.
   late double _sidebarWidth;
   late double _inspectorWidth;
@@ -532,11 +553,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
     _connections = _buildConnections();
     _bindFileOps(widget.transferQueue);
+    _dragOut = DragOutController(
+      backend: widget.dragOutBackend ?? const NoDragOutBackend(),
+      files: widget.dragOutProducer,
+      queue: widget.transferQueue,
+      conflictPolicy: () => widget.conflictPolicy ?? ConflictPolicy(),
+      renderImage: renderDragOutImage,
+    );
     _alerts = AlertCenter(
       activity: _activity,
       connections: _connections,
       checkouts: widget.checkoutSession,
       updates: widget.updateCheck,
+      dragOut: _dragOut,
     );
     _sidebar = _buildSidebar();
     _probes = _buildProbes();
@@ -666,6 +695,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // limits re-apply inside the setter.
       _activity.queue = widget.transferQueue;
       _bindFileOps(widget.transferQueue);
+      _dragOut.queue = widget.transferQueue;
+    }
+    if (!identical(oldWidget.dragOutProducer, widget.dragOutProducer)) {
+      _dragOut.files = widget.dragOutProducer;
     }
     // The settings slice writes the strips' live newTabTarget directly;
     // this sync only covers a parent rebuild with a changed seed, which
@@ -709,6 +742,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _sidebar?.dispose();
     _activity.dispose();
     _alerts.dispose();
+    _dragOut.dispose();
     unawaited(_settledRefresh?.cancel());
     _sidebarSplitterFocus.dispose();
     _inspectorSplitterFocus.dispose();

@@ -1,9 +1,15 @@
+import 'dart:ui' show Color, Offset;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/activity_panel_controller.dart';
 import 'package:poltergeist_app/services/alert_center.dart';
+import 'package:poltergeist_app/services/drag_out_controller.dart';
+import 'package:poltergeist_app/services/os_drag_out.dart';
+import 'package:poltergeist_app/services/pane_drop.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../support/fake_app_transfer_queue.dart';
+import '../support/fake_drag_out.dart';
 
 void main() {
   late FakeAppTransferQueue queue;
@@ -97,5 +103,61 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     final severities = [for (final a in center.alerts) a.severity];
     expect(severities.first, AlertSeverity.error);
+  });
+
+  test('a refused drag-out raises an alert until dismissed', () async {
+    final backend = FakeDragOutBackend(
+      support: DragOutSupport.localFilesAndPromises,
+    );
+    final dragOut = DragOutController(
+      backend: backend,
+      files: FakeDragOutProducer(),
+      queue: queue,
+      dropStagingDirectory: '/tmp/Drops',
+    );
+    addTearDown(dragOut.dispose);
+    final withDragOut = AlertCenter(activity: activity, dragOut: dragOut);
+    addTearDown(withDragOut.dispose);
+    queue.pauseQueue();
+    await dragOut.handOff(
+      PaneEntryDrag(
+        source: const ServerFsLocation('srv-1'),
+        rootPaths: const ['/srv/site'],
+        entries: const [
+          RemoteFileEntry(
+            path: '/srv/site',
+            name: 'site',
+            type: RemoteFileType.directory,
+          ),
+        ],
+      ),
+      position: Offset.zero,
+      style: DragOutImageStyle(
+        palette: const DragOutImagePalette(
+          background: Color(0xFFFFFFFF),
+          foreground: Color(0xFF000000),
+          badge: Color(0xFF0000FF),
+          onBadge: Color(0xFFFFFFFF),
+        ),
+        devicePixelRatio: 1,
+        itemCountLabel: (count) => '$count',
+      ),
+    );
+    await expectLater(
+      dragOut.fulfilPromise(
+        DragOutPromiseRequest(
+          sessionId: backend.requests.single.sessionId,
+          promiseId: 'p1',
+          destinationPath: '/Users/me/Desktop/site',
+        ),
+      ),
+      throwsA(isA<DragOutPromiseException>()),
+    );
+    final alert = withDragOut.alerts.single as DragOutAlert;
+    expect(alert.notice.kind, DragOutNoticeKind.paused);
+    expect(alert.notice.itemName, 'site');
+    expect(alert.severity, AlertSeverity.warning);
+    withDragOut.dismiss(alert);
+    expect(withDragOut.alerts, isEmpty);
   });
 }
