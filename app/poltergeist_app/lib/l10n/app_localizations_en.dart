@@ -3631,6 +3631,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fileRevealWindowsLabel => 'Show in Explorer';
 
   @override
+  String get fileDownloadToLabel => 'Download To…';
+
+  @override
+  String get fileDownloadToDialogTitle => 'Download To';
+
+  @override
+  String get commandDisabledDownloadToRemoteOnly => 'Select items on a server';
+
+  @override
   String get commandDisabledRevealLocalOnly => 'Select a local item';
 
   @override

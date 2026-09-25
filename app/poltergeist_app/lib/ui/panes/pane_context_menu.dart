@@ -8,6 +8,7 @@ import '../menus/menu_shortcut_hint.dart';
 import '../shell/shell_commands.dart'
     show
         kFileDeleteCommandId,
+        kFileDownloadToCommandId,
         kFileDuplicateCommandId,
         kFileNewFileCommandId,
         kFileNewFolderCommandId,
@@ -34,7 +35,11 @@ const kPaneRowContextMenu = <List<String>>[
     kSelectionCopyPathCommandId,
   ],
   [kFileNewFolderCommandId, kFileNewFileCommandId],
-  [kSelectionTransferToOtherPaneCommandId, kSelectionMoveToOtherPaneCommandId],
+  [
+    kSelectionTransferToOtherPaneCommandId,
+    kSelectionMoveToOtherPaneCommandId,
+    kFileDownloadToCommandId,
+  ],
   [kFileDeleteCommandId],
 ];
 

@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:file_picker/file_picker.dart' show FilePicker;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -150,6 +151,7 @@ class WorkspaceShell extends StatefulWidget {
     this.previewProducer,
     this.dragOutProducer,
     this.dragOutBackend,
+    this.pickDirectory,
     this.quickLook,
     this.initialPreviewThresholdBytes =
         defaultLargeDownloadThresholdBytes,
@@ -353,6 +355,11 @@ class WorkspaceShell extends StatefulWidget {
   /// mount: the backend owns the channel's callback registration.
   final DragOutBackend? dragOutBackend;
 
+  /// Download To…'s folder picker — injectable for tests; null picks
+  /// `file_picker`'s native dialog on the desktop platforms (none on
+  /// mobile, where the verb does not register).
+  final DirectoryPicker? pickDirectory;
+
   /// The macOS `QLPreviewPanel` channel (06 §5.1) — injectable for
   /// tests; null binds the real method channel, which answers
   /// unavailable off-macOS and falls the verb back to the panel.
@@ -486,6 +493,16 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// D32's alert inbox over the queue mirror, connections, checkouts,
   /// and the update check (10 §3's Alerts tab).
   late final AlertCenter _alerts;
+
+  /// The native folder picker on the desktop platforms, none elsewhere.
+  static DirectoryPicker? _platformDirectoryPicker() {
+    if (kIsWeb) return null;
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.macOS || TargetPlatform.linux || TargetPlatform.windows =>
+        (title) => FilePicker.getDirectoryPath(dialogTitle: title),
+      _ => null,
+    };
+  }
 
   /// OS drag-out's Dart half: hands pane row drags that leave the
   /// window to the native session, fulfils remote promises through the
@@ -1451,6 +1468,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           disconnectServer: widget.engineSession == null
               ? null
               : _disconnectServer,
+          pickDirectory: widget.pickDirectory ?? _platformDirectoryPicker(),
         ),
       // `open-with-external` registers whenever a workspace exists
       // (D21): the Open With ▸ submenu renders disabled rows while no

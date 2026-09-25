@@ -4713,6 +4713,18 @@
   "@fileRevealWindowsLabel": {
     "description": "D32 §11: file.reveal on Windows — reveals the local item in File Explorer."
   },
+  "fileDownloadToLabel": "Download To…",
+  "@fileDownloadToLabel": {
+    "description": "File menu and row context menu: download the selected remote items into a local folder the user picks (the fallback where remote items cannot be dragged out)."
+  },
+  "fileDownloadToDialogTitle": "Download To",
+  "@fileDownloadToDialogTitle": {
+    "description": "Title of the folder picker Download To… opens."
+  },
+  "commandDisabledDownloadToRemoteOnly": "Select items on a server",
+  "@commandDisabledDownloadToRemoteOnly": {
+    "description": "Disabled reason for Download To…: only remote items can be downloaded."
+  },
   "commandDisabledRevealLocalOnly": "Select a local item",
   "@commandDisabledRevealLocalOnly": {
     "description": "Disabled reason for Show in Finder/File Manager: only local items can be revealed."

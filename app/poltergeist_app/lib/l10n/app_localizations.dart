@@ -5646,6 +5646,24 @@ abstract class AppLocalizations {
   /// **'Show in Explorer'**
   String get fileRevealWindowsLabel;
 
+  /// File menu and row context menu: download the selected remote items into a local folder the user picks (the fallback where remote items cannot be dragged out).
+  ///
+  /// In en, this message translates to:
+  /// **'Download To…'**
+  String get fileDownloadToLabel;
+
+  /// Title of the folder picker Download To… opens.
+  ///
+  /// In en, this message translates to:
+  /// **'Download To'**
+  String get fileDownloadToDialogTitle;
+
+  /// Disabled reason for Download To…: only remote items can be downloaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Select items on a server'**
+  String get commandDisabledDownloadToRemoteOnly;
+
   /// Disabled reason for Show in Finder/File Manager: only local items can be revealed.
   ///
   /// In en, this message translates to:

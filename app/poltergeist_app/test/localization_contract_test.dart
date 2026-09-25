@@ -1755,6 +1755,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'selection.transferToOtherPane'",
     "'selection.moveToOtherPane'",
     "'file.reveal'",
+    "'file.downloadTo'",
     "'file.newFolder'",
     "'file.newFile'",
     "'file.delete'",
