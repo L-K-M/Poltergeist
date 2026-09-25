@@ -798,6 +798,33 @@
   "@paneNoticeDragOutRemote": {
     "description": "Transient notice strip (02 §10): a drag of remote rows left the window on a platform without file promises (Linux, Windows); the drag continues in-app."
   },
+  "paneNoticeDragOutLinksLeftOut": "{count, plural, =1{1 link was left out: links can't be dragged out of Poltergeist.} other{{count} links were left out: links can't be dragged out of Poltergeist.}}",
+  "@paneNoticeDragOutLinksLeftOut": {
+    "description": "Transient notice strip (02 §10): an OS drag-out of remote rows left out the symbolic links among them (links are never transferred); the other rows went out, or, when only links were dragged, the drag continues in-app.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "paneNoticeDragOutNamesLeftOut": "{count, plural, =1{1 item was left out: its name isn't valid UTF-8, so it can't be dragged out.} other{{count} items were left out: their names aren't valid UTF-8, so they can't be dragged out.}}",
+  "@paneNoticeDragOutNamesLeftOut": {
+    "description": "Transient notice strip (02 §10): an OS drag-out of remote rows left out the rows whose names are undecodable (02 §13's flagged-name rule); the other rows went out, or, when only such rows were dragged, the drag continues in-app.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "paneNoticeDragOutItemsLeftOut": "{count, plural, =1{1 item was left out: it can't be dragged out of Poltergeist.} other{{count} items were left out: links and names that aren't valid UTF-8 can't be dragged out of Poltergeist.}}",
+  "@paneNoticeDragOutItemsLeftOut": {
+    "description": "Transient notice strip (02 §10): an OS drag-out of remote rows left out rows for more than one reason (symbolic links and undecodable names); the other rows went out, or, when none could go, the drag continues in-app.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "paneNoticeDismiss": "Dismiss",
   "@paneNoticeDismiss": {
     "description": "Tooltip for the transient notice strip's close button (02 §10)."
@@ -4529,7 +4556,7 @@
   },
   "alertDragOutFailed": "Couldn't drag “{name}” out",
   "@alertDragOutFailed": {
-    "description": "D32 alert row: an OS drag-out of a remote item was refused before any transfer started (00 D14's drag-out amendment).",
+    "description": "D32 alert row: an OS drag-out of a remote item was refused before any transfer started, or its download was stopped midway by a pause (00 D14's drag-out amendment).",
     "placeholders": {
       "name": {
         "type": "String"
@@ -4545,9 +4572,9 @@
       }
     }
   },
-  "alertDragOutPausedMidway": "Transfers were paused, so the download to {folder} stopped.",
+  "alertDragOutPausedMidway": "The download to {folder} was paused, so it stopped.",
   "@alertDragOutPausedMidway": {
-    "description": "D32 alert row detail: the transfer queue was paused while a remote folder dragged to another app was downloading, so that download was cancelled.",
+    "description": "D32 alert row detail: a remote item dragged to another app was downloading when its download was paused (the whole transfer queue, or the download's own Pause in Transfers), so that download was cancelled rather than keep the other app waiting.",
     "placeholders": {
       "folder": {
         "type": "String"

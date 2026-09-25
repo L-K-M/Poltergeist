@@ -82,8 +82,11 @@ void main() {
 
   tearDown(() => controller.dispose());
 
-  Future<DragOutHandOff> handOff(PaneEntryDrag drag) =>
+  Future<DragOutHandOffResult> handOffResult(PaneEntryDrag drag) =>
       controller.handOff(drag, position: const Offset(1500, 40), style: _style);
+
+  Future<DragOutHandOff> handOff(PaneEntryDrag drag) async =>
+      (await handOffResult(drag)).outcome;
 
   /// Starts a remote session over [entries] and returns its id.
   Future<String> startRemote(List<RemoteFileEntry> entries) async {
@@ -109,8 +112,8 @@ void main() {
   );
 
   group('hand-off', () {
-    test('a local drag offers file URLs the destination may copy, move, '
-        'or link', () async {
+    test('a local drag offers file URLs the destination may copy or link, '
+        'never move', () async {
       build(support: DragOutSupport.localFiles);
       final drag = _localDrag([
         _entry('/home/tester/report.txt', size: 12),
@@ -119,11 +122,9 @@ void main() {
       expect(await handOff(drag), DragOutHandOff.started);
       final request = backend.requests.single;
       expect(request.position, const Offset(1500, 40));
-      expect(request.allowedOperations, {
-        DragOutOperation.copy,
-        DragOutOperation.move,
-        DragOutOperation.link,
-      });
+      // The owner's rule (00 D14's drag-out amendment): no trash may
+      // take the source, so no destination may move it.
+      expect(request.allowedOperations, {DragOutOffer.copy, DragOutOffer.link});
       expect(request.items.map((item) => item.toChannel()), [
         {
           'kind': 'file',
@@ -159,9 +160,9 @@ void main() {
     });
 
     test('remote rows become copy-only promises; flagged names and links '
-        'are left out', () async {
+        'are left out, and counted', () async {
       build();
-      final result = await handOff(
+      final result = await handOffResult(
         _remoteDrag([
           _entry('/srv/a.txt', size: 5),
           _entry('/srv/bad�.txt'),
@@ -169,9 +170,12 @@ void main() {
           _entry('/srv/site', type: RemoteFileType.directory, size: 4096),
         ]),
       );
-      expect(result, DragOutHandOff.started);
+      expect(result.outcome, DragOutHandOff.started);
+      expect(result.leftOut.links, 1);
+      expect(result.leftOut.flaggedNames, 1);
+      expect(result.leftOut.unlisted, 0);
       final request = backend.requests.single;
-      expect(request.allowedOperations, {DragOutOperation.copy});
+      expect(request.allowedOperations, {DragOutOffer.copy});
       expect(request.items.map((item) => item.toChannel()), [
         {
           'kind': 'promise',
@@ -190,13 +194,43 @@ void main() {
       ]);
     });
 
-    test('a drag with nothing to offer does not reach the backend', () async {
+    test('a drag with nothing to offer does not reach the backend, and '
+        'says why', () async {
       build();
-      expect(
-        await handOff(_remoteDrag([_entry('/srv/bad�')])),
-        DragOutHandOff.unavailable,
-      );
+      final result = await handOffResult(_remoteDrag([_entry('/srv/bad�')]));
+      expect(result.outcome, DragOutHandOff.unavailable);
+      expect(result.leftOut.flaggedNames, 1);
+      expect(result.leftOut.count, 1);
       expect(backend.requests, isEmpty);
+    });
+
+    test('a root without a listing entry is left out and counted', () async {
+      build();
+      final result = await handOffResult(
+        PaneEntryDrag(
+          source: const ServerFsLocation('srv-1'),
+          rootPaths: const ['/srv/a.txt', '/srv/gone.txt'],
+          entries: [_entry('/srv/a.txt', size: 1)],
+        ),
+      );
+      expect(result.outcome, DragOutHandOff.started);
+      expect(backend.requests.single.items.map((item) => item.name), ['a.txt']);
+      expect(result.leftOut.unlisted, 1);
+      expect(result.leftOut.count, 1);
+    });
+
+    test('a refused start leaves nothing out: the in-app drag still '
+        'carries every row', () async {
+      build();
+      backend.nextResult = const DragOutNotStarted(DragOutRefusal.busy);
+      final result = await handOffResult(
+        _remoteDrag([
+          _entry('/srv/a.txt'),
+          _entry('/srv/link', type: RemoteFileType.symbolicLink),
+        ]),
+      );
+      expect(result.outcome, DragOutHandOff.notStarted);
+      expect(result.leftOut.isEmpty, isTrue);
     });
 
     test('a refused start forgets the session', () async {
@@ -265,6 +299,29 @@ void main() {
       expect(controller.activeEchoPayload, same(second));
       now = now.add(const Duration(seconds: 10));
       expect(controller.claimEcho(const ['/home/tester/a.txt']), isNull);
+    });
+
+    test('a session end that reports a move is only an end: nothing is '
+        'transferred or deleted', () async {
+      build(support: DragOutSupport.localFiles);
+      final drag = _localDrag([_entry('/home/tester/report.txt')]);
+      await handOff(drag);
+      // Never offered, but a target may claim one anyway.
+      controller.sessionEnded(
+        backend.requests.single.sessionId,
+        DragOutOperation.move,
+      );
+      expect(controller.activeEchoPayload, isNull);
+      expect(queue.enqueuedSpecs, isEmpty);
+      expect(queue.prepareDeleteCalls, isEmpty);
+      expect(queue.enqueuedDeletes, isEmpty);
+      expect(files.produces, isEmpty);
+      // The echo still counts: a drop back into the window moments later
+      // lands with the in-app verb.
+      expect(
+        controller.claimEcho(const ['/home/tester/report.txt']),
+        same(drag),
+      );
     });
 
     test('sessionEnded ends the echo window for hover labels', () async {
@@ -350,6 +407,41 @@ void main() {
       await expectLater(done, failsWith(DragOutPromiseFailure.cancelled));
     });
 
+    test('a Pause on its Transfers row cancels the produce and fails the '
+        'promise, with an Alert', () async {
+      build();
+      final session = await startRemote([_entry('/srv/a.txt', size: 300)]);
+      final done = fulfil(session, 'p1', '/Users/me/Desktop/a.txt');
+      await pumpEventQueue();
+      final produce = files.produces.single;
+      // The produce hop is a row on the same queue: its per-task pause
+      // would park it until a resume that may never come, while the OS
+      // waits on the promise.
+      queue.pauseTask(produce.taskId);
+      await expectLater(
+        done.timeout(const Duration(seconds: 2)),
+        failsWith(DragOutPromiseFailure.paused),
+      );
+      expect(files.cancelled, [produce.taskId]);
+      final notice = controller.notices.single;
+      expect(notice.kind, DragOutNoticeKind.pausedMidway);
+      expect(notice.itemName, 'a.txt');
+      expect(notice.destinationDir, '/Users/me/Desktop');
+    });
+
+    test('a pause of another row leaves the produce running', () async {
+      build();
+      final session = await startRemote([_entry('/srv/a.txt', size: 3)]);
+      final done = fulfil(session, 'p1', '/Users/me/Desktop/a.txt');
+      await pumpEventQueue();
+      queue.pauseTask('task-elsewhere');
+      await pumpEventQueue();
+      expect(files.cancelled, isEmpty);
+      files.produces.single.complete();
+      await done;
+      expect(controller.notices, isEmpty);
+    });
+
     test('promises stay answerable after the session ended', () async {
       build();
       final session = await startRemote([_entry('/srv/a.txt')]);
@@ -432,6 +524,30 @@ void main() {
         expect(controller.notices.single.kind, DragOutNoticeKind.pausedMidway);
       },
     );
+
+    test('a Pause on its Transfers row cancels the download and fails the '
+        'promise, with an Alert', () async {
+      build();
+      final session = await startRemote([
+        _entry('/srv/site', type: RemoteFileType.directory),
+      ]);
+      final done = fulfil(session, 'p1', '/Users/me/Desktop/site');
+      await pumpEventQueue();
+      final task = queue.tasks.single..state = TransferTaskState.running;
+      // Unlike the queue pause, nothing polls for this one: the row's
+      // pause event is the signal.
+      queue.pauseTask(task.id);
+      await expectLater(
+        done.timeout(const Duration(seconds: 2)),
+        failsWith(DragOutPromiseFailure.paused),
+      );
+      expect(queue.cancelTaskCalls, [task.id]);
+      expect(task.state, TransferTaskState.cancelled);
+      final notice = controller.notices.single;
+      expect(notice.kind, DragOutNoticeKind.pausedMidway);
+      expect(notice.itemName, 'site');
+      expect(notice.destinationDir, '/Users/me/Desktop');
+    });
 
     test('a renamed destination fails instead of landing elsewhere', () async {
       build();

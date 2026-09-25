@@ -8398,13 +8398,114 @@ promises never replace; Dart's English diagnostics reaching receivers
 as `NSLocalizedDescriptionKey`; a Linux `gtk_drag_begin` refusal after
 the release, which now ends the in-app drag with no drop rather than
 continuing it; and an explicit Recycle Bin decision for Windows'
-`DROPEFFECT_MOVE`.
+`DROPEFFECT_MOVE`. The per-task Pause, the silent link and
+flagged-name skips, and the Recycle Bin decision are closed by the
+follow-ups section below; the other four stay open.
 
 Validation, on `eb1226b` (this batch's last code commit): `flutter
 analyze` is clean; the full app suite passes (2393 tests, 13 of them
 new). Core is untouched here: `poltergeist_core` ran 1540 passed, 37
 skipped, and 2 failed, the root-only chmod checkout tests. The protocol
 guard exits 0.
+
+## D14 amendment: OS drag-out follow-ups (2026-09-25)
+
+Four follow-ups from the drag-out review, plus a core bug one of them
+exposed.
+
+- **Never move (owner decision).** The owner decided that the Windows
+  Recycle Bin must not accept a drag-out, and applied the rule on every
+  platform: a drag out of Poltergeist offers copy and link only, never
+  move, so no trash (the Recycle Bin, a Linux file manager's Trash, the
+  macOS Dock Trash) can take the source, and a destination that would
+  have moved copies instead. Dart's offered operations are now their
+  own type without a move (`DragOutOffer`), and each backend enforces
+  the rule itself whatever a request says: GTK is offered only the
+  actions `offered_actions` maps from the copy and link names; the
+  macOS mask, one for both dragging contexts, comes only from `.copy`
+  or `dragOperations`, which maps copy and link; Windows'
+  `AllowedEffects` masks to `DROPEFFECT_COPY | DROPEFFECT_LINK`. A
+  session end that reports a move is still read and acted on by
+  nothing. In-app pane drags and the own-drag echo keep the in-app verb
+  and still move. D14's amendment records the decision, 03 §4.7 notes
+  it, and the release checklist now expects a trash to refuse the drop
+  and a folder to receive a copy.
+- **A per-task Pause on a drag-out's Transfers row.** It left the OS
+  waiting: a paused file hop parked until a resume, and a paused folder
+  download never settled. The controller now listens for that task's
+  `paused` event on the queue's event stream (no polling) and treats
+  it like the queue pause: it cancels the task, so nothing lands after
+  the drop gave up, fails the promise as `paused`, and raises the
+  paused-midway Alert, reworded to "The download to {folder} was
+  paused, so it stopped." so it reads true for either pause. Pause
+  stays enabled on these rows rather than being disabled: a folder
+  promise's download carries no drag-out marker in the queue, and
+  cancelling on a pause is what the queue pause already does.
+- **Core: a cancelled pause wait.** Found while testing the above:
+  cancelling a produce hop or a managed checkout parked on its
+  per-task pause threw "transfer cancelled" outside any handler, so it
+  reached the unawaited task runner as an unhandled error (the task
+  itself had already settled as cancelled). Pausing a Transfers row and
+  then cancelling it was enough. Such a hop now leaves its loop.
+- **Rows a drag-out leaves behind.** A remote drag-out skips symbolic
+  links and flagged names; a multi-item drag dropped them silently. The
+  hand-off now counts them by reason, and the source pane's notice says
+  how many stayed behind and why, both when the session starts without
+  them and when nothing could go (the drag then stays in-app, as
+  before). A refused start posts nothing, since the in-app drag still
+  carries every row. The sentences: "1 link was left out: links can't
+  be dragged out of Poltergeist." (and "{count} links were left
+  out: ..."), "1 item was left out: its name isn't valid UTF-8, so it
+  can't be dragged out." (and "{count} items were left out: their names
+  aren't valid UTF-8, so they can't be dragged out."), and for a mix
+  "{count} items were left out: links and names that aren't valid UTF-8
+  can't be dragged out of Poltergeist."
+- **Doc.** `DragOutAlert`'s doc, the notice kind's and the Alert
+  title's ARB description now say they also cover a download a pause
+  stopped midway, not only a drag-out refused before any transfer ran.
+
+Verified here:
+- Tests that failed before their fix: the controller's copy-and-link
+  expectation and the three backends' contract tests (each still
+  offered a move); the controller's per-task Pause tests for a file hop
+  and a folder download (the promise never settled) and a shell test
+  that presses the row's Pause in Transfers (nothing cancelled the
+  task); the two core tests that cancel a paused produce hop and a
+  paused managed checkout (the unhandled "transfer cancelled"); and the
+  pane's two left-out notice tests (no notice).
+- Under Xvfb with the debug Linux build and two GTK drop targets in
+  other processes (transcript and screenshots in the session's
+  `fu-dragout-evidence/`): a local file dragged onto a target that
+  accepts copy and move was offered `COPY | LINK` and received as a
+  copy; a target that accepts only move (a Trash) was offered `COPY |
+  LINK` and refused the drop, and the file stayed; an in-app
+  pane-to-pane drag still moved; a drag out and back in still moved
+  through the echo with the in-app label; the next click still selects.
+- Windows: `drag_out.cpp` passes the mingw-w64 g++ 13 syntax check,
+  also with `STRICT_TYPED_ITEMIDS`, with no warning from the runner's
+  own code. mingw defines `__unaligned` away, so MSVC's C4090 is not
+  checked here; the PIDL handling is unchanged.
+- macOS: only the contract tests read the Swift; nothing compiled it.
+
+Needs a Mac: the Dock Trash refusing a local drag-out, Finder copying
+where it would have moved (and what ⌘, the forced move, does), and the
+left-out notice with a real remote multi-selection. Needs Windows: the
+MSVC build, the Recycle Bin refusing the drop, Explorer copying on the
+same drive, and what Shift, the forced move, does. The release
+checklist carries each.
+
+Still open from the review: skipping the PNG render on macOS; folder
+promises following the download conflict policy while file promises
+never replace; Dart's English diagnostics reaching receivers as
+`NSLocalizedDescriptionKey`; and a Linux `gtk_drag_begin` refusal after
+the release, which ends the in-app drag with no drop.
+
+Validation, on `011ecd2` (the last code commit): `flutter analyze` is
+clean; the full app suite passes (2491 tests, 15 of them new); the
+refactored shell test passes on `4bc2dc4`. `dart analyze
+packages/poltergeist_core` is clean, and `poltergeist_core` ran 1542
+passed, 37 skipped, and 2 failed, the root-only chmod checkout tests
+(2 of the passing tests are new). The protocol guard exits 0.
 
 ## Open items
 

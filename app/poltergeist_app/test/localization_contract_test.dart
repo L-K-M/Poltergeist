@@ -2689,7 +2689,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'no transfer queue to download remote folders'",
     "'the drop asked for a different folder name'",
     "'transfers are paused'",
-    "'transfers were paused during the download'",
+    "'the download was paused'",
     "'the download was cancelled'",
     "'Drops'",
   },

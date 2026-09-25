@@ -421,5 +421,49 @@ void main() {
         await pumpUntil(() => strayTemps().isEmpty, reason: 'temp removed');
       },
     );
+
+    test('a per-task pause is announced on the event stream, and a '
+        'cancel then drains the paused hop with nothing landed', () async {
+      // The app's drag-out controller gives a promise up on this event
+      // (a paused hop would park until a resume while the OS waits),
+      // then cancels: the ticket must settle as cancelled, and the
+      // promised name must stay empty.
+      s1.addFile('/r/drag.bin', List<int>.filled(32, 5));
+      s1.downloadGate = (_) => Completer<void>();
+      final ticket = QueuePreviewProducer(queue).start(
+        PreviewProduceSpec(
+          serverId: 's1',
+          remotePath: '/r/drag.bin',
+          destinationPath: '${outDir.path}/drag.bin',
+          expectedSize: 32,
+          writeMode: ProduceWriteMode.exclusive,
+          slotPool: ProduceSlotPool.dragOut,
+        ),
+      );
+      await pumpUntil(() => s1.activeDownloads == 1);
+      queue.pauseTask(ticket.taskId);
+      await pumpUntil(
+        () => events.any(
+          (event) =>
+              event is TransferQueueTaskEvent &&
+              event.taskId == ticket.taskId &&
+              event.state == TransferTaskState.paused,
+        ),
+        reason: 'the pause event',
+      );
+      queue.cancelTask(ticket.taskId);
+      await expectLater(
+        ticket.result,
+        throwsA(
+          isA<RemoteFileException>().having(
+            (error) => error.kind,
+            'kind',
+            RemoteFileErrorKind.cancelled,
+          ),
+        ),
+      );
+      expect(File('${outDir.path}/drag.bin').existsSync(), isFalse);
+      await pumpUntil(() => strayTemps().isEmpty, reason: 'temp removed');
+    });
   });
 }

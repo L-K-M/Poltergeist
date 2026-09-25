@@ -110,9 +110,13 @@ final class UpdateAvailableAlert extends AppAlert {
   AlertSeverity get severity => AlertSeverity.info;
 }
 
-/// A drag-out of a remote item that stopped before any transfer ran
-/// (00 D14's drag-out amendment). A drag-out whose download ran and
-/// failed needs none: its failed Transfers row raises
+/// A drag-out of a remote item that Poltergeist gave up on with no
+/// failed Transfers row to show for it (00 D14's drag-out amendment):
+/// refused before any transfer ran (a paused queue, a drop that asked
+/// for another folder name, no queue), or stopped midway by a pause,
+/// the queue's or the row's own ([DragOutNoticeKind.pausedMidway]),
+/// whose task was then cancelled rather than failed. A drag-out whose
+/// download ran and failed needs none: its failed Transfers row raises
 /// [TransferFailedAlert].
 final class DragOutAlert extends AppAlert {
   const DragOutAlert(this.notice);

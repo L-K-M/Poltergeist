@@ -1510,8 +1510,14 @@ tested long before drag-out exists.
 > over the app's `AppTransferQueue` events. That task is journaled and
 > conflict-aware like any download and does not bypass the queue pause
 > (the drag-out controller fails the promise instead of letting the OS
-> wait). A hard kill mid-produce never leaves a half file under the
-> promised name (temp-then-rename); it can leave the hidden
+> wait). A per-task pause of either kind of drag-out row, announced as
+> the task's `paused` event, likewise cancels it and fails the promise:
+> a paused hop would park until a resume while the OS waits. Local
+> items never reach the queue at all: they leave as file URLs the
+> destination copies or links itself, since a drag-out never offers
+> the OS a move (00 D14's amendment: no trash may take a drag-out's
+> source). A hard kill mid-produce never leaves a half file
+> under the promised name (temp-then-rename); it can leave the hidden
 > `.poltergeist-*.tmp` sibling, which no restore sweeps because produce
 > hops are unjournaled.
 

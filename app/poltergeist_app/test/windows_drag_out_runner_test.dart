@@ -123,7 +123,7 @@ void main() {
           ),
         ],
         position: const Offset(-12, 300),
-        allowedOperations: DragOutOperation.values.toSet(),
+        allowedOperations: DragOutOffer.values.toSet(),
         image: DragOutImage(
           png: Uint8List.fromList([0x89, 0x50, 0x4e, 0x47]),
           size: const Size(160, 32),
@@ -147,10 +147,10 @@ void main() {
       expect(item[contract['PathKey']], isA<String>());
     }
     expect(items.first[contract['PathKey']], r'C:\Users\tester\report.txt');
-    // AllowedEffects() maps exactly these three names.
+    // AllowedEffects() maps exactly these two names; Dart has no move
+    // to send.
     expect(args[contract['AllowedOperationsKey']], [
       contract['CopyOperation'],
-      contract['MoveOperation'],
       contract['LinkOperation'],
     ]);
     expect(args[contract['ImageKey']], isA<Uint8List>());
@@ -177,7 +177,7 @@ void main() {
         LocalDragOutItem(path: r'C:\a.txt', name: 'a.txt', isDirectory: false),
       ],
       position: Offset(-1, -1),
-      allowedOperations: {DragOutOperation.copy},
+      allowedOperations: {DragOutOffer.copy},
     );
     final reasons = valuesOf('Reason');
     expect(reasons, {
@@ -257,6 +257,31 @@ void main() {
         lessThan(teardown.indexOf('flutter_controller_ = nullptr;')),
       ),
     );
+  });
+
+  test('offers copy and link only, whatever Dart sends', () {
+    // The owner's rule (00 D14's drag-out amendment): no trash may take
+    // the source, and the Recycle Bin takes a drop as a move, so no
+    // destination may move it.
+    final allowed = source.indexOf('DWORD AllowedEffects(');
+    expect(allowed, isNonNegative);
+    final allowedBody = source.substring(
+      allowed,
+      source.indexOf('\n}\n', allowed),
+    );
+    expect(allowedBody, contains('kCopyOperation'));
+    expect(allowedBody, contains('kLinkOperation'));
+    expect(allowedBody, isNot(contains('kMoveOperation')));
+    expect(allowedBody, isNot(contains('DROPEFFECT_MOVE')));
+    expect(allowedBody, isNot(contains('kReportedEffects')));
+    // The loop is handed the session's effects, which only
+    // AllowedEffects builds.
+    expect(source, contains('AllowedEffects(*map),'));
+    expect(
+      source,
+      contains('SHDoDragDrop(nullptr, data.Get(), source, effects, &effect)'),
+    );
+    expect(source, contains('const DWORD effects = session_->effects;'));
   });
 
   test('replies before the modal loop, resets the embedder press first, '

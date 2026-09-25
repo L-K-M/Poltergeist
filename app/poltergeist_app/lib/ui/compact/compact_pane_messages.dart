@@ -1,7 +1,9 @@
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../services/drag_out_controller.dart' show DragOutLeftOut;
 import '../../services/pane_controller.dart';
+import '../panes/drag_out_notice.dart';
 
 /// The typed pane truth mapped to its ARB sentences (D20) for the
 /// compact listing — the same mapping the desktop pane view renders, so
@@ -57,14 +59,19 @@ String compactRenameErrorText(
   _ => error.message,
 };
 
-/// 02 §10's transient notice sentence.
-String compactNoticeText(AppLocalizations l10n, PaneNotice notice) =>
-    switch (notice) {
-      PaneNotice.openRemoteUnavailable => l10n.paneNoticeOpenRemoteUnavailable,
-      PaneNotice.editLater => l10n.paneNoticeEditLater,
-      PaneNotice.transferLater => l10n.paneNoticeTransferLater,
-      PaneNotice.saveFavoriteLater => l10n.paneNoticeSaveFavoriteLater,
-      PaneNotice.pathCopied => l10n.paneNoticePathCopied,
-      PaneNotice.dragOutRemote => l10n.paneNoticeDragOutRemote,
-      PaneNotice.watchStopped => l10n.paneNoticeWatchStopped,
-    };
+/// 02 §10's transient notice sentence. [dragOutLeftOut] carries the
+/// counts [PaneNotice.dragOutLeftOut] reads.
+String compactNoticeText(
+  AppLocalizations l10n,
+  PaneNotice notice, {
+  required DragOutLeftOut dragOutLeftOut,
+}) => switch (notice) {
+  PaneNotice.openRemoteUnavailable => l10n.paneNoticeOpenRemoteUnavailable,
+  PaneNotice.editLater => l10n.paneNoticeEditLater,
+  PaneNotice.transferLater => l10n.paneNoticeTransferLater,
+  PaneNotice.saveFavoriteLater => l10n.paneNoticeSaveFavoriteLater,
+  PaneNotice.pathCopied => l10n.paneNoticePathCopied,
+  PaneNotice.dragOutRemote => l10n.paneNoticeDragOutRemote,
+  PaneNotice.dragOutLeftOut => dragOutLeftOutText(l10n, dragOutLeftOut),
+  PaneNotice.watchStopped => l10n.paneNoticeWatchStopped,
+};
