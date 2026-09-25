@@ -822,6 +822,67 @@ void main() {
     });
   });
 
+  group('the delete family on the macOS menu', () {
+    testWidgets('its key equivalent acts only from a pane listing; a click '
+        'on the item runs it', (tester) async {
+      _useRecordingMenuDelegate();
+      var runs = 0;
+      final rowNode = FocusNode();
+      addTearDown(rowNode.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.macOS),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AppMenuHost(
+              commands: [
+                RegisteredCommand(
+                  id: 'file.delete',
+                  scope: CommandScope.selection,
+                  label: (l10n) => 'file.delete',
+                  activators: (_) => const [
+                    SingleActivator(LogicalKeyboardKey.backspace, meta: true),
+                  ],
+                  menuPlacement: const CommandMenuPlacement(
+                    menu: AppMenuId.file,
+                    order: 10,
+                  ),
+                  run: (_) async {},
+                ),
+              ],
+              onRun: (_) async => runs++,
+              // A sidebar row, say: focusable, not a pane listing.
+              child: Focus(focusNode: rowNode, child: const SizedBox()),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final bar = tester.widget<PlatformMenuBar>(
+        find.byType(PlatformMenuBar),
+      );
+      final item = _leavesOf(_menuNamed(bar, 'File')).single;
+      rowNode.requestFocus();
+      await tester.pump();
+
+      // Nothing in the window took ⌘⌫, so AppKit handed it to the menu:
+      // the key is still down, and it must not trash the selection.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.backspace);
+      item.onSelected!();
+      await tester.pump();
+      expect(runs, 0);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.backspace);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+
+      // Chosen from the menu with the pointer, it is the user's call.
+      item.onSelected!();
+      await tester.pump();
+      expect(runs, 1);
+    });
+  });
+
   group('registry invariant', () {
     testWidgets('every registered command is menu- or shortcut-reachable '
         'on every platform (02 §8.1)', (tester) async {

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/registered_command.dart';
+import '../panes/pane_commands.dart' show keyMayRunFrom;
 import 'app_menus.dart';
 import 'menu_shortcut_hint.dart';
 
@@ -254,12 +255,20 @@ class _AppMenuHostState extends State<AppMenuHost> {
   /// into this callback. When the field's handler is absent or disabled
   /// (a read-only field's Paste, say), the command runs as usual rather
   /// than the key equivalent being swallowed.
+  ///
+  /// The embedder hands a key equivalent to the window first, so one
+  /// reaches the menu only when nothing there took it (focus outside the
+  /// shell's chord scope, say). The chord scope's focus rule still holds
+  /// for it ([keyMayRunFrom]): ⌘⌫ must not trash a pane's selection from
+  /// wherever focus happens to be. The key still being down is what tells
+  /// a key equivalent from a click, and a click on the item runs as usual.
   void _activateNative(
     RegisteredCommand command,
     MenuSerializableShortcut? shortcut,
   ) {
     final intent = shortcut == null ? null : _textFieldIntent(shortcut);
-    final focusContext = FocusManager.instance.primaryFocus?.context;
+    final focus = FocusManager.instance.primaryFocus;
+    final focusContext = focus?.context;
     if (intent != null &&
         focusContext != null &&
         focusContext.findAncestorWidgetOfExactType<EditableText>() !=
@@ -269,6 +278,11 @@ class _AppMenuHostState extends State<AppMenuHost> {
         Actions.invoke(focusContext, intent);
         return;
       }
+    }
+    if (shortcut is SingleActivator &&
+        HardwareKeyboard.instance.isLogicalKeyPressed(shortcut.trigger) &&
+        !keyMayRunFrom(command, shortcut, focus)) {
+      return;
     }
     unawaited(widget.onRun(command));
   }

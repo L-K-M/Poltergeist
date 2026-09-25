@@ -1134,6 +1134,17 @@ bool _isPaneListing(FocusNode? node) {
   return pane != null && identical(pane.focusNode, node);
 }
 
+/// Whether a keystroke on [activator] may run [command] while [focus]
+/// holds primary focus: everything may, except the delete family away
+/// from a pane listing ([_listingOnly]). The chord scope applies it, and
+/// so does the macOS menu for a key equivalent nothing in the window
+/// took (AppMenuHost).
+bool keyMayRunFrom(
+  RegisteredCommand command,
+  ShortcutActivator activator,
+  FocusNode? focus,
+) => !_listingOnly(command, activator) || _isPaneListing(focus);
+
 class CommandChordScope extends StatelessWidget {
   const CommandChordScope({
     super.key,
