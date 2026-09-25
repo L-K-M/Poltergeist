@@ -8629,6 +8629,50 @@ Validation: `flutter analyze` is clean; the full app suite passes (2521
 tests, 18 of them new: the link and host suite, the window app, and the
 settings routing tests).
 
+## D37: simultaneous transfers per server (2026-09-25)
+
+The owner asked for a concurrency limit beside the bandwidth limits,
+counted per server, that leaves browsing and editing alone. D37 records
+the decision and amends 03 §4.3.
+
+- **What changed for the user.** The Transfers popover gains
+  "Simultaneous transfers per server": Automatic (up to 6, the app's
+  total) or 1 to 5. The server editor gains a "Simultaneous transfers"
+  menu that overrides it for that server (Default, Automatic, 1 to 5).
+  The header's limits button shows the speed glyph while a default cap
+  is set, and its tooltip and the popover title now read "Transfer
+  limits".
+- **Shape.** `ServerTransferLimits` (a default plus per-server
+  `TransferConcurrency` overrides) sits on `TransferQueue`, which counts
+  files in flight per server beside the global count. `_nextDispatchable`
+  passes over a task whose server is at its cap, so a capped server never
+  holds a global slot another server could use; a server-to-server file
+  counts on both sides. Checkouts and produce hops never enter that
+  accounting, so editing, previews and drag-out are exempt by
+  construction, as is browsing. Sync runs keep their per-pair Transfer
+  concurrency; deletes are not counted. `TransferLimitsController` owns
+  the caps in the app, persists them device-locally
+  (`transfer.perServerConcurrency`, `transfer.serverConcurrency`) and
+  pushes every change into the queue at once.
+- **Why device-local.** The server record is Séance's shared
+  `ServerConfig` (D2), which has no field for it, so the override does
+  not sync; the editor says so.
+
+Verification: eight new queue tests cover a cap binding, a capped server
+being passed over, both sides of a server-to-server copy counting, a copy
+within one server counting once, a raised cap dispatching at once and a
+lowered one cancelling nothing, and editing and previews staying exempt. The four enforcement tests fail
+with the dispatch check disabled. App tests cover persistence and its
+tolerance of hand-edited values, the controller's ordering (the default
+applies before its write, an override only after its write lands), the
+popover's chips and the header glyph, and the editor's override: shown,
+stored only when changed, cleared back to the default, stored under a
+new server's id, and retried after a failed write.
+
+Known limits: an override for a server that is later deleted stays in
+settings, where it is harmless (server ids are never reused). Not
+measured: the throughput effect of a cap against a real server.
+
 ## Every inline error has a way out (2026-09-25)
 
 The pane's inline error offered only Retry, and Esc also retried, so a
@@ -8662,9 +8706,8 @@ the switch completes (every decision moves it forward).
 
 The owner asked whether Vervellum's theming system could come to Séance
 and Poltergeist. Séance built it first
-([Séance #128](https://github.com/L-K-M/Seance/pull/128), not merged
-yet); this ports it so the two behave as one
-family. The decision is D37, "Device themes", in the decision log.
+([Séance #128](https://github.com/L-K-M/Seance/pull/128), merged as
+`8f15eeb`); this ports it so the two behave as one family. The decision is D38, "Device themes", in the decision log.
 
 - **What changed for the user.** Settings has an Appearance section: the
   tab after General in the Settings window, and the section after General
@@ -8680,7 +8723,7 @@ family. The decision is D37, "Device themes", in the decision log.
   Appearance looks exactly as before.
 - **The model** (`lib/theme/`): `ThemePalette`, `ThemePresets`,
   `AppAppearance` and `contrast.dart`, ported from Séance (PORTS.md,
-  "Device themes (D37)"). Same JSON keys, hex forms and lenient decode as
+  "Device themes (D38)"). Same JSON keys, hex forms and lenient decode as
   Séance, so a theme pastes across. Séance's terminal colours are the one
   part with no use here, so they are dropped from the model: a pasted
   Séance theme applies everything but them, a theme copied from here
@@ -8775,7 +8818,7 @@ name, accent and corner scale. Not run: macOS, Windows, Android and iOS
 Settings dialog, which only its widget test covers.
 
 Validation: `flutter analyze` is clean, and the full app suite passes:
-2723 tests on the merge with main, 2585 on main before this change.
+2739 tests on the merge with main at `b47c3db`, 138 of them new.
 
 ## Open items
 

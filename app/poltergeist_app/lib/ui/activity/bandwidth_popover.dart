@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:poltergeist_core/poltergeist_core.dart'
+    show TransferConcurrency, maxGlobalInFlightTransfers;
 
 import '../../l10n/app_localizations.dart';
 import '../../services/activity_panel_controller.dart';
+import '../../services/transfer_limits_controller.dart';
 import 'activity_format.dart';
 
 /// The throttle popover's fixed choices (02 §6): Off plus the three
@@ -12,7 +15,9 @@ const _presets = <int?>[null, 256 * 1000, 1000 * 1000, 5 * 1000 * 1000];
 /// Off / 256 KB/s / 1 MB/s / 5 MB/s / custom. Selections apply to the
 /// limiter immediately; custom text parses through
 /// [parseTransferRate] — invalid input stays an inline error, never a
-/// silent clamp.
+/// silent clamp. Below them, D37's default cap on each server's
+/// simultaneous transfers: Automatic or a fixed count, applied the same
+/// way.
 class BandwidthPopover extends StatefulWidget {
   const BandwidthPopover({super.key, required this.controller});
 
@@ -138,8 +143,72 @@ class _BandwidthPopoverState extends State<BandwidthPopover> {
             onCustom: () => setState(() => _upCustom = true),
             onApply: () => _applyCustom(download: false),
           ),
+          if (widget.controller.transferLimits case final limits?) ...[
+            const SizedBox(height: 12),
+            _PerServerRow(limits: limits),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// D37's default cap: how many files move to or from each server at
+/// once. A server's own choice, set in its editor, outranks this one.
+class _PerServerRow extends StatelessWidget {
+  const _PerServerRow({required this.limits});
+
+  final TransferLimitsController limits;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final theme = Theme.of(context);
+    return ListenableBuilder(
+      listenable: limits,
+      builder: (context, _) {
+        final current = limits.perServer;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              l10n.transferLimitPerServerLabel,
+              style: theme.textTheme.labelMedium,
+            ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                ChoiceChip(
+                  key: const ValueKey('transferLimit.perServer.automatic'),
+                  label: Text(l10n.transferLimitAutomatic),
+                  selected: current.isAutomatic,
+                  onSelected: (_) => limits.setPerServer(
+                    const TransferConcurrency.automatic(),
+                  ),
+                ),
+                for (final files in transferConcurrencyChoices)
+                  ChoiceChip(
+                    key: ValueKey('transferLimit.perServer.$files'),
+                    label: Text('$files'),
+                    selected: current.files == files,
+                    onSelected: (_) =>
+                        limits.setPerServer(TransferConcurrency.fixed(files)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              l10n.transferLimitPerServerNote(maxGlobalInFlightTransfers),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.hintColor,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

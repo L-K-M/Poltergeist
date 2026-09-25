@@ -55,6 +55,7 @@ import '../services/sync_environment.dart';
 import '../services/sync_plan_controller.dart';
 import '../services/sync_queue_facade.dart';
 import '../services/update_check_controller.dart';
+import '../services/transfer_limits_controller.dart';
 import '../services/uuid.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
@@ -143,6 +144,7 @@ class WorkspaceShell extends StatefulWidget {
     this.initialUploadLimit,
     this.onDownloadLimitChanged,
     this.onUploadLimitChanged,
+    this.transferLimits,
     this.autoClearCompletedTransfers = true,
     this.probeSettings,
     this.initialSidebarHidden = false,
@@ -315,6 +317,11 @@ class WorkspaceShell extends StatefulWidget {
   /// value immediately; these land it in settings.
   final FutureOr<void> Function(int? bytesPerSecond)? onDownloadLimitChanged;
   final FutureOr<void> Function(int? bytesPerSecond)? onUploadLimitChanged;
+
+  /// D37's per-server transfer caps, bound to the queue by the
+  /// composition root; the popover beside the bandwidth limits sets their
+  /// default. Null leaves that choice out of the popover.
+  final TransferLimitsController? transferLimits;
 
   /// 02 §6's "auto-remove on success" setting (default on).
   final bool autoClearCompletedTransfers;
@@ -596,6 +603,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       uploadLimit: widget.initialUploadLimit,
       persistDownloadLimit: widget.onDownloadLimitChanged,
       persistUploadLimit: widget.onUploadLimitChanged,
+      transferLimits: widget.transferLimits,
       onError: ApplicationErrorReporter().report,
       // D16's anti-hiding rule made concrete: the first live task
       // re-opens the chrome — the panel's rows are the queue's only

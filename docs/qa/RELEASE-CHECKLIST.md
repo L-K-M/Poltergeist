@@ -201,7 +201,7 @@ known-divergent surface.
   with it. On Windows the window stays above the workspace. Linux was
   run under Xvfb (STATUS D36 section); macOS and Windows are compiled
   by CI only, so this row is their first run.
-- [ ] OWNER MANUAL QA: device themes (D37). On each desktop platform,
+- [ ] OWNER MANUAL QA: device themes (D38). On each desktop platform,
   in the Settings window's Appearance tab: each of the ten presets
   repaints the workspace and the Settings window at once (sidebar,
   header, listing, inspector, dialogs and menus), and the rail's status

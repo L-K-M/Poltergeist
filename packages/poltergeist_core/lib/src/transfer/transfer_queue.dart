@@ -18,6 +18,7 @@ import 'bandwidth_limiter.dart';
 import 'bounded_transfer_sink.dart';
 import 'conflict_policy.dart';
 import 'recursive_walker.dart';
+import 'server_transfer_limits.dart';
 import 'transfer_journal.dart';
 import 'transfer_task.dart';
 import 'trash_service.dart';
@@ -32,7 +33,11 @@ import 'trash_service.dart';
 ///
 /// Dispatch is strict queue order (a task's files go before the next
 /// task's), bounded by [PoolPolicy]'s per-server channel leases and the
-/// process-wide `maxGlobalInFlightTransfers` cap (03 §4.3). Leases are
+/// process-wide `maxGlobalInFlightTransfers` cap (03 §4.3). A user's
+/// per-server cap ([serverTransferLimits], 00 D37) holds a server's
+/// files back without holding back anyone else's: a task whose server
+/// is at its cap is passed over, so a task waits only on the servers it
+/// touches and later tasks for other servers go ahead of it. Leases are
 /// released deterministically on completion, cancellation, failure, and
 /// dispose.
 ///
@@ -88,6 +93,7 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
     bool Function(FsLocation destination)? isCaseInsensitiveDestination,
     bool Function(RemoteFileEntry entry)? isFlaggedEntry,
     int maxInFlightFiles = maxGlobalInFlightTransfers,
+    this._serverTransferLimits = ServerTransferLimits.none,
     int maxPendingConflicts = maxSurfacedPendingConflicts,
     this.pipeBufferBytes = 4 * 1024 * 1024,
     BandwidthLimiter? downloadLimiter,
@@ -247,6 +253,14 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
   final Map<(String, String), _RegistryClaim> _registry = {};
 
   int _inFlightFiles = 0;
+
+  /// Files in flight per server, counted against [serverTransferLimits]
+  /// the way [_inFlightFiles] counts against the global cap: taken at
+  /// dispatch, returned when the file's run settles. A server-to-server
+  /// file counts once on each side; a copy within one server counts once,
+  /// since it is one file in flight there.
+  final Map<String, int> _inFlightByServer = {};
+  ServerTransferLimits _serverTransferLimits;
   bool _paused = false;
   bool _disposed = false;
 
@@ -261,6 +275,22 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
       List.unmodifiable(_tasks.values.map((rt) => rt.task));
 
   bool get isPaused => _paused;
+
+  /// The user's per-server caps on files in flight (00 D37). Setting
+  /// them applies at once: a raised cap dispatches waiting files now,
+  /// and a lowered one lets the files already moving finish rather than
+  /// stopping them — only new dispatch waits.
+  ///
+  /// They bound this queue's dispatch alone. Browsing never passes
+  /// through it, and managed checkouts and produce hops run outside the
+  /// in-flight accounting (03 §4.7), so editing, previews and drag-out
+  /// are never held back by a cap.
+  ServerTransferLimits get serverTransferLimits => _serverTransferLimits;
+
+  set serverTransferLimits(ServerTransferLimits limits) {
+    _serverTransferLimits = limits;
+    _pump();
+  }
 
   /// Lifecycle, item-state, and byte-progress events for mirrors/UI.
   @override
@@ -2542,16 +2572,33 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
 
   /// Dispatches while a global slot is free, walking tasks in queue order
   /// (03 §4.3's strict queue order — cross-server round-robin is a
-  /// declared non-goal for v1).
+  /// declared non-goal for v1). A task whose server is at its D37 cap is
+  /// passed over, not waited on, so a capped server never holds a global
+  /// slot another server could use.
   void _pump() {
     if (_paused || _disposed) return;
     while (_inFlightFiles < _maxInFlightFiles) {
       final next = _nextDispatchable();
       if (next == null) return;
+      final servers = _serverIds({
+        next.runtime.task.source,
+        next.runtime.task.destination,
+      });
       _inFlightFiles++;
+      for (final server in servers) {
+        _inFlightByServer.update(server, (n) => n + 1, ifAbsent: () => 1);
+      }
       unawaited(
         _runFile(next.runtime, next.work).whenComplete(() {
           _inFlightFiles--;
+          for (final server in servers) {
+            final remaining = _inFlightByServer[server]! - 1;
+            if (remaining == 0) {
+              _inFlightByServer.remove(server);
+            } else {
+              _inFlightByServer[server] = remaining;
+            }
+          }
           _pump();
         }),
       );
@@ -2565,9 +2612,22 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
       if (task.state == TransferTaskState.paused || task.isTerminal) {
         continue;
       }
+      if (_atServerCap(task)) continue;
       return (runtime: runtime, work: runtime.eligible.removeFirst());
     }
     return null;
+  }
+
+  /// Whether any server [task] touches already has as many files in
+  /// flight as its D37 cap allows.
+  bool _atServerCap(TransferTask task) {
+    for (final server in _serverIds({task.source, task.destination})) {
+      final cap = _serverTransferLimits.filesFor(server);
+      if (cap != null && (_inFlightByServer[server] ?? 0) >= cap) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _runFile(_TaskRuntime runtime, _FileWork work) async {

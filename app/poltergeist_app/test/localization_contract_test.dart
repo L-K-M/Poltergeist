@@ -182,6 +182,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'transfer.downloadLimitBytesPerSecond'",
     "'transfer.uploadLimitBytesPerSecond'",
     "'transfer.autoClearCompleted'",
+    // D37's per-server transfer caps: the default and the overrides
+    // keys, and the stored spelling of an override's Automatic —
+    // settings.json data, never rendered.
+    "'transfer.perServerConcurrency'",
+    "'transfer.serverConcurrency'",
+    "'automatic'",
     // The sidebar's persisted keys (02 §4, D33): the hidden intent, the
     // collapsed-group set and the row density — settings.json keys,
     // never rendered.
@@ -2084,6 +2090,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$chipKeyPrefix$i'",
     r"'${chipKeyPrefix}custom'",
     r"'${chipKeyPrefix}set'",
+    // D37's per-server cap chips: their keys, and the fixed counts, which
+    // are bare numbers rather than copy.
+    "'transferLimit.perServer.automatic'",
+    r"'transferLimit.perServer.$files'",
+    r"'$files'",
   },
   // The drag avatar's badges are glyphs, not authored copy: the `+`
   // copy badge (Finder's convention — a move carries none) and the
@@ -2643,6 +2654,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'monospace'",
     r"'$error'",
     r"'$e'",
+    // D37's override menu: its key, and the fixed counts, which are bare
+    // numbers rather than copy.
+    "'serverEditor.transferLimit'",
+    r"'$files'",
   },
   'lib/ui/server_mark_picker.dart': {
     // The no-bytes picker fault (raised for the caller's localized error

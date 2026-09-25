@@ -12,6 +12,7 @@ import '../ui/prompts/keyboard_interactive_dialog.dart';
 import '../ui/server_editor.dart';
 import 'bookmark_backup_service.dart';
 import 'identity_file_reader.dart';
+import 'transfer_limits_controller.dart';
 
 /// The application layer behind the server editor: catalog truth and sync
 /// writes through [BookmarkBackupService], credential reads through the
@@ -24,6 +25,7 @@ final class ServerEditorBackend extends ServerEditorDelegate {
     required this._hostKeys,
     required this._identityReader,
     required this._navigatorKey,
+    required this._transferLimits,
   });
 
   final BookmarkBackupService _backups;
@@ -35,6 +37,7 @@ final class ServerEditorBackend extends ServerEditorDelegate {
   final HostKeyStore _hostKeys;
   final IdentityFileReader _identityReader;
   final GlobalKey<NavigatorState> _navigatorKey;
+  final TransferLimitsController _transferLimits;
 
   @override
   List<ServerConfig> get servers =>
@@ -71,6 +74,20 @@ final class ServerEditorBackend extends ServerEditorDelegate {
     if (secret != null) await _backups.saveServerSecret(secret);
     await _backups.saveServer(config);
   }
+
+  @override
+  TransferConcurrency get defaultTransferConcurrency =>
+      _transferLimits.perServer;
+
+  @override
+  TransferConcurrency? transferConcurrencyFor(String serverId) =>
+      _transferLimits.overrideFor(serverId);
+
+  @override
+  Future<void> saveTransferConcurrency(
+    String serverId,
+    TransferConcurrency? value,
+  ) => _transferLimits.setOverride(serverId, value);
 
   /// Authenticate without a shell — upstream's `testServerConnection` shape:
   /// draft fields outrank the vault so the test reports on what the form

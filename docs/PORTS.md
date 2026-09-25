@@ -635,7 +635,7 @@ counterpart is ported here.
   reader hears the dot. Written once and committed to both repos the
   same day; the files still differ only in the header comment, the
   chrome import and `_chrome()`.
-- Themed corners (D37), 2026-09-25: Séance's device themes ([Séance
+- Themed corners (D38), 2026-09-25: Séance's device themes ([Séance
   #128](https://github.com/L-K-M/Seance/pull/128), `f4d2f71`) route the kit's pill corner (`_radius`,
   which the focus ring shares) and its other desktop pill corners
   (`_pill`: the icon buttons, the filter field, the sync chip) through
@@ -707,9 +707,9 @@ counterpart is ported here.
 - Divergences: strings moved to ARB; preview badges pass the picked
   `ServerTint` because Poltergeist's `ServerBadge` requires one
   (upstream's defaults to a neutral badge).
-- Device themes (D37), 2026-09-25: reduced to a wrapper over
+- Device themes (D38), 2026-09-25: reduced to a wrapper over
   `lib/ui/color_picker.dart`, as Séance's is at `f4d2f71` (see "Device
-  themes (D37)" below). The picker's generic strings moved from
+  themes (D38)" below). The picker's generic strings moved from
   `serverColorPicker*` to `colorPicker*`; the title and the hint keep
   their keys. Séance's `server_color_picker_test.dart`, which had not
   been ported, is now (below), and passed against the picker before the
@@ -1371,19 +1371,20 @@ Files: `app/poltergeist_app/macos/Runner/SettingsWindow.swift`,
   `my_application.cc` so both windows share it, not a copy.
 - Port-back candidates: none yet; the two sets were written together.
 
-## Device themes (D37)
+## Device themes (D38)
 
 Every file below comes from Séance's device themes,
 [Séance #128](https://github.com/L-K-M/Seance/pull/128) at `f4d2f71`
-(code; `d9a642d` holds its docs), not merged upstream when ported. Re-diff each file
-against the merge commit at the next pin bump. Ported 2026-09-25. In
+(code; `d9a642d` holds its docs), not merged upstream when ported; it
+merged as `8f15eeb`, with these files as synced (`8714859`). Re-diff
+each file against it at the next pin bump. Ported 2026-09-25. In
 every file the comments are reworded without em dashes; that is prose,
 not behaviour, and is not repeated below.
 
 ### app/poltergeist_app/lib/theme/contrast.dart
 
 - Source: app/seance_app/lib/theme/contrast.dart
-- Séance commit: f4d2f71 (Séance #128, unmerged)
+- Séance commit: f4d2f71 (Séance #128, merged as 8f15eeb)
 - Ported: 2026-09-25
 - Divergences: none.
 - Port-back candidates: none.
@@ -1391,7 +1392,7 @@ not behaviour, and is not repeated below.
 ### app/poltergeist_app/lib/theme/app_appearance.dart
 
 - Source: app/seance_app/lib/theme/app_appearance.dart
-- Séance commit: 8714859 (Séance #128, unmerged; synced from f4d2f71)
+- Séance commit: 8714859 (Séance #128, merged as 8f15eeb; synced from f4d2f71)
 - Ported: 2026-09-25
 - Divergences: none.
 - Port-back candidates: none.
@@ -1399,7 +1400,7 @@ not behaviour, and is not repeated below.
 ### app/poltergeist_app/lib/theme/theme_palette.dart
 
 - Source: app/seance_app/lib/theme/theme_palette.dart
-- Séance commit: f4d2f71 (Séance #128, unmerged)
+- Séance commit: f4d2f71 (Séance #128, merged as 8f15eeb)
 - Ported: 2026-09-25
 - Divergences: no terminal block (`ThemeTerminalColors`, the `terminal`
   field and `withTerminal` are dropped), because Poltergeist has no
@@ -1417,7 +1418,7 @@ not behaviour, and is not repeated below.
 ### app/poltergeist_app/lib/theme/theme_presets.dart
 
 - Source: app/seance_app/lib/theme/theme_presets.dart
-- Séance commit: f4d2f71 (Séance #128, unmerged)
+- Séance commit: f4d2f71 (Séance #128, merged as 8f15eeb)
 - Ported: 2026-09-25
 - Divergences: the default is `ThemePresets.poltergeist` (stored name
   `Poltergeist`, accent `poltergeistSeedColor`) in place of Séance's
@@ -1460,7 +1461,7 @@ not behaviour, and is not repeated below.
 ### app/poltergeist_app/lib/ui/color_picker.dart
 
 - Source: app/seance_app/lib/ui/color_picker.dart
-- Séance commit: 8714859 (Séance #128, unmerged; synced from f4d2f71)
+- Séance commit: 8714859 (Séance #128, merged as 8f15eeb; synced from f4d2f71)
 - Ported: 2026-09-25
 - Divergences: strings through ARB, so `title` is required rather than
   defaulting to copy; the hex field is set in `poltergeistMonoTextStyle`,
@@ -1472,7 +1473,7 @@ not behaviour, and is not repeated below.
 ### app/poltergeist_app/lib/ui/settings/appearance_settings.dart
 
 - Source: app/seance_app/lib/ui/appearance_settings.dart
-- Séance commit: 8714859 (Séance #128, unmerged; synced from f4d2f71)
+- Séance commit: 8714859 (Séance #128, merged as 8f15eeb; synced from f4d2f71)
 - Ported: 2026-09-25
 - Divergences: strings through ARB, preset names too (`presetLabels`;
   the stored names stay English); no Terminal colours part; the

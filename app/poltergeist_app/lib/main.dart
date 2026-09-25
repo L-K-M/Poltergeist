@@ -38,6 +38,7 @@ import 'services/settings_store.dart';
 import 'services/ssh_config_import_setup.dart';
 import 'services/sync_credentials.dart';
 import 'services/sync_environment.dart';
+import 'services/transfer_limits_controller.dart';
 import 'services/sync_queue_facade.dart';
 import 'services/sync_transport.dart';
 import 'services/sync_verdict_stores.dart';
@@ -140,6 +141,18 @@ Future<void> main(List<String> args) async {
   final inspectorWidth = await preferences.loadInspectorWidth();
   final downloadLimit = await preferences.loadDownloadLimit();
   final uploadLimit = await preferences.loadUploadLimit();
+  // D37's per-server transfer caps: the popover's default and each
+  // server's own choice from its editor, device-local like the bandwidth
+  // limits. Bound to the queue once it exists.
+  final transferLimits = TransferLimitsController(
+    initial: ServerTransferLimits(
+      perServer: await preferences.loadTransferConcurrency(),
+      overrides: await preferences.loadServerTransferConcurrency(),
+    ),
+    persistDefault: preferences.saveTransferConcurrency,
+    persistOverride: preferences.setServerTransferConcurrency,
+    onError: errorReporter.report,
+  );
   final autoClearCompleted =
       await preferences.loadAutoClearCompletedTransfers();
   // The sidebar's persisted chrome state (02 §1/§4, D33): visibility
@@ -277,6 +290,8 @@ Future<void> main(List<String> args) async {
     serverConfigs: serverConfigs,
   );
   final transferQueue = transferQueueSession?.queue;
+  // Before anything can dispatch: a restored queue boots paused (03 §4.6).
+  transferLimits.queue = transferQueue;
   // D32 §11: Dock/taskbar progress while transfers run (macOS/Windows —
   // window_manager has no Linux progress surface). It stays silent until
   // the window is ready: on Windows an earlier setProgressBar crashes
@@ -420,6 +435,7 @@ Future<void> main(List<String> args) async {
       ),
     ),
     navigatorKey: navigatorKey,
+    transferLimits: transferLimits,
   );
 
   // The D19 link-only update check (07 §3.10, 01 §6): one plain GET of
@@ -480,6 +496,7 @@ Future<void> main(List<String> args) async {
       initialUploadLimit: uploadLimit,
       onDownloadLimitChanged: preferences.saveDownloadLimit,
       onUploadLimitChanged: preferences.saveUploadLimit,
+      transferLimits: transferLimits,
       autoClearCompletedTransfers: autoClearCompleted,
       probeSettings: probeSettings,
       initialSidebarHidden: sidebarHidden,

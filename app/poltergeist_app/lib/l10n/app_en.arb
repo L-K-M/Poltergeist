@@ -1638,7 +1638,7 @@
   "@queueResumeTooltip": {
     "description": "Tooltip on the queue toggle while the queue is paused."
   },
-  "activityBandwidthButton": "Bandwidth",
+  "activityBandwidthButton": "Transfer limits",
   "@activityBandwidthButton": {
     "description": "Tooltip for the activity header's bandwidth-limit button (02 §6)."
   },
@@ -2000,9 +2000,9 @@
       }
     }
   },
-  "bandwidthPopoverTitle": "Bandwidth limits",
+  "bandwidthPopoverTitle": "Transfer limits",
   "@bandwidthPopoverTitle": {
-    "description": "Title of the throttle popover (02 §6)."
+    "description": "Title of the throttle popover (02 §6): the bandwidth limits and D37's per-server cap on simultaneous transfers."
   },
   "bandwidthDownLabel": "Download",
   "@bandwidthDownLabel": {
@@ -2036,6 +2036,23 @@
   "bandwidthSet": "Set",
   "@bandwidthSet": {
     "description": "Applies the custom-rate field's value."
+  },
+  "transferLimitPerServerLabel": "Simultaneous transfers per server",
+  "@transferLimitPerServerLabel": {
+    "description": "The throttle popover's D37 section: the default cap on how many files move to or from each server at once."
+  },
+  "transferLimitAutomatic": "Automatic",
+  "@transferLimitAutomatic": {
+    "description": "D37 choice: no per-server cap, only the app-wide total applies."
+  },
+  "transferLimitPerServerNote": "Automatic lets a server use up to {total} at once, the most the app runs in total. Browsing, editing and previews are never held back.",
+  "@transferLimitPerServerNote": {
+    "description": "Explainer under the popover's D37 choices.",
+    "placeholders": {
+      "total": {
+        "type": "int"
+      }
+    }
   },
   "historyVerbCopy": "Copy",
   "@historyVerbCopy": {
@@ -4548,6 +4565,32 @@
   "serverEditorLoginScriptNote": "Runs as if typed at the prompt right after connecting. Its text and output land in scrollback — keep secrets out. Blank for none.",
   "@serverEditorLoginScriptNote": {
     "description": "Explainer under the login-script field."
+  },
+  "serverEditorTransferLimit": "Simultaneous transfers",
+  "@serverEditorTransferLimit": {
+    "description": "Label of the server editor's D37 override: how many files move to or from this server at once."
+  },
+  "serverEditorTransferLimitDefault": "Default ({value})",
+  "@serverEditorTransferLimitDefault": {
+    "description": "The override's follow-the-default choice, naming the default in force (Automatic or a number).",
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "serverEditorTransferLimitNote": "How many files move to or from this server at once. Browsing, editing and previews are never held back. Kept on this device only.",
+  "@serverEditorTransferLimitNote": {
+    "description": "Explainer under the D37 override. The choice is device-local and does not sync with the server."
+  },
+  "serverEditorTransferLimitSaveFailed": "The server was saved, but its transfer limit wasn't: {error}",
+  "@serverEditorTransferLimitSaveFailed": {
+    "description": "Toast when the server saved but its D37 override could not be stored; the editor stays open so Save can retry.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
   },
   "serverEditorAppearance": "Appearance",
   "@serverEditorAppearance": {

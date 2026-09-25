@@ -1997,7 +1997,7 @@ abstract class AppLocalizations {
   /// Tooltip for the activity header's bandwidth-limit button (02 §6).
   ///
   /// In en, this message translates to:
-  /// **'Bandwidth'**
+  /// **'Transfer limits'**
   String get activityBandwidthButton;
 
   /// Glyph the bandwidth button shows while no limit is set (02 §6's header button shows ∞).
@@ -2389,10 +2389,10 @@ abstract class AppLocalizations {
   /// **'Limited: ↓{down} ↑{up}'**
   String statusLimitChip(String down, String up);
 
-  /// Title of the throttle popover (02 §6).
+  /// Title of the throttle popover (02 §6): the bandwidth limits and D37's per-server cap on simultaneous transfers.
   ///
   /// In en, this message translates to:
-  /// **'Bandwidth limits'**
+  /// **'Transfer limits'**
   String get bandwidthPopoverTitle;
 
   /// The popover's per-direction limit label (02 §6).
@@ -2436,6 +2436,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Set'**
   String get bandwidthSet;
+
+  /// The throttle popover's D37 section: the default cap on how many files move to or from each server at once.
+  ///
+  /// In en, this message translates to:
+  /// **'Simultaneous transfers per server'**
+  String get transferLimitPerServerLabel;
+
+  /// D37 choice: no per-server cap, only the app-wide total applies.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic'**
+  String get transferLimitAutomatic;
+
+  /// Explainer under the popover's D37 choices.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic lets a server use up to {total} at once, the most the app runs in total. Browsing, editing and previews are never held back.'**
+  String transferLimitPerServerNote(int total);
 
   /// History verb for a copy task (02 §6).
   ///
@@ -5441,6 +5459,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Runs as if typed at the prompt right after connecting. Its text and output land in scrollback — keep secrets out. Blank for none.'**
   String get serverEditorLoginScriptNote;
+
+  /// Label of the server editor's D37 override: how many files move to or from this server at once.
+  ///
+  /// In en, this message translates to:
+  /// **'Simultaneous transfers'**
+  String get serverEditorTransferLimit;
+
+  /// The override's follow-the-default choice, naming the default in force (Automatic or a number).
+  ///
+  /// In en, this message translates to:
+  /// **'Default ({value})'**
+  String serverEditorTransferLimitDefault(String value);
+
+  /// Explainer under the D37 override. The choice is device-local and does not sync with the server.
+  ///
+  /// In en, this message translates to:
+  /// **'How many files move to or from this server at once. Browsing, editing and previews are never held back. Kept on this device only.'**
+  String get serverEditorTransferLimitNote;
+
+  /// Toast when the server saved but its D37 override could not be stored; the editor stays open so Save can retry.
+  ///
+  /// In en, this message translates to:
+  /// **'The server was saved, but its transfer limit wasn\'t: {error}'**
+  String serverEditorTransferLimitSaveFailed(String error);
 
   /// Heading of the group/colour/mark section.
   ///

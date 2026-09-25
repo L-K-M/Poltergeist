@@ -11,6 +11,8 @@ import 'package:poltergeist_app/services/sidebar_controller.dart';
 import 'package:poltergeist_app/theme/app_appearance.dart';
 import 'package:poltergeist_app/theme/theme_palette.dart';
 import 'package:poltergeist_app/theme/theme_presets.dart';
+import 'package:poltergeist_core/poltergeist_core.dart'
+    show TransferConcurrency;
 
 import 'support/fake_bookmark_store.dart';
 
@@ -408,6 +410,99 @@ void main() {
     expect(jsonDecode(await settingsFile.readAsString()), {
       'sidebar.collapsedGroups': ['fav:work'],
     });
+  });
+
+  test('the per-server transfer caps persist and clear', () async {
+    final preferences = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+    expect(
+      await preferences.loadTransferConcurrency(),
+      const TransferConcurrency.automatic(),
+    );
+    expect(await preferences.loadServerTransferConcurrency(), isEmpty);
+
+    await preferences.saveTransferConcurrency(
+      const TransferConcurrency.fixed(2),
+    );
+    await preferences.setServerTransferConcurrency(
+      'fast',
+      const TransferConcurrency.automatic(),
+    );
+    expect(
+      await preferences.setServerTransferConcurrency(
+        'fussy',
+        const TransferConcurrency.fixed(1),
+      ),
+      {
+        'fast': const TransferConcurrency.automatic(),
+        'fussy': const TransferConcurrency.fixed(1),
+      },
+    );
+
+    final reread = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+    expect(
+      await reread.loadTransferConcurrency(),
+      const TransferConcurrency.fixed(2),
+    );
+    expect(await reread.loadServerTransferConcurrency(), {
+      'fast': const TransferConcurrency.automatic(),
+      'fussy': const TransferConcurrency.fixed(1),
+    });
+
+    expect(await reread.setServerTransferConcurrency('fast', null), {
+      'fussy': const TransferConcurrency.fixed(1),
+    });
+    await reread.saveTransferConcurrency(
+      const TransferConcurrency.automatic(),
+    );
+    final again = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+    expect(
+      await again.loadTransferConcurrency(),
+      const TransferConcurrency.automatic(),
+    );
+  });
+
+  test('a hand-edited cap that is not a positive whole number is '
+      'dropped', () async {
+    // 1e999 decodes to infinity: jsonDecode saturates over-range literals.
+    await settingsFile.writeAsString(
+      '{"transfer.perServerConcurrency":1e999,'
+      '"transfer.serverConcurrency":{"a":2.5,"b":-1,"c":"fast","d":3,'
+      '"e":"automatic","f":null,"g":0,"h":1e999,"i":6,"j":1e300}}',
+    );
+    final preferences = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+    expect(
+      await preferences.loadTransferConcurrency(),
+      const TransferConcurrency.automatic(),
+    );
+    // A cap at or above the app-wide total never binds, so it reads as the
+    // Automatic it behaves as rather than a number no chip offers.
+    expect(await preferences.loadServerTransferConcurrency(), {
+      'd': const TransferConcurrency.fixed(3),
+      'e': const TransferConcurrency.automatic(),
+      'i': const TransferConcurrency.automatic(),
+      'j': const TransferConcurrency.automatic(),
+    });
+
+    // A change rewrites only what decodes; the rest is not carried along.
+    // (Finite values here: the store re-encodes the whole file on a write,
+    // and an infinity cannot be encoded wherever it sits.)
+    await settingsFile.writeAsString(
+      '{"transfer.serverConcurrency":{"a":2.5,"d":3,"e":"automatic","f":null}}',
+    );
+    await AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    ).setServerTransferConcurrency('d', const TransferConcurrency.fixed(4));
+    final stored =
+        jsonDecode(await settingsFile.readAsString()) as Map<String, Object?>;
+    expect(stored['transfer.serverConcurrency'], {'d': 4, 'e': 'automatic'});
   });
 
   test('a non-finite persisted transfer limit decodes as unlimited',
