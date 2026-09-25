@@ -26,7 +26,7 @@
 /// | key                 | type                     | meaning |
 /// |---------------------|--------------------------|---------|
 /// | `sessionId`         | `String`                 | Dart-minted id; echoed on every callback for this session |
-/// | `position`          | `List<double>` [x, y]    | the pointer, already outside the view bounds |
+/// | `position`          | `List<double>` [x, y]    | the pointer, already outside the view bounds; where the native side ends the embedder's press |
 /// | `allowedOperations` | `List<String>`           | subset of `copy`, `move`, `link`; never `delete` (D15: a Dock-Trash drop would be an unguarded delete) |
 /// | `items`             | `List<Map>`              | one entry per dragged root, in listing order (see below) |
 /// | `image`             | `Uint8List?` (PNG)       | Dart-rendered drag image (glyph, name or "N items", count badge); null when rendering failed |
@@ -63,17 +63,21 @@
 /// Before (or while) starting the session the native side MUST end the
 /// embedder's own view of the press: the OS session swallows the real
 /// button release, and an embedder that still believes the button is
-/// down drops the next press. Linux: `gtk_main_do_event` a
-/// `GDK_BUTTON_RELEASE` copy of the recorded press, positioned at the
-/// current pointer. macOS: `flutterViewController.mouseUp(with:)` a
-/// synthetic `leftMouseUp` at the current location. Windows: send
-/// `WM_LBUTTONUP` to the Flutter view's HWND before `DoDragDrop`. The
-/// Dart side also cancels the framework's gesture itself (a synthetic
-/// `PointerCancelEvent` for the row's pointer) once `started` arrives.
-/// Until the reply arrives it holds every in-app drop of the payload,
-/// since the release may be the native side's own: discarded if the
-/// session started, landed if it did not. So the in-app drag never
-/// lands a drop alongside a native session.
+/// down drops the next press. The synthetic release sits at `position`,
+/// which is outside the view, never at the current pointer: it can reach
+/// Flutter before the reply, and over a pane Flutter would read it as an
+/// in-app drop of the items the session carries. Linux:
+/// `gtk_main_do_event` a `GDK_BUTTON_RELEASE` copy of the recorded
+/// press. macOS: `flutterViewController.mouseUp(with:)` a synthetic
+/// `leftMouseUp`. Windows: send `WM_LBUTTONUP` (physical client pixels,
+/// the view's DPI over 96) to the Flutter view's HWND before
+/// `DoDragDrop`. A request without a well-formed `position` is refused
+/// as `failed`. The Dart side also cancels the framework's gesture
+/// itself (a synthetic `PointerCancelEvent` for the row's pointer) once
+/// `started` arrives. Until the reply arrives it holds every in-app drop
+/// of the payload, since the release may be the native side's own:
+/// discarded if the session started, landed if it did not. So the
+/// in-app drag never lands a drop alongside a native session.
 ///
 /// **`promiseProgress`** (arguments: a map; fire-and-forget, reply
 /// ignored): `{sessionId: String, promiseId: String,

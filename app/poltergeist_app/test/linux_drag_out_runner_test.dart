@@ -5,6 +5,14 @@ import 'package:poltergeist_app/services/os_drag_out.dart';
 
 String _read(String path) => File(path).readAsStringSync();
 
+/// The body of the C function whose definition starts with [signature],
+/// up to its closing brace at column zero.
+String _function(String source, String signature) {
+  final start = source.indexOf(signature);
+  expect(start, isNonNegative, reason: 'missing `$signature`');
+  return source.substring(start, source.indexOf('\n}\n', start));
+}
+
 /// The Linux drag-out backend's source contract (00 D14's 2026-09-25
 /// amendment). The GTK side is verified for real under Xvfb (see
 /// docs/STATUS.md); these checks keep the load-bearing lines from
@@ -47,9 +55,26 @@ void main() {
   });
 
   test('ends the embedder press before the GTK session takes the grab', () {
-    final release = channel.indexOf('synthesize_release(self, pointer);');
+    final release = channel.indexOf('synthesize_release(self, x, y);');
     final begin = channel.indexOf('gtk_drag_begin_with_coordinates(');
     expect(release, isNonNegative);
     expect(begin, greaterThan(release));
+  });
+
+  test('ends the press at the position Dart sent, never at the current '
+      'pointer', () {
+    // The release reaches Flutter before the `started` reply. Dart's
+    // position is outside the view; the current pointer may be back
+    // over a pane, where Flutter would read the release as a drop.
+    final start = _function(channel, 'void start_drag(');
+    final position = start.indexOf('point_at(args, "position", &x, &y)');
+    expect(position, isNonNegative);
+    expect(
+      start.indexOf('synthesize_release(self, x, y);'),
+      greaterThan(position),
+    );
+    final release = _function(channel, 'void synthesize_release(');
+    expect(release, isNot(contains('device_position')));
+    expect(release, isNot(contains('gdk_device_get_position')));
   });
 }

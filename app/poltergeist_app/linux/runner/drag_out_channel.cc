@@ -16,8 +16,11 @@
 // this window. Starting the session also takes the pointer grab, which
 // swallows the real button release: Flutter's embedder would then still
 // believe the button is down and drop the next press. So before the
-// session starts, a synthesized release at the current pointer position
-// goes through gtk_main_do_event, the same route a real one takes.
+// session starts, a synthesized release goes through gtk_main_do_event,
+// the same route a real one takes. It sits at the position Dart sent,
+// which is outside the view, not at the current pointer: it reaches
+// Flutter before the `started` reply, and over a pane Flutter would read
+// it as an in-app drop of the items the session is about to carry.
 //
 // Deletes never happen here (D15): "drag-data-delete" is not handled, so
 // a destination that picked MOVE moves the file itself (file managers
@@ -122,21 +125,45 @@ gboolean on_button_press_hook(GSignalInvocationHint* hint,
   return TRUE;
 }
 
-// Ends the embedder's view of the press (see the file comment).
-void synthesize_release(DragOutChannel* self, GdkDevice* pointer) {
+// The view's top-left corner in root coordinates. FlView has no
+// GdkWindow of its own, so its allocation is relative to the window it
+// draws on.
+void view_origin(GtkWidget* view, double* x, double* y) {
+  int origin_x = 0;
+  int origin_y = 0;
+  GdkWindow* window = gtk_widget_get_window(view);
+  if (window != nullptr) {
+    gdk_window_get_origin(window, &origin_x, &origin_y);
+  }
+  if (!gtk_widget_get_has_window(view)) {
+    GtkAllocation allocation;
+    gtk_widget_get_allocation(view, &allocation);
+    origin_x += allocation.x;
+    origin_y += allocation.y;
+  }
+  *x = origin_x;
+  *y = origin_y;
+}
+
+// Ends the embedder's view of the press (see the file comment) at |x|,
+// |y|: Dart's position, in the view's logical pixels (GDK's, on Linux).
+void synthesize_release(DragOutChannel* self, double x, double y) {
   GdkEvent* release = gdk_event_copy(self->last_press);
   release->type = GDK_BUTTON_RELEASE;
-  GdkWindow* window = release->button.window;
-  double x = release->button.x;
-  double y = release->button.y;
-  if (window != nullptr) {
-    gdk_window_get_device_position_double(window, pointer, &x, &y, nullptr);
+  double root_x = 0;
+  double root_y = 0;
+  view_origin(self->view, &root_x, &root_y);
+  root_x += x;
+  root_y += y;
+  // Event coordinates are relative to the press's window, which the copy
+  // keeps (GTK routes the release by it).
+  int window_x = 0;
+  int window_y = 0;
+  if (release->button.window != nullptr) {
+    gdk_window_get_origin(release->button.window, &window_x, &window_y);
   }
-  double root_x = release->button.x_root;
-  double root_y = release->button.y_root;
-  gdk_device_get_position_double(pointer, nullptr, &root_x, &root_y);
-  release->button.x = x;
-  release->button.y = y;
+  release->button.x = root_x - window_x;
+  release->button.y = root_y - window_y;
   release->button.x_root = root_x;
   release->button.y_root = root_y;
   release->button.state =
@@ -218,6 +245,14 @@ void start_drag(DragOutChannel* self, FlMethodCall* call) {
   }
   g_ptr_array_add(uris, nullptr);
 
+  // Where the release goes: the pointer as Dart saw it, outside the view.
+  double x = 0;
+  double y = 0;
+  if (!point_at(args, "position", &x, &y)) {
+    respond(call, refusal("failed", "startDrag needs a position"));
+    return;
+  }
+
   if (self->last_press == nullptr) {
     respond(call, refusal("noPointerEvent", nullptr));
     return;
@@ -252,7 +287,7 @@ void start_drag(DragOutChannel* self, FlMethodCall* call) {
   }
   if (actions == 0) actions = GDK_ACTION_COPY;
 
-  synthesize_release(self, pointer);
+  synthesize_release(self, x, y);
 
   GtkTargetList* targets = gtk_target_list_new(nullptr, 0);
   gtk_target_list_add_uri_targets(targets, 0);

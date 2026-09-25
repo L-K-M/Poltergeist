@@ -46,15 +46,24 @@ class DragOut {
   bool HandleWindowMessage(UINT message);
 
  private:
+  // A point in the Flutter view's logical pixels, as Dart sends it.
+  struct LogicalPoint {
+    double x = 0;
+    double y = 0;
+  };
+
   struct Session {
     std::string id;
     Microsoft::WRL::ComPtr<IDataObject> data;
     DWORD effects = DROPEFFECT_COPY;
+    // Where the embedder's press ends: the pointer as Dart saw it,
+    // outside the view.
+    LogicalPoint position;
   };
 
   void StartDrag(const flutter::EncodableValue* arguments,
                  flutter::MethodResult<flutter::EncodableValue>& result);
-  void EndEmbedderPress();
+  void EndEmbedderPress(const LogicalPoint& position);
   void FinishSession(const std::string& session_id, const char* operation);
 
   HWND window_;

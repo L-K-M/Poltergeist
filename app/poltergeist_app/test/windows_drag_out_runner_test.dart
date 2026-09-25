@@ -79,6 +79,7 @@ void main() {
     expect(valuesOf('Key'), {
       // startDrag arguments.
       'sessionId',
+      'position',
       'items',
       'allowedOperations',
       'image',
@@ -153,7 +154,7 @@ void main() {
       contract['LinkOperation'],
     ]);
     expect(args[contract['ImageKey']], isA<Uint8List>());
-    for (final key in ['ImageSizeKey', 'ImageAnchorKey']) {
+    for (final key in ['PositionKey', 'ImageSizeKey', 'ImageAnchorKey']) {
       // PairAt() reads an EncodableList of two numbers: a Dart
       // List<double> is a codec LIST of FLOAT64s, not a Float64List.
       final pair = args[contract[key]];
@@ -161,6 +162,7 @@ void main() {
       expect(pair, isNot(isA<Float64List>()));
       expect(pair, everyElement(isA<double>()));
     }
+    expect(args[contract['PositionKey']], [-12.0, 300.0]);
     expect(args[contract['ImageSizeKey']], [160.0, 32.0]);
     expect(args[contract['ImageAnchorKey']], [12.0, 16.0]);
   });
@@ -269,13 +271,23 @@ void main() {
     expect(startBody, contains('PostMessageW('));
     expect(startBody, isNot(contains('SHDoDragDrop(')));
     final runBody = source.substring(run, source.indexOf('\n}\n', run));
-    final release = runBody.indexOf('EndEmbedderPress();');
+    final release = runBody.indexOf('EndEmbedderPress(position);');
     expect(release, isNonNegative);
     expect(runBody.indexOf('SHDoDragDrop('), greaterThan(release));
-    expect(
-      source.substring(source.indexOf('void DragOut::EndEmbedderPress(')),
-      contains('SendMessageW(view_, WM_LBUTTONUP,'),
+    final endPress = source.indexOf('void DragOut::EndEmbedderPress(');
+    final endPressBody = source.substring(
+      endPress,
+      source.indexOf('\n}\n', endPress),
     );
+    expect(endPressBody, contains('SendMessageW(view_, WM_LBUTTONUP,'));
+    // At the position Dart sent (outside the view, in physical client
+    // pixels), never at the cursor: the release may reach Flutter before
+    // Dart handles `started`, and the cursor may be back over a pane.
+    expect(runBody, contains('EndEmbedderPress(position);'));
+    expect(startBody, contains('PairAt(*map, kPositionKey, &position.x'));
+    expect(endPressBody, contains('FlutterDesktopGetDpiForHWND(view_)'));
+    expect(endPressBody, isNot(contains('GetCursorPos')));
+    expect(endPressBody, isNot(contains('GetMessagePos')));
     // D15: a destination that reports a move has moved (or will move)
     // the file itself; the source never deletes on its behalf.
     expect(

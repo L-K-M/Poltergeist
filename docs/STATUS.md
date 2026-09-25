@@ -8178,8 +8178,9 @@ rows keep the "use Download To…" hint and virtual files
   holds the mouse capture, as in a pen or touch drag) where the protocol
   says. Otherwise it builds the session, posts a registered window
   message, and replies `started`. The message's handler sends the view
-  a synthetic `WM_LBUTTONUP` at the pointer, which ends the embedder's
-  press and capture, then runs `SHDoDragDrop` with a small
+  a synthetic `WM_LBUTTONUP` at the position Dart sent (outside the
+  view), which ends the embedder's press and capture, then runs
+  `SHDoDragDrop` with a small
   `IDropSource` (Esc cancels, releasing the button drops).
 - **End.** `sessionEnded` carries the logical performed effect first,
   then the performed one, then the loop's answer: the shell's optimized

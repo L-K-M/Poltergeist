@@ -53,7 +53,10 @@ private struct ActiveSession {
 ///   drag, whichever view they hit.
 /// * The session swallows the real mouse-up, so Flutter's embedder would
 ///   still believe the button is down and drop the next click. A
-///   synthetic mouse-up reaches the FlutterViewController first.
+///   synthetic mouse-up reaches the FlutterViewController first, at the
+///   position Dart sent (outside the view), not at the current pointer:
+///   it reaches Flutter before the `started` reply, and over a pane
+///   Flutter would read it as an in-app drop of the session's items.
 /// * Platform and UI threads are merged, so Dart runs on the main
 ///   thread and nothing here may wait for it. A promise's write hops from
 ///   the provider's private queue to the main queue, invokes
@@ -188,6 +191,11 @@ final class DragOutChannel: NSObject {
       result(Self.refusal("busy", nil))
       return
     }
+    // Where the press ends: the pointer as Dart saw it, outside the view.
+    guard let position = Self.point(args["position"]) else {
+      result(Self.refusal("failed", "startDrag needs a position"))
+      return
+    }
 
     var items: [DragOutItem] = []
     for raw in rawItems {
@@ -263,7 +271,7 @@ final class DragOutChannel: NSObject {
     if !providers.isEmpty {
       retainedProviders[sessionId] = providers
     }
-    endFlutterPress(controller, window: window)
+    endFlutterPress(controller, window: window, at: Self.windowLocation(of: position, in: view))
     // Dart hears `started` before anything the session reports, even
     // if AppKit were to run the whole session inside the call below.
     result(["started": true])
@@ -299,14 +307,18 @@ final class DragOutChannel: NSObject {
     }
   }
 
-  /// Ends the embedder's view of the press: the session takes the real
-  /// mouse-up, and an embedder that still believes the button is down
-  /// drops the next click. Sent straight to the controller so no
-  /// overlay view can intercept it.
-  private func endFlutterPress(_ controller: FlutterViewController, window: NSWindow) {
+  /// Ends the embedder's view of the press at `location` (window
+  /// coordinates): the session takes the real mouse-up, and an embedder
+  /// that still believes the button is down drops the next click. Sent
+  /// straight to the controller so no overlay view can intercept it.
+  private func endFlutterPress(
+    _ controller: FlutterViewController,
+    window: NSWindow,
+    at location: NSPoint
+  ) {
     guard let release = NSEvent.mouseEvent(
       with: .leftMouseUp,
-      location: window.mouseLocationOutsideOfEventStream,
+      location: location,
       modifierFlags: NSEvent.modifierFlags,
       timestamp: ProcessInfo.processInfo.systemUptime,
       windowNumber: window.windowNumber,
@@ -421,6 +433,17 @@ final class DragOutChannel: NSObject {
   }
 
   /// An `[x, y]` list of numbers.
+  /// Dart's `position` (the Flutter view's logical pixels, top-left
+  /// origin) in window coordinates, where a mouse event's location
+  /// lives. The controller's view wraps the flipped FlutterView at the
+  /// same size, but need not be flipped itself.
+  private static func windowLocation(of position: CGPoint, in view: NSView) -> NSPoint {
+    let local = view.isFlipped
+      ? position
+      : NSPoint(x: position.x, y: view.bounds.height - position.y)
+    return view.convert(local, to: nil)
+  }
+
   private static func point(_ value: Any?) -> CGPoint? {
     guard let pair = value as? [NSNumber], pair.count == 2 else { return nil }
     return CGPoint(x: pair[0].doubleValue, y: pair[1].doubleValue)

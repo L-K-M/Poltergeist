@@ -220,8 +220,8 @@ void main() {
       );
       // Read by the other backends; macOS draws Finder's icons and places
       // the frame from the event AppKit is handed instead.
-      const unreadOnMac = {'position', 'image', 'imageSize'};
-      const required = {'sessionId', 'items'};
+      const unreadOnMac = {'image', 'imageSize'};
+      const required = {'sessionId', 'items', 'position'};
 
       final starts = [
         for (final call in await sentByDart())
@@ -538,6 +538,35 @@ void main() {
       expect(
         _body(swift, 'private func endFlutterPress('),
         allOf(contains('with: .leftMouseUp'), contains('controller.mouseUp(')),
+      );
+    });
+
+    test('ends the press at the position Dart sent, never at the current '
+        'pointer', () {
+      // The release reaches Flutter before the `started` reply. Dart's
+      // position is outside the view; the current pointer may be back
+      // over a pane, where Flutter would read the release as a drop.
+      final start = _body(swift, 'private func startDrag(');
+      expect(start, contains('let position = Self.point(args["position"])'));
+      expect(
+        start,
+        contains(
+          'endFlutterPress(controller, window: window, at: '
+          'Self.windowLocation(of: position, in: view))',
+        ),
+      );
+      final release = _body(swift, 'private func endFlutterPress(');
+      expect(release, contains('location: location,'));
+      expect(release, isNot(contains('mouseLocationOutsideOfEventStream')));
+      // Dart's space is the flipped FlutterView's; the controller's view
+      // wraps it at the same size and says itself whether it is flipped.
+      expect(
+        _body(swift, 'private static func windowLocation('),
+        allOf(
+          contains('view.isFlipped'),
+          contains('view.bounds.height - position.y'),
+          contains('view.convert(local, to: nil)'),
+        ),
       );
     });
 

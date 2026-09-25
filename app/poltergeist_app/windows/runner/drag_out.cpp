@@ -5,6 +5,7 @@
 #include <wincodec.h>
 
 #include <flutter/standard_method_codec.h>
+#include <flutter_windows.h>
 
 #include <algorithm>
 #include <cmath>
@@ -30,8 +31,11 @@
 // row drag, and the drag loop's own capture swallows the real release,
 // so the embedder would still believe the button is down and read the
 // next press as a move. Before the loop starts, a synthesized
-// WM_LBUTTONUP at the pointer resets it (and releases its capture) the
-// way a real one would.
+// WM_LBUTTONUP resets it (and releases its capture) the way a real one
+// would. It sits at the position Dart sent, which is outside the view,
+// not at the cursor: it can reach Flutter before Dart handles the
+// `started` reply, and over a pane Flutter would read it as an in-app
+// drop of the items the session carries.
 //
 // Deletes never happen here (D15). DROPEFFECT_MOVE only means the
 // target wants the source deleted; the shell's own file moves are
@@ -58,6 +62,7 @@ constexpr char kStartDragMethod[] = "startDrag";
 constexpr char kPromiseProgressMethod[] = "promiseProgress";
 constexpr char kSessionEndedMethod[] = "sessionEnded";
 constexpr char kSessionIdKey[] = "sessionId";
+constexpr char kPositionKey[] = "position";
 constexpr char kItemsKey[] = "items";
 constexpr char kAllowedOperationsKey[] = "allowedOperations";
 constexpr char kImageKey[] = "image";
@@ -630,6 +635,11 @@ void DragOut::StartDrag(const EncodableValue* arguments,
                             : "OLE is not initialized on this thread");
     return;
   }
+  LogicalPoint position;
+  if (!PairAt(*map, kPositionKey, &position.x, &position.y)) {
+    Refuse(result, kFailedReason, "startDrag needs a position");
+    return;
+  }
 
   std::vector<std::wstring> paths;
   for (const EncodableValue& item_value : *items) {
@@ -685,7 +695,8 @@ void DragOut::StartDrag(const EncodableValue* arguments,
     Refuse(result, kFailedReason, "the start message could not be posted");
     return;
   }
-  session_ = Session{*session_id, std::move(data), AllowedEffects(*map)};
+  session_ = Session{*session_id, std::move(data), AllowedEffects(*map),
+                     position};
   result.Success(
       EncodableValue(EncodableMap{{EncodableValue(kStartedKey),
                                    EncodableValue(true)}}));
@@ -705,8 +716,9 @@ bool DragOut::HandleWindowMessage(UINT message) {
   const std::string session_id = session_->id;
   const ComPtr<IDataObject> data = session_->data;
   const DWORD effects = session_->effects;
+  const LogicalPoint position = session_->position;
 
-  EndEmbedderPress();
+  EndEmbedderPress(position);
   if (!PrimaryButtonDown()) {
     // Released before the loop could start: nothing was dropped.
     FinishSession(session_id, kNoOperation);
@@ -730,19 +742,17 @@ bool DragOut::HandleWindowMessage(UINT message) {
   return true;
 }
 
-void DragOut::EndEmbedderPress() {
+void DragOut::EndEmbedderPress(const LogicalPoint& position) {
   // Only while the embedder still holds the press: a release it already
   // saw needs no second one.
   if (GetCapture() != view_) {
     return;
   }
-  POINT point = {};
-  if (!GetCursorPos(&point)) {
-    const DWORD position = GetMessagePos();
-    point.x = static_cast<short>(LOWORD(position));
-    point.y = static_cast<short>(HIWORD(position));
-  }
-  ScreenToClient(view_, &point);
+  // Dart's position in the view's physical client pixels: the
+  // embedder's device pixel ratio is the view's DPI over 96.
+  const double scale = FlutterDesktopGetDpiForHWND(view_) / 96.0;
+  const POINT point = {static_cast<LONG>(std::lround(position.x * scale)),
+                       static_cast<LONG>(std::lround(position.y * scale))};
   WPARAM keys = 0;
   if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
     keys |= MK_CONTROL;
