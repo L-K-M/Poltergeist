@@ -8,6 +8,7 @@ library;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show SemanticsAction;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/rsync_endpoints.dart';
@@ -276,6 +277,23 @@ void main() {
       find.bySemanticsLabel('a.txt: copy to “right”, only exists here'),
       findsOneWidget,
     );
+    handle.dispose();
+  });
+
+  testWidgets('a screen reader can cycle a row\'s action from its glyph', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await _ready(tester, testSyncPair(), [_copy('a.txt')]);
+    const rowLabel = 'a.txt: copy to “right”, only exists here';
+    final glyph = find.semantics
+        .byLabel('copy to “right”')
+        .evaluate()
+        .single;
+    expect(glyph.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+    glyph.owner!.performAction(glyph.id, SemanticsAction.tap);
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel(rowLabel), findsNothing);
     handle.dispose();
   });
 

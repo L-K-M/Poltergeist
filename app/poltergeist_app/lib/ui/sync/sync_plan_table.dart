@@ -560,6 +560,9 @@ class _SyncItemRow extends StatelessWidget {
                       container: true,
                       button: true,
                       label: actionLabel,
+                      // The excluded InkWell's tap, kept for screen
+                      // readers: activating the glyph cycles the action.
+                      onTap: running ? null : onGlyphTap,
                       excludeSemantics: true,
                       child: InkWell(
                         onTap: running ? null : onGlyphTap,

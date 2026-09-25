@@ -319,8 +319,9 @@ class _SheetTabs extends StatelessWidget {
     Widget tab(
       InspectorTab value,
       IconData icon,
-      String label,
-      int badge, {
+      String label, {
+      int badge = 0,
+      String Function(int count)? announce,
       bool errorBadge = false,
     }) {
       final isSelected = value == selected;
@@ -341,6 +342,8 @@ class _SheetTabs extends StatelessWidget {
           selected: isSelected,
           button: true,
           label: label,
+          // The painted count is excluded with the glyph; say it.
+          value: badge > 0 ? announce?.call(badge) : null,
           // The InkWell below is excluded, so the node carries the tap:
           // without one it is not clickable to TalkBack or Switch Access.
           onTap: () => onSelect(value),
@@ -406,13 +409,13 @@ class _SheetTabs extends StatelessWidget {
           InspectorTab.info,
           selected == InspectorTab.info ? Icons.info : Icons.info_outline,
           l10n.inspectorTabInfo,
-          0,
         ),
         tab(
           InspectorTab.transfers,
           Icons.swap_vert,
           l10n.inspectorTabTransfers,
-          liveTransfers,
+          badge: liveTransfers,
+          announce: l10n.transferCountSemantics,
         ),
         tab(
           InspectorTab.alerts,
@@ -420,7 +423,8 @@ class _SheetTabs extends StatelessWidget {
               ? Icons.warning_amber
               : Icons.warning_amber_outlined,
           l10n.inspectorTabAlerts,
-          alertCount,
+          badge: alertCount,
+          announce: l10n.alertCountSemantics,
           errorBadge: true,
         ),
       ],

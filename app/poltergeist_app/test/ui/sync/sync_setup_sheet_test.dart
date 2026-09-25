@@ -5,6 +5,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show SemanticsAction;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
@@ -136,6 +137,25 @@ void main() {
     await _tapKey(tester, 'sync.sheet.simulate');
     expect(outcome.result!.action, SyncSheetAction.simulate);
     expect(outcome.result!.pair.rules.direction, SyncDirection.rightToLeft);
+  });
+
+  testWidgets('a screen reader can swap the direction too', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _pumpSheet(tester);
+    final node = tester.getSemantics(
+      find.byKey(const ValueKey('sync.sheet.direction')),
+    );
+    expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+    node.owner!.performAction(node.id, SemanticsAction.tap);
+    await tester.pumpAndSettle();
+    expect(
+      _plan(tester),
+      startsWith(
+        'Your local folder “site” will be updated from your local folder '
+        '“site-copy”.',
+      ),
+    );
+    semantics.dispose();
   });
 
   testWidgets('the compare dropdown rewrites the replacement clause', (

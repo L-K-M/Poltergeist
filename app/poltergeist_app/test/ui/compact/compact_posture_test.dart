@@ -708,6 +708,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(_key(CompactKey.inspectorSheet), findsOneWidget);
       expect(workspace.inspectorTab, InspectorTab.transfers);
+      // The painted badge is excluded with the glyph; the tab says it.
+      expect(
+        find.semantics.byLabel('Transfers').evaluate().single.value,
+        '1 unfinished transfer',
+      );
 
       await _semanticsTap(
         tester,

@@ -989,6 +989,9 @@ class _DirectionToggle extends StatelessWidget {
         child: Semantics(
           button: true,
           label: tooltip,
+          // The InkWell below is excluded, so the node carries the tap a
+          // screen reader's activation sends.
+          onTap: onPressed,
           excludeSemantics: true,
           child: Material(
             color: chrome.capsuleFill,
