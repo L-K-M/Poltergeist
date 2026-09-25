@@ -1371,7 +1371,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           swapFocus: () => _focusPane(workspace.swapFocus()),
           sidebarAvailable: () => _sidebar != null,
           toggleSidebarDrawer: _toggleSidebarDrawer,
-          sidebarIsDrawer: () => !_sidebarInline,
+          sidebarIsDrawer: () => !_sidebarFits,
           focusFilter: _focusHeaderFilter,
           preview: preview,
         ),
@@ -1380,7 +1380,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         buildSidebarFilterCommand(
           sidebar: sidebar,
           workspace: workspace,
-          sidebarIsDrawer: () => !_sidebarInline,
+          sidebarIsDrawer: () => !_sidebarFits,
           toggleSidebarDrawer: _toggleSidebarDrawer,
         ),
       if (workspace != null)
@@ -1528,9 +1528,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }
 
   /// Whether the sidebar is inline in the current allocation (D32 §3.2)
-  /// — the last layout's answer, read by `view.toggleSidebar` to choose
-  /// between the inline intent and the drawer.
+  /// — the last layout's answer, read by the resize clamps.
   bool _sidebarInline = true;
+
+  /// Whether the window has room for the sidebar inline, hidden or not:
+  /// `view.toggleSidebar` reads it to choose between the inline intent
+  /// and the drawer. [_sidebarInline] is false while the user hides the
+  /// sidebar, so it would send the re-show to the drawer instead.
+  bool _sidebarFits = true;
 
   /// The inspector's half of the same answer, read by the resize clamps.
   bool _inspectorInline = true;
@@ -1559,9 +1564,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final sidebarWidth = _sidebarWidth;
     final inspectorWidth = _inspectorWidth;
     final sidebarWanted = sidebar != null && !workspace.sidebarHidden;
-    final sidebarInline =
-        sidebarWanted &&
-        width >= sidebarWidth + shellSplitterExtent + _paneRegionMin;
+    _sidebarFits = width >= sidebarWidth + shellSplitterExtent + _paneRegionMin;
+    final sidebarInline = sidebarWanted && _sidebarFits;
     _sidebarInline = sidebarInline;
     final inspectorWanted = !workspace.inspectorHidden;
     final usedBySidebar = sidebarInline

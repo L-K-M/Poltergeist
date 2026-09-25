@@ -2,8 +2,10 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
+import 'package:poltergeist_app/ui/panes/pane_commands.dart';
 import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
 
+import '../../support/shell_commands.dart';
 import '../compact/compact_harness.dart';
 
 /// D32 §3.2's responsive stages through the real shell with its sidebar:
@@ -113,5 +115,18 @@ void main() {
     expect(sidebarRegion, findsOneWidget);
     expect(tester.getSize(sidebarRegion).width, 232);
     expect(inspectorRegion, findsOneWidget);
+  });
+
+  testWidgets('a hidden sidebar comes back inline from the toggle', (
+    tester,
+  ) async {
+    final harness = CompactHarness();
+    await harness.pump(tester, size: const Size(1400, 900));
+
+    await runShellCommand(tester, kViewToggleSidebarCommandId);
+    expect(sidebarRegion, findsNothing);
+    await runShellCommand(tester, kViewToggleSidebarCommandId);
+    expect(sidebarRegion, findsOneWidget);
+    expect(workspaceOf(tester).sidebarHidden, isFalse);
   });
 }
