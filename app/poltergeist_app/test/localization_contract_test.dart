@@ -1593,9 +1593,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The portable kit's empty query (the filter's clear button).
   'lib/ui/sidebar/sidebar_kit.dart': {
     "''",
-    // The first-verb and header "+" focus nodes' debug labels —
-    // diagnostics, never shown.
+    // The first-verb, row button and header "+" focus nodes' debug
+    // labels: diagnostics, never shown.
     "'SidebarRow first verb'",
+    "'SidebarRow action'",
+    "'SidebarRow menu button'",
     "'SidebarSectionHeader add'",
   },
   // The sidebar filter's term split and the path-separator trimming of
