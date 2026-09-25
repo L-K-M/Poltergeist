@@ -484,13 +484,15 @@ jobs:
 
           ( cd "$assets_dir" && sha256sum -- * ) > SHA256SUMS
 
-          # The notes own the labels D23 requires beside the artifacts — the
-          # APK and IPA are rehearsal artifacts of the desktop codebase — and
-          # the sums users verify downloads against (INSTALL.md points here).
+          # The notes own the labels D23 requires beside the artifacts (the
+          # APK is a supported, sideloaded build since D34; the IPA stays
+          # unsigned and unsupported under D29) and the sums users verify
+          # downloads against (INSTALL.md points here).
           {
             cat <<'NOTES'
-          **Android APK** — rehearsal artifact of the desktop codebase; Android
-          is not a supported target of this release.
+          **Android APK**: sideload on Android 7.0 or later; it upgrades an
+          earlier Poltergeist APK in place. `docs/INSTALL.md` covers the first
+          install, and the README lists Android's known issues.
           **iOS IPA** — unsigned; re-sign to sideload. iOS is not a supported
           target of this release.
 

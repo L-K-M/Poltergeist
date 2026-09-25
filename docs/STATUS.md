@@ -8527,6 +8527,19 @@ here: the Swift half (no Mac in the container; CI's macOS client leg
 compiles it) and the look on a real display, which the release
 checklist's macOS row now covers.
 
+## D34 — Android is supported (2026-09-25)
+
+Owner-directed (00 D34). The release notes drop the APK's rehearsal
+label (the IPA keeps its unsigned, unsupported one), `docs/INSTALL.md`
+gains the sideload steps, the README's known issues list open item 33's
+gaps, 07's deferral table splits iOS from Android, and the release
+checklist gains an Android row for the on-device checks. No build or
+signing change: CI and `release.yml` already built and signed the APK.
+Verification: the release workflow test pins the new notes. Not
+verified here: a device or emulator run, and a local APK build (Maven
+Central answered Gradle's dependency fetches with HTTP 429 in this
+container), so CI's android client leg is the build evidence.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -9374,7 +9387,10 @@ checklist's macOS row now covers.
     progress (transfers stop when Android freezes the backgrounded
     process); and a DocumentsProvider exposing servers to other apps.
     Also unverified until a device run: predictive-back animation, IME
-    insets, and TalkBack over the compact surfaces.
+    insets, and TalkBack over the compact surfaces. **2026-09-25:** D34
+    made Android supported with these slices still open; the README's
+    known issues name them and the release checklist's Android row
+    carries the device checks.
 
 ## Independent audit
 

@@ -36,6 +36,14 @@ with the QA machine's result and date, and attach the filled copy to the PR.
   AppImage both launch; `StartupWMClass` maps the window to the desktop
   entry (the `StartupWMClass=Com.lkm.poltergeist_app` contract itself is
   enforced by `scripts/package-linux.sh` + its test, not manual).
+- [ ] **Android** (D34) — OWNER MANUAL QA on a phone and a tablet: the
+  APK installs per `docs/INSTALL.md` and a later release's APK upgrades
+  it in place with data kept; connect, browse, upload, and download;
+  every back step (selection, sheet, field, folder history, Home, leave)
+  with the predictive-back animation on Android 13+; the keyboard never
+  covers a focused field (IME insets); TalkBack reads Home, rows, and
+  the selection bar. The compact posture's behavior itself is pinned by
+  `test/ui/compact/compact_posture_test.dart`.
 
 ## IME smoke
 

@@ -65,13 +65,14 @@ D16 activity panel · D17 editor · D18 security model · D19 trust
 stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
 D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
 permissions · D29 mobile hooks · D30 Séance license · D31 no mounting ·
-D32 inspector workspace · D33 sidebar density
+D32 inspector workspace · D33 sidebar density · D34 Android supported
 
 ### Stack and shape
 
 - **D1 — Flutter/Dart monorepo mirroring Séance.** `packages/` (pure Dart) +
   `app/poltergeist_app` (Flutter). Desktop first — macOS leads the design,
-  Windows and Linux ship from v1.0. iOS/Android are post-v1 (D29). Single
+  Windows and Linux ship from v1.0. Android is supported after v1.0
+  (D34); iOS is post-v1 (D29). Single
   window, dual pane, tabs per pane in v1 (D13).
 - **D2 — Code sharing, one call per layer.**
   - `seance_protocol` and `seance_core`: **git dependencies pinned to a
@@ -727,8 +728,9 @@ D32 inspector workspace · D33 sidebar density
     publish, from every `v*` tag: the unsigned/ad-hoc macOS bundle,
     Windows zip, Linux `.deb` + AppImage + bundle, Android APK, and
     unsigned iOS IPA (all already scripted); the mobile product remains
-    post-v1 (D29) — the artifacts merely exist, and the IPA's filename
-    and the release notes label it unsigned and unsupported so no one
+    post-v1 (D29; D34 has since made the APK a supported build, so this
+    now covers the IPA alone) — the artifacts merely exist, and the IPA's
+    filename and the release notes label it unsigned and unsupported so no one
     mistakes an artifact that cannot be installed on any device without
     a separate signing step for a usable build. No paid signing in v1
     (documented first-launch steps).
@@ -800,6 +802,25 @@ D32 inspector workspace · D33 sidebar density
   `ScopedPathAccess`; the transfer queue is suspendable; no desktop-only
   assumption in `poltergeist_core`/`poltergeist_sync`. The mobile
   constraints memo (07) records what iOS/Android will demand.
+- **D34 — Android is a supported target (2026-09-25, owner-directed;
+  amends D1, D23, and D29 for Android only).** The APK every release
+  already builds becomes a supported build, beside macOS, Windows, and
+  Linux, from the first release after v1.0.0. Its UI is D32's compact
+  posture (10 §9) below 600 dp and the desktop layout on tablets.
+  - **Distribution is unchanged:** the `poltergeist-android.apk`
+    release asset, sideloaded (no Play Store), signed with the
+    committed public key. That key gives upgrade continuity, not origin
+    assurance, and INSTALL.md says so. The release notes drop the
+    APK's rehearsal label; the IPA keeps its unsigned, unsupported
+    label, since iOS stays post-v1 under D29.
+  - **Supported means shipped with its gaps named.** The slices 10 §9
+    defers (STATUS open item 33) stay open and are listed in the
+    README's known issues until each lands: the local pane is the
+    app's own storage (no all-files access), transfers stop when
+    Android freezes the backgrounded app (no foreground service), and
+    there is no Share, share-to-Poltergeist intent, or DocumentsProvider.
+    The on-device checks automation cannot run (predictive back, IME
+    insets, TalkBack) join the release checklist.
 - **D25 — v2-and-beyond parking lot** (recorded so nobody "helpfully"
   builds them early): true two-way sync with baseline DB; resumable
   transfers (ranged read/write); rsync accelerator; S3/WebDAV behind a

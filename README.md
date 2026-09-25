@@ -1,8 +1,8 @@
 # Poltergeist
 
 A cross-platform two-pane SFTP file transfer client for macOS,
-Windows, and Linux, designed so mobile stays possible. Built as a sibling
-of [Séance](https://github.com/L-K-M/Seance).
+Windows, Linux, and Android. Built as a sibling of
+[Séance](https://github.com/L-K-M/Seance).
 
 > [!IMPORTANT]
 > LLM disclosure: This codebase was written with substantial help from large language models: AI coding agents working from the [`AGENTS.md`](AGENTS.md) brief in this repo.
@@ -20,6 +20,14 @@ of [Séance](https://github.com/L-K-M/Seance).
   `unsupported` error. The engine's bridged transfer lease (protocol
   v13) is on main and fixes this; it ships with the next release. See
   [STATUS open item 23](docs/STATUS.md).
+- **Android.** The APK is a supported build from the next release,
+  with these gaps until each lands
+  ([STATUS open item 33](docs/STATUS.md)):
+  - the local pane is the app's own storage, not the whole device;
+  - transfers stop when you leave the app, because Android freezes a
+    backgrounded app that runs no foreground service;
+  - there is no Share button, no "share to Poltergeist" upload, and no
+    way for other apps to open your servers' files.
 - **Linux screen readers.** Flutter's Linux embedder exposes semantics
   through the legacy ATK layer; custom widgets are largely invisible to
   Orca/AT-SPI. Upstream tracks the rework in

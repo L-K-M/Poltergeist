@@ -51,10 +51,12 @@
   with Simulate and Synchronize. A plan that only adds files runs
   straight away; anything that replaces or deletes stops on a review
   grouped by action, with per-row checkboxes.
-- **Android.** On phones the sidebar is the home screen and the browser
-  shows one pane at a time with an A·B switcher. Long-press selects,
-  and the inspector is a bottom sheet. System back steps through
-  selection, sheets, folders and home.
+- **Android is supported.** The release APK is a supported build now,
+  not a rehearsal artifact; `docs/INSTALL.md` covers sideloading it, and
+  the README lists what it does not do yet. On phones the sidebar is the
+  home screen and the browser shows one pane at a time with an A·B
+  switcher. Long-press selects, and the inspector is a bottom sheet.
+  System back steps through selection, sheets, folders and home.
 - **Drag files out of Poltergeist.** Dragging rows past the window's
   edge hands them to the system, so they can land in a file manager or
   another app; several selected items travel together, and they arrive
