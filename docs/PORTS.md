@@ -708,6 +708,10 @@ counterpart is ported here.
 - Divergences: strings moved to ARB; the curated emoji table keeps
   upstream's `\u{...}` escapes for re-diffability. Same `ServerBadge`
   tint adaptation as the color picker.
+- Re-synced 2026-09-25: [Séance #130](https://github.com/L-K-M/Seance/pull/130)
+  swapped the tabs' `TabBarView` for `SelectedTabView`
+  (`lib/ui/selected_tab_view.dart`, byte-identical in both apps) so a
+  tab switches in place; the same one-line swap here.
 - Port-back candidates: none.
 
 ## app/poltergeist_app/lib/ui/server_editor.dart

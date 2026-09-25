@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Tabs switch in place.** Settings and the server mark picker showed
+  the new tab by scrolling the content sideways to it, and a sideways
+  swipe or trackpad scroll flipped between tabs. The new tab now simply
+  appears, and a swipe no longer changes tabs.
 - **Colour that means something.** Icons get their colour back, and
   each colour means one thing in both Poltergeist and Séance, so you can
   find things by colour before you read them:
