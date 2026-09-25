@@ -534,7 +534,8 @@ final class _MacTitlebarAdapter implements MacTitlebarAdapter {
     // tall, so the traffic lights sit centered on the Flutter header
     // drawn beneath it (Finder/ForkLift geometry). Empty areas keep the
     // native drag and double-click-to-zoom; the header wraps its
-    // controls in MacosToolbarPassthrough so clicks reach Flutter.
+    // controls in MacosToolbarPassthrough so clicks reach Flutter, and
+    // every other surface stays below the band (ReserveMacosToolbarBand).
     await WindowManipulator.addToolbar();
     await WindowManipulator.setToolbarStyle(
       toolbarStyle: NSWindowToolbarStyle.unified,
