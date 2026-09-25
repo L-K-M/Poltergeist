@@ -6,7 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/in_app_quick_look.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
+import 'package:poltergeist_app/ui/preview_panel.dart' show PreviewPdfBuilder;
 import 'package:poltergeist_app/ui/quick_look_overlay.dart';
+import 'package:poltergeist_core/poltergeist_core.dart'
+    show previewImageKindCapBytes, previewPdfKindCapBytes;
 
 import '../support/preview_harness.dart';
 
@@ -80,7 +83,10 @@ void main() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });
 
-    Future<InAppQuickLook> pumpOverlay(WidgetTester tester) async {
+    Future<InAppQuickLook> pumpOverlay(
+      WidgetTester tester, {
+      PreviewPdfBuilder? pdfRenderer,
+    }) async {
       final quickLook = InAppQuickLook();
       addTearDown(quickLook.dispose);
       tester.view.physicalSize = const Size(1200, 800);
@@ -102,6 +108,7 @@ void main() {
                 QuickLookOverlay(
                   controller: quickLook,
                   nameFor: (path) => path.split('/').last,
+                  pdfRenderer: pdfRenderer,
                 ),
               ],
             ),
@@ -169,6 +176,42 @@ void main() {
       expect(find.byKey(const ValueKey('quickLook.noPreview')), findsOneWidget);
       // The body's large glyph and the title bar's both say folder.
       expect(find.byIcon(Icons.folder_outlined), findsNWidgets(2));
+    });
+
+    testWidgets('an image or PDF over the Info well\'s decode cap is '
+        'refused, never decoded', (tester) async {
+      // Sparse files: past the 64 MiB cap without writing the bytes.
+      for (final (name, cap) in [
+        ('huge.png', previewImageKindCapBytes),
+        ('huge.pdf', previewPdfKindCapBytes),
+      ]) {
+        File('${dir.path}/$name').openSync(mode: FileMode.write)
+          ..truncateSync(cap + 1)
+          ..closeSync();
+      }
+      final rendered = <String>[];
+      final quickLook = await pumpOverlay(
+        tester,
+        pdfRenderer: (context, file, {onOpenExternal}) {
+          rendered.add(file.path);
+          return const SizedBox.shrink();
+        },
+      );
+
+      for (final name in ['huge.png', 'huge.pdf']) {
+        await tester.runAsync(
+          () => quickLook.showPreview(['${dir.path}/$name'], 0),
+        );
+        await tester.pump();
+        await settleBody(tester);
+        expect(find.byKey(const ValueKey('quickLook.image')), findsNothing);
+        expect(
+          find.text('This file is too large to preview.'),
+          findsOneWidget,
+          reason: name,
+        );
+      }
+      expect(rendered, isEmpty);
     });
 
     testWidgets('the close button, Esc and Space inside it close it', (
