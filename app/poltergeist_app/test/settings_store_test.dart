@@ -70,6 +70,49 @@ void main() {
     });
   });
 
+  test('update sees the value the writes queued before it left', () async {
+    final writer = ControlledSettingsWriter()..blockWrites = true;
+    final store = SettingsStore(
+      path: settingsFile.path,
+      atomicWriter: writer.call,
+    );
+
+    final first = store.set('ids', ['a']);
+    await writer.firstWriteStarted.future;
+    Object? seen;
+    final second = store.update('ids', (current) {
+      seen = current;
+      return [...current! as List, 'b'];
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(seen, isNull, reason: 'the transform waits for its turn');
+
+    writer.releaseWrites();
+    await first;
+    expect(await second, ['a', 'b']);
+    expect(seen, ['a']);
+    expect(jsonDecode(await settingsFile.readAsString()), {
+      'ids': ['a', 'b'],
+    });
+  });
+
+  test('update fails, writing nothing, while the load fails', () async {
+    await settingsFile.writeAsBytes([0xff]);
+    final store = SettingsStore(path: settingsFile.path, onError: (_, _) {});
+    var transformed = false;
+
+    await expectLater(
+      store.update('ids', (_) {
+        transformed = true;
+        return ['a'];
+      }),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    expect(transformed, isFalse);
+    expect(await settingsFile.readAsBytes(), [0xff]);
+  });
+
   test('quarantines corrupt settings and starts empty', () async {
     await settingsFile.writeAsString('{broken');
     final errors = <Object>[];

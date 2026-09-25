@@ -39,10 +39,26 @@ final class SettingsStore {
     await setAll({key: value});
   }
 
-  Future<void> setAll(Map<String, Object?> updates) async {
+  Future<void> setAll(Map<String, Object?> updates) => _commit(() => updates);
+
+  /// Writes [key] as [transform] of the value it holds when this write
+  /// runs, behind every write already queued, and returns what it wrote.
+  /// A [get] followed by a [set] can lose a concurrent change (both read
+  /// the same value); two updates cannot. A failed load or write fails
+  /// the update and leaves the stored value as it was.
+  Future<T> update<T>(String key, T Function(Object? current) transform) async {
+    late final T next;
+    await _commit(() => {key: next = transform(_values[key])});
+    return next;
+  }
+
+  /// Queues one write. [updatesAtWrite] runs when the write starts, so it
+  /// sees the values every earlier queued write left.
+  Future<void> _commit(Map<String, Object?> Function() updatesAtWrite) async {
     await _ensureLoaded();
 
     final operation = _writeTail.then((_) async {
+      final updates = updatesAtWrite();
       final previous = <String, Object?>{
         for (final key in updates.keys)
           if (_values.containsKey(key)) key: _values[key],
