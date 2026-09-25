@@ -720,6 +720,41 @@ void main() {
       expect(opens.single.$1.id, 'a');
     });
 
+    // Comfortable, the default, draws every row's "⋮", and a focused row
+    // its hover action: the arrows walk the rows past both.
+    for (final density in SidebarDensity.values) {
+      testWidgets('the arrows walk past the rows\' buttons '
+          '(${density.name})', (tester) async {
+        store.bookmarks = [
+          _local('a', label: 'Alpha', sortKey: 'ma'),
+          _local('b', label: 'Beta', sortKey: 'mb'),
+          _local('c', label: 'Gamma', sortKey: 'mc'),
+        ];
+        await pumpSidebar(tester, density: density);
+        await tester.tap(find.byKey(const ValueKey('sidebar.favorite.a')));
+        await tester.pumpAndSettle();
+        opens.clear();
+
+        Future<void> press(LogicalKeyboardKey key) async {
+          await tester.sendKeyEvent(key);
+          await tester.pump();
+        }
+
+        await press(LogicalKeyboardKey.arrowDown);
+        await press(LogicalKeyboardKey.arrowDown);
+        await press(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        expect(opens.map((open) => open.$1.id), ['c']);
+        opens.clear();
+
+        await press(LogicalKeyboardKey.arrowUp);
+        await press(LogicalKeyboardKey.arrowUp);
+        await press(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        expect(opens.map((open) => open.$1.id), ['a']);
+      });
+    }
+
     testWidgets('Shift+F10 raises the focused row\'s context menu', (
       tester,
     ) async {
