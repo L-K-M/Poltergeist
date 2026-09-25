@@ -9,11 +9,39 @@ import '../../services/registered_command.dart';
 import '../../services/shortcut_format.dart';
 import '../../theme/app_theme.dart';
 
-/// Widths below which the header sheds detail (10 §4's overflow order):
-/// primary buttons drop their labels first, then the everyday actions
-/// fold into the "»" menu. Labels never ellipsize.
-const _unlabelPrimaryBelow = 820.0;
-const _foldActionsBelow = 680.0;
+/// How far the header has shed detail (10 §4's overflow order): the
+/// filter field narrows, the primary buttons drop their labels, then the
+/// everyday actions fold into the "»" menu, then the primary buttons
+/// follow them and the filter narrows again. Labels never ellipsize.
+/// Each step is taken only when the content measured below would leave
+/// the title under [_titleMinWidth] — never at a fixed window width,
+/// which a longer translation or a running transfer's extra button
+/// would outgrow.
+enum _Fold { none, filter, primaryLabels, actions, primary }
+
+/// The narrowest the active location's title may get before the header
+/// sheds the next group: a name, never "P…".
+const _titleMinWidth = 96.0;
+
+// The metrics the fold is measured with: the numbers the widgets below
+// lay out with, so the measured content is what renders.
+const _buttonMinWidth = 30.0;
+const _buttonIconSize = 17.0;
+const _buttonPadding = 6.0;
+const _labelledPadding = 8.0;
+const _labelGap = 5.0;
+const _capsuleInset = 2.0;
+const _groupGap = 6.0;
+const _titleGap = 8.0;
+const _filterGap = 8.0;
+const _menuGap = 4.0;
+
+/// A compact IconButton: the "»" button and the ☰ main menu.
+const _iconButtonExtent = 40.0;
+
+const _filterWideWidth = 200.0;
+const _filterWidth = 150.0;
+const _filterNarrowWidth = 120.0;
 
 /// D32's header toolbar (10 §4): a curated rendering of the command
 /// registry — only commands that declare a [CommandToolbarPlacement]
@@ -92,45 +120,71 @@ class HeaderToolbar extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
-          final labelPrimary = width >= _unlabelPrimaryBelow;
-          final foldActions = width < _foldActionsBelow;
+          final leading = slot(ToolbarSlot.leading);
           final actions = slot(ToolbarSlot.actions);
+          final primary = slot(ToolbarSlot.primary);
+          final status = slot(ToolbarSlot.status);
+          double extent(_Fold fold) {
+            final foldActions = fold.index >= _Fold.actions.index;
+            final foldPrimary = fold == _Fold.primary;
+            final overflow =
+                (foldActions && actions.isNotEmpty) ||
+                (foldPrimary && primary.isNotEmpty);
+            return _groupsExtent(context, leading) +
+                2 * _titleGap +
+                (foldActions ? 0 : _groupsExtent(context, actions)) +
+                (overflow ? _groupGap + _iconButtonExtent : 0) +
+                (foldPrimary
+                    ? 0
+                    : _groupsExtent(
+                        context,
+                        primary,
+                        labelled: fold.index < _Fold.primaryLabels.index,
+                      )) +
+                _groupsExtent(context, status) +
+                (filterField == null
+                    ? 0
+                    : _filterGap + _filterWidthFor(fold)) +
+                (menuButton == null ? 0 : _menuGap + _iconButtonExtent);
+          }
+
+          final fold = _Fold.values.firstWhere(
+            (fold) => extent(fold) + _titleMinWidth <= width,
+            orElse: () => _Fold.primary,
+          );
+          final foldActions = fold.index >= _Fold.actions.index;
+          final foldPrimary = fold == _Fold.primary;
+          final folded = [
+            if (foldActions) ...actions,
+            if (foldPrimary) ...primary,
+          ];
           return Row(
             children: [
-              ..._groups(
-                context,
-                slot(ToolbarSlot.leading),
-                labelled: false,
-                pass: pass,
-              ),
-              const SizedBox(width: 8),
+              ..._groups(context, leading, labelled: false, pass: pass),
+              const SizedBox(width: _titleGap),
               Expanded(child: title),
-              const SizedBox(width: 8),
+              const SizedBox(width: _titleGap),
               if (!foldActions)
-                ..._groups(context, actions, labelled: false, pass: pass)
-              else if (actions.isNotEmpty)
-                pass(_OverflowButton(commands: actions, onRun: onRun)),
-              ..._groups(
-                context,
-                slot(ToolbarSlot.primary),
-                labelled: labelPrimary,
-                pass: pass,
-              ),
-              ..._groups(
-                context,
-                slot(ToolbarSlot.status),
-                labelled: false,
-                pass: pass,
-              ),
+                ..._groups(context, actions, labelled: false, pass: pass),
+              if (folded.isNotEmpty)
+                pass(_OverflowButton(commands: folded, onRun: onRun)),
+              if (!foldPrimary)
+                ..._groups(
+                  context,
+                  primary,
+                  labelled: fold.index < _Fold.primaryLabels.index,
+                  pass: pass,
+                ),
+              ..._groups(context, status, labelled: false, pass: pass),
               if (filterField != null) ...[
-                const SizedBox(width: 8),
+                const SizedBox(width: _filterGap),
                 SizedBox(
-                  width: width >= 1000 ? 200 : 150,
+                  width: _filterWidthFor(fold),
                   child: pass(filterField!),
                 ),
               ],
               if (menuButton != null) ...[
-                const SizedBox(width: 4),
+                const SizedBox(width: _menuGap),
                 pass(menuButton!),
               ],
             ],
@@ -141,6 +195,53 @@ class HeaderToolbar extends StatelessWidget {
     return nativeTitlebar
         ? MacosToolbarPassthroughScope(child: header)
         : header;
+  }
+
+  double _filterWidthFor(_Fold fold) => switch (fold) {
+    _Fold.none => _filterWideWidth,
+    _Fold.primary => _filterNarrowWidth,
+    _ => _filterWidth,
+  };
+
+  /// The width [_groups] lays [commands] out at: per group its gap and
+  /// capsule inset, per button its minimum or, when [labelled], its icon
+  /// and measured label.
+  double _groupsExtent(
+    BuildContext context,
+    List<RegisteredCommand> commands, {
+    bool labelled = false,
+  }) {
+    var extent = 0.0;
+    int? group;
+    for (final command in commands) {
+      final placement = command.toolbarPlacement!;
+      if (placement.group != group) {
+        extent += _groupGap + 2 * _capsuleInset;
+        group = placement.group;
+      }
+      extent += labelled && placement.labelled
+          ? _labelledButtonWidth(context, command)
+          : _buttonMinWidth;
+    }
+    return extent;
+  }
+
+  double _labelledButtonWidth(BuildContext context, RegisteredCommand command) {
+    final l10n = AppLocalizations.of(context);
+    final painter = TextPainter(
+      text: TextSpan(
+        text: command.shortLabel?.call(l10n) ?? command.label(l10n),
+        style: DefaultTextStyle.of(
+          context,
+        ).style.merge(_labelStyle(Theme.of(context))),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final label = painter.width.ceilToDouble();
+    painter.dispose();
+    return 2 * _labelledPadding + _buttonIconSize + _labelGap + label;
   }
 
   /// Splits [commands] (already sorted) into capsules by group.
@@ -164,7 +265,7 @@ class HeaderToolbar extends StatelessWidget {
     return [
       for (final members in groups)
         Padding(
-          padding: const EdgeInsetsDirectional.only(start: 6),
+          padding: const EdgeInsetsDirectional.only(start: _groupGap),
           child: pass(_Capsule(
             children: [
               for (final command in members)
@@ -222,12 +323,17 @@ class _Capsule extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(2),
+        padding: const EdgeInsets.all(_capsuleInset),
         child: Row(mainAxisSize: MainAxisSize.min, children: children),
       ),
     );
   }
 }
+
+/// A primary button's label style — shared with the header's fold
+/// measurement.
+TextStyle? _labelStyle(ThemeData theme) =>
+    theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w500);
 
 /// The tooltip text: the label plus the first chord ("New Folder ⇧⌘N").
 String commandTooltip(
@@ -267,7 +373,7 @@ class _ToolbarButton extends StatelessWidget {
         : theme.colorScheme.onSurface.withValues(alpha: 0.38);
     Widget icon = Icon(
       command.icon ?? Icons.circle_outlined,
-      size: 17,
+      size: _buttonIconSize,
       color: color,
     );
     final badge = this.badge;
@@ -305,8 +411,10 @@ class _ToolbarButton extends StatelessWidget {
           hoverColor: chrome.hoverFill,
           child: Container(
             height: 26,
-            constraints: const BoxConstraints(minWidth: 30),
-            padding: EdgeInsets.symmetric(horizontal: labelled ? 8 : 6),
+            constraints: const BoxConstraints(minWidth: _buttonMinWidth),
+            padding: EdgeInsets.symmetric(
+              horizontal: labelled ? _labelledPadding : _buttonPadding,
+            ),
             decoration: checked
                 ? BoxDecoration(
                     color: theme.colorScheme.primary.withValues(alpha: 0.14),
@@ -319,14 +427,11 @@ class _ToolbarButton extends StatelessWidget {
               children: [
                 icon,
                 if (labelled) ...[
-                  const SizedBox(width: 5),
+                  const SizedBox(width: _labelGap),
                   Text(
                     command.shortLabel?.call(l10n) ?? command.label(l10n),
                     maxLines: 1,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: color,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: _labelStyle(theme)?.copyWith(color: color),
                   ),
                 ],
               ],
@@ -361,7 +466,7 @@ class _OverflowButton extends StatelessWidget {
           ),
       ],
       builder: (context, controller, _) => Padding(
-        padding: const EdgeInsetsDirectional.only(start: 6),
+        padding: const EdgeInsetsDirectional.only(start: _groupGap),
         child: IconButton(
           key: const ValueKey('toolbar.overflow'),
           tooltip: l10n.toolbarMoreTooltip,
