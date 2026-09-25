@@ -4,13 +4,13 @@ part of 'sidebar_view.dart';
 /// bookmark reorders or refiles there.
 bool _anyBookmark(Bookmark bookmark) => true;
 
-/// FAVORITES (10 §5, D33): every bookmark kind — local folders, remote
-/// locations, workspaces, and saved syncs — in the store's one user
+/// FAVORITES (10 §5, D33): every bookmark kind (local folders, remote
+/// locations, workspaces, and saved syncs) in the store's one user
 /// order. Loose favorites first, then each named group as a nested
 /// disclosure row with its members indented, a group holding any mix of
 /// kinds. The empty state offers Desktop, Documents, and Downloads as
-/// one click — never seeded silently, because favorites sync to other
-/// devices — and the ssh_config import, whose hosts land here.
+/// one click (never seeded silently, because favorites sync to other
+/// devices) and the ssh_config import, whose hosts land here.
 List<Widget> _favoritesSection(_SidebarData data) {
   final l10n = data.l10n;
   final view = data.view;

@@ -95,7 +95,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    // D32 §5: the saved server's row carries the block — the detail
+    // D32 §5: the saved server's row carries the block, and the detail
     // rides its tooltip (the row's own, beside its ⋮'s).
     final row = find.byKey(const ValueKey('sidebar.favorite.b1'));
     expect(

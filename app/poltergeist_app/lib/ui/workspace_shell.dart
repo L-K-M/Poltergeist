@@ -329,12 +329,12 @@ class WorkspaceShell extends StatefulWidget {
   final void Function(Set<String> keys)? onSidebarCollapsedGroupsChanged;
 
   /// The persisted sidebar row density (D33: device-local, comfortable
-  /// by default) and its save sink — null keeps the choice in-process.
+  /// by default) and its save sink; null keeps the choice in-process.
   final SidebarDensity initialSidebarDensity;
   final void Function(SidebarDensity density)? onSidebarDensityChanged;
 
   /// The persisted PINNED shortlist (D33: device-local server ids) and
-  /// its save sink — null keeps pins in-process.
+  /// its save sink; null keeps pins in-process.
   final Set<String> initialSidebarPinnedServers;
   final void Function(Set<String> ids)? onSidebarPinnedServersChanged;
 

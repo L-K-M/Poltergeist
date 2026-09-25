@@ -17,7 +17,7 @@ final class _ServerGroup {
 }
 
 /// SERVERS (10 §5, D33): live Quick Connect sessions (italic, top), then
-/// the shared account's server list, grouped by Séance's rules — each
+/// the shared account's server list, grouped by Séance's rules, each
 /// row carrying its live state as its one dot. Saved remote locations
 /// are favorites and list under FAVORITES with their own dots, so
 /// without the shared account this section holds only live sessions.
@@ -736,7 +736,7 @@ class _CatalogServerRow extends StatelessWidget {
         depth: depth,
         // Provenance (D33): Edit, Duplicate and Delete here change the
         // account's record, not a bookmark of this device's, so the row
-        // says where it comes from — a small mark, and in words.
+        // says where it comes from: a small mark, and in words.
         trailingIcon: Icons.cloud_outlined,
         trailingText: _tabsText(data, server.id),
         hoverAction: _disconnectAction(data, connection, live),
