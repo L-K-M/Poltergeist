@@ -31,6 +31,8 @@ void main() {
     int? expectedSize,
     int? maximumBytes,
     PreviewByteGate? gate,
+    ProduceWriteMode writeMode = ProduceWriteMode.replace,
+    ProduceSlotPool slotPool = ProduceSlotPool.preview,
   }) => queue.enqueueProduce(
     PreviewProduceSpec(
       serverId: 's1',
@@ -39,8 +41,17 @@ void main() {
       expectedSize: expectedSize,
       maximumBytes: maximumBytes,
       gate: gate,
+      writeMode: writeMode,
+      slotPool: slotPool,
     ),
   );
+
+  /// The hidden `.poltergeist-*.tmp` siblings an interrupted write
+  /// could leave in [outDir].
+  List<String> strayTemps() => [
+    for (final entity in outDir.listSync())
+      if (entity.uri.pathSegments.last.startsWith('.poltergeist-')) entity.path,
+  ];
 
   setUp(() async {
     final temp = await Directory.systemTemp.createTemp('poltergeist-pp-');
@@ -289,6 +300,126 @@ void main() {
     expect(
       (await File('${outDir.path}/pz.txt').readAsBytes()).length,
       32,
+    );
+  });
+
+  group('drag-out produce (the D14 amendment)', () {
+    test(
+      'an exclusive produce refuses an existing file and keeps it',
+      () async {
+        File('${outDir.path}/keep.txt').writeAsBytesSync([9, 9]);
+        s1.addFile('/r/keep.txt', [1, 2, 3]);
+        final task = produce(
+          '/r/keep.txt',
+          'keep.txt',
+          expectedSize: 3,
+          writeMode: ProduceWriteMode.exclusive,
+        );
+        await pumpUntil(() => task.isTerminal);
+        expect(task.state, TransferTaskState.failed);
+        expect(task.failureKind, RemoteFileErrorKind.conflict);
+        expect(File('${outDir.path}/keep.txt').readAsBytesSync(), [9, 9]);
+        expect(strayTemps(), isEmpty);
+      },
+    );
+
+    test('an exclusive produce lands a new file', () async {
+      s1.addFile('/r/new.txt', [4, 5]);
+      final task = produce(
+        '/r/new.txt',
+        'new.txt',
+        expectedSize: 2,
+        writeMode: ProduceWriteMode.exclusive,
+      );
+      await pumpUntil(() => task.isTerminal);
+      expect(task.state, TransferTaskState.completed);
+      expect(File('${outDir.path}/new.txt').readAsBytesSync(), [4, 5]);
+    });
+
+    test('the preview default still replaces its own target', () async {
+      File('${outDir.path}/cache.bin').writeAsBytesSync([0]);
+      s1.addFile('/r/cache.bin', [7, 7]);
+      final task = produce('/r/cache.bin', 'cache.bin', expectedSize: 2);
+      await pumpUntil(() => task.isTerminal);
+      expect(task.state, TransferTaskState.completed);
+      expect(File('${outDir.path}/cache.bin').readAsBytesSync(), [7, 7]);
+    });
+
+    test(
+      'drag-out hops ride their own slots, so Quick Look keeps its two',
+      () async {
+        for (var i = 1; i <= 5; i++) {
+          s1.addFile('/r/$i.bin', List<int>.filled(4, i));
+        }
+        final gates = <String, Completer<void>>{};
+        s1.downloadGate = (path) =>
+            gates.putIfAbsent(path, Completer<void>.new);
+        final dragOut = [
+          for (final i in [1, 2, 3])
+            produce(
+              '/r/$i.bin',
+              '$i.bin',
+              writeMode: ProduceWriteMode.exclusive,
+              slotPool: ProduceSlotPool.dragOut,
+            ),
+        ];
+        await pumpUntil(() => s1.activeDownloads == dragOutProduceSlotLimit);
+        // The third drag-out hop waits on its own budget; a preview hop
+        // still starts at once.
+        final previews = [
+          produce('/r/4.bin', '4.bin'),
+          produce('/r/5.bin', '5.bin'),
+        ];
+        await pumpUntil(
+          () =>
+              s1.activeDownloads ==
+              dragOutProduceSlotLimit + previewProduceSlotLimit,
+        );
+        await pump();
+        expect(gates.containsKey('/r/3.bin'), isFalse);
+        gates['/r/1.bin']!.complete();
+        await pumpUntil(() => gates.containsKey('/r/3.bin'));
+        for (final gate in gates.values) {
+          if (!gate.isCompleted) gate.complete();
+        }
+        await pumpUntil(
+          () => [...dragOut, ...previews].every((task) => task.isTerminal),
+        );
+        for (final task in [...dragOut, ...previews]) {
+          expect(task.state, TransferTaskState.completed);
+        }
+        expect(
+          s1.maxActiveDownloads,
+          dragOutProduceSlotLimit + previewProduceSlotLimit,
+        );
+      },
+    );
+
+    test(
+      'a cancelled exclusive produce leaves neither file nor temp',
+      () async {
+        s1.downloadChunkSize = 8;
+        s1.addFile('/r/half.bin', List<int>.filled(64, 3));
+        // Three chunks flow, then the stream parks mid-file with bytes
+        // already written to the hidden temp sibling.
+        var chunks = 0;
+        final parked = Completer<void>();
+        s1.downloadGate = (_) => ++chunks > 3 ? parked : null;
+        final task = produce(
+          '/r/half.bin',
+          'half.bin',
+          expectedSize: 64,
+          writeMode: ProduceWriteMode.exclusive,
+          slotPool: ProduceSlotPool.dragOut,
+        );
+        await pumpUntil(() => strayTemps().isNotEmpty && chunks > 3);
+        expect(File('${outDir.path}/half.bin').existsSync(), isFalse);
+        queue.cancelTask(task.id);
+        await pumpUntil(() => task.isTerminal);
+        expect(task.state, TransferTaskState.cancelled);
+        expect(File('${outDir.path}/half.bin').existsSync(), isFalse);
+        await pumpUntil(() => strayTemps().isEmpty, reason: 'temp removed');
+      },
     );
   });
 }
