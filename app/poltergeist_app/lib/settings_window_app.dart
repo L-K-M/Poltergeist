@@ -12,6 +12,7 @@ import 'l10n/app_localizations.dart';
 import 'services/settings_window/remote_settings.dart';
 import 'services/settings_window/settings_window_link.dart';
 import 'theme/app_theme.dart';
+import 'ui/selected_tab_view.dart';
 import 'ui/settings/backup_settings.dart';
 import 'ui/settings/editor_settings.dart';
 import 'ui/settings/general_settings.dart';
@@ -179,7 +180,7 @@ class _SettingsWindowScreenState extends State<SettingsWindowScreen>
       ),
       body: ListenableBuilder(
         listenable: widget.remote,
-        builder: (context, _) => TabBarView(
+        builder: (context, _) => SelectedTabView(
           controller: _controller,
           children: [for (final tab in _tabs) _page(tab)],
         ),
