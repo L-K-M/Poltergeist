@@ -8687,11 +8687,12 @@ family. The decision is D37, "Device themes", in the decision log.
   (the 12 px dialog, 8 px menus, 6 px tooltips, Material's own
   elsewhere), and any other scale rounds dialogs, cards, menus, popup
   menus, tooltips, fields, buttons, segmented buttons, chips, bottom
-  sheets and snack bars. The sidebar kit takes Séance's corner change,
-  so the two kit files again differ only in the header, the chrome
-  import and `_chrome()`. The interface font is a family name handed to
-  the platform (null for its own), in the text theme and the tooltips;
-  the editor and code keep their monospace stack.
+  sheets, snack bars and the phone sidebar's floating add button. The
+  sidebar kit takes Séance's corner change, so the two kit files again
+  differ only in the header, the chrome import and `_chrome()`. The
+  interface font is a family name handed to the platform (null for its
+  own), in the text theme and the tooltips; the editor and code keep
+  their monospace stack.
 - **Persistence.** `AppPreferences.loadAppearance`/`saveAppearance`,
   under `theme.palette` (the palette's JSON object) and `theme.mode`.
   Device-local like the sidebar's density: in no sync or backup record.
@@ -8745,7 +8746,7 @@ name, accent and corner scale. Not run: macOS, Windows, Android and iOS
 Settings dialog, which only its widget test covers.
 
 Validation: `flutter analyze` is clean, and the full app suite passes:
-2651 tests, 2518 before this change.
+2690 tests, 2552 on main before this change.
 
 ## Open items
 

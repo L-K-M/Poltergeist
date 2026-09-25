@@ -1,9 +1,10 @@
-// Ported from Séance app/seance_app/test/color_picker_test.dart @ f4d2f71; see docs/PORTS.md.
+// Ported from Séance app/seance_app/test/color_picker_test.dart @ 8714859; see docs/PORTS.md.
 // Divergence: the app is wrapped in AppLocalizations for the picker's ARB
 // strings.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
+import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/color_picker.dart';
 
 /// The picker the server colour picker is built on, in the two ways only
@@ -45,6 +46,34 @@ void main() {
 
   String hex(WidgetTester tester) =>
       tester.widget<TextField>(find.byType(TextField)).controller!.text;
+
+  testWidgets('each slider is named to a screen reader', (tester) async {
+    // Released in `finally`, not by a tear-down: the tester checks for a
+    // live handle before tear-downs run.
+    final handle = tester.ensureSemantics();
+    try {
+      await open(tester, start: const Color(0xFF3366CC), allowAlpha: true);
+      // The slider's own node carries the name, not only a text beside it.
+      final names = ['Hue', 'Saturation', 'Brightness', 'Opacity'];
+      for (var i = 0; i < names.length; i++) {
+        expect(
+          tester.getSemantics(find.byType(Slider).at(i)).label,
+          contains(names[i]),
+          reason: names[i],
+        );
+      }
+    } finally {
+      handle.dispose();
+    }
+  });
+
+  testWidgets('the hex field is set in the monospace stack', (tester) async {
+    await open(tester, start: const Color(0xFF3366CC));
+    // A bare 'monospace' resolves on Android only.
+    final style = tester.widget<TextField>(find.byType(TextField)).style!;
+    expect(style.fontFamily, poltergeistMonoTextStyle.fontFamily);
+    expect(style.fontFamilyFallback, poltergeistMonoFontFamilies);
+  });
 
   testWidgets('without a preview it shows the colour as a swatch', (
     tester,

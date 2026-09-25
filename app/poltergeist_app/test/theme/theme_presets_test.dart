@@ -1,8 +1,10 @@
-// Ported from Séance app/seance_app/test/theme_presets_test.dart @ f4d2f71; see docs/PORTS.md.
+// Ported from Séance app/seance_app/test/theme_presets_test.dart @ 8714859; see docs/PORTS.md.
 // Divergences: no terminal colours to hold; the selection's label is
 // measured over the listing, where Poltergeist paints its active
-// selection; and the status colours are also held on every row state the
-// sidebar's dot sits on, as the contrast matrix holds the default's.
+// selection; the status colours are also held on every row state the
+// sidebar's dot sits on, as the contrast matrix holds the default's; and a
+// preset with its own surface is shown to draw the same at either system
+// brightness, which is why its contrast is checked once.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
@@ -61,11 +63,45 @@ void main() {
     expect(ThemePresets.bubblegum.accent, const Color(0xFFE63A91));
   });
 
-  test('every preset but the two that follow the system is complete', () {
-    for (final preset in ThemePresets.all.skip(2)) {
+  test('every preset with its own surface brings a complete look', () {
+    // The default and Graphite leave the surface, and with it every
+    // neutral, Automatic; any preset that sets a surface sets them all.
+    for (final preset in ThemePresets.all.where((p) => p.surface != null)) {
       for (final slot in ThemeSlot.values) {
         expect(preset.slot(slot), isNotNull, reason: '${preset.name} $slot');
       }
+    }
+  });
+
+  // Why the contrast below checks a preset with its own surface once: the
+  // surface decides the brightness it is drawn at, whatever the system's.
+  test('a surface of its own draws the same at either system brightness', () {
+    for (final preset in ThemePresets.all.where((p) => p.surface != null)) {
+      final light = buildPoltergeistThemeFor(preset, Brightness.light);
+      final dark = buildPoltergeistThemeFor(preset, Brightness.dark);
+      expect(dark.colorScheme, light.colorScheme, reason: preset.name);
+      expect(
+        resolvedThemeSlots(preset, Brightness.dark),
+        resolvedThemeSlots(preset, Brightness.light),
+        reason: preset.name,
+      );
+      final lightChrome = light.extension<PoltergeistChrome>()!;
+      final darkChrome = dark.extension<PoltergeistChrome>()!;
+      expect(
+        [
+          darkChrome.selectionFill,
+          darkChrome.onSelection,
+          darkChrome.sidebarBackground,
+          darkChrome.secondaryText,
+        ],
+        [
+          lightChrome.selectionFill,
+          lightChrome.onSelection,
+          lightChrome.sidebarBackground,
+          lightChrome.secondaryText,
+        ],
+        reason: preset.name,
+      );
     }
   });
 

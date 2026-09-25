@@ -1,5 +1,5 @@
 // Adapted from Séance app/seance_app/test/settings_screen_test.dart's
-// Appearance group @ f4d2f71; see docs/PORTS.md. The section runs over a
+// Appearance group @ 8714859; see docs/PORTS.md. The section runs over a
 // fake model here rather than Séance's fake settings backend, and adds the
 // cases Poltergeist's port has of its own: a Séance theme pasted with its
 // terminal block, coalesced writes, localized preset names, the font field
@@ -141,26 +141,31 @@ void main() {
   });
 
   testWidgets('the selected preset says so to a screen reader', (tester) async {
+    // Released in `finally`, not by a tear-down: the tester checks for a
+    // live handle before tear-downs run.
     final handle = tester.ensureSemantics();
-    await pumpSection(
-      tester,
-      start: AppAppearance(palette: ThemePresets.paper),
-    );
+    try {
+      await pumpSection(
+        tester,
+        start: AppAppearance(palette: ThemePresets.paper),
+      );
 
-    expect(
-      tester.getSemantics(find.byTooltip('Use the Paper theme')),
-      matchesSemantics(
-        label: 'Paper',
-        tooltip: 'Use the Paper theme',
-        isButton: true,
-        hasSelectedState: true,
-        isSelected: true,
-        isFocusable: true,
-        hasTapAction: true,
-        hasFocusAction: true,
-      ),
-    );
-    handle.dispose();
+      expect(
+        tester.getSemantics(find.byTooltip('Use the Paper theme')),
+        matchesSemantics(
+          label: 'Paper',
+          tooltip: 'Use the Paper theme',
+          isButton: true,
+          hasSelectedState: true,
+          isSelected: true,
+          isFocusable: true,
+          hasTapAction: true,
+          hasFocusAction: true,
+        ),
+      );
+    } finally {
+      handle.dispose();
+    }
   });
 
   testWidgets('the mode writes through while the surface is Automatic', (
@@ -479,6 +484,28 @@ void main() {
     await tester.tap(find.byTooltip('Use the Graphite theme'));
     await tester.pumpAndSettle();
 
+    expect(
+      find.text('Appearance not saved: Bad state: disk full'),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('a failing streak says so once, for the last write', (
+    tester,
+  ) async {
+    model.failWith = StateError('disk full');
+    await pumpSection(tester);
+    model.gate = Completer<void>();
+
+    await tester.tap(find.byTooltip('Use the Graphite theme'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Use the Paper theme'));
+    await tester.pump();
+    model.gate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(model.writes, hasLength(2));
     expect(
       find.text('Appearance not saved: Bad state: disk full'),
       findsOneWidget,

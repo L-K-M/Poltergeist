@@ -2627,10 +2627,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'Courier New'",
   },
   'lib/ui/color_picker.dart': {
-    // The hex field's filter regex, preview '#' and seed, and the field's
-    // mono font — input machinery.
+    // The hex field's filter regex, preview '#' and seed — input machinery.
     "'[0-9a-fA-F]'",
-    "'monospace'",
     "'#'",
     "''",
   },

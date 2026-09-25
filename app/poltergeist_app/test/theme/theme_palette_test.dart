@@ -1,6 +1,7 @@
-// Ported from Séance app/seance_app/test/theme_palette_test.dart @ f4d2f71; see docs/PORTS.md.
+// Ported from Séance app/seance_app/test/theme_palette_test.dart @ 8714859; see docs/PORTS.md.
 // Divergence: the terminal-block cases become the cross-app ones: a Séance
-// theme's terminal block is read past, and the rest of it applies.
+// theme's terminal block is read past, and the rest of it applies (checked
+// against Séance's own Copy output, kept verbatim).
 import 'dart:convert';
 
 import 'package:flutter/painting.dart';
@@ -98,25 +99,53 @@ void main() {
     });
 
     test('a Séance theme pastes, its terminal block read past', () {
-      // What Séance's Copy theme writes for its Solarized preset: the same
-      // keys and values as here, plus a terminal block this app has no use
-      // for.
-      final seance = {
-        ...ThemePresets.solarized.toJson(),
-        'terminal': {
-          'background': '#002B36',
-          'foreground': '#839496',
-          'cursor': '#93A1A1',
-          'selection': '#073642',
-          'ansi': [
-            '#073642', '#DC322F', '#859900', '#B58900', //
-            '#268BD2', '#D33682', '#2AA198', '#EEE8D5', //
-            '#002B36', '#CB4B16', '#586E75', '#657B83', //
-            '#839496', '#6C71C4', '#93A1A1', '#FDF6E3', //
-          ],
-        },
-      };
-      final pasted = ThemePalette.tryParse(jsonEncode(seance));
+      // What Séance's Copy theme writes for its Solarized preset (Séance
+      // 8714859), verbatim rather than built from this app's toJson, so a
+      // drift in either app's Solarized fails here: every key this app
+      // knows, plus a terminal block it has no use for.
+      const seance = r'''
+{
+  "name": "Solarized",
+  "accent": "#B58900",
+  "surface": "#002B36",
+  "sidebar": "#00252F",
+  "raised": "#012E39",
+  "text": "#839496",
+  "secondaryText": "#667A82",
+  "hairline": "#174552",
+  "selection": "#1C6A9E",
+  "online": "#859900",
+  "offline": "#DC322F",
+  "connecting": "#B58900",
+  "unknown": "#839496",
+  "terminal": {
+    "background": "#002B36",
+    "foreground": "#839496",
+    "cursor": "#93A1A1",
+    "selection": "#073642",
+    "ansi": [
+      "#073642",
+      "#DC322F",
+      "#859900",
+      "#B58900",
+      "#268BD2",
+      "#D33682",
+      "#2AA198",
+      "#EEE8D5",
+      "#002B36",
+      "#CB4B16",
+      "#586E75",
+      "#657B83",
+      "#839496",
+      "#6C71C4",
+      "#93A1A1",
+      "#FDF6E3"
+    ]
+  },
+  "cornerScale": 1.0
+}
+''';
+      final pasted = ThemePalette.tryParse(seance);
       expect(pasted, ThemePresets.solarized);
       expect(pasted?.matchingPreset, same(ThemePresets.solarized));
       expect(pasted?.toJson().containsKey('terminal'), isFalse);
@@ -215,7 +244,8 @@ void main() {
     });
 
     test('a colour off a slider round-trips exactly', () {
-      // More precision than #RRGGBB can hold, as an HSV slider produces.
+      // A colour as an HSV slider produces it, whose channels come out of a
+      // conversion rather than typed digits; the trip must be byte-exact.
       final picked = HSVColor.fromAHSV(1, 123.456, 0.37, 0.81).toColor();
       final palette = ThemePresets.initial
           .copyWith(accent: picked)

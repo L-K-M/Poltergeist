@@ -226,8 +226,8 @@ _Neutrals _neutralsFor(ThemePalette palette, Brightness brightness) {
   // The table's primary family is the hand-tuned rendering of the teal
   // seed (a lighter teal on dark, a deeper one on light, each clearing its
   // surface), so the seed keeps it. Any other accent is drawn as picked,
-  // which is what the colour well promises; its containers come from
-  // Material's scheme for it.
+  // which is what the colour well promises; its primary containers come
+  // from Material's scheme for it.
   final tuned = palette.accent == _seedColor;
   final seeded = tuned
       ? null
@@ -606,7 +606,8 @@ TextTheme _desktopText(TextTheme base) => base.copyWith(
 /// the dialog, menu and tooltip radii this theme already set before themes
 /// existed, and the M3 defaults for the rest. A button's is half its
 /// standard 40 px height, where Material draws a stadium. The same values
-/// as Séance's, apart from the dialog's, which Poltergeist sets to 12.
+/// as Séance's, apart from the dialog's, which Poltergeist sets to 12, and
+/// the floating button's, which Séance has no use for.
 const double _dialogRadius = 12;
 const double _cardRadius = 12;
 const double _menuRadius = 8;
@@ -617,6 +618,7 @@ const double _buttonRadius = 20;
 const double _chipRadius = 8;
 const double _bottomSheetRadius = 28;
 const double _snackBarRadius = 4;
+const double _fabRadius = 16;
 
 /// Poltergeist's theme in the default palette: the teal accent over the
 /// sibling tables, unchanged. [platform] overrides the host platform the
@@ -847,6 +849,10 @@ ThemeData buildPoltergeistThemeFor(
         ? FilledButtonThemeData(
             style: FilledButton.styleFrom(shape: buttonShape),
           )
+        : null,
+    // The phone sidebar's add button, the one floating button the app has.
+    floatingActionButtonTheme: scaled
+        ? FloatingActionButtonThemeData(shape: rounded(_fabRadius))
         : null,
     outlinedButtonTheme: scaled
         ? OutlinedButtonThemeData(

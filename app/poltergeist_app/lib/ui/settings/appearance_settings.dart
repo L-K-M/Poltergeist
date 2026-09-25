@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/lib/ui/appearance_settings.dart @ f4d2f71; see docs/PORTS.md.
+// Ported from Séance app/seance_app/lib/ui/appearance_settings.dart @ 8714859; see docs/PORTS.md.
 // Divergences: strings localize through ARB (D20) and presets show their
 // names from it; no Terminal colours section (no terminal here); the
 // interface font is a text field only, since Poltergeist has no installed-
@@ -159,7 +159,9 @@ class _AppearanceSectionState extends State<AppearanceSection> {
         try {
           await widget.model.setAppearance(_palette, _mode);
         } on Object catch (error) {
-          if (mounted) {
+          // Reported only when no newer write is waiting to retry: against a
+          // failing disk a corner drag would otherwise toast once per write.
+          if (mounted && !_dirty) {
             showTopToastIn(
               context,
               message: AppLocalizations.of(

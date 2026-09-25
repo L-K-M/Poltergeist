@@ -1,4 +1,4 @@
-// Ported from Séance app/seance_app/test/theme_build_test.dart @ f4d2f71; see docs/PORTS.md.
+// Ported from Séance app/seance_app/test/theme_build_test.dart @ 8714859; see docs/PORTS.md.
 // Divergences: the default is compared with the whole ThemeData the app
 // built before themes (legacy_theme.dart), not a list of key colours; the
 // status colours are the chrome's; and the error colours are pinned to the
@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/theme/app_appearance.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
+import 'package:poltergeist_app/theme/contrast.dart';
 import 'package:poltergeist_app/theme/theme_palette.dart';
 import 'package:poltergeist_app/theme/theme_presets.dart';
 import 'package:poltergeist_app/ui/probe_status_dot.dart';
@@ -178,20 +179,23 @@ void main() {
         surface: const Color(0xFFFAF5E8),
         text: const Color(0xFF29241C),
       );
-      final scheme = buildPoltergeistThemeFor(
-        palette,
-        Brightness.dark,
-      ).colorScheme;
+      final theme = buildPoltergeistThemeFor(palette, Brightness.dark);
+      final scheme = theme.colorScheme;
       expect(scheme.brightness, Brightness.light);
-      // Each step further from the surface toward the text.
-      double distance(Color c) =>
-          (c.computeLuminance() - scheme.surface.computeLuminance()).abs();
+      // Each step further from the surface toward the text: the fraction
+      // of the way from one to the other, which is negative for a shade
+      // that stepped away from the text instead.
+      final surface = scheme.surface.computeLuminance();
+      final text = palette.text!.computeLuminance();
+      double towardText(Color c) =>
+          (c.computeLuminance() - surface) / (text - surface);
       final ladder = [
         scheme.surfaceContainerLow,
         scheme.surfaceContainer,
         scheme.surfaceContainerHigh,
         scheme.surfaceContainerHighest,
-      ].map(distance).toList();
+      ].map(towardText).toList();
+      expect(ladder.first, greaterThan(0));
       for (var i = 1; i < ladder.length; i++) {
         expect(ladder[i], greaterThan(ladder[i - 1]), reason: 'step $i');
       }
@@ -200,10 +204,7 @@ void main() {
       expect(scheme.inverseSurface, palette.text);
       // The unknown dot follows the mixed outline, as it always followed
       // the scheme's.
-      final chrome = buildPoltergeistThemeFor(
-        palette,
-        Brightness.dark,
-      ).extension<PoltergeistChrome>()!;
+      final chrome = theme.extension<PoltergeistChrome>()!;
       expect(chrome.statusUnknown, scheme.outline);
     });
 
@@ -225,6 +226,10 @@ void main() {
       ).extension<PoltergeistChrome>()!;
       expect(chrome.onSelection, const Color(0xFFFFFFFF));
       expect(chrome.selectionFill, isNot(const Color(0xFF2F7F6D)));
+      expect(
+        contrastRatio(chrome.onSelection, chrome.selectionFill),
+        greaterThanOrEqualTo(4.5),
+      );
     });
   });
 
@@ -262,6 +267,14 @@ void main() {
           ThemeModePreference.dark,
         ),
         Brightness.light,
+      );
+      expect(
+        resolveBrightness(
+          ThemePresets.midnight,
+          Brightness.light,
+          ThemeModePreference.system,
+        ),
+        Brightness.dark,
       );
       expect(
         resolveBrightness(
@@ -326,6 +339,11 @@ void main() {
         const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
         ),
+      );
+      // The phone sidebar's add button.
+      expect(
+        theme.floatingActionButtonTheme.shape,
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       );
       final chrome = theme.extension<PoltergeistChrome>()!;
       expect(chrome.cornerScale, 0.5);

@@ -197,8 +197,9 @@ final class SettingsLinkException implements Exception {
   String toString() => message;
 }
 
-/// The theme crosses in the form the settings file stores, and is decoded
-/// as leniently as a launch decodes it.
+/// The theme crosses in the form the settings file stores. Its palette is
+/// decoded as leniently as a launch decodes it; its mode by name, as the
+/// link's other values are, since both ends are one build.
 Map<String, Object?> encodeAppearance(AppAppearance appearance) => {
   SettingsLinkKey.palette.name: appearance.palette.toJson(),
   SettingsLinkKey.mode.name: appearance.mode.name,

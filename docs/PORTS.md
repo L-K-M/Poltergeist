@@ -1387,7 +1387,7 @@ not behaviour, and is not repeated below.
 ### app/poltergeist_app/lib/theme/app_appearance.dart
 
 - Source: app/seance_app/lib/theme/app_appearance.dart
-- Séance commit: f4d2f71 (Séance #128, unmerged)
+- Séance commit: 8714859 (Séance #128, unmerged; synced from f4d2f71)
 - Ported: 2026-09-25
 - Divergences: none.
 - Port-back candidates: none.
@@ -1443,8 +1443,10 @@ not behaviour, and is not repeated below.
     over the rail; the tables' own selection keeps the tables' label.
   - The dialog radius the corner scale multiplies is Poltergeist's 12,
     not Material's 28, since that is the shape the app already drew;
-    the tooltip's text style names the interface font, because this
-    theme's tooltip style replaces the text theme's.
+    the scale also reaches the floating button (the phone sidebar's add
+    button), which Séance does not use; the tooltip's text style names
+    the interface font, because this theme's tooltip style replaces the
+    text theme's.
   - API: top-level `buildPoltergeistThemeFor`, `poltergeistThemesFor` and
     `resolvedThemeSlots` for Séance's `SeanceTheme.build`,
     `forAppearance` and `resolvedSlots`; `buildPoltergeistTheme` is the
@@ -1454,18 +1456,19 @@ not behaviour, and is not repeated below.
 ### app/poltergeist_app/lib/ui/color_picker.dart
 
 - Source: app/seance_app/lib/ui/color_picker.dart
-- Séance commit: f4d2f71 (Séance #128, unmerged)
+- Séance commit: 8714859 (Séance #128, unmerged; synced from f4d2f71)
 - Ported: 2026-09-25
 - Divergences: strings through ARB, so `title` is required rather than
-  defaulting to copy; the dialog is `scrollable`, as Poltergeist's server
-  colour picker already was.
-- Port-back candidates: `scrollable: true`: the preview, the hex field,
-  four sliders and the note outgrow a landscape phone in Séance too.
+  defaulting to copy; the hex field is set in `poltergeistMonoTextStyle`,
+  this app's monospace stack, where Séance's names
+  `SeanceTheme.monoFallback`.
+- Port-back candidates: none (Séance took `scrollable: true` in
+  8714859).
 
 ### app/poltergeist_app/lib/ui/settings/appearance_settings.dart
 
 - Source: app/seance_app/lib/ui/appearance_settings.dart
-- Séance commit: f4d2f71 (Séance #128, unmerged)
+- Séance commit: 8714859 (Séance #128, unmerged; synced from f4d2f71)
 - Ported: 2026-09-25
 - Divergences: strings through ARB, preset names too (`presetLabels`;
   the stored names stay English); no Terminal colours part; the
@@ -1483,14 +1486,15 @@ not behaviour, and is not repeated below.
 ### Tests
 
 - `test/theme/theme_palette_test.dart` from `test/theme_palette_test.dart`:
-  the terminal-block cases become the cross-app cases (a Séance
-  Solarized with its terminal block pastes as this Solarized; a
-  terminal block alone is not a theme).
+  the terminal-block cases become the cross-app cases (Séance's own
+  Copy output for its Solarized, verbatim, terminal block and all,
+  pastes as this Solarized; a terminal block alone is not a theme).
 - `test/theme/theme_presets_test.dart` from `test/theme_presets_test.dart`:
   no terminal colours; the selection's label is measured over the
   listing; adds the contrast matrix's sidebar row states for every
   preset's dots, with one recorded exception (Solarized's red on its own
-  selected pill, 2.80:1; STATUS "Device themes").
+  selected pill, 2.80:1; STATUS "Device themes"), and shows a preset
+  with its own surface drawing the same at either system brightness.
 - `test/theme/theme_build_test.dart` from `test/theme_build_test.dart`:
   the default is compared with the whole pre-theme `ThemeData` and its
   chrome, frozen in `test/theme/legacy_theme.dart` (Poltergeist's own

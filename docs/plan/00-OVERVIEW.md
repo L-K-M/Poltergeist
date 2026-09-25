@@ -808,8 +808,8 @@ D35 Android supported · D36 settings window · D37 device themes
     record.
   - **Where it is set:** Settings → Appearance, the tab after General in
     the Settings window (D36), and the section after General in the
-    Settings dialog that phones, tablets and a desktop without the window
-    host open.
+    Settings dialog the gear opens on phones, tablets and a desktop whose
+    runner has no window host.
   - **What it reaches:** the colour scheme, the D32 chrome tokens (the
     four server status colours among them, now chrome fields rather than
     the scheme's error and outline, which stay the tables' for error
