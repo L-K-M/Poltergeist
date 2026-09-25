@@ -2561,8 +2561,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // D32 §11's platform integration: Dock progress diagnostics and the
   // file-manager reveal's process arguments (never user-facing copy).
   'lib/services/dock_progress.dart': {
-    "''",
     r"'$live'",
+    r"'Dock progress disabled: $error\n$stack'",
     r"'Dock progress unavailable: $error\n$stack'",
   },
   'lib/services/file_manager_reveal.dart': {

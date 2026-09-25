@@ -139,6 +139,16 @@ final class DesktopWindowLifecycle {
   final Future<bool> Function()? _confirmClose;
   final void Function(Object, StackTrace)? _onError;
 
+  final _windowReady = Completer<void>();
+
+  /// Resolves once the platform window has finished
+  /// `waitUntilReadyToShow`: the point after which window_manager's
+  /// per-window native state exists (on Windows, the taskbar list its
+  /// `setProgressBar` dereferences unchecked). Never resolves when
+  /// prepare or show failed first, so a caller gated on it simply stays
+  /// idle instead of reaching a half-initialized plugin.
+  Future<void> get windowReady => _windowReady.future;
+
   Rect? _restoredBounds;
   void Function()? _cancelScheduledSave;
   Future<void> _windowTail = Future.value();
@@ -216,6 +226,7 @@ final class DesktopWindowLifecycle {
           minimumSize: _minimumContentSize,
         ),
       );
+      if (!_windowReady.isCompleted) _windowReady.complete();
       if (_closing) return;
 
       if (_restoredBounds case final bounds?) await _window.setBounds(bounds);
