@@ -36,10 +36,12 @@
   edge hands them to the system, so they can land in a file manager or
   another app; several selected items travel together, and the
   destination decides whether to copy or move. On Linux this carries
-  local files today. Remote files will arrive as file promises on macOS
-  (in progress); on Linux and Windows a remote drag shows a hint and
-  stays inside the window. A drag that comes back into Poltergeist
-  lands like any in-app drag.
+  local files today. On macOS local files travel as file URLs, and
+  remote files and folders as file promises that download straight to
+  where you drop them (built, awaiting its first run on a Mac); on
+  Linux and Windows a remote drag shows a hint and stays inside the
+  window. A drag that comes back into Poltergeist lands like any
+  in-app drag.
 - **Download To….** File ▸ Download To… and the row menu download the
   selected remote items into a folder you pick.
 - **Shares an account with Séance.** Bookmark sync now preselects the

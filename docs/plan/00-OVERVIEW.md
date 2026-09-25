@@ -532,6 +532,16 @@ D32 inspector workspace
       dropped paths, or a promise called into `desktop_drop`'s staging
       folder, which fails fast) and the pane applies the in-app verb
       rules from the stored payload.
+    - *macOS backend* (`macos/Runner/DragOutChannel.swift`, same day). A
+      local event monitor supplies the press whichever view it hit
+      (`desktop_drop`'s overlay, `macos_window_utils`' passthrough
+      views). A synthetic mouse-up to the FlutterViewController ends
+      Flutter's press, then the session begins from the newest drag
+      event so the image keeps its offset from the pointer. Items show
+      their Finder icons and names, several in a pile under AppKit's
+      count badge. Promise writes hop from a private queue to the main
+      queue and never wait on Dart; each publishes a cancellable
+      `NSProgress` on the promised URL. Not yet run on a Mac.
 - **D17 — Editor.** Séance's editor stack (document I/O with BOM/CRLF
   fidelity, syntax engine, find bar, conflict-aware save-and-upload) is
   ported per D2 and kept behaviorally identical; external editors reuse the

@@ -95,6 +95,39 @@ known-divergent surface.
   a remote file into Mail and Messages and record whether they accept
   promises. Record whether Finder ever offers "Keep Both" and what name
   it hands back (the folder path refuses a renamed URL today).
+- [ ] OWNER MANUAL QA (macOS backend, `macos/Runner/DragOutChannel.swift`).
+  This code has never run on a Mac, so do it before the two macOS items
+  above. `flutter build macos` compiles it (it is in the Runner target).
+  Then, in a debug build with Console.app filtered to Poltergeist:
+  1. Drag a local file past the window edge: the image is its Finder
+     icon and name, in the spot the in-app avatar held (no jump at the
+     edge), and it follows the pointer at that offset. Drop it on the
+     Desktop: it arrives; ⌥ forces a copy and ⌘⌥ makes an alias.
+  2. Without moving the mouse first, click a row: it selects on the
+     first click (no stuck press), and hover highlights come back.
+  3. Start drags from a row near the toolbar band and from rows across
+     the pane (all under `desktop_drop`'s overlay): each hands off.
+  4. Drag three items: a pile of icons under AppKit's count badge "3".
+  5. Press Esc mid-drag: the image slides back, nothing lands, and
+     typing and shortcuts still work afterwards (no stuck key).
+  6. Drop a local file on the Dock's Trash: it must not be trashed
+     (delete is never offered). Record what the Dock does.
+  7. During a large remote file promise, record whether Finder shows a
+     progress pie (the write lands in a hidden temp file first, so it
+     may not) and whether Finder offers a cancel; if it does, cancel:
+     the Transfers row cancels and nothing remains under the name.
+  8. Drop the same remote file twice into one folder: record Finder's
+     prompt and choice and the name the second copy lands under.
+     Poltergeist never replaces the existing file.
+  9. Drag a remote row out of the window and back onto the other pane:
+     the pane labels it with the in-app verb, the drop lands in-app,
+     and no copy appears under `$TMPDIR/Drops` (desktop_drop's staging
+     folder; confirm it is `echo $TMPDIR` plus `Drops`).
+  10. Quit Poltergeist while a large remote file promise is running:
+      nothing appears under the promised name (a hidden
+      `.poltergeist-*.tmp` may remain beside it).
+  11. Console shows no AppKit exception or assertion from Poltergeist
+      during any of the above.
 - [ ] OWNER MANUAL QA (Linux, Windows): drag a remote row past the window
   edge: no OS drag starts, the pane shows the "use Download To…" hint,
   and the drag keeps working inside the window.

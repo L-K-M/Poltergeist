@@ -8074,7 +8074,7 @@ Verified here:
   a drag out and back in lands through `desktop_drop` as the in-app
   move.
 
-Needs a Mac (macOS backend not written yet): the `NSFilePromiseProvider`
+Needs a Mac (the backend is stage 2 below): the `NSFilePromiseProvider`
 side, whether Finder ever hands back a renamed promise URL (the folder
 path refuses one today), Finder's progress pie from `promiseProgress`,
 Mail and Messages accepting promises, the synthesized mouse-up, and the
@@ -8088,6 +8088,70 @@ tests, 59 of them new); `poltergeist_core` passes 1577 tests (9 new)
 with the two root-only chmod checkout tests failing as they always do
 as root (CI runs unprivileged); the protocol guard exits 0. Not verified
 here: anything on macOS or Windows.
+
+## D14 amendment: OS drag-out, stage 2, the macOS backend (2026-09-25)
+
+`macos/Runner/DragOutChannel.swift` implements the `poltergeist/dragout`
+protocol on macOS. `MainFlutterWindow` creates it next to the other
+channels, and the file is in the Runner target.
+
+- **Press and release.** A local event monitor keeps the window's
+  latest primary press and drag, whichever view they hit
+  (`desktop_drop`'s overlay, `macos_window_utils`' passthrough views).
+  `startDrag` answers `busy`, `unsupportedItems`, `noPointerEvent`, or
+  `buttonReleased` where the protocol says. Otherwise it sends a
+  synthetic mouse-up straight to the FlutterViewController, replies
+  `started` (so Dart hears it before anything the session reports),
+  and begins the session from the newest drag event, so the image
+  keeps Dart's anchor offset from the pointer.
+- **Items.** Local items are file URLs offering copy, move, and link;
+  delete is never offered. Remote items are `NSFilePromiseProvider`s,
+  typed from the name's extension (`public.folder` for folders,
+  `public.data` when unknown), copy only. Each item shows its Finder
+  icon (the file's own for the first 16 local items, else its type's)
+  and its name on the selection highlight; several form a pile under
+  AppKit's count badge. The Dart-rendered PNG is not used on macOS.
+- **Promises.** AppKit calls the delegate on a private queue that only
+  hops to the main queue. There a cancellable `NSProgress` is published
+  on the promised URL, `fulfilPromise` goes to Dart, and Dart's reply
+  completes the promise. `cancelled` and `ownDrop` complete as a user
+  cancel, which receivers do not report; other failures carry Dart's
+  message. `promiseProgress` drives the progress, and its cancel
+  handler sends `cancelPromise`. Providers stay retained for five
+  minutes after the session ends.
+
+Verified here (no Mac):
+- The Swift parses (`swiftc -parse`, Swift 6.2 for Linux) and
+  type-checks in Swift 5 mode against hand-written stubs of the AppKit,
+  Foundation, and FlutterMacOS signatures it uses. That checks the
+  file's own logic; SDK names and labels are checked only against
+  those stubs.
+- `project.pbxproj` parses with every object id resolving, and the file
+  is in the Runner group and the Runner target's Sources phase.
+- `test/macos_drag_out_runner_test.dart` (17 tests) pins the contract.
+  Every key the Swift reads arrives from the Dart backend with a wire
+  type its cast accepts (a typed list would not). Every callback it
+  sends, every refusal reason, and every operation name parses on the
+  Dart side. The source keeps its rules: no delete, the press ends
+  before the session and `started` is replied before it begins,
+  nothing waits on the main thread, progress on the promised URL,
+  folders as `public.folder`. Nine deliberate drift mutations, on the
+  Swift side and on the Dart side, each failed it.
+
+Needs a Mac, since none of this has run there: the build itself, then
+the release checklist's macOS drag-out items. They cover image placement
+at the window edge, no stuck click, the count badge, Esc, the Dock
+Trash, Finder's progress pie and renames, Mail and Messages, the echo
+through `desktop_drop`, and quitting mid-promise.
+
+Validation, on an export of `31a79e1` (the last code commit of this
+stage): `flutter analyze` is clean; the full app suite passes (2374
+tests, the 17 new ones in `macos_drag_out_runner_test.dart`). Core is
+untouched here: `poltergeist_core` passes 1576 tests, with the two
+root-only chmod checkout tests failing as always and
+`linux_inotify_overflow_test.dart` timing out once under load, then
+passing when rerun alone. The protocol guard exits 0. Not verified
+here: anything on a Mac.
 
 ## Open items
 
