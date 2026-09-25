@@ -175,6 +175,11 @@ class SidebarKitScope extends InheritedWidget {
 
   static SidebarKitStrings of(BuildContext context) => _scope(context).strings;
 
+  /// The layout the nearest scope asks for, so a host's own marks can
+  /// draw for it (a disc in [SidebarKitLayout.list]).
+  static SidebarKitLayout layoutOf(BuildContext context) =>
+      _scope(context).layout;
+
   static SidebarKitScope _scope(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<SidebarKitScope>();
     assert(scope != null);
