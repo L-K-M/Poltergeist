@@ -199,7 +199,7 @@ void main() {
       await pumpHome(tester, density: SidebarDensity.compact);
 
       final row = find.byKey(const ValueKey('sidebar.favorite.demo'));
-      expect(tester.getSize(row).height, 48);
+      expect(tester.getSize(row).height, 40);
       expect(
         SidebarKitScope.layoutOf(tester.element(find.byType(SidebarRow).first)),
         SidebarKitLayout.rail,
