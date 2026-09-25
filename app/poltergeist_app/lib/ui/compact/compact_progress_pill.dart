@@ -90,6 +90,9 @@ class _Pill extends StatelessWidget {
       button: true,
       label: text,
       hint: l10n.compactTransfersPillTooltip,
+      // The InkWell below is excluded, so the node carries the tap:
+      // without one it is not clickable to TalkBack or Switch Access.
+      onTap: onPressed,
       excludeSemantics: true,
       child: Material(
         key: const ValueKey(CompactKey.progressPill),

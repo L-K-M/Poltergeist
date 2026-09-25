@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -65,8 +68,10 @@ List<ConnectServerChoice> orderConnectChoices(
 /// launcher's Quick Connect form, so connecting never costs the user the
 /// pane they are in. The address field has focus on open; ↑/↓ move a
 /// highlight through the servers and Return opens the highlighted one
-/// (with no highlight, Return submits the address). [onConnect] and a
-/// choice's [ConnectServerChoice.open] run after the dialog has popped.
+/// (with no highlight, Return submits the address). The highlight lives
+/// only while the field holds focus, and a screen reader hears where it
+/// lands. [onConnect] and a choice's [ConnectServerChoice.open] run after
+/// the dialog has popped.
 Future<void> showConnectDialog(
   BuildContext context, {
   List<ConnectServerChoice> servers = const [],
@@ -102,6 +107,7 @@ class _ConnectDialogState extends State<_ConnectDialog> {
   @override
   void initState() {
     super.initState();
+    _focus.addListener(_onFieldFocus);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focus.requestFocus();
     });
@@ -109,8 +115,40 @@ class _ConnectDialogState extends State<_ConnectDialog> {
 
   @override
   void dispose() {
-    _focus.dispose();
+    _focus
+      ..removeListener(_onFieldFocus)
+      ..dispose();
     super.dispose();
+  }
+
+  /// The highlight is the field's: once focus leaves it (Tab to Connect,
+  /// a click elsewhere), Return belongs to whatever holds focus, and a
+  /// highlight left behind would open a server the user moved away from.
+  void _onFieldFocus() {
+    if (!_focus.hasPrimaryFocus && _highlight != null) {
+      setState(() => _highlight = null);
+    }
+  }
+
+  /// Moves the highlight and says where it landed: focus stays in the
+  /// field, so a screen reader would otherwise hear nothing of it.
+  void _moveHighlight(int? highlight) {
+    setState(() => _highlight = highlight);
+    if (!MediaQuery.supportsAnnounceOf(context)) return;
+    final l10n = AppLocalizations.of(context);
+    final choice = highlight == null ? null : widget.servers[highlight];
+    unawaited(
+      SemanticsService.sendAnnouncement(
+        View.of(context),
+        choice == null
+            ? l10n.connectDialogHighlightCleared
+            : l10n.connectDialogHighlightAnnouncement(
+                choice.label,
+                choice.detail,
+              ),
+        Directionality.of(context),
+      ),
+    );
   }
 
   void _open(ConnectServerChoice choice) {
@@ -121,27 +159,30 @@ class _ConnectDialogState extends State<_ConnectDialog> {
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     final servers = widget.servers;
     if (servers.isEmpty) return KeyEventResult.ignored;
+    // Keys from any other control (the Connect button) are that
+    // control's: the highlight only steers the address field.
+    if (!_focus.hasPrimaryFocus) return KeyEventResult.ignored;
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.arrowDown) {
       final current = _highlight;
-      setState(() {
-        // Past the last row the highlight hands Return back to the field.
-        _highlight = current == null
+      // Past the last row the highlight hands Return back to the field.
+      _moveHighlight(
+        current == null
             ? 0
-            : (current + 1 < servers.length ? current + 1 : null);
-      });
+            : (current + 1 < servers.length ? current + 1 : null),
+      );
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowUp) {
       final current = _highlight;
-      setState(() {
-        _highlight = current == null
+      _moveHighlight(
+        current == null
             ? servers.length - 1
-            : (current > 0 ? current - 1 : null);
-      });
+            : (current > 0 ? current - 1 : null),
+      );
       return KeyEventResult.handled;
     }
     final highlight = _highlight;
@@ -198,6 +239,8 @@ class _ConnectDialogState extends State<_ConnectDialog> {
               QuickConnectView(
                 focusNode: _focus,
                 layout: QuickConnectLayout.inline,
+                // Typing takes Return back for the address; the edit is
+                // what the user hears, so the clear goes unannounced.
                 onEdited: () {
                   if (_highlight != null) setState(() => _highlight = null);
                 },
@@ -234,6 +277,9 @@ class _ServerRow extends StatelessWidget {
       button: true,
       selected: highlighted,
       label: '${choice.label}, ${choice.detail}',
+      // The InkWell below is excluded, so the node carries the tap a
+      // screen reader's activation sends.
+      onTap: onTap,
       excludeSemantics: true,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -267,9 +313,11 @@ class _ServerRow extends StatelessWidget {
                         choice.detail,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        // Opaque on the highlight: at 11 px a dimmed
+                        // on-accent fell under 4.5:1 on the fill.
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: highlighted
-                              ? chrome.onSelection.withValues(alpha: 0.8)
+                              ? chrome.onSelection
                               : chrome.secondaryText,
                         ),
                       ),

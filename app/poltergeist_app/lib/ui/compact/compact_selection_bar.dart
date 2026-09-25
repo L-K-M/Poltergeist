@@ -199,6 +199,11 @@ class _BarItem extends StatelessWidget {
         button: true,
         enabled: enabled,
         label: semanticLabel,
+        // The InkWell below is excluded, so the node carries the tap: a
+        // node without one is not clickable to TalkBack, Switch Access or
+        // Voice Access. Wired while disabled too, so the reason toast
+        // answers it.
+        onTap: onPressed,
         excludeSemantics: true,
         child: InkWell(
           onTap: onPressed,

@@ -4606,4 +4606,13 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get commandDisabledNoQuickConnect =>
       'Requires an unsaved Quick Connect session';
+
+  @override
+  String connectDialogHighlightAnnouncement(String server, String detail) {
+    return '$server, $detail. Press Return to open it.';
+  }
+
+  @override
+  String get connectDialogHighlightCleared =>
+      'No server highlighted. Press Return to connect to the address.';
 }

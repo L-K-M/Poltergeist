@@ -13,10 +13,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/rsync_endpoints.dart';
 import 'package:poltergeist_app/services/sync_plan_controller.dart';
 import 'package:poltergeist_app/services/sync_queue_facade.dart';
+import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/sync/sync_plan_table.dart';
 import 'package:poltergeist_sync/poltergeist_sync.dart';
 
 import '../../support/sync_harness.dart';
+import '../contrast_math.dart';
 import 'sync_plan_view_test.dart' as view;
 
 SyncItem _copy(String path) => testItem(
@@ -200,6 +202,71 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
     await tester.pump();
     expect(b.effective, SyncActionType.copyLeftToRight);
+  });
+
+  testWidgets('a selected row in the focused table keeps every mark '
+      'legible on the selection fill', (tester) async {
+    // On the active selection's fill the action tones (primary, tertiary,
+    // error, secondary, outline) fell to about 1:1 in the light theme
+    // and near 2:1 in the dark one; the glyph, the override dot, the
+    // status marks and a failure's reason paint on-selection there, as
+    // a file row does.
+    final done = _copy('a.txt');
+    final running = _update('b.txt');
+    final failed = _delete('gone.txt');
+    await _ready(tester, testSyncPair(), [
+      done,
+      running,
+      failed,
+      _conflict('c.txt'),
+    ]);
+    done
+      ..status = SyncItemStatus.done
+      ..userOverridden = true;
+    running.status = SyncItemStatus.running;
+    failed
+      ..status = SyncItemStatus.failed
+      ..error = 'Permission denied';
+
+    final chrome = PoltergeistChrome.of(
+      tester.element(find.byKey(const ValueKey('sync.plan.table'))),
+    );
+    final fill = chrome.selectionFill;
+    for (final path in ['a.txt', 'b.txt', 'gone.txt', 'c.txt']) {
+      await tester.tap(find.text(path));
+      await tester.pump();
+      final row = find.byKey(ValueKey('sync.row.$path'));
+      final box = tester.widget<Container>(
+        find.descendant(of: row, matching: find.byType(Container)).first,
+      );
+      expect((box.decoration! as BoxDecoration).color, fill);
+
+      Iterable<T> inRow<T extends Widget>() => tester.widgetList<T>(
+        find.descendant(of: row, matching: find.byType(T)),
+      );
+      for (final text in inRow<Text>()) {
+        expect(
+          contrast(text.style!.color!, fill),
+          greaterThanOrEqualTo(4.5),
+          reason: '"${text.data}" on the selected $path row',
+        );
+      }
+      final marks = [
+        for (final icon in inRow<Icon>()) (icon.icon.toString(), icon.color!),
+        for (final spinner in inRow<CircularProgressIndicator>())
+          ('spinner', spinner.color!),
+      ];
+      // Every row but the conflict carries a status or override mark.
+      if (path != 'c.txt') expect(marks, isNotEmpty, reason: path);
+      for (final (name, color) in marks) {
+        expect(
+          contrast(color, fill),
+          greaterThanOrEqualTo(minimumNonTextContrast),
+          reason: '$name on the selected $path row',
+        );
+      }
+    }
+    expect(find.text('Permission denied'), findsOneWidget);
   });
 
   testWidgets('rows carry a semantics label', (tester) async {

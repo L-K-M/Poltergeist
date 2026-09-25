@@ -341,6 +341,9 @@ class _SheetTabs extends StatelessWidget {
           selected: isSelected,
           button: true,
           label: label,
+          // The InkWell below is excluded, so the node carries the tap:
+          // without one it is not clickable to TalkBack or Switch Access.
+          onTap: () => onSelect(value),
           excludeSemantics: true,
           child: InkWell(
             key: ValueKey((CompactKey.inspectorTab, value)),

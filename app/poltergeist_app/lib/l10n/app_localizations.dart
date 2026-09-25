@@ -7017,6 +7017,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Requires an unsaved Quick Connect session'**
   String get commandDisabledNoQuickConnect;
+
+  /// Screen-reader announcement when ↑/↓ in the Connect dialog's (⌘K) address field highlight a saved server row: focus stays in the field, so this says which server Return now opens. {detail} is the row's user@host.
+  ///
+  /// In en, this message translates to:
+  /// **'{server}, {detail}. Press Return to open it.'**
+  String connectDialogHighlightAnnouncement(String server, String detail);
+
+  /// Screen-reader announcement when ↑/↓ in the Connect dialog's address field move the highlight past the saved server rows, so Return submits the typed address again.
+  ///
+  /// In en, this message translates to:
+  /// **'No server highlighted. Press Return to connect to the address.'**
+  String get connectDialogHighlightCleared;
 }
 
 class _AppLocalizationsDelegate

@@ -10,6 +10,7 @@ library;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/registered_command.dart';
@@ -33,6 +34,28 @@ Future<void> _openThisDevice(WidgetTester tester) async {
   await tester.tap(find.text('This device'));
   await tester.pumpAndSettle();
 }
+
+/// TalkBack's double-tap: Android's bridge sends the focused node's tap
+/// action, and a node without one (a Semantics wrapper that excludes the
+/// InkWell below it) is not clickable to TalkBack, Switch Access or Voice
+/// Access. [wrapper] finds the Semantics widget that owns the node.
+Future<void> _semanticsTap(WidgetTester tester, Finder wrapper) async {
+  final label = tester.widget<Semantics>(wrapper).properties.label!;
+  final node = find.semantics.byLabel(label).evaluate().single;
+  expect(
+    node.getSemanticsData().hasAction(SemanticsAction.tap),
+    isTrue,
+    reason: '"$label" must answer a screen reader\'s activation',
+  );
+  node.owner!.performAction(node.id, SemanticsAction.tap);
+  await tester.pump();
+}
+
+Finder _semanticsAbove(Finder target) =>
+    find.ancestor(of: target, matching: find.byType(Semantics)).first;
+
+Finder _semanticsBelow(Finder target) =>
+    find.descendant(of: target, matching: find.byType(Semantics)).first;
 
 void main() {
   group('the posture decision (D32 §3.2)', () {
@@ -619,6 +642,80 @@ void main() {
       await tester.tap(_key((CompactKey.inspectorTab, InspectorTab.transfers)));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('activity.panel')), findsOneWidget);
+    });
+  });
+
+  group('screen-reader activation', () {
+    testWidgets('the A · B switcher answers a semantics tap', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final harness = CompactHarness();
+      await harness.pump(tester);
+      await _openThisDevice(tester);
+      final workspace = harness.workspace(tester);
+
+      await _semanticsTap(
+        tester,
+        _semanticsAbove(_key(CompactKey.paneSwitcher)),
+      );
+      await tester.pumpAndSettle();
+      expect(identical(workspace.activePane, workspace.right), isTrue);
+      semantics.dispose();
+    });
+
+    testWidgets('the selection bar answers a semantics tap, a disabled '
+        'action with its reason', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final harness = CompactHarness();
+      await harness.pump(tester);
+      await _openThisDevice(tester);
+      await tester.longPress(compactRow('/home/deploy/notes.txt'));
+      await tester.pumpAndSettle();
+
+      // Both panes show the same folder: Move to B has nowhere to go.
+      await _semanticsTap(tester, _semanticsBelow(_key(CompactKey.actionMove)));
+      expect(
+        find.text('Select items, and open a folder in the other pane'),
+        findsOneWidget,
+      );
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      await _semanticsTap(tester, _semanticsBelow(_key(CompactKey.actionMore)));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pane.context.file.rename')), findsOne);
+      semantics.dispose();
+    });
+
+    testWidgets('the progress pill and the sheet tabs answer a semantics '
+        'tap', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final harness = CompactHarness();
+      await harness.pump(tester);
+      await _openThisDevice(tester);
+      final workspace = harness.workspace(tester);
+      harness.queue.addTask(
+        state: TransferTaskState.running,
+        rootPaths: const ['/home/deploy/site.tar.gz'],
+        transferredBytes: 30,
+        totalBytes: 120,
+      );
+      harness.queue.emitRefresh();
+      await tester.pumpAndSettle();
+
+      await _semanticsTap(
+        tester,
+        _semanticsAbove(_key(CompactKey.progressPill)),
+      );
+      await tester.pumpAndSettle();
+      expect(_key(CompactKey.inspectorSheet), findsOneWidget);
+      expect(workspace.inspectorTab, InspectorTab.transfers);
+
+      await _semanticsTap(
+        tester,
+        _semanticsAbove(_key((CompactKey.inspectorTab, InspectorTab.alerts))),
+      );
+      await tester.pumpAndSettle();
+      expect(workspace.inspectorTab, InspectorTab.alerts);
+      semantics.dispose();
     });
   });
 
