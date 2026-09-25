@@ -71,7 +71,7 @@ D32 inspector workspace · D33 sidebar density · D34 Android supported
 
 - **D1 — Flutter/Dart monorepo mirroring Séance.** `packages/` (pure Dart) +
   `app/poltergeist_app` (Flutter). Desktop first — macOS leads the design,
-  Windows and Linux ship from v1.0. Android is supported after v1.0
+  Windows and Linux ship from v1.0. Android is supported after v1.0.1
   (D34); iOS is post-v1 (D29). Single
   window, dual pane, tabs per pane in v1 (D13).
 - **D2 — Code sharing, one call per layer.**
@@ -805,7 +805,8 @@ D32 inspector workspace · D33 sidebar density · D34 Android supported
 - **D34 — Android is a supported target (2026-09-25, owner-directed;
   amends D1, D23, and D29 for Android only).** The APK every release
   already builds becomes a supported build, beside macOS, Windows, and
-  Linux, from the first release after v1.0.0. Its UI is D32's compact
+  Linux, from the first release after v1.0.1 (whose notes still carry
+  the rehearsal label). Its UI is D32's compact
   posture (10 §9) below 600 dp and the desktop layout on tablets.
   - **Distribution is unchanged:** the `poltergeist-android.apk`
     release asset, sideloaded (no Play Store), signed with the

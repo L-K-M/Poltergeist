@@ -14,14 +14,14 @@ Windows, Linux, and Android. Built as a sibling of
 
 ## Known issues
 
-- **Remote transfers in 1.0.0 (fixed on main).** In the 1.0.0 release,
-  tasks that name a remote endpoint (uploads, downloads, remote sync
-  runs, and remote managed checkouts) fail fast with a typed
-  `unsupported` error. The engine's bridged transfer lease (protocol
-  v13) is on main and fixes this; it ships with the next release. See
-  [STATUS open item 23](docs/STATUS.md).
-- **Android.** The APK is a supported build from the next release,
-  with these gaps until each lands
+- **Remote transfers in 1.0.0 (fixed in 1.0.1).** In the 1.0.0
+  release, tasks that name a remote endpoint (uploads, downloads, remote
+  sync runs, and remote managed checkouts) fail fast with a typed
+  `unsupported` error. 1.0.1 ships the engine's bridged transfer lease
+  (protocol v13), which fixes this, so update if you are still on 1.0.0.
+  See [STATUS open item 23](docs/STATUS.md).
+- **Android.** The APK is a supported build from the release after
+  1.0.1, with these gaps until each lands
   ([STATUS open item 33](docs/STATUS.md)):
   - the local pane is the app's own storage, not the whole device;
   - transfers stop when you leave the app, because Android freezes a

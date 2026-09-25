@@ -8529,7 +8529,9 @@ checklist's macOS row now covers.
 
 ## D34 — Android is supported (2026-09-25)
 
-Owner-directed (00 D34). The release notes drop the APK's rehearsal
+Owner-directed (00 D34), effective from the first release after
+v1.0.1, which was tagged before this change and still carries the old
+label. The release notes drop the APK's rehearsal
 label (the IPA keeps its unsigned, unsupported one), `docs/INSTALL.md`
 gains the sideload steps, the README's known issues list open item 33's
 gaps, 07's deferral table splits iOS from Android, and the release
