@@ -704,6 +704,9 @@ void main() {
         ),
       );
       expect(chevron.visible, isTrue);
+      // The count stays drawn too, expanded or not: compact touch keeps
+      // all three in view, as comfortable does.
+      expect(find.text('3'), findsOneWidget);
       expect(tester.getSize(find.byKey(const ValueKey('h'))).height, 40);
     });
   });
