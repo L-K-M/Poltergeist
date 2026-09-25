@@ -146,6 +146,7 @@ class WorkspaceShell extends StatefulWidget {
     this.autoClearCompletedTransfers = true,
     this.probeSettings,
     this.initialSidebarHidden = false,
+    this.initialInspectorHidden = false,
     this.onSidebarHiddenChanged,
     this.onSidebarHiddenSaveError,
     this.initialSidebarCollapsedGroups = const {},
@@ -331,6 +332,11 @@ class WorkspaceShell extends StatefulWidget {
   /// writes it — the stage-1 drawer collapse recomputes from window
   /// width and never lands here.
   final bool initialSidebarHidden;
+
+  /// Whether the inspector starts hidden when no restored session says
+  /// otherwise (10 §3). The desktop shows it; main.dart hides it on touch
+  /// platforms, where it squeezes the panes on a tablet.
+  final bool initialInspectorHidden;
   final FutureOr<void> Function(bool hidden)? onSidebarHiddenChanged;
   final void Function(Object error, StackTrace stackTrace)?
   onSidebarHiddenSaveError;
@@ -1249,7 +1255,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
     final left = buildStrip(PaneTabsController.leftPaneId);
     final right = buildStrip(PaneTabsController.rightPaneId);
-    final workspace = WorkspaceController(left: left, right: right);
+    final workspace = WorkspaceController(
+      left: left,
+      right: right,
+      inspectorHidden: widget.initialInspectorHidden,
+    );
     _workspace = workspace;
     widget.sessionPersistence?.attach(workspace);
 

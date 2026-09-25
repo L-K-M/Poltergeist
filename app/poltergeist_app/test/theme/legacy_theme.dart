@@ -1,6 +1,7 @@
 // Poltergeist's theme as it was built before device themes existed:
-// lib/theme/app_theme.dart at c4d4512, frozen here, tables and all, so the
-// comparison in theme_build_test.dart cannot drift with the code it checks.
+// lib/theme/app_theme.dart at c4d4512, with main's 40 dp compact touch rows
+// since (#204), frozen here, tables and all, so the comparison in
+// theme_build_test.dart cannot drift with the code it checks.
 // An install that has never opened Appearance must see exactly this.
 // Only the chrome extension is left out: [legacyChrome] lists its values,
 // since the extension has no value equality to compare by.
@@ -154,7 +155,7 @@ Map<String, Object> legacyChrome(
     // macOS: the unified toolbar band is 52 pt (D32 §3).
     'headerHeight': platform == TargetPlatform.macOS ? 52 : (desktop ? 44 : 56),
     'rowExtent': desktop ? 22 : 48,
-    'sidebarRowExtent': desktop ? 26 : 48,
+    'sidebarRowExtent': desktop ? 26 : 40,
   };
 }
 

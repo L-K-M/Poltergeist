@@ -1341,6 +1341,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   'lib/ui/panes/pane_view.dart': {
     "'pane.error.retry'",
+    "'pane.error.cancel'",
     "'pane.banner'",
     "'pane.banner.cancel'",
     "'pane.banner.retry'",
@@ -2106,6 +2107,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'quit.cancelTransfers'",
     "'quit.pauseAndQuit'",
     "'quitFlush.dialog'",
+    "'quitFlush.quitAnyway'",
     "'quitFlush.dismiss'",
   },
   // The enrollment form's widget keys, the §4.1 `ghost-<8 hex>` username

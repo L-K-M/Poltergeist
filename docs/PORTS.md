@@ -1498,8 +1498,9 @@ not behaviour, and is not repeated below.
 - `test/theme/theme_build_test.dart` from `test/theme_build_test.dart`:
   the default is compared with the whole pre-theme `ThemeData` and its
   chrome, frozen in `test/theme/legacy_theme.dart` (Poltergeist's own
-  `app_theme.dart` at `c4d4512`, not a port), on five platforms; adds
-  the status dots painting a palette's colours.
+  `app_theme.dart` at `c4d4512` with main's 40 dp compact touch rows
+  since, #204; not a port), on five platforms; adds the status dots
+  painting a palette's colours.
 - `test/ui/color_picker_test.dart` from `test/color_picker_test.dart`, and
   `test/ui/server_color_picker_test.dart` from
   `test/server_color_picker_test.dart`: wrapped in `AppLocalizations`.

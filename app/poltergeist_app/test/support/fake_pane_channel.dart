@@ -21,6 +21,10 @@ class FakePaneChannel implements AppBrowseChannel {
   /// typed PaneFault list path).
   Object? listingFailure;
 
+  /// Per-path listing refusals (a folder the user may not read),
+  /// checked before [listings].
+  final listingFailures = <String, Object>{};
+
   /// Recorded rename calls (oldPath, newPath) and a scripted failure —
   /// null renames succeed silently.
   final renameCalls = <(String, String)>[];
@@ -149,7 +153,7 @@ class FakePaneChannel implements AppBrowseChannel {
       holdNext = null;
       await hold.future;
     }
-    final fault = listingFailure;
+    final fault = listingFailure ?? listingFailures[path];
     if (fault != null) throw fault;
     final entries = listings[path];
     if (entries == null) {

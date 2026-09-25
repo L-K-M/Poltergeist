@@ -409,6 +409,31 @@ void main() {
       expect(h.window.events, isNot(contains('destroy')));
     });
   });
+
+  testWidgets('a flush that keeps failing can still quit anyway', (
+    tester,
+  ) async {
+    final h = await pumpApp(tester);
+    h.queue.flushJournalError = StateError('disk full');
+
+    await tester.runAsync(() async {
+      // Quit again only retries the same failing write.
+      final first = h.lifecycle.close();
+      await waitForFlushWarning(tester);
+      await tester.tap(find.byKey(const ValueKey('quitFlush.dismiss')));
+      await waitForDialogDismissed(tester);
+      expect(await first, isFalse);
+
+      final second = h.lifecycle.close();
+      await waitForFlushWarning(tester);
+      await tester.tap(find.byKey(const ValueKey('quitFlush.quitAnyway')));
+      await waitForDialogDismissed(tester);
+
+      expect(await second, isTrue);
+      expect(h.queue.flushJournalCalls, 2);
+      expect(h.window.events.last, 'destroy');
+    });
+  });
 }
 
 final class _Harness {
