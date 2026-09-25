@@ -8,6 +8,9 @@ import 'package:poltergeist_app/services/app_preferences.dart';
 import 'package:poltergeist_app/services/double_click_action.dart';
 import 'package:poltergeist_app/services/settings_store.dart';
 import 'package:poltergeist_app/services/sidebar_controller.dart';
+import 'package:poltergeist_app/theme/app_appearance.dart';
+import 'package:poltergeist_app/theme/theme_palette.dart';
+import 'package:poltergeist_app/theme/theme_presets.dart';
 
 import 'support/fake_bookmark_store.dart';
 
@@ -151,6 +154,96 @@ void main() {
         reason: 'stored $stored',
       );
     }
+  });
+
+  group('the device theme', () {
+    AppPreferences fresh() =>
+        AppPreferences(store: SettingsStore(path: settingsFile.path));
+
+    test('defaults to the first preset, following the system', () async {
+      expect(await fresh().loadAppearance(), AppAppearance.initial);
+      // A settings file from before themes existed reads the same.
+      await settingsFile.writeAsString('{"sidebar.density":"compact"}');
+      expect(await fresh().loadAppearance(), AppAppearance.initial);
+    });
+
+    test(
+      'round-trips through the settings file, as Séance writes it',
+      () async {
+        final appearance = AppAppearance(
+          palette: ThemePresets.solarized.copyWith(cornerScale: 0.3),
+          mode: ThemeModePreference.dark,
+        );
+        await fresh().saveAppearance(appearance);
+
+        expect(await fresh().loadAppearance(), appearance);
+        final stored =
+            jsonDecode(await settingsFile.readAsString())
+                as Map<String, Object?>;
+        // One JSON object in Séance's format, so it reads as a pasted theme
+        // would, and the mode beside it.
+        expect(
+          ThemePalette.decodeStored(stored['theme.palette']),
+          appearance.palette,
+        );
+        expect((stored['theme.palette']! as Map)['surface'], '#002B36');
+        expect(stored['theme.mode'], 'dark');
+      },
+    );
+
+    test(
+      'a garbage theme reads as the default and costs nothing else',
+      () async {
+        for (final bad in ['"solarized"', '7', '[1, 2]', 'null', '{"1": 2}']) {
+          await settingsFile.writeAsString(
+            '{"theme.palette":$bad,"theme.mode":"sepia",'
+            '"sidebar.density":"compact"}',
+          );
+          final preferences = fresh();
+          expect(
+            await preferences.loadAppearance(),
+            AppAppearance.initial,
+            reason: bad,
+          );
+          expect(
+            await preferences.loadSidebarDensity(),
+            SidebarDensity.compact,
+            reason: bad,
+          );
+        }
+      },
+    );
+
+    test('a hand-edited theme costs only its own bad values', () async {
+      await settingsFile.writeAsString(
+        '{"theme.palette":{"accent":"crimson","surface":"#102030",'
+        '"cornerScale":"round"},"theme.mode":"light"}',
+      );
+      final appearance = await fresh().loadAppearance();
+      expect(appearance.palette.accent, ThemePresets.initial.accent);
+      expect(appearance.palette.surface, const Color(0xFF102030));
+      expect(appearance.palette.cornerScale, 1);
+      expect(appearance.mode, ThemeModePreference.light);
+    });
+
+    test('an unreadable store reads as the default theme', () async {
+      await settingsFile.writeAsBytes([0xff]);
+      final preferences = AppPreferences(
+        store: SettingsStore(path: settingsFile.path, onError: (_, _) {}),
+      );
+      expect(await preferences.loadAppearance(), AppAppearance.initial);
+    });
+
+    test('saving it touches only its own keys', () async {
+      await fresh().saveSidebarDensity(SidebarDensity.compact);
+      await fresh().saveAppearance(AppAppearance(palette: ThemePresets.paper));
+      final stored =
+          jsonDecode(await settingsFile.readAsString()) as Map<String, Object?>;
+      expect(
+        stored.keys,
+        unorderedEquals(['sidebar.density', 'theme.palette', 'theme.mode']),
+      );
+    });
   });
 
   test('pinned servers persist; a malformed value reads empty', () async {

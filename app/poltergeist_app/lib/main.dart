@@ -10,6 +10,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'app.dart';
 import 'settings_window_app.dart';
 import 'services/app_preferences.dart';
+import 'services/appearance_controller.dart';
 import 'services/application_error_reporter.dart';
 import 'services/bookmark_backup_service.dart';
 import 'services/checkout_session.dart';
@@ -430,6 +431,13 @@ Future<void> main(List<String> args) async {
   final toolbarBand = Platform.isMacOS ? MacosToolbarBandChannel() : null;
   if (toolbarBand != null) errorReporter.observe(toolbarBand.start());
 
+  // This device's theme (Settings → Appearance): read before the first
+  // frame, so the app opens in it rather than fading into it.
+  final appearance = AppearanceController(
+    initial: await preferences.loadAppearance(),
+    save: preferences.saveAppearance,
+  );
+
   runApp(
     PoltergeistApp(
       initialPaneRatio: paneRatio,
@@ -492,6 +500,7 @@ Future<void> main(List<String> args) async {
       syncEnvironment: syncEnvironment,
       syncTasks: syncTasks,
       updateCheck: updateCheck,
+      appearance: appearance,
       // Desktop only: the runners there host the Settings window.
       settingsWindow: Platform.isMacOS || Platform.isLinux || Platform.isWindows
           ? SettingsWindowHost()

@@ -30,6 +30,7 @@ import 'services/quit_guard.dart';
 import 'services/recent_locations.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
+import 'services/settings_models.dart' show AppearanceSettingsModel;
 import 'services/settings_window/settings_window_host.dart';
 import 'services/sidebar_controller.dart'
     show CollapsedSectionWriter, PinnedServerWriter, SidebarDensity;
@@ -38,6 +39,7 @@ import 'services/sync_environment.dart';
 import 'services/sync_queue_facade.dart';
 import 'services/update_check_controller.dart';
 import 'services/workspace_library.dart';
+import 'theme/app_appearance.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
 import 'ui/inspector/inspector_view.dart' show inspectorDefaultWidth;
@@ -105,6 +107,7 @@ class PoltergeistApp extends StatefulWidget {
     this.updateCheck,
     this.settingsWindow,
     this.toolbarBand,
+    this.appearance,
   });
 
   final double initialPaneRatio;
@@ -301,6 +304,11 @@ class PoltergeistApp extends StatefulWidget {
   /// windowed layout.
   final ValueListenable<bool>? toolbarBand;
 
+  /// This device's theme: what the app is drawn in, and the model behind
+  /// Settings → Appearance. Null draws the default theme and leaves the
+  /// section out.
+  final AppearanceSettingsModel? appearance;
+
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator. The session's coordinator and the
   /// [MaterialApp] must share one key: dialogs render on this navigator.
@@ -439,14 +447,30 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
 
   @override
   Widget build(BuildContext context) {
+    // Built once here, outside the theme's builder, which then only swaps
+    // the MaterialApp's themes: the workspace keeps its state through a
+    // re-theme, and is not rebuilt for one.
+    final home = ClaimMacosToolbarBand(child: _buildWorkspace());
+    final appearance = widget.appearance;
+    if (appearance == null) return _app(AppAppearance.initial, home);
+    // Rebuilt for a theme change and nothing else: the appearance moves
+    // only when Settings → Appearance writes.
+    return ValueListenableBuilder<AppAppearance>(
+      valueListenable: appearance,
+      builder: (context, value, _) => _app(value, home),
+    );
+  }
+
+  Widget _app(AppAppearance appearance, Widget home) {
+    final themes = poltergeistThemesFor(appearance);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       navigatorKey: widget.navigatorKey,
       scaffoldMessengerKey: widget.scaffoldMessengerKey,
       onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
-      theme: buildPoltergeistTheme(Brightness.light),
-      darkTheme: buildPoltergeistTheme(Brightness.dark),
-      themeMode: ThemeMode.system,
+      theme: themes.theme,
+      darkTheme: themes.darkTheme,
+      themeMode: themes.themeMode,
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
@@ -467,7 +491,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       // (the full-size content view), passes its header controls
       // through, and insets itself for the traffic lights, leaving no
       // blank titlebar band above the header (D32).
-      home: ClaimMacosToolbarBand(child: _buildWorkspace()),
+      home: home,
     );
   }
 
@@ -533,6 +557,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       syncTasks: widget.syncTasks,
       updateCheck: widget.updateCheck,
       settingsWindow: widget.settingsWindow,
+      appearance: widget.appearance,
     );
     final callback = widget.onContentSizeChanged;
     if (callback == null) return workspace;

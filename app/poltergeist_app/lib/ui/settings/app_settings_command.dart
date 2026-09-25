@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../services/registered_command.dart';
+import '../../services/settings_models.dart' show AppearanceSettingsModel;
 import '../../services/settings_window/settings_window_link.dart';
 import 'general_settings.dart';
 
@@ -17,12 +18,19 @@ const kAppSettingsCommandId = 'app.settings';
 /// is the reachable path everywhere the menu bar exists.
 ///
 /// On desktop it opens the Settings window on General ([openWindow]); the
-/// General dialog remains for a runner without one.
+/// Settings dialog remains for a runner without one, and is what phones and
+/// tablets get: General's rows ([settings]) and Appearance ([appearance]),
+/// whichever the app has.
 RegisteredCommand buildAppSettingsCommand({
-  required GeneralSettings Function() settings,
+  GeneralSettings Function()? settings,
+  AppearanceSettingsModel? appearance,
   required bool Function() enabled,
   OpenSettingsWindow? openWindow,
 }) {
+  assert(
+    settings != null || appearance != null,
+    'Settings needs a section to show.',
+  );
   return RegisteredCommand(
     id: kAppSettingsCommandId,
     scope: CommandScope.app,
@@ -39,7 +47,11 @@ RegisteredCommand buildAppSettingsCommand({
     run: (context) async {
       if (await openWindow?.call(SettingsWindowTab.general) ?? false) return;
       if (!context.mounted) return;
-      await showGeneralSettingsDialog(context, settings: settings());
+      await showGeneralSettingsDialog(
+        context,
+        settings: settings?.call(),
+        appearance: appearance,
+      );
     },
     // 10 §8: the macOS app menu on Mac (AppKit convention), File's
     // last section elsewhere, after the tab section (group 5).

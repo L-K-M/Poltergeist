@@ -4,9 +4,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
+import 'package:poltergeist_app/services/appearance_controller.dart';
 import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/services/settings_window/settings_window_link.dart';
 import 'package:poltergeist_app/ui/settings/app_settings_command.dart';
+import 'package:poltergeist_app/ui/settings/appearance_settings.dart';
 import 'package:poltergeist_app/ui/settings/general_settings.dart';
 
 void main() {
@@ -120,6 +122,50 @@ void main() {
         find.byKey(const ValueKey('general.settings.dialog')),
         findsNothing,
       );
+    });
+
+    testWidgets('the dialog carries Appearance after General', (tester) async {
+      await run(
+        tester,
+        buildAppSettingsCommand(
+          settings: () => settings(),
+          appearance: AppearanceController(),
+          enabled: () => true,
+        ),
+      );
+
+      expect(
+        find.byKey(const ValueKey('updates.checkEnabled')),
+        findsOneWidget,
+      );
+      expect(find.byType(AppearanceSection), findsOneWidget);
+      expect(
+        tester.getRect(find.byType(AppearanceSection)).top,
+        greaterThan(
+          tester
+              .getRect(find.byKey(const ValueKey('updates.checkEnabled')))
+              .top,
+        ),
+      );
+    });
+
+    testWidgets('with only a theme to set, it is Appearance alone', (
+      tester,
+    ) async {
+      await run(
+        tester,
+        buildAppSettingsCommand(
+          appearance: AppearanceController(),
+          enabled: () => true,
+        ),
+      );
+
+      expect(
+        find.byKey(const ValueKey('general.settings.dialog')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('updates.checkEnabled')), findsNothing);
+      expect(find.byType(AppearanceSection), findsOneWidget);
     });
 
     testWidgets('falls back to the dialog when the window cannot open', (

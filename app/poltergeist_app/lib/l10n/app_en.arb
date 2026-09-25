@@ -2082,6 +2082,348 @@
   "@settingsSyncTab": {
     "description": "Tab label for the Bookmark backup rows in the desktop Settings window (02 §10's Sync tab; 10 §10 says Sync in both sibling apps)."
   },
+  "settingsAppearanceTab": "Appearance",
+  "@settingsAppearanceTab": {
+    "description": "Tab label for the Appearance section (this device's theme) in the desktop Settings window."
+  },
+  "appearanceThemeSection": "Theme",
+  "@appearanceThemeSection": {
+    "description": "Appearance section heading over the theme presets."
+  },
+  "appearanceThemeHelpTitle": "Themes",
+  "@appearanceThemeHelpTitle": {
+    "description": "Title of the help dialog behind the Theme heading."
+  },
+  "appearanceThemeHelp": "A theme is kept on this device only and never syncs. To use one elsewhere, copy it here and paste it into Poltergeist or Séance on the other device.",
+  "@appearanceThemeHelp": {
+    "description": "Help behind the Theme heading: themes are device-local, and Copy/Paste carries them, into either sibling app."
+  },
+  "appearancePresetFootnote": "Picking a theme copies its colours here. It is a starting point, not a mode, so everything below stays yours to change.",
+  "@appearancePresetFootnote": {
+    "description": "Small print under the theme presets."
+  },
+  "appearancePresetTooltip": "Use the {name} theme",
+  "@appearancePresetTooltip": {
+    "description": "Tooltip of a theme preset tile.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Midnight"
+      }
+    }
+  },
+  "appearanceModeSection": "Mode",
+  "@appearanceModeSection": {
+    "description": "Appearance section heading over the light/dark mode switch."
+  },
+  "appearanceModeLabel": "Automatic colours follow",
+  "@appearanceModeLabel": {
+    "description": "Label above the System/Light/Dark switch: what the theme's Automatic colours follow."
+  },
+  "appearanceModeSystem": "System",
+  "@appearanceModeSystem": {
+    "description": "Mode switch segment: Automatic colours follow the system's light or dark appearance."
+  },
+  "appearanceModeLight": "Light",
+  "@appearanceModeLight": {
+    "description": "Mode switch segment: Automatic colours are always the light ones."
+  },
+  "appearanceModeDark": "Dark",
+  "@appearanceModeDark": {
+    "description": "Mode switch segment: Automatic colours are always the dark ones."
+  },
+  "appearanceModeFixedDark": "This theme has its own surface, so it is always dark. Set Surface to Automatic to choose a mode.",
+  "@appearanceModeFixedDark": {
+    "description": "Why the mode switch is disabled, for a theme with a dark surface of its own."
+  },
+  "appearanceModeFixedLight": "This theme has its own surface, so it is always light. Set Surface to Automatic to choose a mode.",
+  "@appearanceModeFixedLight": {
+    "description": "Why the mode switch is disabled, for a theme with a light surface of its own."
+  },
+  "appearanceColoursSection": "Colours",
+  "@appearanceColoursSection": {
+    "description": "Appearance section heading over the accent and interface colours."
+  },
+  "appearanceColoursHelpTitle": "Automatic colours",
+  "@appearanceColoursHelpTitle": {
+    "description": "Title of the help dialog behind the Colours heading."
+  },
+  "appearanceColoursHelp": "Automatic colours are the light or dark neutrals Poltergeist ships with, as the mode picks them. Once you give the theme a surface of its own, they are mixed from that surface and the text instead. Lines and the selection may be translucent.",
+  "@appearanceColoursHelp": {
+    "description": "Help behind the Colours heading: what Automatic means."
+  },
+  "appearanceSlotAccent": "Accent",
+  "@appearanceSlotAccent": {
+    "description": "Colour row: the accent (buttons, focus, the active pane's marker). Also the colour picker's title."
+  },
+  "appearanceSlotSurface": "Surface",
+  "@appearanceSlotSurface": {
+    "description": "Colour row: the pane and page background."
+  },
+  "appearanceSlotSidebar": "Sidebar",
+  "@appearanceSlotSidebar": {
+    "description": "Colour row: the sidebar and the inspector."
+  },
+  "appearanceSlotRaised": "Headers and bars",
+  "@appearanceSlotRaised": {
+    "description": "Colour row: the header toolbar and raised containers."
+  },
+  "appearanceSlotText": "Text",
+  "@appearanceSlotText": {
+    "description": "Colour row: body text."
+  },
+  "appearanceSlotSecondaryText": "Secondary text",
+  "@appearanceSlotSecondaryText": {
+    "description": "Colour row: captions and secondary text."
+  },
+  "appearanceSlotHairline": "Lines",
+  "@appearanceSlotHairline": {
+    "description": "Colour row: dividers and outlines."
+  },
+  "appearanceSlotSelection": "Selection",
+  "@appearanceSlotSelection": {
+    "description": "Colour row: the active pane's selected rows."
+  },
+  "appearanceStatusSection": "Status colours",
+  "@appearanceStatusSection": {
+    "description": "Appearance section heading over the four server status colours."
+  },
+  "appearanceSlotOnline": "Connected or online",
+  "@appearanceSlotOnline": {
+    "description": "Status colour row: a connected server, and one that answers its probe."
+  },
+  "appearanceSlotOffline": "Failed or offline",
+  "@appearanceSlotOffline": {
+    "description": "Status colour row: a failed connection, a blocked host key, and a server that does not answer its probe."
+  },
+  "appearanceSlotConnecting": "Connecting",
+  "@appearanceSlotConnecting": {
+    "description": "Status colour row: a connection being made or remade."
+  },
+  "appearanceSlotUnknown": "Unknown or idle",
+  "@appearanceSlotUnknown": {
+    "description": "Status colour row: a server whose state is not known yet, or that is idle."
+  },
+  "appearanceStatusFootnote": "Each status also keeps its own shape and its name, so these colours never have to say it alone.",
+  "@appearanceStatusFootnote": {
+    "description": "Small print under the status colours."
+  },
+  "appearanceAutomatic": "Automatic",
+  "@appearanceAutomatic": {
+    "description": "Checkbox beside a colour row: the colour follows the built-in neutrals."
+  },
+  "appearanceAutomaticSemantics": "{label}: Automatic",
+  "@appearanceAutomaticSemantics": {
+    "description": "Screen-reader label of a colour row's Automatic checkbox.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Sidebar"
+      }
+    }
+  },
+  "appearanceSwatchTooltip": "Choose the {label} colour",
+  "@appearanceSwatchTooltip": {
+    "description": "Tooltip of a colour row's swatch, which opens the colour picker.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Accent"
+      }
+    }
+  },
+  "appearanceSwatchAutomaticTooltip": "Choose a {label} colour (now Automatic)",
+  "@appearanceSwatchAutomaticTooltip": {
+    "description": "Tooltip of the swatch of a colour row that is Automatic; picking a colour turns Automatic off.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Lines"
+      }
+    }
+  },
+  "appearanceShapeSection": "Shape and type",
+  "@appearanceShapeSection": {
+    "description": "Appearance section heading over the interface font and corner roundness."
+  },
+  "appearanceFontLabel": "Interface font",
+  "@appearanceFontLabel": {
+    "description": "Label of the interface font field."
+  },
+  "appearanceFontHint": "System default",
+  "@appearanceFontHint": {
+    "description": "Hint in the empty interface font field: the platform's own face."
+  },
+  "appearanceFontHelper": "The editor and code keep their monospace font.",
+  "@appearanceFontHelper": {
+    "description": "Helper under the interface font field."
+  },
+  "appearanceCorners": "Corners",
+  "@appearanceCorners": {
+    "description": "Label of the corner roundness slider."
+  },
+  "appearanceCornersSquare": "Square",
+  "@appearanceCornersSquare": {
+    "description": "Corner roundness slider value at zero."
+  },
+  "appearanceCornersPercent": "{percent}%",
+  "@appearanceCornersPercent": {
+    "description": "Corner roundness slider value: 100% is as designed, 200% very round.",
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "65"
+      }
+    }
+  },
+  "appearanceCornersSemantics": "Corners {value}",
+  "@appearanceCornersSemantics": {
+    "description": "Screen-reader value of the corner roundness slider.",
+    "placeholders": {
+      "value": {
+        "type": "String",
+        "example": "65%"
+      }
+    }
+  },
+  "appearanceShareSection": "Share",
+  "@appearanceShareSection": {
+    "description": "Appearance section heading over Copy theme and Paste theme."
+  },
+  "appearanceCopy": "Copy theme",
+  "@appearanceCopy": {
+    "description": "Button: puts the theme on the clipboard as JSON text."
+  },
+  "appearancePaste": "Paste theme",
+  "@appearancePaste": {
+    "description": "Button: reads a theme from the clipboard and applies it."
+  },
+  "appearanceShareFootnote": "Copies the theme as text you can keep or send. Pasting reads what it can and leaves everything else at the default.",
+  "@appearanceShareFootnote": {
+    "description": "Small print under Copy theme and Paste theme."
+  },
+  "appearanceCopied": "Theme copied.",
+  "@appearanceCopied": {
+    "description": "Toast after Copy theme."
+  },
+  "appearancePasteNotATheme": "The clipboard does not hold a theme. Copy one with Copy theme first.",
+  "@appearancePasteNotATheme": {
+    "description": "Toast when Paste theme finds no theme on the clipboard; nothing changes."
+  },
+  "appearanceStartOverSection": "Start over",
+  "@appearanceStartOverSection": {
+    "description": "Appearance section heading over the reset button."
+  },
+  "appearanceReset": "Reset to {name}",
+  "@appearanceReset": {
+    "description": "Button: puts the default theme back, after a confirmation.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Poltergeist"
+      }
+    }
+  },
+  "appearanceResetTitle": "Reset the theme?",
+  "@appearanceResetTitle": {
+    "description": "Title of the reset confirmation."
+  },
+  "appearanceResetBody": "Every colour, the font and the corners go back to the {name} theme. The mode stays as it is.",
+  "@appearanceResetBody": {
+    "description": "Body of the reset confirmation.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Poltergeist"
+      }
+    }
+  },
+  "appearanceResetCancel": "Cancel",
+  "@appearanceResetCancel": {
+    "description": "Dismisses the reset confirmation."
+  },
+  "appearanceResetConfirm": "Reset",
+  "@appearanceResetConfirm": {
+    "description": "Confirms the reset."
+  },
+  "appearanceUsingPreset": "Using {name}.",
+  "@appearanceUsingPreset": {
+    "description": "Beside the reset button: the theme's values are exactly this preset's.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Midnight"
+      }
+    }
+  },
+  "appearanceUsingCustom": "Using your own colours.",
+  "@appearanceUsingCustom": {
+    "description": "Beside the reset button: the theme's values match no preset."
+  },
+  "appearanceNotSaved": "Appearance not saved: {error}",
+  "@appearanceNotSaved": {
+    "description": "Toast when writing the theme to the settings file failed. The app keeps showing the change; the next save carries it.",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "disk full"
+      }
+    }
+  },
+  "appearanceHelpTooltip": "About {title}",
+  "@appearanceHelpTooltip": {
+    "description": "Tooltip of the help button beside an Appearance heading.",
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Theme"
+      }
+    }
+  },
+  "appearanceHelpClose": "Close",
+  "@appearanceHelpClose": {
+    "description": "Closes an Appearance help dialog."
+  },
+  "themePresetPoltergeist": "Poltergeist",
+  "@themePresetPoltergeist": {
+    "description": "Shown name of the Poltergeist theme preset (the default: Poltergeist's teal, following light or dark). A copied theme stores the English name, the same in Séance, whatever this says."
+  },
+  "themePresetGraphite": "Graphite",
+  "@themePresetGraphite": {
+    "description": "Shown name of the Graphite theme preset (a muted blue-grey accent). A copied theme stores the English name, the same in Séance, whatever this says."
+  },
+  "themePresetPaper": "Paper",
+  "@themePresetPaper": {
+    "description": "Shown name of the Paper theme preset (warm and light). A copied theme stores the English name, the same in Séance, whatever this says."
+  },
+  "themePresetNewsprint": "Newsprint",
+  "@themePresetNewsprint": {
+    "description": "Shown name of the Newsprint theme preset (black, white and red). A copied theme stores the English name, the same in Séance, whatever this says."
+  },
+  "themePresetSolarized": "Solarized",
+  "@themePresetSolarized": {
+    "description": "Shown name of the Solarized theme preset (Solarized dark). A copied theme stores the English name, the same in Séance, whatever this says."
+  },
+  "themePresetMidnight": "Midnight",
+  "@themePresetMidnight": {
+    "description": "Shown name of the Midnight theme preset (deep blue). A copied theme stores the English name, the same in Séance, whatever this says."
+  },
+  "themePresetTerminal": "Terminal",
+  "@themePresetTerminal": {
+    "description": "Shown name of the Terminal theme preset (green on black). A copied theme stores the English name, the same in Séance, whatever this says."
+  },
+  "themePresetVapor": "Vapor",
+  "@themePresetVapor": {
+    "description": "Shown name of the Vapor theme preset (magenta and cyan over violet-black). A copied theme stores the English name, the same in Séance, whatever this says."
+  },
+  "themePresetBubblegum": "Bubblegum",
+  "@themePresetBubblegum": {
+    "description": "Shown name of the Bubblegum theme preset (pink and purple). A copied theme stores the English name, the same in Séance, whatever this says."
+  },
+  "themePresetHighContrast": "High contrast",
+  "@themePresetHighContrast": {
+    "description": "Shown name of the High contrast theme preset (black and white with yellow). A copied theme stores the English name, the same in Séance, whatever this says."
+  },
   "settingsWindowUnreachable": "Settings could not reach Poltergeist. Close this window and open Settings again.",
   "@settingsWindowUnreachable": {
     "description": "Shown in the desktop Settings window when the app's side of it does not answer."
@@ -4457,28 +4799,28 @@
   "@serverColorPickerTitle": {
     "description": "Title of the custom colour picker dialog."
   },
-  "serverColorPickerHexLabel": "Hex",
-  "@serverColorPickerHexLabel": {
+  "colorPickerHexLabel": "Hex",
+  "@colorPickerHexLabel": {
     "description": "Label of the hex-digits field."
   },
-  "serverColorPickerHexError": "Six hex digits",
-  "@serverColorPickerHexError": {
+  "colorPickerHexError": "Six hex digits",
+  "@colorPickerHexError": {
     "description": "Error under the hex field when it does not hold six hex digits."
   },
-  "serverColorPickerHue": "Hue",
-  "@serverColorPickerHue": {
+  "colorPickerHue": "Hue",
+  "@colorPickerHue": {
     "description": "Label of the hue slider."
   },
-  "serverColorPickerSaturation": "Saturation",
-  "@serverColorPickerSaturation": {
+  "colorPickerSaturation": "Saturation",
+  "@colorPickerSaturation": {
     "description": "Label of the saturation slider."
   },
-  "serverColorPickerBrightness": "Brightness",
-  "@serverColorPickerBrightness": {
+  "colorPickerBrightness": "Brightness",
+  "@colorPickerBrightness": {
     "description": "Label of the brightness slider."
   },
-  "serverColorPickerDegrees": "{degrees} degrees",
-  "@serverColorPickerDegrees": {
+  "colorPickerDegrees": "{degrees} degrees",
+  "@colorPickerDegrees": {
     "description": "Screen-reader value of the hue slider.",
     "placeholders": {
       "degrees": {
@@ -4487,9 +4829,9 @@
       }
     }
   },
-  "serverColorPickerPercent": "{percent} percent",
-  "@serverColorPickerPercent": {
-    "description": "Screen-reader value of the saturation/brightness sliders.",
+  "colorPickerPercent": "{percent} percent",
+  "@colorPickerPercent": {
+    "description": "Screen-reader value of the saturation, brightness and opacity sliders.",
     "placeholders": {
       "percent": {
         "type": "int",
@@ -4501,12 +4843,20 @@
   "@serverColorPickerHint": {
     "description": "Small print under the colour sliders."
   },
-  "serverColorPickerCancel": "Cancel",
-  "@serverColorPickerCancel": {
+  "colorPickerOpacity": "Opacity",
+  "@colorPickerOpacity": {
+    "description": "Label of the opacity slider, shown for colours that may be translucent (a theme's lines and selection)."
+  },
+  "colorPickerHexErrorAlpha": "Six or eight hex digits",
+  "@colorPickerHexErrorAlpha": {
+    "description": "Error under the hex field of a picker that takes opacity, when it holds neither six nor eight hex digits."
+  },
+  "colorPickerCancel": "Cancel",
+  "@colorPickerCancel": {
     "description": "Dismisses the colour picker without choosing."
   },
-  "serverColorPickerUse": "Use colour",
-  "@serverColorPickerUse": {
+  "colorPickerUse": "Use colour",
+  "@colorPickerUse": {
     "description": "Confirms the picked colour."
   },
   "connectionLogTitle": "Connection log",

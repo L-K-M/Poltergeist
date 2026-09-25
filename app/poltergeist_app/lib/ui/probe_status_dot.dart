@@ -7,8 +7,9 @@ import '../theme/app_theme.dart';
 /// Tri-state probe dot for the interim server list (02 §4): `unknown`
 /// grey, `online` green, `offline` error red. Colors are theme-aware and
 /// contrast-checked against both theme surfaces (pinned by tests — the
-/// SEA-019 fix). Display-only; live connection state renders separately
-/// and outranks these results.
+/// SEA-019 fix), and a theme palette's status colours replace them
+/// (the chrome's status fields). Display-only; live connection state
+/// renders separately and outranks these results.
 class ProbeStatusDot extends StatelessWidget {
   const ProbeStatusDot(this.status, {super.key});
 
@@ -30,7 +31,7 @@ class ProbeStatusDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final scheme = Theme.of(context).colorScheme;
+    final chrome = PoltergeistChrome.of(context);
     final label = switch (status) {
       ProbeStatus.online => l10n.probeStatusOnline,
       ProbeStatus.offline => l10n.probeStatusOffline,
@@ -38,8 +39,8 @@ class ProbeStatusDot extends StatelessWidget {
     };
     final color = switch (status) {
       ProbeStatus.online => onlineColorOf(context),
-      ProbeStatus.offline => scheme.error,
-      ProbeStatus.unknown => scheme.outline,
+      ProbeStatus.offline => chrome.statusFailed,
+      ProbeStatus.unknown => chrome.statusUnknown,
     };
 
     return Tooltip(

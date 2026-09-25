@@ -21,6 +21,11 @@ void main() {
       final chrome = theme.extension<PoltergeistChrome>()!;
       final scheme = theme.colorScheme;
 
+      test('the default theme paints failures in the scheme\'s error red', () {
+        expect(chrome.statusFailed, scheme.error);
+        expect(chrome.statusUnknown, scheme.outline);
+      });
+
       ({SidebarStatusDot? dot, String label}) resolve({
         ServerStatus? status,
         ProbeStatus? probe,
@@ -28,7 +33,6 @@ void main() {
         final indicator = sidebarServerIndicator(
           l10n,
           chrome,
-          scheme,
           status: status,
           probe: probe,
         );
@@ -68,7 +72,7 @@ void main() {
 
       test('a failure is a solid red dot', () {
         final r = resolve(status: failed, probe: ProbeStatus.online);
-        expect(r.dot, SidebarStatusDot(scheme.error));
+        expect(r.dot, SidebarStatusDot(chrome.statusFailed));
       });
 
       test('a host-key block is the red no-entry dot, never a failure', () {
@@ -76,7 +80,10 @@ void main() {
           final r = resolve(status: blocked, probe: probe);
           expect(
             r.dot,
-            SidebarStatusDot(scheme.error, style: SidebarDotStyle.blocked),
+            SidebarStatusDot(
+              chrome.statusFailed,
+              style: SidebarDotStyle.blocked,
+            ),
           );
         }
         expect(resolve(status: blocked).label, l10n.connectionBlockedTitle);
@@ -113,7 +120,7 @@ void main() {
           final r = resolve(status: status, probe: ProbeStatus.offline);
           expect(
             r.dot,
-            SidebarStatusDot(scheme.error, style: SidebarDotStyle.ring),
+            SidebarStatusDot(chrome.statusFailed, style: SidebarDotStyle.ring),
           );
           expect(r.label, l10n.probeStatusOffline);
         }

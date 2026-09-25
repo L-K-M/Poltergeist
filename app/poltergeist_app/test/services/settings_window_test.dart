@@ -4,6 +4,7 @@ import 'dart:ui' show AppExitResponse;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:poltergeist_app/services/appearance_controller.dart';
 import 'package:poltergeist_app/services/bookmark_backup_service.dart'
     show BackupSwitchOutcome, RetainedBackupAccount;
 import 'package:poltergeist_app/services/external_file_opener.dart';
@@ -12,6 +13,8 @@ import 'package:poltergeist_app/services/settings_window/remote_settings.dart';
 import 'package:poltergeist_app/services/settings_window/settings_window_host.dart';
 import 'package:poltergeist_app/services/settings_window/settings_window_link.dart';
 import 'package:poltergeist_app/services/sync_account_gate.dart';
+import 'package:poltergeist_app/theme/app_appearance.dart';
+import 'package:poltergeist_app/theme/theme_presets.dart';
 import 'package:poltergeist_app/ui/settings/general_settings.dart';
 import 'package:poltergeist_app/ui/settings/preview_settings.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -172,6 +175,9 @@ void main() {
   late _FakeEditors editors;
   late bool checkForUpdates;
   late int threshold;
+  late AppearanceController appearance;
+  late List<AppAppearance> savedAppearances;
+  Object? appearanceSaveFailure;
 
   void relay(MethodChannel from, MethodChannel to) {
     messenger.setMockMessageHandler(from.name, (message) {
@@ -214,6 +220,7 @@ void main() {
       minimumSharedVersion: 'v9.9.9',
       sharedIncludesSeance56Fix: true,
     ),
+    appearance: appearance,
   );
 
   setUp(() {
@@ -221,6 +228,15 @@ void main() {
     editors = _FakeEditors();
     checkForUpdates = true;
     threshold = 100 << 20;
+    savedAppearances = [];
+    appearanceSaveFailure = null;
+    appearance = AppearanceController(
+      save: (value) async {
+        final failure = appearanceSaveFailure;
+        if (failure != null) throw failure;
+        savedAppearances.add(value);
+      },
+    );
     relay(_appLink, _windowLink);
     relay(_windowLink, _appLink);
     controlCalls = [];
@@ -290,6 +306,94 @@ void main() {
     expect(remote.editors, isNull);
     expect(remote.previewDownloads, isNull);
     expect(remote.backup, isNull);
+    // No Appearance tab, and the window draws the default theme.
+    expect(remote.appearance, isNull);
+    expect(remote.theme.value, AppAppearance.initial);
+  });
+
+  group('the theme', () {
+    test('crosses in the first snapshot', () async {
+      await appearance.setAppearance(
+        ThemePresets.paper,
+        ThemeModePreference.dark,
+      );
+
+      final remote = await openWindow(SettingsWindowTab.appearance);
+
+      expect(remote.page.value?.tab, SettingsWindowTab.appearance);
+      final expected = AppAppearance(
+        palette: ThemePresets.paper,
+        mode: ThemeModePreference.dark,
+      );
+      expect(remote.appearance?.value, expected);
+      expect(remote.theme.value, expected);
+    });
+
+    test('set in the window, re-themes the app and the window', () async {
+      final remote = await openWindow();
+      expect(remote.theme.value, AppAppearance.initial);
+      final palette = ThemePresets.bubblegum.copyWith(cornerScale: 0.35);
+
+      await remote.appearance!.setAppearance(
+        palette,
+        ThemeModePreference.light,
+      );
+
+      final expected = AppAppearance(
+        palette: palette,
+        mode: ThemeModePreference.light,
+      );
+      expect(appearance.value, expected);
+      expect(savedAppearances, [expected]);
+      // The window's own theme follows through the snapshot that write
+      // sent.
+      await pumpEventQueue();
+      expect(remote.theme.value, expected);
+    });
+
+    test('a snapshot that moves no theme leaves the window\'s alone', () async {
+      final remote = await openWindow();
+      var rethemed = 0;
+      remote.theme.addListener(() => rethemed++);
+
+      await remote.editors!.register(
+        const ExternalEditorDefinition(
+          id: 'linux.editor',
+          displayName: 'Editor',
+          platform: EditorHostPlatform.linux,
+          launchTarget: '/usr/bin/editor',
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(remote.editors!.registry.byId('linux.editor'), isNotNull);
+      expect(rethemed, 0);
+    });
+
+    test(
+      'a write the app could not save still re-themes, and says why',
+      () async {
+        final remote = await openWindow();
+        appearanceSaveFailure = StateError('disk full');
+
+        await expectLater(
+          remote.appearance!.setAppearance(
+            ThemePresets.vapor,
+            ThemeModePreference.system,
+          ),
+          throwsA(
+            isA<SettingsLinkException>().having(
+              (e) => '$e',
+              'message',
+              contains('disk full'),
+            ),
+          ),
+        );
+        expect(appearance.value.palette, ThemePresets.vapor);
+        await pumpEventQueue();
+        expect(remote.theme.value.palette, ThemePresets.vapor);
+      },
+    );
   });
 
   test('writes from the window run on the app\'s models', () async {

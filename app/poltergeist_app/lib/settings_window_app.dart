@@ -11,7 +11,9 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'l10n/app_localizations.dart';
 import 'services/settings_window/remote_settings.dart';
 import 'services/settings_window/settings_window_link.dart';
+import 'theme/app_appearance.dart';
 import 'theme/app_theme.dart';
+import 'ui/settings/appearance_settings.dart';
 import 'ui/settings/backup_settings.dart';
 import 'ui/settings/editor_settings.dart';
 import 'ui/settings/general_settings.dart';
@@ -67,12 +69,45 @@ class _SettingsWindowAppState extends State<SettingsWindowApp> {
   @override
   Widget build(BuildContext context) {
     final remote = widget.remote;
+    if (remote == null) {
+      return _app(AppAppearance.initial, const _Message(unreachable: true));
+    }
+    // Outside the theme's builder, which then only swaps the MaterialApp's
+    // themes: the screen showing is the one an edit came from, and it keeps
+    // its state through the change.
+    final home = ListenableBuilder(
+      listenable: Listenable.merge([remote, remote.page]),
+      builder: (context, _) {
+        final page = remote.page.value;
+        if (remote.lost) return const _Message(unreachable: true);
+        return page == null
+            // Hidden: no screen, so nothing typed into it outlives the
+            // window being closed.
+            ? const Scaffold()
+            : SettingsWindowScreen(
+                key: ValueKey(page.generation),
+                remote: remote,
+                initialTab: page.tab,
+              );
+      },
+    );
+    // Drawn in the app's theme, from the snapshots: the window is part of
+    // the app, and the Appearance tab is judged by looking at it. Rebuilt
+    // only when a snapshot moves the theme.
+    return ValueListenableBuilder<AppAppearance>(
+      valueListenable: remote.theme,
+      builder: (context, value, _) => _app(value, home),
+    );
+  }
+
+  static Widget _app(AppAppearance appearance, Widget home) {
+    final themes = poltergeistThemesFor(appearance);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       onGenerateTitle: (context) => AppLocalizations.of(context).settingsTitle,
-      theme: buildPoltergeistTheme(Brightness.light),
-      darkTheme: buildPoltergeistTheme(Brightness.dark),
-      themeMode: ThemeMode.system,
+      theme: themes.theme,
+      darkTheme: themes.darkTheme,
+      themeMode: themes.themeMode,
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
@@ -80,24 +115,7 @@ class _SettingsWindowAppState extends State<SettingsWindowApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.supportedLocales,
-      home: remote == null
-          ? const _Message(unreachable: true)
-          : ListenableBuilder(
-              listenable: Listenable.merge([remote, remote.page]),
-              builder: (context, _) {
-                final page = remote.page.value;
-                if (remote.lost) return const _Message(unreachable: true);
-                return page == null
-                    // Hidden: no screen, so nothing typed into it outlives
-                    // the window being closed.
-                    ? const Scaffold()
-                    : SettingsWindowScreen(
-                        key: ValueKey(page.generation),
-                        remote: remote,
-                        initialTab: page.tab,
-                      );
-              },
-            ),
+      home: home,
     );
   }
 }
@@ -124,6 +142,7 @@ class _SettingsWindowScreenState extends State<SettingsWindowScreen>
   /// app either has or has not.
   late final List<SettingsWindowTab> _tabs = [
     if (widget.remote.general != null) SettingsWindowTab.general,
+    if (widget.remote.appearance != null) SettingsWindowTab.appearance,
     if (widget.remote.editors != null || widget.remote.previewDownloads != null)
       SettingsWindowTab.editing,
     if (widget.remote.backup != null) SettingsWindowTab.sync,
@@ -158,6 +177,7 @@ class _SettingsWindowScreenState extends State<SettingsWindowScreen>
 
   String _label(AppLocalizations l10n, SettingsWindowTab tab) => switch (tab) {
     SettingsWindowTab.general => l10n.settingsGeneralTab,
+    SettingsWindowTab.appearance => l10n.settingsAppearanceTab,
     SettingsWindowTab.editing => l10n.settingsEditingTab,
     SettingsWindowTab.sync => l10n.settingsSyncTab,
   };
@@ -193,6 +213,8 @@ class _SettingsWindowScreenState extends State<SettingsWindowScreen>
     switch (tab) {
       case SettingsWindowTab.general:
         children = [GeneralSection(settings: remote.general!)];
+      case SettingsWindowTab.appearance:
+        children = [AppearanceSection(model: remote.appearance!)];
       case SettingsWindowTab.editing:
         final editors = remote.editors;
         final preview = remote.previewDownloads;

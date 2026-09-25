@@ -195,6 +195,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'preview.largeDownloadThresholdBytes'",
     // The D19 update-check opt-out (02 §5) — a settings.json key.
     "'updates.checkEnabled'",
+    // The device theme and its mode (Device themes): settings.json keys.
+    "'theme.palette'",
+    "'theme.mode'",
   },
   'lib/services/atomic_file.dart': {r"'.poltergeist-${uuidV4()}.tmp'"},
   // The session-state document's on-disk schema (02 §3): settings.json
@@ -341,7 +344,53 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'updates.checkEnabled'",
   },
   // The Settings command id (D21 plumbing) — registered, never rendered.
-  'lib/ui/settings/app_settings_command.dart': {"'app.settings'"},
+  // Its construction assert is a programmer diagnostic.
+  'lib/ui/settings/app_settings_command.dart': {
+    "'app.settings'",
+    "'Settings needs a section to show.'",
+  },
+  // The Appearance section's empty font field and the pretty-printed
+  // clipboard's indent, and the font field's test key: plumbing, never
+  // rendered. Preset names reach the screen through ARB (presetLabels).
+  'lib/ui/settings/appearance_settings.dart': {
+    "''",
+    "'  '",
+    "'appearance.fontFamily'",
+  },
+  // A theme's stored form, shared with Séance so a copied theme pastes
+  // into either app: its JSON keys, the hex notation's prefixes and
+  // glue, and the stored name of a palette that is no preset. The
+  // Appearance section never shows the stored name (see presetLabels).
+  'lib/theme/theme_palette.dart': {
+    "'#'",
+    "'0x'",
+    "''",
+    r"'$digit$digit'",
+    r"r'^[0-9a-f]+$'",
+    "'0'",
+    r"'$rgb${alpha.toRadixString(16).padLeft(2, '0')}'",
+    r"'#${hex.toUpperCase()}'",
+    "'Custom'",
+    "'name'",
+    "'accent'",
+    "'fontFamily'",
+    "'cornerScale'",
+  },
+  // The presets' stored names: English and the same as Séance's, so a
+  // pasted preset keeps its name in either app. Shown through ARB
+  // (themePreset*), never as these literals.
+  'lib/theme/theme_presets.dart': {
+    "'Poltergeist'",
+    "'Graphite'",
+    "'Paper'",
+    "'Newsprint'",
+    "'Solarized'",
+    "'Midnight'",
+    "'Terminal'",
+    "'Vapor'",
+    "'Bubblegum'",
+    "'High contrast'",
+  },
   // The Settings window's wire (D36): channel names, the argument its
   // engine starts with, and the diagnostics of a malformed or orphaned
   // call — plumbing between two isolates, never rendered. A window that
@@ -2577,7 +2626,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'Menlo'",
     "'Courier New'",
   },
-  'lib/ui/server_color_picker.dart': {
+  'lib/ui/color_picker.dart': {
     // The hex field's filter regex, preview '#' and seed, and the field's
     // mono font — input machinery.
     "'[0-9a-fA-F]'",

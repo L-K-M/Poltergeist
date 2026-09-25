@@ -9,7 +9,9 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/application_error_reporter.dart';
+import '../../services/settings_models.dart' show AppearanceSettingsModel;
 import '../top_toast.dart';
+import 'appearance_settings.dart';
 
 /// The live value and write sink the General section needs — assembled
 /// by the shell so the dialog reads fresh state at open and never
@@ -29,11 +31,17 @@ final class GeneralSettings {
   final Future<void> Function(bool enabled) onCheckForUpdatesChanged;
 }
 
-/// The bounded `app.settings` dialog: today the General section alone;
-/// the remaining 02 §10 tabs join this surface as their slices land.
+/// The bounded `app.settings` dialog: the General section and, after it,
+/// Appearance, which the desktop Settings window shows as the next tab.
+/// Here rather than behind a command of its own because this dialog is
+/// what the Settings gear opens on phones and tablets: the one place a
+/// reader looks for how the app looks. Either section is left out when the
+/// app has no seam for it; the remaining 02 §10 tabs join this surface as
+/// their slices land.
 Future<void> showGeneralSettingsDialog(
   BuildContext context, {
-  required GeneralSettings settings,
+  GeneralSettings? settings,
+  AppearanceSettingsModel? appearance,
 }) => showDialog<void>(
   context: context,
   builder: (dialogContext) {
@@ -44,7 +52,16 @@ Future<void> showGeneralSettingsDialog(
       content: SizedBox(
         width: 560,
         child: SingleChildScrollView(
-          child: GeneralSection(settings: settings),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (settings != null) GeneralSection(settings: settings),
+              if (settings != null && appearance != null)
+                const Divider(height: 32),
+              if (appearance != null) AppearanceSection(model: appearance),
+            ],
+          ),
         ),
       ),
       actions: [

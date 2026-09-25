@@ -11,6 +11,8 @@
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import '../../theme/app_appearance.dart';
+import '../../theme/theme_palette.dart';
 import '../bookmark_backup_service.dart'
     show BackupSwitchOutcome, RetainedBackupAccount;
 
@@ -29,8 +31,9 @@ const MethodChannel settingsWindowLinkChannel = MethodChannel(
 const String settingsWindowArgument = '--poltergeist-settings-window';
 
 /// The Settings window's tabs, in order (02 §10's Settings screen, as far as
-/// its sections exist).
-enum SettingsWindowTab { general, editing, sync }
+/// its sections exist). Appearance follows General, as it does in Séance's
+/// Settings.
+enum SettingsWindowTab { general, appearance, editing, sync }
 
 /// Opens the desktop Settings window on a tab; false when there is no window
 /// to open (a runner without one, or a test), and the caller shows its
@@ -43,6 +46,7 @@ enum SettingsLinkMethod {
   // Window → app.
   hello,
   setCheckForUpdates,
+  setAppearance,
   registerEditor,
   removeEditor,
   setDefaultEditor,
@@ -77,6 +81,7 @@ enum SettingsWindowControl { open, closed }
 /// each crosses as its [name].
 enum SettingsLinkKey {
   account,
+  appearance,
   available,
   backup,
   baseUrl,
@@ -100,6 +105,7 @@ enum SettingsLinkKey {
   minimumSharedVersion,
   mode,
   notices,
+  palette,
   parallelism,
   passphraseUnverified,
   passphraseWarning,
@@ -190,6 +196,20 @@ final class SettingsLinkException implements Exception {
   @override
   String toString() => message;
 }
+
+/// The theme crosses in the form the settings file stores, and is decoded
+/// as leniently as a launch decodes it.
+Map<String, Object?> encodeAppearance(AppAppearance appearance) => {
+  SettingsLinkKey.palette.name: appearance.palette.toJson(),
+  SettingsLinkKey.mode.name: appearance.mode.name,
+};
+
+AppAppearance decodeAppearance(Map<String, Object?> json) => AppAppearance(
+  palette: ThemePalette.decodeStored(json[SettingsLinkKey.palette.name]),
+  mode: ThemeModePreference.values.byName(
+    json[SettingsLinkKey.mode.name]! as String,
+  ),
+);
 
 Map<String, Object?> encodeSyncAccount(SyncAccount account) => {
   SettingsLinkKey.baseUrl.name: account.baseUrl,
