@@ -658,14 +658,14 @@ packages:
       path: "../../packages/poltergeist_core"
       relative: true
     source: path
-    version: "1.0.0"
+    version: "1.0.1"
   poltergeist_sync:
     dependency: "direct main"
     description:
       path: "../../packages/poltergeist_sync"
       relative: true
     source: path
-    version: "1.0.0"
+    version: "1.0.1"
   posix:
     dependency: "direct main"
     description:
