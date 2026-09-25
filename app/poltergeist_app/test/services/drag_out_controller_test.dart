@@ -82,8 +82,11 @@ void main() {
 
   tearDown(() => controller.dispose());
 
-  Future<DragOutHandOff> handOff(PaneEntryDrag drag) =>
+  Future<DragOutHandOffResult> handOffResult(PaneEntryDrag drag) =>
       controller.handOff(drag, position: const Offset(1500, 40), style: _style);
+
+  Future<DragOutHandOff> handOff(PaneEntryDrag drag) async =>
+      (await handOffResult(drag)).outcome;
 
   /// Starts a remote session over [entries] and returns its id.
   Future<String> startRemote(List<RemoteFileEntry> entries) async {
@@ -157,9 +160,9 @@ void main() {
     });
 
     test('remote rows become copy-only promises; flagged names and links '
-        'are left out', () async {
+        'are left out, and counted', () async {
       build();
-      final result = await handOff(
+      final result = await handOffResult(
         _remoteDrag([
           _entry('/srv/a.txt', size: 5),
           _entry('/srv/bad�.txt'),
@@ -167,7 +170,10 @@ void main() {
           _entry('/srv/site', type: RemoteFileType.directory, size: 4096),
         ]),
       );
-      expect(result, DragOutHandOff.started);
+      expect(result.outcome, DragOutHandOff.started);
+      expect(result.leftOut.links, 1);
+      expect(result.leftOut.flaggedNames, 1);
+      expect(result.leftOut.unlisted, 0);
       final request = backend.requests.single;
       expect(request.allowedOperations, {DragOutOffer.copy});
       expect(request.items.map((item) => item.toChannel()), [
@@ -188,13 +194,43 @@ void main() {
       ]);
     });
 
-    test('a drag with nothing to offer does not reach the backend', () async {
+    test('a drag with nothing to offer does not reach the backend, and '
+        'says why', () async {
       build();
-      expect(
-        await handOff(_remoteDrag([_entry('/srv/bad�')])),
-        DragOutHandOff.unavailable,
-      );
+      final result = await handOffResult(_remoteDrag([_entry('/srv/bad�')]));
+      expect(result.outcome, DragOutHandOff.unavailable);
+      expect(result.leftOut.flaggedNames, 1);
+      expect(result.leftOut.count, 1);
       expect(backend.requests, isEmpty);
+    });
+
+    test('a root without a listing entry is left out and counted', () async {
+      build();
+      final result = await handOffResult(
+        PaneEntryDrag(
+          source: const ServerFsLocation('srv-1'),
+          rootPaths: const ['/srv/a.txt', '/srv/gone.txt'],
+          entries: [_entry('/srv/a.txt', size: 1)],
+        ),
+      );
+      expect(result.outcome, DragOutHandOff.started);
+      expect(backend.requests.single.items.map((item) => item.name), ['a.txt']);
+      expect(result.leftOut.unlisted, 1);
+      expect(result.leftOut.count, 1);
+    });
+
+    test('a refused start leaves nothing out: the in-app drag still '
+        'carries every row', () async {
+      build();
+      backend.nextResult = const DragOutNotStarted(DragOutRefusal.busy);
+      final result = await handOffResult(
+        _remoteDrag([
+          _entry('/srv/a.txt'),
+          _entry('/srv/link', type: RemoteFileType.symbolicLink),
+        ]),
+      );
+      expect(result.outcome, DragOutHandOff.notStarted);
+      expect(result.leftOut.isEmpty, isTrue);
     });
 
     test('a refused start forgets the session', () async {

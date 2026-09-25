@@ -587,6 +587,43 @@ class AppLocalizationsEn extends AppLocalizations {
       'Remote items can\'t be dragged out of Poltergeist here yet. Use Download To… instead.';
 
   @override
+  String paneNoticeDragOutLinksLeftOut(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count links were left out: links can\'t be dragged out of Poltergeist.',
+      one: '1 link was left out: links can\'t be dragged out of Poltergeist.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String paneNoticeDragOutNamesLeftOut(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count items were left out: their names aren\'t valid UTF-8, so they can\'t be dragged out.',
+      one:
+          '1 item was left out: its name isn\'t valid UTF-8, so it can\'t be dragged out.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String paneNoticeDragOutItemsLeftOut(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count items were left out: links and names that aren\'t valid UTF-8 can\'t be dragged out of Poltergeist.',
+      one: '1 item was left out: it can\'t be dragged out of Poltergeist.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get paneNoticeDismiss => 'Dismiss';
 
   @override

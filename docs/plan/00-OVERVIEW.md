@@ -538,6 +538,11 @@ D32 inspector workspace · D33 sidebar density
       promise and keeps its failed row and Alert. A receiver that asks
       for a different folder name fails with an Alert (the queue lands a
       root under its own name; whether Finder ever renames is open).
+      Symbolic links and flagged names are never promised (links are
+      never transferred; a flagged name cannot become a local one). A
+      drag that holds some leaves them behind and the pane's notice says
+      how many and why; a drag that holds only those stays in-app with
+      the same notice.
     - *Linux and Windows* carry local items only for now (GTK
       `text/uri-list`, built and verified under Xvfb; Windows
       `CF_HDROP` in the shell's own data object, built but not yet

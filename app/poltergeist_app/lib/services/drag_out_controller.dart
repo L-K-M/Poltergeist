@@ -23,12 +23,61 @@ enum DragOutHandOff {
   remoteUnsupported,
 
   /// Nothing the OS could carry (no backend, only flagged or linked
-  /// remote names): the drag continues in-app.
+  /// remote names): the drag continues in-app. When rows were left out,
+  /// the result's [DragOutHandOffResult.leftOut] says which kinds.
   unavailable,
 
   /// The native side refused (button already up, no recorded press):
   /// the drag continues in-app.
   notStarted,
+}
+
+/// The dragged rows a hand-off could not offer the OS, by reason. The
+/// pane's notice says how many stayed behind and why, so no row is left
+/// out silently (00 D14's drag-out amendment).
+@immutable
+final class DragOutLeftOut {
+  const DragOutLeftOut({
+    this.links = 0,
+    this.flaggedNames = 0,
+    this.unlisted = 0,
+  });
+
+  static const none = DragOutLeftOut();
+
+  /// Symbolic links: never transferred (the queue's own rule).
+  final int links;
+
+  /// Names flagged unsafe (02 §13): no local file name can be built
+  /// from them.
+  final int flaggedNames;
+
+  /// Roots the payload holds no listing entry for, so neither name nor
+  /// type is known. A pane row drag always snapshots its entries; this
+  /// only keeps the count honest.
+  final int unlisted;
+
+  int get count => links + flaggedNames + unlisted;
+
+  bool get isEmpty => count == 0;
+}
+
+/// [DragOutController.handOff]'s answer.
+@immutable
+final class DragOutHandOffResult {
+  const DragOutHandOffResult(
+    this.outcome, {
+    this.leftOut = DragOutLeftOut.none,
+  });
+
+  /// What the pane does next.
+  final DragOutHandOff outcome;
+
+  /// The rows the OS was not offered: for [DragOutHandOff.started], the
+  /// ones the session does not carry; for [DragOutHandOff.unavailable],
+  /// why nothing could go. Empty otherwise, since the in-app drag still
+  /// carries every row.
+  final DragOutLeftOut leftOut;
 }
 
 /// A drag-out refusal that no queue task reports, shown in the Alerts
@@ -246,16 +295,16 @@ class DragOutController extends ChangeNotifier
   /// Hands [drag] to a native session at [position] (the pointer,
   /// already outside the window). Resolves once the native side
   /// answered; see [DragOutHandOff] for what the pane does next.
-  Future<DragOutHandOff> handOff(
+  Future<DragOutHandOffResult> handOff(
     PaneEntryDrag drag, {
     required Offset position,
     required DragOutImageStyle style,
   }) async {
-    if (_disposed || support == DragOutSupport.none) {
-      return DragOutHandOff.unavailable;
-    }
+    const unavailable = DragOutHandOffResult(DragOutHandOff.unavailable);
+    if (_disposed || support == DragOutSupport.none) return unavailable;
     final items = <DragOutItem>[];
     final promises = <String, _Promise>{};
+    var leftOut = DragOutLeftOut.none;
     switch (drag.source) {
       case LocalFsLocation():
         for (final path in drag.rootPaths) {
@@ -270,16 +319,27 @@ class DragOutController extends ChangeNotifier
         }
       case ServerFsLocation(:final serverId):
         if (support != DragOutSupport.localFilesAndPromises) {
-          return DragOutHandOff.remoteUnsupported;
+          return const DragOutHandOffResult(DragOutHandOff.remoteUnsupported);
         }
+        var links = 0;
+        var flaggedNames = 0;
+        var unlisted = 0;
         for (final path in drag.rootPaths) {
           final entry = drag.entryFor(path);
-          // A promise needs the listing's name and type. Flagged names
-          // cannot become local names, and links are never transferred
-          // (the queue's own rule), so neither is offered.
-          if (entry == null ||
-              nameIsFlagged(entry.name) ||
-              entry.type == RemoteFileType.symbolicLink) {
+          // A promise needs the listing's name and type. Links are never
+          // transferred (the queue's own rule), and flagged names cannot
+          // become local names, so neither is offered; the result counts
+          // them for the pane's notice.
+          if (entry == null) {
+            unlisted++;
+            continue;
+          }
+          if (entry.type == RemoteFileType.symbolicLink) {
+            links++;
+            continue;
+          }
+          if (nameIsFlagged(entry.name)) {
+            flaggedNames++;
             continue;
           }
           final promise = _Promise(
@@ -300,8 +360,15 @@ class DragOutController extends ChangeNotifier
             ),
           );
         }
+        leftOut = DragOutLeftOut(
+          links: links,
+          flaggedNames: flaggedNames,
+          unlisted: unlisted,
+        );
     }
-    if (items.isEmpty) return DragOutHandOff.unavailable;
+    if (items.isEmpty) {
+      return DragOutHandOffResult(DragOutHandOff.unavailable, leftOut: leftOut);
+    }
 
     // The OS runs one drag at a time: a session still marked running
     // lost its end report, and must not keep claiming hovers and drops.
@@ -338,7 +405,7 @@ class DragOutController extends ChangeNotifier
       // A drag image is decoration; the session still starts without.
       image = null;
     }
-    if (_disposed) return DragOutHandOff.unavailable;
+    if (_disposed) return unavailable;
 
     final result = await _backend.startDrag(
       DragOutRequest(
@@ -356,11 +423,11 @@ class DragOutController extends ChangeNotifier
     );
     if (result is! DragOutStarted || _disposed) {
       _sessions.remove(session.id);
-      return DragOutHandOff.notStarted;
+      return const DragOutHandOffResult(DragOutHandOff.notStarted);
     }
     session.running = true;
     notifyListeners();
-    return DragOutHandOff.started;
+    return DragOutHandOffResult(DragOutHandOff.started, leftOut: leftOut);
   }
 
   /// A drop that reached a pane through `desktop_drop` while (or just

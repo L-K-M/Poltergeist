@@ -1048,6 +1048,24 @@ abstract class AppLocalizations {
   /// **'Remote items can\'t be dragged out of Poltergeist here yet. Use Download To… instead.'**
   String get paneNoticeDragOutRemote;
 
+  /// Transient notice strip (02 §10): an OS drag-out of remote rows left out the symbolic links among them (links are never transferred); the other rows went out, or, when only links were dragged, the drag continues in-app.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 link was left out: links can\'t be dragged out of Poltergeist.} other{{count} links were left out: links can\'t be dragged out of Poltergeist.}}'**
+  String paneNoticeDragOutLinksLeftOut(int count);
+
+  /// Transient notice strip (02 §10): an OS drag-out of remote rows left out the rows whose names are undecodable (02 §13's flagged-name rule); the other rows went out, or, when only such rows were dragged, the drag continues in-app.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item was left out: its name isn\'t valid UTF-8, so it can\'t be dragged out.} other{{count} items were left out: their names aren\'t valid UTF-8, so they can\'t be dragged out.}}'**
+  String paneNoticeDragOutNamesLeftOut(int count);
+
+  /// Transient notice strip (02 §10): an OS drag-out of remote rows left out rows for more than one reason (symbolic links and undecodable names); the other rows went out, or, when none could go, the drag continues in-app.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item was left out: it can\'t be dragged out of Poltergeist.} other{{count} items were left out: links and names that aren\'t valid UTF-8 can\'t be dragged out of Poltergeist.}}'**
+  String paneNoticeDragOutItemsLeftOut(int count);
+
   /// Tooltip for the transient notice strip's close button (02 §10).
   ///
   /// In en, this message translates to:
