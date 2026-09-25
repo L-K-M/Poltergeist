@@ -1723,6 +1723,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                   label: strings.resizeInspector,
                   value: strings.splitterWidthPx(inspectorWidth.round()),
                   grow: -1,
+                  onResizeStart: () => _inspectorDragWidth = null,
                   onResize: (delta) => _resizeInspector(delta, width),
                   onResizeEnd: _commitInspectorWidth,
                   onReset: () {
@@ -1768,6 +1769,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
             focusNode: _sidebarSplitterFocus,
             label: strings.resizeSidebar,
             value: strings.splitterWidthPx(sidebarWidth.round()),
+            onResizeStart: () => _sidebarDragWidth = null,
             onResize: (delta) => _resizeSidebar(delta, width),
             onResizeEnd: _commitSidebarWidth,
             onReset: () {
@@ -1856,12 +1858,22 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     if (_compactPosture) _compactKey.currentState?.showBrowser();
   }
 
+  /// The unclamped width the current splitter interaction has reached
+  /// (10 §3.1), reset as each one starts. A pointer delivers a drag as
+  /// many small deltas: clamping each onto the displayed width would
+  /// throw the overshoot away, and the drag-past-minimum hide could
+  /// then only fire on one event larger than the overshoot.
+  double? _sidebarDragWidth;
+  double? _inspectorDragWidth;
+
   /// Sidebar drag/key resize (10 §3.1): clamped to its bounds and to the
   /// room the panes need; dragging well past the minimum hides it as a
   /// user hide.
   void _resizeSidebar(double delta, double windowWidth) {
-    final next = _sidebarWidth + delta;
+    final next = (_sidebarDragWidth ?? _sidebarWidth) + delta;
+    _sidebarDragWidth = next;
     if (next < sidebarMinWidth - _collapseOvershoot) {
+      _sidebarDragWidth = null;
       _workspace?.setSidebarHidden(true);
       setState(() => _sidebarWidth = sidebarMinWidth);
       return;
@@ -1872,8 +1884,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }
 
   void _resizeInspector(double delta, double windowWidth) {
-    final next = _inspectorWidth + delta;
+    final next = (_inspectorDragWidth ?? _inspectorWidth) + delta;
+    _inspectorDragWidth = next;
     if (next < inspectorMinWidth - _collapseOvershoot) {
+      _inspectorDragWidth = null;
       _workspace?.setInspectorHidden(true);
       setState(() => _inspectorWidth = inspectorMinWidth);
       return;

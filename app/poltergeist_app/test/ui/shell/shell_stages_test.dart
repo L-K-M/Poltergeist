@@ -1,5 +1,7 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
 
 import '../compact/compact_harness.dart';
@@ -12,6 +14,31 @@ void main() {
   final inspectorRegion = find.byKey(const ValueKey('inspector.region'));
   final inspectorOverlay = find.byKey(const ValueKey('inspector.overlay'));
   final panes = find.byType(PaneTabsView);
+  final sidebarSplitter = find.byKey(const ValueKey('sidebar.splitter'));
+  final inspectorSplitter = find.byKey(const ValueKey('inspector.splitter'));
+
+  WorkspaceController workspaceOf(WidgetTester tester) =>
+      tester.widget<PaneTabsView>(panes.first).workspace;
+
+  /// A real mouse drag: many small moves, as a pointer delivers them,
+  /// never the one large move `tester.drag` sends.
+  Future<void> mouseDrag(
+    WidgetTester tester,
+    Finder splitter,
+    double dx, {
+    double step = 4,
+  }) async {
+    final gesture = await tester.startGesture(
+      tester.getCenter(splitter),
+      kind: PointerDeviceKind.mouse,
+    );
+    for (var moved = 0.0; moved < dx.abs(); moved += step) {
+      await gesture.moveBy(Offset(dx.sign * step, 0));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+  }
 
   testWidgets('the inspector folds first, then the sidebar; both panes '
       'stay on screen', (tester) async {
@@ -41,5 +68,32 @@ void main() {
       expect(inspectorOverlay, inspectorInline ? findsNothing : findsOneWidget,
           reason: reason);
     }
+  });
+
+  testWidgets('a gradual drag well past the minimum hides the sidebar '
+      'and the inspector (10 §3.1)', (tester) async {
+    final harness = CompactHarness();
+    await harness.pump(tester, size: const Size(1400, 900));
+
+    // 232 → 120 px left in 4 px moves: 112 px, past 180 − 48.
+    await mouseDrag(tester, sidebarSplitter, -120);
+    expect(sidebarRegion, findsNothing);
+    expect(workspaceOf(tester).sidebarHidden, isTrue);
+
+    // 280 → 160 px right: 120 px, past 240 − 48.
+    await mouseDrag(tester, inspectorSplitter, 160);
+    expect(inspectorRegion, findsNothing);
+    expect(workspaceOf(tester).inspectorHidden, isTrue);
+  });
+
+  testWidgets('a drag short of the overshoot stops at the minimum', (
+    tester,
+  ) async {
+    final harness = CompactHarness();
+    await harness.pump(tester, size: const Size(1400, 900));
+
+    await mouseDrag(tester, sidebarSplitter, -80);
+    expect(tester.getSize(sidebarRegion).width, 180);
+    expect(workspaceOf(tester).sidebarHidden, isFalse);
   });
 }

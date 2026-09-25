@@ -18,6 +18,9 @@ const shellSplitterExtent = 7.0;
 /// focused, double-click to reset, and a screen-reader value that names
 /// the current width. The owner keeps the width and persists it once in
 /// [onResizeEnd] — never per drag pixel (02 §1's save-at-boundary rule).
+/// Every interaction (a drag, one arrow-key step) opens with
+/// [onResizeStart], so an owner can track the unclamped width a drag has
+/// reached across its per-event deltas.
 ///
 /// [grow] is the sign that maps a rightward drag onto the owned region:
 /// +1 for a region left of the splitter (the sidebar), -1 for a region to
@@ -29,6 +32,7 @@ class ShellSplitter extends StatefulWidget {
     required this.value,
     required this.onResize,
     required this.onResizeEnd,
+    this.onResizeStart,
     this.onReset,
     this.grow = 1,
     this.focusNode,
@@ -43,6 +47,7 @@ class ShellSplitter extends StatefulWidget {
   /// Width delta in logical pixels, already signed for the owned region.
   final ValueChanged<double> onResize;
   final VoidCallback onResizeEnd;
+  final VoidCallback? onResizeStart;
 
   /// Double-click: back to the default width.
   final VoidCallback? onReset;
@@ -70,6 +75,7 @@ class _ShellSplitterState extends State<ShellSplitter> {
       delta = -shellSplitterKeyStep;
     }
     if (delta == null) return KeyEventResult.ignored;
+    widget.onResizeStart?.call();
     widget.onResize(delta * widget.grow * (rtl ? -1 : 1));
     widget.onResizeEnd();
     return KeyEventResult.handled;
@@ -96,7 +102,10 @@ class _ShellSplitterState extends State<ShellSplitter> {
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             dragStartBehavior: DragStartBehavior.down,
-            onHorizontalDragStart: (_) => setState(() => _dragging = true),
+            onHorizontalDragStart: (_) {
+              setState(() => _dragging = true);
+              widget.onResizeStart?.call();
+            },
             onHorizontalDragUpdate: (details) => widget.onResize(
               details.delta.dx * widget.grow * (rtl ? -1 : 1),
             ),
