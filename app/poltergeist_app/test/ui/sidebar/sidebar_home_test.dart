@@ -7,6 +7,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/application_error_reporter.dart';
@@ -399,9 +400,24 @@ void main() {
           hasLongPressAction: true,
         ),
       );
-      // The title, the second line, and the ⋮ are pictures of the label:
-      // nothing below the row announces on its own.
-      expect(node.childrenCount, 0);
+      // The title and the second line are pictures of the label. The ⋮
+      // is the one thing below the row that announces on its own: it is a
+      // button that takes focus, and a focus stop with no node would be
+      // silent.
+      expect(node.childrenCount, 1);
+      final children = <SemanticsNode>[];
+      node.visitChildren((child) {
+        children.add(child);
+        return true;
+      });
+      expect(
+        children.single,
+        isSemantics(
+          tooltip: l10n.sidebarRowMenu,
+          isButton: true,
+          hasTapAction: true,
+        ),
+      );
       semantics.dispose();
     });
   });
