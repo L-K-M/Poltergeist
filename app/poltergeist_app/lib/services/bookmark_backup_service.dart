@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'server_duplication.dart';
+import 'settings_models.dart';
 import 'settings_store.dart';
 import 'sync_credentials.dart' show RetainedSyncTokenStore;
 import 'sync_transport.dart';
@@ -55,7 +56,8 @@ final class BackupSwitchOutcome {
 /// (#166's `SyncEnrollmentState`/`SyncCredentialStore`, the §3.2 verdict
 /// stores, the retained-token slot, and a handful of status keys in
 /// settings) — this class holds no truth of its own.
-final class BookmarkBackupService extends ChangeNotifier {
+final class BookmarkBackupService extends ChangeNotifier
+    implements BackupSettingsModel {
   BookmarkBackupService({
     required SyncCredentialStore credentials,
     required RetainedSyncTokenStore retainedTokens,
@@ -170,43 +172,55 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// the coordinator neither publishes a credential nor applies a pulled
   /// one, whatever a server's own credential-sync switch says; the
   /// editor's credential fields still read and write the local vault.
+  @override
   bool get syncSecrets => _syncSecrets;
 
   /// The enrolled account, or null before first enrollment.
+  @override
   SyncAccount? get account => _account;
 
   /// The durable `syncNotice…` keys currently raised.
+  @override
   Set<String> get notices => _notices;
 
   /// 04 §4.5's push hold — the paused status shows while set.
+  @override
   bool get passphraseUnverified => _passphraseUnverified;
 
   /// The §3.2 host-key quarantine, re-derived by the coordinator.
+  @override
   List<HostKeyConflict> get pinConflicts => _pinConflicts;
 
   /// The §4.2 decode tripwire's record ids.
+  @override
   Set<String> get trippedIds => _trippedIds;
 
   /// The §3.1 corrupt-store quarantine path, when the record store
   /// quarantined a corrupt file during load.
+  @override
   String? get quarantinedPath => _quarantinedPath;
 
   /// A round is running.
+  @override
   bool get syncing => _syncing;
 
   /// Last completed round's wall time (persisted across restarts).
+  @override
   DateTime? get lastSyncAt => _lastSyncAt;
 
   /// Last round's failure description (persisted; cleared on success).
+  @override
   String? get lastSyncError => _lastSyncError;
 
   /// The separate account kept for §4.4's optional delete, when a B→A
   /// switch left one behind.
+  @override
   RetainedBackupAccount? get retainedAccount => _retainedAccount;
 
   /// The §4.4 delete offer's gate: a retained account exists with its
   /// token AND the first shared-account sync has succeeded — a failed
   /// switch can never destroy the only backup.
+  @override
   bool get deleteSeparateOffered =>
       _retainedAccount != null &&
       _retainedTokenAvailable &&
@@ -257,6 +271,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// skipped while it was off (the next round pushes it). Turning it off
   /// withdraws nothing already published, as in Séance; deleting or
   /// excluding a server still retracts its credential either way.
+  @override
   Future<void> setSyncSecrets(bool enabled) async {
     _requireNotSyncing();
     if (enabled == _syncSecrets) return;
@@ -427,6 +442,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// §4.1's separate-account registration: salt → derive → register →
   /// persist, then materialize the (empty) pull so the enrolled state is
   /// immediately consistent.
+  @override
   Future<EnrollmentResult> registerSeparate({
     required String baseUrl,
     required String username,
@@ -453,6 +469,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// §4.5's login path for both modes: prelogin → KDF-downgrade refusal →
   /// derive → login → full pull → trial-decrypt → persist with the hold
   /// flag reflecting the outcome.
+  @override
   Future<EnrollmentResult> loginAccount({
     required String baseUrl,
     required String username,
@@ -491,6 +508,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// `passphraseUnverified` stands), materialize, and record the status
   /// the enrolled surface reads. A 401 leaves the durable dead-account
   /// notice raised by the coordinator.
+  @override
   Future<SyncRoundResult?> backUpNow() async {
     final account = _account;
     final coordinator = _coordinator;
@@ -541,6 +559,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// §4.2's "Sign out on this device": forgets the local token and keys;
   /// server data untouched. The last-round status goes with it — a later
   /// enrollment must not inherit the old account's sync bookkeeping.
+  @override
   Future<void> signOut() async {
     _requireNotSyncing();
     await _credentials.deleteToken();
@@ -559,6 +578,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// exposes deletion on a shared account), guarded by typed confirmation
   /// of the account name. Deletes only Poltergeist's data, then forgets
   /// the session locally.
+  @override
   Future<void> deleteSeparateAccount({required String confirmedName}) async {
     _requireNotSyncing();
     final account = _account;
@@ -592,6 +612,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// every local TOFU pin under a fresh LWW tuple on this deviceId —
   /// EXCEPT the quarantine's held locators, whose re-seal waits on the
   /// user's adopt-fleet / keep-local decision.
+  @override
   Future<BackupSwitchOutcome> switchToShared({
     required String baseUrl,
     required String username,
@@ -717,6 +738,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// §3.2 conflict the enrolled surface warned about: adopt the pulled
   /// pin (install it, no re-seal) or keep the local pin (re-seal and
   /// push — a deliberate override).
+  @override
   Future<void> resolvePinConflict(
     HostKeyConflict conflict, {
     required bool keepLocal,
@@ -738,6 +760,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// The §4.4 optional step after a proven switch: DELETE /v1/account on
   /// the separate account using the retained token, guarded by typed
   /// confirmation of that account's name.
+  @override
   Future<void> deleteRetainedSeparateAccount({
     required String confirmedName,
   }) async {
@@ -767,6 +790,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// Poltergeist never auto-deletes it, and dropping the retained token
   /// here is what makes "removing it later requires re-enrolling into it
   /// first" literally true.
+  @override
   Future<void> declineRetainedDelete() async {
     await _forgetRetainedAccount();
     await refresh();

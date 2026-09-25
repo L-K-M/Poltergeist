@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/application_error_reporter.dart';
-import '../../services/editor_registry_controller.dart';
+import '../../services/settings_models.dart';
 import '../../services/external_file_opener.dart';
 import '../top_toast.dart';
 import 'preview_settings.dart';
@@ -23,7 +23,7 @@ import 'preview_settings.dart';
 /// absent rather than rendered-dead.
 Future<void> showEditorsSettingsDialog(
   BuildContext context, {
-  required EditorRegistryController controller,
+  required EditorRegistryModel controller,
   ExternalFileOpener opener = const ExternalFileOpener(),
   PreviewDownloadsSettings? previewSettings,
 }) =>
@@ -74,10 +74,16 @@ final class EditorsSettingsSection extends StatelessWidget {
     super.key,
     required this.controller,
     this.opener = const ExternalFileOpener(),
+    this.picker,
   });
 
-  final EditorRegistryController controller;
+  final EditorRegistryModel controller;
   final ExternalFileOpener opener;
+
+  /// `Add Editor…`'s picker, when it is not [opener]'s: the Settings
+  /// window has no plugins or runner channels of its own, so it asks the
+  /// app to show the platform's picker.
+  final EditorPicker? picker;
 
   Future<void> _guarded(
     BuildContext context,
@@ -100,7 +106,7 @@ final class EditorsSettingsSection extends StatelessWidget {
   Future<void> _addEditor(BuildContext context) async {
     final l10n = AppLocalizations.of(context);
     try {
-      final picked = await opener.pickEditor(
+      final picked = await (picker ?? opener.pickEditor)(
         dialogTitle: l10n.editorPickDialogTitle,
       );
       if (picked == null || !context.mounted) return;

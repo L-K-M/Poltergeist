@@ -30,6 +30,7 @@ import 'services/quit_guard.dart';
 import 'services/recent_locations.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
+import 'services/settings_window/settings_window_host.dart';
 import 'services/sidebar_controller.dart'
     show CollapsedSectionWriter, PinnedServerWriter, SidebarDensity;
 import 'services/ssh_config_import_setup.dart';
@@ -103,6 +104,7 @@ class PoltergeistApp extends StatefulWidget {
     this.syncEnvironment,
     this.syncTasks,
     this.updateCheck,
+    this.settingsWindow,
     this.toolbarBand,
   });
 
@@ -294,6 +296,9 @@ class PoltergeistApp extends StatefulWidget {
   /// the link-only banner when a newer release exists and registers
   /// `app.settings` for the opt-out toggle. Null leaves both unwired.
   final UpdateCheckController? updateCheck;
+
+  /// The desktop Settings window (see [WorkspaceShell.settingsWindow]).
+  final SettingsWindowHost? settingsWindow;
 
   /// Whether the macOS toolbar band is showing (`MacosToolbarBandChannel`
   /// in production): false in full screen, where the layout drops the
@@ -533,6 +538,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       syncEnvironment: widget.syncEnvironment,
       syncTasks: widget.syncTasks,
       updateCheck: widget.updateCheck,
+      settingsWindow: widget.settingsWindow,
     );
     final callback = widget.onContentSizeChanged;
     if (callback == null) return workspace;

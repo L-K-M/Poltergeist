@@ -6,6 +6,7 @@ import '../../services/editor_registry_controller.dart';
 import '../../services/external_file_opener.dart';
 import '../../services/pane_controller.dart';
 import '../../services/registered_command.dart';
+import '../../services/settings_window/settings_window_link.dart';
 import '../../services/workspace_controller.dart';
 import '../settings/editor_settings.dart';
 import '../settings/preview_settings.dart';
@@ -49,6 +50,10 @@ RegisteredCommand buildOpenWithCommand({
   /// a lookup (not a snapshot) so the dialog reads the live cap and
   /// threshold at open. Null mounts the dialog without the section.
   PreviewDownloadsSettings? Function()? previewSettings,
+
+  /// On desktop, `Configure Editors…` opens the Settings window on Editing;
+  /// the dialog remains for a runner without one.
+  OpenSettingsWindow? openSettingsWindow,
 }) {
   // The cursor's file/symlink row is the target — the same enablement
   // gate as file.editBuiltIn (directories never open with an editor).
@@ -133,6 +138,11 @@ RegisteredCommand buildOpenWithCommand({
         run: (context) async {
           final controller = registry;
           if (controller == null) return;
+          if (await openSettingsWindow?.call(SettingsWindowTab.editing) ??
+              false) {
+            return;
+          }
+          if (!context.mounted) return;
           await showEditorsSettingsDialog(
             context,
             controller: controller,

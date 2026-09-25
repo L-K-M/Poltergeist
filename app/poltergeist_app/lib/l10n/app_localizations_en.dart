@@ -1590,6 +1590,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsGeneralSection => 'General';
 
   @override
+  String get settingsGeneralTab => 'General';
+
+  @override
+  String get settingsEditingTab => 'Editing';
+
+  @override
+  String get settingsSyncTab => 'Sync';
+
+  @override
+  String get settingsWindowUnreachable =>
+      'Settings could not reach Poltergeist. Close this window and open Settings again.';
+
+  @override
+  String get settingsWindowEmpty => 'Nothing to set here yet.';
+
+  @override
   String get updateCheckEnabledLabel => 'Check for updates';
 
   @override

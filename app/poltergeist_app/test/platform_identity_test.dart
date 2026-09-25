@@ -136,8 +136,15 @@ void main() {
       contains('constexpr char kWindowTitle[] = "$_productName";'),
     );
     expect(RegExp('"$_productName"').allMatches(runner), hasLength(1));
+    // Applied through the helper the Settings window titles itself with
+    // too, which sets it on the header bar or the plain title bar.
     expect(
-      RegExp('set_title\\([^;]*kWindowTitle').allMatches(runner),
+      RegExp(r'window_title_apply\(window, kWindowTitle\)').allMatches(runner),
+      hasLength(1),
+    );
+    final helper = _read('linux/runner/window_title.cc');
+    expect(
+      RegExp(r'set_title\([^;]*title\)').allMatches(helper),
       hasLength(2),
     );
   });

@@ -45,6 +45,8 @@ import '../services/rsync_endpoints.dart';
 import '../services/server_duplication.dart';
 import '../services/session_persistence.dart';
 import '../services/session_state.dart';
+import '../services/settings_window/settings_window_host.dart';
+import '../services/settings_window/settings_window_link.dart';
 import '../services/sidebar_controller.dart';
 import '../services/sidebar_probe_owner.dart';
 import '../services/ssh_config_import_setup.dart';
@@ -166,6 +168,7 @@ class WorkspaceShell extends StatefulWidget {
     this.syncTasks,
     this.updateCheck,
     this.localVolumes,
+    this.settingsWindow,
   });
 
   final double initialPaneRatio;
@@ -417,6 +420,12 @@ class WorkspaceShell extends StatefulWidget {
   /// mounts.
   final LocalVolumeSource? localVolumes;
 
+  /// The desktop Settings window, which the Settings, Back up and sync and
+  /// Configure Editors… commands open instead of their dialogs; this shell
+  /// binds its sections to it. Null keeps the dialogs — mobile, and every
+  /// test that does not wire a window.
+  final SettingsWindowHost? settingsWindow;
+
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
@@ -563,6 +572,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // re-claimed by the left pane.
     _leftFocus = FocusNode(debugLabel: 'pane.left.listing');
     _rightFocus = FocusNode(debugLabel: 'pane.right.listing');
+    widget.settingsWindow?.attach(_settingsWindowSources());
     _sidebarWidth = widget.initialSidebarWidth.clamp(
       sidebarMinWidth,
       sidebarMaxWidth,
@@ -657,6 +667,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   @override
   void didUpdateWidget(WorkspaceShell oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // Rebound whenever the widget is: every source is read through
+    // `widget`, and a replaced seam must not leave the window on the old.
+    widget.settingsWindow?.attach(_settingsWindowSources());
     // The composition root supplies the store once but may supply the
     // engine later (the startup-wiring flow mounts the shell before any
     // engine exists); a replacement of any seam must not leave the
@@ -1373,7 +1386,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final cache = widget.previewCache;
     if (cache == null) return null;
     return PreviewDownloadsSettings(
-      cache: cache,
+      available: true,
       capacityBytes: cache.capacityBytes,
       thresholdBytes: _previewThresholdBytes,
       onCapacityChanged: (bytes) async {
@@ -1395,6 +1408,20 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       onClearCache: cache.clear,
     );
   }
+
+  /// What the Settings window shows, from the same lookups the dialogs
+  /// read: the sections this boot has seams for.
+  SettingsWindowSources _settingsWindowSources() => SettingsWindowSources(
+    general: widget.updateCheck == null ? null : _generalSettings,
+    editors: widget.editorRegistry,
+    opener: widget.externalOpener,
+    previewDownloads: _previewDownloadsSettings,
+    backup: widget.bookmarkBackup,
+    changes: [?widget.updateCheck],
+  );
+
+  /// Opens the Settings window on [tab], when there is one to open.
+  OpenSettingsWindow? get _openSettingsWindow => widget.settingsWindow?.open;
 
   /// The Settings → General rows behind `app.settings` — a lookup (not
   /// a snapshot) so the dialog reads the live toggle at open. The sink
@@ -1444,6 +1471,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         buildOpenSettingsBackupCommand(
           service: widget.bookmarkBackup!,
           enabled: () => !_commandSessionActive,
+          openWindow: _openSettingsWindow,
         ),
       // 02 §9's `app.settings` row registers while the update-check
       // seam exists — its General section's only row today is D19's
@@ -1452,6 +1480,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         buildAppSettingsCommand(
           settings: _generalSettings,
           enabled: () => !_commandSessionActive,
+          openWindow: _openSettingsWindow,
         ),
       // 10 §8's platform rows: Check for Updates… in the macOS app menu,
       // Quit in the Linux/Windows File menu (macOS has AppKit's own).
@@ -1527,6 +1556,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               _openWithExternal(pane, entry, editorId),
           pickAndOpen: _pickAndOpenExternal,
           previewSettings: _previewDownloadsSettings,
+          openSettingsWindow: _openSettingsWindow,
         ),
       // 05 §9's sync commands register only while every seam they
       // need exists (environment for sessions, task registry for run

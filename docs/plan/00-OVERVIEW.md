@@ -66,7 +66,7 @@ stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
 D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
 permissions · D29 mobile hooks · D30 Séance license · D31 no mounting ·
 D32 inspector workspace · D33 sidebar density · D34 colour vocabulary ·
-D35 Android supported
+D35 Android supported · D36 settings window
 
 ### Stack and shape
 
@@ -749,6 +749,37 @@ D35 Android supported
     it can sit on, at rest, hovered and on the neutral selection, and
     on its own wash; every tile glyph holds 3:1 on both ends of its fill
     (`family_hues_test.dart`).
+- **D36 — Settings in its own window (2026-09-25, owner-directed;
+  amends D13 and D25's multi-window item).** The owner asked for
+  Settings to open in a window of its own on the desktops rather than
+  over the workspace. Binding for both apps:
+  - **What opens a window:** the app's Settings command, the backup
+    settings command and Open With's editor settings, each on its own tab
+    (General, Editing, Sync). Choosing any of them again brings the one
+    window forward on the tab asked for. Phones and tablets keep the
+    dialogs, as does a desktop build whose runner has no window host.
+  - **How:** Flutter stable has no multi-window API (its windowing API is
+    `@internal` on master), so the window runs a second engine, started
+    on `main` with `--poltergeist-settings-window`. Its isolate shares
+    nothing with the app's: the app's isolate keeps every model, and the
+    runner relays a link channel byte for byte between the two engines.
+    The window holds proxies (`RemoteSettings`) that forward each call
+    and receive snapshots back (`lib/services/settings_window/`). The
+    sections take the same seams in both places (`BackupSettingsModel`,
+    `EditorRegistryModel`), so the dialogs and the window share one UI.
+  - **Closing hides.** On Linux, disposing a second engine terminates the
+    EGL display the engines share and kills the main window; the window
+    and its engine therefore live as long as the app's window, on every
+    desktop, and the window's screen is dropped while hidden so nothing
+    typed into it outlives the close.
+  - **Windows:** the runner makes the workspace window the Settings
+    window's owner, so it stays above the workspace and is destroyed
+    with it.
+  - **Quitting stays the app's call.** On macOS each engine makes itself
+    the termination handler, so the window forwards exit requests to the
+    app's isolate, whose quit guard and exit flush decide them.
+  - **Still parked (D25):** more than one workspace window. D13's single
+    workspace window stands.
 
 ### Security, trust, distribution
 

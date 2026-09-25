@@ -7,7 +7,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../services/bookmark_backup_service.dart';
+import '../../services/settings_models.dart';
 import '../../services/sync_account_gate.dart';
 import 'backup_enrolled_view.dart';
 import 'backup_enrollment_form.dart';
@@ -21,7 +21,7 @@ final class BackupSettingsSection extends StatelessWidget {
     this.gate = const SyncAccountGate.production(),
   });
 
-  final BookmarkBackupService service;
+  final BackupSettingsModel service;
   final SyncAccountGate gate;
 
   @override
@@ -39,7 +39,7 @@ final class BackupSettingsSection extends StatelessWidget {
 /// the Backup section until the full Settings screen lands.
 Future<void> showBackupSettingsDialog(
   BuildContext context, {
-  required BookmarkBackupService service,
+  required BackupSettingsModel service,
   SyncAccountGate gate = const SyncAccountGate.production(),
 }) =>
     showDialog<void>(

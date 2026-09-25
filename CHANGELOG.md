@@ -94,6 +94,14 @@
   dragged remote item's download in Transfers stops the drop and says
   so under Alerts, and a drag that has to leave links or names that
   aren't valid UTF-8 behind says how many.
+- **Settings in its own window.** On macOS, Linux and Windows, Settings
+  opens in a window of its own instead of over the workspace, with
+  General, Editing and Sync tabs. Settings, Back up and sync… and
+  Configure Editors… each open it on their tab, and bring it forward if
+  it is already open. Closing it discards anything typed but not saved,
+  and quitting from it goes through the same checks as quitting from
+  the workspace. Phones and tablets keep the dialogs. Built on all
+  three desktops; run so far on Linux only.
 - **Download To….** File ▸ Download To… and the row menu download the
   selected remote items into a folder you pick.
 - **Shares an account with Séance.** Bookmark sync now preselects the

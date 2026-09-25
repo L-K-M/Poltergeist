@@ -10,6 +10,7 @@ add_executable(${BINARY_NAME} WIN32
   "drag_out.cpp"
   "flutter_window.cpp"
   "main.cpp"
+  "settings_window.cpp"
   "trash_operations.cpp"
   "utils.cpp"
   "win32_window.cpp"

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import 'application_error_reporter.dart';
 import 'external_file_opener.dart';
+import 'settings_models.dart';
 import 'settings_store.dart';
 
 /// The app-wide [EditorRegistry] owner (06 §4.1): loads the persisted
@@ -15,7 +16,8 @@ import 'settings_store.dart';
 /// Mutations persist first and publish second — the WorkspaceLibrary
 /// discipline: a store write that fails restores the pre-mutation
 /// registry, so no surface resolves a default the disk does not hold.
-final class EditorRegistryController extends ChangeNotifier {
+final class EditorRegistryController extends ChangeNotifier
+    implements EditorRegistryModel {
   EditorRegistryController({
     required SettingsStore store,
     ApplicationErrorReporter? errors,
@@ -33,6 +35,7 @@ final class EditorRegistryController extends ChangeNotifier {
   EditorRegistry _registry = EditorRegistry();
 
   /// The live registry — menus resolve through it on every render.
+  @override
   EditorRegistry get registry => _registry;
 
   /// Startup read: a malformed or absent document decodes through the
@@ -46,9 +49,11 @@ final class EditorRegistryController extends ChangeNotifier {
 
   /// Registers (or replaces) an editor definition — the Open With ▸
   /// `Other…` pick lands here.
+  @override
   Future<void> register(ExternalEditorDefinition editor) =>
       _mutate(() => _registry.put(editor));
 
+  @override
   Future<void> remove(String id) => _mutate(() => _registry.remove(id));
 
   /// The global default editor — `poltergeist.system`,
@@ -56,6 +61,7 @@ final class EditorRegistryController extends ChangeNotifier {
   /// Default-editor dropdown writes here). Refuses an unresolvable id
   /// at write time, matching [setExtensionDefault]'s rule — a dangling
   /// default would sit in settings.json until the next load's repair.
+  @override
   Future<void> setDefault(String id) => _mutate(() {
     if (id != EditorRegistry.systemDefaultId &&
         id != EditorRegistry.builtInId &&

@@ -10,6 +10,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/bookmark_backup_service.dart';
+import '../../services/settings_models.dart';
 import '../../services/sync_account_gate.dart';
 import '../../services/sync_enrollment_validation.dart';
 import 'backup_enrollment_form.dart';
@@ -19,7 +20,7 @@ import 'backup_enrollment_form.dart';
 /// `gate.sharedAccountOffered`, so a null tag cannot reach here.
 Future<void> showBackupSwitchDialog(
   BuildContext context, {
-  required BookmarkBackupService service,
+  required BackupSettingsModel service,
   SyncAccountGate gate = const SyncAccountGate.production(),
 }) =>
     showDialog<void>(
@@ -37,7 +38,7 @@ final class BackupSwitchDialog extends StatefulWidget {
     required this.gate,
   });
 
-  final BookmarkBackupService service;
+  final BackupSettingsModel service;
   final SyncAccountGate gate;
 
   @override

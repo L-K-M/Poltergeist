@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../services/bookmark_backup_service.dart';
+import '../../services/settings_models.dart';
 import '../../services/sync_account_gate.dart';
 import '../../services/sync_enrollment_validation.dart';
 import '../../services/uuid.dart';
@@ -57,7 +57,7 @@ final class BackupEnrollmentForm extends StatefulWidget {
     this.gate = const SyncAccountGate.production(),
   });
 
-  final BookmarkBackupService service;
+  final BackupSettingsModel service;
 
   /// The shared-account gate (04 §4.2/D4). Tests bind fakes both ways —
   /// no tag recorded disables option 2 outright; a tag carrying Séance
