@@ -8,7 +8,7 @@ import '../l10n/app_localizations.dart';
 import 'app_transfer_queue.dart';
 import 'application_error_reporter.dart';
 
-/// The refusal every remote answer on the app-side queue shares —
+/// The refusal every remote answer on an engine-less queue shares —
 /// [_LocalOnlyConnectionManager] fails leases and channel opens with
 /// it instead of simulating a pool that cannot exist here. Its message
 /// is ARB copy (the failed task row renders it verbatim), resolved at
@@ -25,15 +25,14 @@ RemoteFileException _remoteEndpointsUnavailable() => RemoteFileException(
       ).activityTaskRemoteUnavailable,
 );
 
-/// The app-side queue's connection seam — honest absence, not a stub
-/// pool. The engine isolate owns every socket (D8) and the §5 protocol
-/// carries no transfer verbs yet (docs/STATUS.md open item 23), so no
-/// channel can ever be leased in this isolate. Local↔local tasks never
-/// touch [TransferQueue.connections]; a task naming a `ServerFsLocation`
-/// fails at its first lease with the typed `unsupported` error — a
-/// visible failed row in the panel, never a silent stall or a wedged
-/// scan — until the engine-hosted queue lands and this composition
-/// moves behind it.
+/// The engine-failed fallback's connection seam — honest absence, not
+/// a stub pool. The engine isolate owns every socket (D8); production
+/// leases through the bridged `EngineConnectionManager` (protocol v13,
+/// STATUS item 23), and only a boot whose engine failed to spawn lands
+/// here. Local↔local tasks never touch [TransferQueue.connections]; a
+/// task naming a `ServerFsLocation` fails at its first lease with the
+/// typed `unsupported` error — a visible failed row in the panel, never
+/// a silent stall or a wedged scan.
 ///
 /// The queue only ever calls [leaseTransferChannel]; the remaining
 /// members answer "no servers exist" — unreachable today, honest if a
@@ -107,9 +106,9 @@ final class TransferQueueSession {
   TransferQueue get concreteQueue => _queue;
 
   /// The connection seam the queue was built over — shared with the
-  /// checkout session so both answer remote access identically (typed
-  /// `unsupported` until the engine protocol carries transfer verbs —
-  /// docs/STATUS.md item 23).
+  /// checkout session so both lease identically: the engine bridge in
+  /// production, the typed-`unsupported` fallback when the engine failed
+  /// to spawn.
   ConnectionManager get connections => _connections;
 
   /// Cancels the queue's live tasks and shuts the journal down behind
@@ -125,8 +124,19 @@ final class TransferQueueSession {
 /// null — after reporting — when the store cannot open or the journal
 /// cannot restore: the app still boots queue-less, matching the engine
 /// session's posture rather than dying before its first frame.
+///
+/// [connections] is the engine's bridged lease seam
+/// (`EngineSession.transferConnections`); null — the engine failed to
+/// spawn — composes the typed-`unsupported` fallback, so remote tasks
+/// fail visibly while local work still runs. [localTrash] is the D15
+/// trash the queue's local deletes dispatch through: production passes
+/// the engine-side backend (`EngineSession.localTrash`), because the
+/// platform trash is reachable only from the engine (D8); null keeps the
+/// queue's in-isolate default.
 Future<TransferQueueSession?> startTransferQueue({
   required String supportDirectoryPath,
+  ConnectionManager? connections,
+  LocalTrashService? localTrash,
   void Function(Object error, StackTrace stackTrace)? onError,
 }) async {
   final errors = onError == null
@@ -146,17 +156,18 @@ Future<TransferQueueSession?> startTransferQueue({
     return null;
   }
   try {
-    const connections = _LocalOnlyConnectionManager();
+    final seam = connections ?? const _LocalOnlyConnectionManager();
     final queue = TransferQueue(
-      connections: connections,
+      connections: seam,
       persistence: persistence,
+      localTrash: localTrash,
     );
     // 03 §4.6's boot restore: journaled-paused tasks stay paused,
     // running/scanning/queued survivors replay as queued, and the
     // forced queue-level pause parks all of them behind the activity
     // panel's restored banner.
     await queue.restore();
-    return TransferQueueSession._(queue, connections);
+    return TransferQueueSession._(queue, seam);
   } on Object catch (error, stackTrace) {
     errors.report(error, stackTrace);
     // The queue was never handed out — its store must not leak open.

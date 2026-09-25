@@ -87,6 +87,14 @@ void main() {
     );
   });
 
+  test('opts the Android app into predictive back', () {
+    // D32 §9: the compact posture's back steps run through PopScope, and
+    // Android 13+ only animates predictive back for apps that opt in.
+    final manifest = _read('android/app/src/main/AndroidManifest.xml');
+
+    expect(manifest, contains('android:enableOnBackInvokedCallback="true"'));
+  });
+
   test('keeps shipped application and bundle names ASCII', () {
     for (final name in [_linuxBinaryName, _macExecutableName, _productName]) {
       expect(ascii.encode(name), hasLength(name.length));

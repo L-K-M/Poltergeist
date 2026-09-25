@@ -3,19 +3,23 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/services.dart';
-import 'package:poltergeist_core/poltergeist_core.dart' show RemoteFileType;
+import 'package:poltergeist_core/poltergeist_core.dart'
+    show FileSortKey, RemoteFileType;
 
 import '../../services/pane_controller.dart';
 import '../../services/pane_permissions.dart' show nameIsFlagged;
 import '../../services/preview_session.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
+import '../../theme/app_theme.dart' show isDesktopPlatform;
 import '../layout/pane_allocation.dart' show desktopStageBoundary;
+import 'pane_view.dart' show PaneView;
 
 const kGoBackCommandId = 'go.back';
 const kGoEditPathCommandId = 'go.editPath';
 const kGoEnclosingCommandId = 'go.enclosing';
 const kGoForwardCommandId = 'go.forward';
+const kGoHomeCommandId = 'go.home';
 const kGoOpenCommandId = 'go.open';
 const kGoToFolderCommandId = 'go.toFolder';
 const kFileEditBuiltInCommandId = 'file.editBuiltIn';
@@ -40,6 +44,40 @@ const kTabCloseCommandId = 'tab.close';
 const kTabReopenClosedCommandId = 'tab.reopenClosed';
 const kTabNextCommandId = 'tab.next';
 const kTabPreviousCommandId = 'tab.previous';
+const kViewToggleHiddenCommandId = 'view.toggleHidden';
+const kSelectionCopyPathCommandId = 'selection.copyPath';
+const kViewSortByCommandId = 'view.sortBy';
+
+/// The Details columns `view.sortBy` offers, in header order (D32 §6).
+const _sortColumns = [
+  FileSortKey.name,
+  FileSortKey.size,
+  FileSortKey.modified,
+];
+
+/// `selection.copyPath`'s payload for [pane]: the selected rows' paths
+/// in listing order, one per line; else the cursor row's; else the
+/// folder the pane stands in (Finder's ⌥⌘C). Null when there is nothing
+/// to name.
+String? paneCopyPathText(PaneController pane) {
+  final selected = pane.selectedEntries;
+  if (selected.isNotEmpty) {
+    return [for (final entry in selected) entry.path].join('\n');
+  }
+  final cursor = pane.cursorIndex;
+  if (cursor != null && cursor >= 0 && cursor < pane.entries.length) {
+    return pane.entries[cursor].path;
+  }
+  return pane.location?.path;
+}
+
+/// Writes [text] to the clipboard and posts the pane's transient
+/// "Path copied" confirmation (the notice channel every pane-moment
+/// confirmation shares).
+Future<void> copyPanePath(PaneController pane, String text) async {
+  await Clipboard.setData(ClipboardData(text: text));
+  pane.notePathCopied();
+}
 
 /// The pane-command registry slice (D21): every pane action this
 /// foundation ships is a registered command. Commands resolve the
@@ -63,6 +101,15 @@ List<RegisteredCommand> buildPaneCommands({
   /// (D21); a null session leaves them visible-disabled — the same
   /// posture `queue.togglePause` takes without a queue.
   PreviewSession? preview,
+
+  /// Whether the sidebar currently lives in the overlay drawer (D32's
+  /// allocation decides, not a bare window-width check); null falls back
+  /// to the 02 §1 stage boundary.
+  bool Function()? sidebarIsDrawer,
+
+  /// D32 §4: `view.filter` focuses the header's filter field; null keeps
+  /// the pane's own filter strip.
+  VoidCallback? focusFilter,
 }) {
   // Browsing commands resolve the active pane's ACTIVE TAB at invocation
   // time (02 §8.1) — null while the pane sits on the launcher, and every
@@ -91,6 +138,11 @@ List<RegisteredCommand> buildPaneCommands({
         activeTab()?.goBack();
       },
       // 02 §9's Go menu leads with Back/Forward.
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.leading,
+        order: 20,
+        group: 1,
+      ),
       menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 10),
     ),
     RegisteredCommand(
@@ -112,6 +164,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.goForward();
       },
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.leading,
+        order: 21,
+        group: 1,
+      ),
       menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 20),
     ),
     RegisteredCommand(
@@ -128,9 +185,29 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.goUp();
       },
-      // 02 §9's Go menu: Back, Forward, Enclosing Folder, Home, then
-      // the path-field commands — slot 40 stays open for Home.
+      // 10 §8's Go menu opens with Back, Forward, Enclosing Folder, Home.
       menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 30),
+    ),
+    RegisteredCommand(
+      id: kGoHomeCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.goHomeLabel,
+      icon: Icons.home_outlined,
+      // ⇧⌘H on macOS, Ctrl+Shift+H elsewhere (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyH, meta: true, shift: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyH, control: true, shift: true),
+        ],
+      ),
+      enabled: () => activeTab()?.verbsEnabled ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      run: (_) async {
+        activeTab()?.goHome();
+      },
+      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 40),
     ),
     RegisteredCommand(
       id: kGoToFolderCommandId,
@@ -152,7 +229,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.goToFolder();
       },
-      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 50),
+      // 10 §8's Go menu: the path-field section.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 50,
+        group: 1,
+      ),
     ),
     RegisteredCommand(
       id: kGoEditPathCommandId,
@@ -169,7 +251,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.editPath();
       },
-      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 60),
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 60,
+        group: 1,
+      ),
     ),
     RegisteredCommand(
       id: kGoOpenCommandId,
@@ -207,8 +293,7 @@ List<RegisteredCommand> buildPaneCommands({
         }
         pane.openEntry(pane.entries[cursor]);
       },
-      // 02 §9's File menu, after the (unregistered) New Folder/New File
-      // slots; the second group splits file verbs from the tab block.
+      // 10 §8's File menu: the open section follows the New block.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 60,
@@ -278,35 +363,29 @@ List<RegisteredCommand> buildPaneCommands({
         macOS: const [SingleActivator(LogicalKeyboardKey.keyI, meta: true)],
         other: const [SingleActivator(LogicalKeyboardKey.enter, alt: true)],
       ),
-      // Needs a row to describe — the cursor/primary selected row is the
-      // panel's target. An already-open panel keeps the command live so
-      // the same chord toggles it closed even with the selection empty.
-      enabled: () {
-        final pane = activeTab();
-        return pane != null &&
-            (pane.infoTarget != null || workspace.activePane.infoPanelOpen);
-      },
-      disabledReason: (l10n) => l10n.commandDisabledNoSelection,
-      run: (_) async {
-        // The inspector is pane chrome on the FOCUSED pane (02 §2.6):
-        // the active strip toggles it over its own right edge.
-        workspace.activePane.toggleInfoPanel();
-      },
-      // 02 §9's File menu: between Edit in Poltergeist and Duplicate —
-      // the still-unregistered verbs' slots — ahead of Rename.
+      // D32: Get Info is the inspector's Info tab, which follows the
+      // focused item — live whenever a browsing tab exists (an empty
+      // selection shows the Info tab's own empty state), and a toggle:
+      // the chord hides the inspector when Info is already showing.
+      enabled: () => activeTab() != null,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      run: (_) async => workspace.toggleInspectorTab(InspectorTab.info),
+      // 10 §8's File menu: Get Info leads the Get Info, Rename,
+      // Duplicate section.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 65,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
       id: kFilePreviewCommandId,
       scope: CommandScope.selection,
-      // The label names the surface Space actually opens: Quick Look is
-      // the macOS-only native panel; everywhere else the docked in-app
-      // panel answers, so the label stays neutral there.
-      label: (l10n) => defaultTargetPlatform == TargetPlatform.macOS
+      // The label names the surface Space actually opens: Quick Look on
+      // every desktop (the native panel on macOS, the in-app overlay on
+      // Linux and Windows); touch platforms answer on the Info tab, so
+      // the label stays neutral there.
+      label: (l10n) => isDesktopPlatform(defaultTargetPlatform)
           ? l10n.filePreviewLabel
           : l10n.filePreviewLabelNeutral,
       icon: Icons.visibility_outlined,
@@ -315,14 +394,11 @@ List<RegisteredCommand> buildPaneCommands({
       // dispatches (02 §8.2); the activator documents the binding for
       // menus and reachability, it never fires here.
       activators: (_) => const [SingleActivator(LogicalKeyboardKey.space)],
-      // Live while a previewable surface can answer: a focused row, or
-      // an already-open preview the same key closes (Space toggles —
-      // 06 §5.2's state machine owns the per-phase answer).
+      // Live while Space has something to act on: a focused row, or an
+      // open Quick Look the same key closes. The Info tab being on
+      // screen is not enough — Space never hides the inspector.
       enabled: () {
-        if (preview != null &&
-            (!workspace.previewPanelHidden || preview.quickLookActive)) {
-          return true;
-        }
+        if (preview != null && preview.quickLookActive) return true;
         final pane = activeTab();
         final cursor = pane?.cursorIndex;
         return pane != null &&
@@ -335,8 +411,8 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         preview?.previewFocused();
       },
-      // 02 §9's File menu: Quick Look sits in the file-verb group
-      // between Get Info and the (unregistered) Duplicate slot.
+      // 10 §8's File menu: Quick Look follows Edit in Poltergeist in the
+      // open section.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 67,
@@ -385,11 +461,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.startRename();
       },
-      // 02 §9's File menu: Rename follows Open among the file verbs.
+      // 10 §8's File menu: Rename follows Get Info.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 70,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -413,12 +489,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.refresh();
       },
-      // 02 §9's View table ends at Customize Sidebar (slot 100); Refresh
-      // and the interim Connections entry sit in the trailing group.
+      // 10 §8's View menu: Refresh in its own section, above Enter
+      // Full Screen.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 110,
-        group: 2,
+        group: 3,
       ),
     ),
     RegisteredCommand(
@@ -426,10 +502,11 @@ List<RegisteredCommand> buildPaneCommands({
       scope: CommandScope.app,
       label: (l10n) => l10n.viewToggleSidebarLabel,
       icon: Icons.view_sidebar_outlined,
-      // ⌥⌘S on macOS, Ctrl+Alt+S elsewhere (02 §8.3's table).
+      // ⌃⌘S on macOS, the platform's sidebar standard (10 §4, which
+      // supersedes 02 §8.3's ⌥⌘S); Ctrl+Alt+S elsewhere.
       activators: _perPlatform(
         macOS: const [
-          SingleActivator(LogicalKeyboardKey.keyS, meta: true, alt: true),
+          SingleActivator(LogicalKeyboardKey.keyS, control: true, meta: true),
         ],
         // Windows reports AltGr as Ctrl+Alt, so AltGr+S (ś/ş on Polish
         // and Turkish layouts) also matches this activator — a known
@@ -449,17 +526,24 @@ List<RegisteredCommand> buildPaneCommands({
         // Below the stage-0 boundary the sidebar lives in the overlay
         // drawer — the toggle opens/closes it there rather than latching
         // the inline region's hidden intent (02 §1's stage table).
-        if (MediaQuery.sizeOf(context).width < desktopStageBoundary) {
+        final drawer =
+            sidebarIsDrawer?.call() ??
+            MediaQuery.sizeOf(context).width < desktopStageBoundary;
+        if (drawer) {
           toggleSidebarDrawer?.call();
           return;
         }
         workspace.toggleSidebar();
       },
-      // 02 §9's View menu: the Show/Hide Sidebar slot, before
-      // Show/Hide Second Pane.
+      checked: () => !workspace.sidebarHidden,
+      // 10 §8's View menu: Sidebar, Inspector, Second Pane.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 60,
+      ),
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.leading,
+        order: 10,
       ),
     ),
     RegisteredCommand(
@@ -481,8 +565,7 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         workspace.toggleSecondPane();
       },
-      // 02 §9's View menu: between Show/Hide Sidebar (60) and Show/Hide
-      // Activity (80) — the sidebar slot stays open for its slice.
+      // 10 §8's View menu: after Show/Hide Inspector (65).
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 70,
@@ -492,7 +575,7 @@ List<RegisteredCommand> buildPaneCommands({
       id: kViewToggleActivityPanelCommandId,
       scope: CommandScope.app,
       label: (l10n) => l10n.viewToggleActivityPanelLabel,
-      icon: Icons.vertical_align_bottom_outlined,
+      icon: Icons.swap_vert,
       // ⌥⌘A on macOS, Ctrl+Alt+A elsewhere (02 §8.3's table). Hiding is
       // user intent — the panel un-hides on the first-task edge again
       // (02 §6: rows are the queue's only window, D16).
@@ -507,11 +590,18 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         workspace.toggleActivityPanel();
       },
-      // 02 §9's View menu: the Show/Hide Activity slot the §8.1 note
-      // reserves between Show/Hide Second Pane and Customize Sidebar.
+      // 10 §8's View menu names the inspector tab it toggles: Info,
+      // Transfers, Alerts.
+      checked: () => !workspace.activityPanelHidden,
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.status,
+        order: 10,
+        group: 1,
+      ),
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
-        order: 80,
+        order: 85,
+        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -535,11 +625,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         preview?.togglePanel();
       },
-      // 02 §9's View menu: the Show/Hide Preview slot between Show/Hide
-      // Activity (80) and Customize Sidebar (100).
+      // 10 §8's View menu: the Info tab, where the preview renders,
+      // leads the inspector-tab section.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
-        order: 90,
+        order: 80,
+        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -565,9 +656,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         workspace.syncBrowsing.toggle();
       },
-      // 02 §9's Go menu: after Edit Path and the (unregistered) Recent
-      // slot, before Open in Terminal.
-      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 80),
+      // 10 §8's Go menu: after Focus Left/Right Pane.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 80,
+        group: 2,
+      ),
     ),
     RegisteredCommand(
       id: kPaneFocusLeftCommandId,
@@ -596,6 +690,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         focusLeft();
       },
+      // 10 §8's Go menu: Focus Left/Right Pane, Sync Browsing.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 70,
+        group: 2,
+      ),
     ),
     RegisteredCommand(
       id: kPaneFocusRightCommandId,
@@ -620,6 +720,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         focusRight();
       },
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 72,
+        group: 2,
+      ),
     ),
     RegisteredCommand(
       id: kPaneSwapFocusCommandId,
@@ -647,12 +752,16 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.selectAll();
       },
-      // 02 §9's Edit menu: the clipboard block (slots 10–50) is empty
-      // today, so the selection block opens the rendered menu.
+      // 10 §8's Edit menu: Undo/Redo (group 0) and Cut/Copy/Paste
+      // (group 1) come first. Their commands (02 §8.3's `edit.undo`,
+      // `edit.cut`/`edit.copy`/`edit.paste`: rename/trash undo and the
+      // file clipboard) do not exist yet, and a menu renders no
+      // placeholder for a missing command, so the selection section
+      // opens the rendered menu until they land.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.edit,
         order: 60,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -677,7 +786,7 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.edit,
         order: 70,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -698,7 +807,7 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.edit,
         order: 80,
-        group: 1,
+        group: 2,
       ),
     ),
     RegisteredCommand(
@@ -714,13 +823,17 @@ List<RegisteredCommand> buildPaneCommands({
       enabled: () => activeTab()?.verbsEnabled ?? false,
       disabledReason: (l10n) => l10n.commandDisabledNoListing,
       run: (_) async {
+        if (focusFilter != null) {
+          focusFilter();
+          return;
+        }
         activeTab()?.openFilter();
       },
-      // 02 §9 puts Filter in the Edit menu (after Quick Select).
+      // 10 §8's Edit menu: Filter in its own last section.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.edit,
         order: 90,
-        group: 1,
+        group: 4,
       ),
     ),
     RegisteredCommand(
@@ -737,7 +850,7 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         workspace.activePane.newTab();
       },
-      // 02 §9's File menu opens with the tab block (slots 10–30).
+      // 10 §8's File menu opens with New Tab, New Folder, New File.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 10,
@@ -765,6 +878,7 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 30,
+        group: 5,
       ),
     ),
     RegisteredCommand(
@@ -786,9 +900,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         await workspace.activePane.reopenClosedTab();
       },
+      // 10 §8's File menu: Reopen Closed Tab and Close Tab share their
+      // own section after Move to Trash.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 20,
+        group: 5,
       ),
     ),
     RegisteredCommand(
@@ -854,6 +971,109 @@ List<RegisteredCommand> buildPaneCommands({
         group: 1,
       ),
     ),
+    RegisteredCommand(
+      id: kViewToggleHiddenCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.viewToggleHiddenLabel,
+      icon: Icons.visibility_off_outlined,
+      // ⇧⌘. is Finder's chord; Ctrl+H is the GNOME/KDE file managers'.
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.period, meta: true, shift: true),
+        ],
+        other: const [SingleActivator(LogicalKeyboardKey.keyH, control: true)],
+      ),
+      // The tab-local override (02 §2.5): live on any browsing tab — the
+      // lens re-derives from the accepted listing, no re-list needed.
+      enabled: () => activeTab()?.location != null,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      checked: () => activeTab()?.showHidden ?? false,
+      run: (_) async {
+        final pane = activeTab();
+        if (pane == null) return;
+        pane.showHidden = !pane.showHidden;
+      },
+      // 10 §8's View menu: Show Hidden Files in its own section between
+      // the inspector tabs and Refresh.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.view,
+        order: 100,
+        group: 2,
+      ),
+    ),
+    RegisteredCommand(
+      id: kViewSortByCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.viewSortByLabel,
+      icon: Icons.sort,
+      // The column header's keyboard and menu path (D21: the header's
+      // clicks are this command's rows): Sort By ▸ Name / Size / Date
+      // Modified, checked on the sorted column. Choosing the sorted
+      // column flips its direction, exactly as a header click does.
+      enabled: () => activeTab()?.location != null,
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      // The palette's non-menu invocation flips the current column.
+      run: (_) async {
+        final pane = activeTab();
+        if (pane == null) return;
+        pane.sortByColumn(pane.sortKey);
+      },
+      submenuItems: (l10n) => [
+        for (final key in _sortColumns)
+          RegisteredCommand(
+            // Parameter-bound items share the parent's registry id —
+            // the suffix only keeps menu keys unique.
+            id: '$kViewSortByCommandId:${key.name}',
+            scope: CommandScope.pane,
+            label: (l10n) => switch (key) {
+              FileSortKey.size => l10n.paneColumnSize,
+              FileSortKey.modified => l10n.paneColumnModified,
+              _ => l10n.paneColumnName,
+            },
+            enabled: () => activeTab()?.location != null,
+            checked: () => activeTab()?.sortKey == key,
+            run: (_) async => activeTab()?.sortByColumn(key),
+          ),
+      ],
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.view,
+        order: 105,
+        group: 2,
+      ),
+    ),
+    RegisteredCommand(
+      id: kSelectionCopyPathCommandId,
+      scope: CommandScope.selection,
+      label: (l10n) => l10n.selectionCopyPathLabel,
+      icon: Icons.content_paste_go_outlined,
+      // ⌥⌘C on macOS (Finder's Copy as Pathname), Ctrl+Alt+C elsewhere.
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyC, meta: true, alt: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyC, control: true, alt: true),
+        ],
+      ),
+      enabled: () {
+        final pane = activeTab();
+        return pane != null && paneCopyPathText(pane) != null;
+      },
+      disabledReason: (l10n) => l10n.commandDisabledNoListing,
+      run: (_) async {
+        final pane = activeTab();
+        final text = pane == null ? null : paneCopyPathText(pane);
+        if (pane == null || text == null) return;
+        await copyPanePath(pane, text);
+      },
+      // 10 §8's Edit menu: Copy Path in its own section between the
+      // selection verbs and Filter.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.edit,
+        order: 85,
+        group: 3,
+      ),
+    ),
   ];
 }
 
@@ -883,6 +1103,48 @@ List<ShortcutActivator> Function(TargetPlatform) _perPlatform({
 /// equivalents live at app scope, which this layer would otherwise
 /// intercept first). Dialog routes push above the shell, so their
 /// fields never see these chords either.
+/// Keys that bind unmodified at the chord layer because they never type
+/// text: the Commander-style F5 copy / F6 move to the other pane / F7
+/// new folder, and Delete (Move to Trash off macOS; Shift+Delete deletes
+/// permanently — both fire only from a pane listing, [_listingOnly]).
+/// F2 is not here — rename's F2 stays a pane key (02 §8.2).
+final _functionKeys = <LogicalKeyboardKey>{
+  LogicalKeyboardKey.f5,
+  LogicalKeyboardKey.f6,
+  LogicalKeyboardKey.f7,
+  LogicalKeyboardKey.delete,
+};
+
+/// The delete family: a selection verb bound to Delete or Backspace
+/// (Delete and Shift+Delete off macOS, ⌘⌫ and ⌥⌘⌫ on it). The
+/// selection it acts on is a pane listing's, so its chords fire only
+/// while a pane listing's own focus node holds primary focus. Pressed
+/// on a sidebar row, a tab chip, an inspector or activity row, or a
+/// header button, the key must not trash the active pane's selection
+/// behind the user's back: there it is consumed without running, the
+/// way a disabled command's chord is.
+bool _listingOnly(RegisteredCommand command, ShortcutActivator activator) =>
+    command.scope == CommandScope.selection &&
+    activator is SingleActivator &&
+    (activator.trigger == LogicalKeyboardKey.delete ||
+        activator.trigger == LogicalKeyboardKey.backspace);
+
+bool _isPaneListing(FocusNode? node) {
+  final pane = node?.context?.findAncestorWidgetOfExactType<PaneView>();
+  return pane != null && identical(pane.focusNode, node);
+}
+
+/// Whether a keystroke on [activator] may run [command] while [focus]
+/// holds primary focus: everything may, except the delete family away
+/// from a pane listing ([_listingOnly]). The chord scope applies it, and
+/// so does the macOS menu for a key equivalent nothing in the window
+/// took (AppMenuHost).
+bool keyMayRunFrom(
+  RegisteredCommand command,
+  ShortcutActivator activator,
+  FocusNode? focus,
+) => !_listingOnly(command, activator) || _isPaneListing(focus);
+
 class CommandChordScope extends StatelessWidget {
   const CommandChordScope({
     super.key,
@@ -897,6 +1159,7 @@ class CommandChordScope extends StatelessWidget {
   Widget build(BuildContext context) {
     final platform = Theme.of(context).platform;
     final bindings = <ShortcutActivator, VoidCallback>{};
+    final listingOnly = <ShortcutActivator>{};
     for (final command in commands) {
       final activators = command.activators?.call(platform);
       if (activators == null) continue;
@@ -905,8 +1168,13 @@ class CommandChordScope extends StatelessWidget {
         // nodes (02 §8.2), not only SingleActivator spellings; skip them
         // BEFORE the duplicate diagnostics so an unmodified overlap is
         // not misreported as a chord collision.
+        // Function keys are never typing keys, so an unmodified F5/F6
+        // (the dual-pane copy/move convention) binds at this layer too.
         final bool unmodified = activator is SingleActivator
-            ? !activator.control && !activator.meta && !activator.alt
+            ? !activator.control &&
+                  !activator.meta &&
+                  !activator.alt &&
+                  !_functionKeys.contains(activator.trigger)
             : activator is CharacterActivator &&
                   !activator.control &&
                   !activator.meta &&
@@ -928,6 +1196,7 @@ class CommandChordScope extends StatelessWidget {
             'Duplicate shortcut activator $activator: later command wins',
           );
         }
+        if (_listingOnly(command, activator)) listingOnly.add(activator);
         bindings[activator] = () {
           if (!command.enabled()) return;
           // Pane commands complete without escaping routes, but a
@@ -967,7 +1236,9 @@ class CommandChordScope extends StatelessWidget {
         var result = KeyEventResult.ignored;
         for (final activator in bindings.keys) {
           if (activator.accepts(event, HardwareKeyboard.instance)) {
-            bindings[activator]!();
+            if (!listingOnly.contains(activator) || _isPaneListing(primary)) {
+              bindings[activator]!();
+            }
             result = KeyEventResult.handled;
           }
         }

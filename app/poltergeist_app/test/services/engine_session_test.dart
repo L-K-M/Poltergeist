@@ -55,6 +55,15 @@ Bookmark _blockedBookmark() {
 /// broadcast lanes, recorded calls (the FakeSftpDemoEngine pattern, over
 /// the production [AppEngine] facet).
 class FakeAppEngine implements AppEngine {
+  /// The composition's transfer seams are not this suite's subject: a
+  /// fake engine hands out managers that refuse every lease, typed.
+  @override
+  ConnectionManager transferConnections(ServerConfigSource configs) =>
+      _RefusingConnections();
+
+  @override
+  LocalTrashBackend get localTrash => _UnavailableTrash();
+
   final promptsController = StreamController<EnginePromptEvent>.broadcast();
   final dismissalsController =
       StreamController<PromptDismissedEvent>.broadcast();
@@ -242,8 +251,50 @@ class FakeAppEngine implements AppEngine {
   }
 }
 
+class _RefusingConnections implements ConnectionManager {
+  @override
+  Future<TransferChannelLease> leaseTransferChannel(String serverId) =>
+      Future.error(
+        const RemoteFileException(
+          kind: RemoteFileErrorKind.unsupported,
+          operation: 'lease transfer channel',
+          message: 'fake engine',
+        ),
+      );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
+class _UnavailableTrash implements LocalTrashBackend {
+  @override
+  Future<bool> isAvailable() async => false;
+
+  @override
+  Future<String?> trash(String path) => throw const TrashException(
+    kind: TrashErrorKind.unavailable,
+    message: 'fake engine',
+  );
+}
+
 class FakeAppBrowseChannel implements AppBrowseChannel {
   FakeAppBrowseChannel({this.homePath = '/home/deploy'});
+
+  @override
+  Future<void> createDirectory(String path) async {}
+
+  @override
+  Future<RemoteFileEntry> createEmptyFile(String path) async =>
+      RemoteFileEntry(path: path, name: path, type: RemoteFileType.file);
+
+  @override
+  Future<RemoteFileEntry> stat(String path) => throw RemoteFileException(
+    kind: RemoteFileErrorKind.notFound,
+    operation: 'stat',
+    path: path,
+    message: 'not scripted',
+  );
 
   @override
   final String homePath;

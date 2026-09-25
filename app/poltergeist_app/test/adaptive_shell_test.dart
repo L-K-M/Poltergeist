@@ -8,6 +8,10 @@ import 'package:poltergeist_app/ui/adaptive_shell.dart';
 import 'package:poltergeist_app/ui/layout/pane_allocation.dart';
 
 const _testWindowSize = Size(1180, 760);
+
+/// Two panes at their floor plus the splitter (D32 §3.2): below it pane
+/// B auto-hides.
+const _twoPaneFloor = 2 * minPaneWidth + paneSplitterExtent;
 const _keyboardResizeStepCountToEdge = 37;
 
 Widget _pane(String name) => ColoredBox(
@@ -69,13 +73,13 @@ void main() {
     );
   });
 
-  testWidgets('auto-hides and restores pane B across the mobile boundary', (
+  testWidgets('auto-hides and restores pane B across the two-pane floor', (
     tester,
   ) async {
-    await _pumpShell(tester, size: const Size(679, 600));
+    await _pumpShell(tester, size: const Size(_twoPaneFloor - 1, 600));
     expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsNothing);
 
-    tester.view.physicalSize = const Size(680, 600);
+    tester.view.physicalSize = const Size(_twoPaneFloor, 600);
     await tester.pump();
     expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsOneWidget);
   });
@@ -85,7 +89,7 @@ void main() {
     tester,
   ) async {
     final reports = <bool>[];
-    tester.view.physicalSize = const Size(679, 600);
+    tester.view.physicalSize = const Size(_twoPaneFloor - 1, 600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
@@ -109,7 +113,7 @@ void main() {
     await tester.pump();
     expect(reports, [false]);
 
-    tester.view.physicalSize = const Size(680, 600);
+    tester.view.physicalSize = const Size(_twoPaneFloor, 600);
     await pump(intent: SecondPaneIntent.shown);
     await tester.pump();
     expect(reports, [false, true]);
@@ -228,7 +232,7 @@ void main() {
     await tester.pump();
 
     expect(savedRatios, hasLength(1));
-    expect(savedRatios.single, closeTo(0.513746, 0.000001));
+    expect(savedRatios.single, closeTo(0.513640, 0.000001));
   });
 
   testWidgets('reverts the latest ratio when persistence fails', (
@@ -274,7 +278,7 @@ void main() {
     final after = tester
         .getSize(find.byKey(AdaptiveShell.primaryPaneKey))
         .width;
-    expect(after - before, 32);
+    expect(after - before, closeTo(32, 0.000001));
   });
 
   testWidgets('persists one final ratio after a drag', (tester) async {
@@ -293,7 +297,7 @@ void main() {
     await tester.pump();
 
     expect(savedRatios, hasLength(1));
-    expect(savedRatios.single, closeTo(0.527491, 0.000001));
+    expect(savedRatios.single, closeTo(0.527280, 0.000001));
   });
 
   testWidgets('persists one final ratio after key repeats', (tester) async {
@@ -312,7 +316,7 @@ void main() {
     await tester.pump();
 
     expect(savedRatios, hasLength(1));
-    expect(savedRatios.single, closeTo(0.541237, 0.000001));
+    expect(savedRatios.single, closeTo(0.540921, 0.000001));
   });
 
   testWidgets('persists a held-key resize when focus leaves', (tester) async {
@@ -330,7 +334,7 @@ void main() {
     await tester.pump();
 
     expect(savedRatios, hasLength(1));
-    expect(savedRatios.single, closeTo(0.513746, 0.000001));
+    expect(savedRatios.single, closeTo(0.513640, 0.000001));
   });
 
   testWidgets('persists the final ratio when removed during a drag', (
@@ -348,7 +352,7 @@ void main() {
     await gesture.removePointer();
 
     expect(savedRatios, hasLength(1));
-    expect(savedRatios.single, closeTo(0.527491, 0.000001));
+    expect(savedRatios.single, closeTo(0.527280, 0.000001));
   });
 
   testWidgets('keeps the splitter at the right edge', (tester) async {
@@ -399,7 +403,7 @@ void main() {
     final inwardWidth = tester
         .getSize(find.byKey(AdaptiveShell.primaryPaneKey))
         .width;
-    expect(edgeWidth - inwardWidth, 16);
+    expect(edgeWidth - inwardWidth, closeTo(16, 0.000001));
   });
 
   testWidgets('drags inward immediately from the right edge', (tester) async {

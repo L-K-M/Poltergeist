@@ -22,6 +22,7 @@ import '../../services/engine_session_test.dart' as session_test;
 import '../../services/pane_controller_test.dart' as controller_test;
 import '../../support/fake_bookmark_store.dart';
 import '../../support/fake_ssh_config_source.dart';
+import '../../support/shell_commands.dart';
 import '../../support/test_panes.dart';
 
 /// 02 §7's UI surface: the link chips on both path bars and the status
@@ -228,6 +229,58 @@ void main() {
     });
   });
 
+  group('screen-reader announcer (02 §13)', () {
+    /// Whether the chip mounted for [tabId] is the live region.
+    bool announces(WidgetTester tester, String tabId) {
+      final semantics = tester.widget<Semantics>(
+        find
+            .descendant(
+              of: find.byKey(ValueKey('$tabId.syncChip')),
+              matching: find.byType(Semantics),
+            )
+            .first,
+      );
+      return semantics.properties.liveRegion ?? false;
+    }
+
+    testWidgets('the active pane\'s chip announces, never both', (
+      tester,
+    ) async {
+      final rig = await pumpPanes(tester);
+      rig.workspace.syncBrowsing.toggle();
+      await tester.pump();
+
+      expect(rig.workspace.activePane, same(rig.workspace.left));
+      expect(announces(tester, 'pane.left.tab1'), isTrue);
+      expect(announces(tester, 'pane.right.tab1'), isFalse);
+
+      rig.workspace.setActivePane(rig.workspace.right);
+      await tester.pump();
+      expect(announces(tester, 'pane.left.tab1'), isFalse);
+      expect(announces(tester, 'pane.right.tab1'), isTrue);
+    });
+
+    testWidgets('a suspension that leaves only the other pane\'s chip on '
+        'screen is still announced there', (tester) async {
+      final rig = await pumpPanes(tester);
+      rig.workspace.syncBrowsing.toggle();
+      await tester.pump();
+
+      // The active left pane switches to an unanchored tab: its chip
+      // leaves, so the right pane's chip must carry the suspension.
+      rig.workspace.left.newTab(target: NewTabTarget.launcher);
+      await tester.pump();
+      await tester.pump();
+      expect(rig.workspace.activePane, same(rig.workspace.left));
+      expect(rig.workspace.syncBrowsing.suspended, isTrue);
+      expect(
+        find.byKey(const ValueKey('pane.left.tab1.syncChip')),
+        findsNothing,
+      );
+      expect(announces(tester, 'pane.right.tab1'), isTrue);
+    });
+  });
+
   group('command registration (02 §8.3/§9)', () {
     testWidgets('view.toggleSyncBrowsing is app-scoped with the spec '
         'chords, the Go-menu slot, and commit-gated enablement', (
@@ -422,20 +475,16 @@ void main() {
       return engine;
     }
 
-    testWidgets('the status bar carries the chip; the anchored tab\'s '
+    testWidgets('the path bars carry the chip; the anchored tab\'s '
         'close is guarded and drops the link on confirm', (tester) async {
       await pumpShell(tester);
 
-      // Arm the link through the toolbar — the same run path ⌥⌘B takes.
-      await tester.tap(find.byKey(
-        const ValueKey('command.view.toggleSyncBrowsing'),
-      ));
+      // Arm the link through the shell's runner — the same run path ⌥⌘B
+      // and the menu take (D32 has no status bar; the path bars carry
+      // the link state).
+      await runShellCommand(tester, 'view.toggleSyncBrowsing', settle: false);
       await settle(tester);
 
-      expect(
-        find.byKey(const ValueKey('statusbar.syncChip')),
-        findsOneWidget,
-      );
       expect(
         find.byKey(const ValueKey('pane.left.tab1.syncChip')),
         findsOneWidget,
@@ -456,7 +505,7 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(
-        find.byKey(const ValueKey('statusbar.syncChip')),
+        find.byKey(const ValueKey('pane.left.tab1.syncChip')),
         findsOneWidget,
       );
 
@@ -465,26 +514,18 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Close'));
       await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('statusbar.syncChip')),
-        findsNothing,
-      );
+      expect(find.byType(SyncBrowseChip), findsNothing);
     });
 
     testWidgets('hiding the second pane suspends the link with the '
         'amber chip; re-showing resumes it', (tester) async {
       final engine = await pumpShell(tester);
-      await tester.tap(find.byKey(
-        const ValueKey('command.view.toggleSyncBrowsing'),
-      ));
+      await runShellCommand(tester, 'view.toggleSyncBrowsing', settle: false);
       await settle(tester);
 
-      // view.toggleSecondPane through the toolbar: pane B unmounts and
-      // the link suspends — the amber chip lands on the status bar.
-      await tester.tap(find.byKey(
-        const ValueKey('command.view.toggleSecondPane'),
-      ));
-      await tester.pumpAndSettle();
+      // view.toggleSecondPane: pane B unmounts and the link suspends —
+      // pane A's anchored path bar turns the amber chip.
+      await runShellCommand(tester, 'view.toggleSecondPane');
 
       expect(
         find.byKey(const ValueKey('secondary-pane')),
@@ -509,10 +550,7 @@ void main() {
 
       // Re-showing restores the strip whole and resumes the link — the
       // anchors never moved.
-      await tester.tap(find.byKey(
-        const ValueKey('command.view.toggleSecondPane'),
-      ));
-      await tester.pumpAndSettle();
+      await runShellCommand(tester, 'view.toggleSecondPane');
 
       expect(
         find.byKey(const ValueKey('secondary-pane')),

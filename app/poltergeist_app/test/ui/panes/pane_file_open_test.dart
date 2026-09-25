@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
+import 'package:flutter/gestures.dart' show PointerDeviceKind, kDoubleTapTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -84,13 +85,22 @@ void main() {
     rightNode.dispose();
   });
 
-  Future<void> pumpShell(WidgetTester tester) async {
+  /// [platform] picks the row gesture model (D32 §6/§9): desktop rows
+  /// select on press and open on a double-click, touch rows open on a
+  /// tap. Defaults to the overridden host, else Linux.
+  Future<void> pumpShell(WidgetTester tester, {TargetPlatform? platform}) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(
+          platform:
+              platform ??
+              debugDefaultTargetPlatformOverride ??
+              TargetPlatform.linux,
+        ),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
@@ -137,14 +147,132 @@ void main() {
     return channel;
   }
 
-  /// Two taps inside the double-tap window: the row's onDoubleTap is the
-  /// §2.6 Open gesture, the deferred single-tap is only selection.
+  /// Two presses inside the double-click window: the second is the
+  /// §2.6 Open gesture, the first only selects (at pointer-down).
   Future<void> doubleTapRow(WidgetTester tester, String name) async {
     await tester.tap(find.text(name));
     await tester.pump(const Duration(milliseconds: 100));
     await tester.tap(find.text(name));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('a single press selects at once and never opens', (
+    tester,
+  ) async {
+    final channel = localChannel();
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await tester.tap(find.text('report.txt'));
+    // No double-tap recognizer to wait out: the press already selected.
+    await tester.pump();
+    expect(left.cursorIndex, 2);
+    expect(left.isRowSelected(2), isTrue);
+    await tester.pumpAndSettle();
+    expect(channel.openCalls, isEmpty);
+
+    // Past the double-click window, a second press is a fresh click.
+    await tester.pump(kDoubleTapTimeout);
+    await tester.tap(find.text('report.txt'));
+    await tester.pumpAndSettle();
+    expect(channel.openCalls, isEmpty);
+  });
+
+  /// One primary mouse click stamped at [at] — the event's own clock,
+  /// which the double-click decision reads (the frame clock can lag it).
+  Future<void> clickAt(WidgetTester tester, String name, Duration at) async {
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.down(tester.getCenter(find.text(name)), timeStamp: at);
+    await gesture.up(timeStamp: at + const Duration(milliseconds: 8));
+    await gesture.removePointer();
+  }
+
+  testWidgets('a double-click is judged by the events\' timestamps, even '
+      'when a slow frame delays the second press', (tester) async {
+    final channel = localChannel();
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await clickAt(tester, 'report.txt', const Duration(seconds: 10));
+    // A heavy rebuild: the frame clock runs far past the window before
+    // the already-queued second press dispatches.
+    await tester.pump(const Duration(milliseconds: 400));
+    await clickAt(tester, 'report.txt', const Duration(milliseconds: 10060));
+    await tester.pumpAndSettle();
+
+    expect(channel.openCalls, ['/home/tester/report.txt']);
+  });
+
+  testWidgets('presses further apart than the window are two clicks, '
+      'however fast the frames', (tester) async {
+    final channel = localChannel();
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await clickAt(tester, 'report.txt', const Duration(seconds: 10));
+    await tester.pump(const Duration(milliseconds: 16));
+    await clickAt(tester, 'report.txt', const Duration(milliseconds: 10400));
+    await tester.pumpAndSettle();
+
+    expect(channel.openCalls, isEmpty);
+    expect(left.isRowSelected(2), isTrue);
+  });
+
+  testWidgets('a double-click in the inactive pane opens there', (
+    tester,
+  ) async {
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entry('archive', type: RemoteFileType.directory),
+      _entry('b.txt', size: 1),
+    ];
+    channel.listings['/home/tester/archive'] = const [];
+    lanes.nextLocalChannel = localChannel();
+    await left.openLocalHome();
+    lanes.nextLocalChannel = channel;
+    await right.openLocalHome();
+    await pumpShell(tester);
+    expect(workspace.activePane, same(leftStrip));
+
+    // The first press activates pane B (a rebuild of both panes and the
+    // inspector's target), then the second lands late on the frame clock.
+    await clickAt(tester, 'archive', const Duration(seconds: 20));
+    await tester.pump(const Duration(milliseconds: 350));
+    await clickAt(tester, 'archive', const Duration(milliseconds: 20070));
+    await tester.pumpAndSettle();
+
+    expect(workspace.activePane, same(rightStrip));
+    expect(right.location?.path, '/home/tester/archive');
+  });
+
+  testWidgets('two presses on different rows are two clicks, never a '
+      'double-click', (tester) async {
+    final channel = localChannel();
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await tester.tap(find.text('notes.md'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('report.txt'));
+    await tester.pumpAndSettle();
+
+    expect(channel.openCalls, isEmpty);
+    expect(left.cursorIndex, 2);
+  });
+
+  testWidgets('on touch platforms a tap opens (D32 §9)', (tester) async {
+    final channel = localChannel();
+    await left.openLocalHome();
+    await pumpShell(tester, platform: TargetPlatform.android);
+
+    await tester.tap(find.text('report.txt'));
+    await tester.pumpAndSettle();
+    expect(channel.openCalls, ['/home/tester/report.txt']);
+
+    await tester.tap(find.text('docs'));
+    await tester.pumpAndSettle();
+    expect(left.location?.path, '/home/tester/docs');
+  });
 
   testWidgets('a double-tap on a file row launches through the channel '
       'under the default Open', (tester) async {
@@ -284,6 +412,30 @@ void main() {
     expect(find.byKey(const ValueKey('pane.error.retry')), findsOneWidget);
     expect(find.byType(Dialog), findsNothing);
     expect(left.notice, isNull);
+  });
+
+  testWidgets('a launcher failure leaves the pane usable and retires on '
+      'the next selection', (tester) async {
+    localChannel().openFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.other,
+      operation: 'open',
+      message: 'No application is registered for this file.',
+    );
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await doubleTapRow(tester, 'report.txt');
+    expect(find.byKey(const ValueKey('pane.error.retry')), findsOneWidget);
+
+    // A failed Open is about ONE file: the folder is still listed, so
+    // copy, delete and the rest stay live rather than stranding the
+    // user until Retry (which would only fail the same way again).
+    expect(left.verbsEnabled, isTrue);
+
+    left.setCursorIndex(left.cursorIndex! == 0 ? 1 : 0);
+    await tester.pumpAndSettle();
+    expect(left.error, isNull);
+    expect(find.byKey(const ValueKey('pane.error.retry')), findsNothing);
   });
 
   testWidgets('an untyped launcher failure renders the authored fault '

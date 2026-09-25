@@ -5,7 +5,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 final _now = DateTime.utc(2026, 9, 12);
 
-Bookmark _bookmark(String id) => Bookmark(
+Bookmark _bookmark(String id, {String? remotePath = '/srv'}) => Bookmark(
   id: id,
   kind: BookmarkKind.remotePath,
   label: 'web.example.com',
@@ -18,7 +18,7 @@ Bookmark _bookmark(String id) => Bookmark(
       secretRef: 'secret-$id',
     ),
   ),
-  remotePath: '/srv',
+  remotePath: remotePath,
   sortKey: id,
   createdAt: _now,
   updatedAt: _now,
@@ -74,7 +74,67 @@ SessionState _fixture() => SessionState(
   ],
 );
 
+/// [tab] alone in the left pane, beside an empty right pane.
+SessionState _single(SessionTabState tab) => SessionState(
+  activePaneId: PaneTabsController.leftPaneId,
+  secondPaneHidden: true,
+  panes: [
+    SessionPaneState(
+      paneId: PaneTabsController.leftPaneId,
+      activeTab: 0,
+      nextTabOrdinal: 2,
+      tabs: [tab],
+    ),
+    const SessionPaneState(
+      paneId: PaneTabsController.rightPaneId,
+      activeTab: -1,
+      nextTabOrdinal: 1,
+      tabs: [],
+    ),
+  ],
+);
+
 void main() {
+  // A Quick Connect to `sftp://user@host` and a SERVERS catalog open
+  // both bind a bookmark that names no landing path (the server's home).
+  // The Bookmark model requires one on decode, so writing that record
+  // verbatim froze every later save and dropped the session on relaunch.
+  group('a remote tab whose bookmark names no path', () {
+    test('round-trips, landing at the server\'s home', () {
+      final state = _single(
+        SessionTabState.remote(
+          serverId: 'adhoc:1',
+          path: '/home/tester/www',
+          bookmark: _bookmark('adhoc:1', remotePath: null),
+        ),
+      );
+      final tab = SessionState.fromJson(state.toJson()).panes.first.tabs.single;
+      expect(tab.path, '/home/tester/www');
+      // "/" is the pane's own spelling of "the server's home" on bind.
+      expect(tab.bookmark?.remotePath, '/');
+    });
+
+    test('decodes from a document already written without it', () {
+      final json = _single(
+        SessionTabState.remote(
+          serverId: 'b1',
+          path: '/srv/www',
+          bookmark: _bookmark('b1'),
+        ),
+      ).toJson();
+      final panes = json['panes']! as List<Object?>;
+      final tabs =
+          (panes.first! as Map<String, Object?>)['tabs']! as List<Object?>;
+      final bookmark =
+          (tabs.single! as Map<String, Object?>)['bookmark']!
+              as Map<String, Object?>;
+      bookmark.remove('remotePath');
+
+      final tab = SessionState.fromJson(json).panes.first.tabs.single;
+      expect(tab.bookmark?.remotePath, '/');
+    });
+  });
+
   test('round-trips a two-pane multi-tab session', () {
     final decoded = SessionState.fromJson(_fixture().toJson());
 
@@ -271,6 +331,37 @@ void main() {
           fixturePanes[1],
         ],
       },
+    ]) {
+      expect(() => SessionState.fromJson(mutation), throwsFormatException);
+    }
+  });
+
+  test('the D32 inspector fields round-trip and stay optional', () {
+    final base = _fixture();
+    final withInspector = SessionState(
+      activePaneId: base.activePaneId,
+      secondPaneHidden: base.secondPaneHidden,
+      inspectorHidden: true,
+      inspectorTab: 'transfers',
+      panes: base.panes,
+    );
+    final decoded = SessionState.fromJson(withInspector.toJson());
+    expect(decoded.inspectorHidden, isTrue);
+    expect(decoded.inspectorTab, 'transfers');
+
+    // A document written before the inspector existed decodes them as
+    // null — the shell derives them from the legacy activity flag.
+    final legacy = base.toJson()
+      ..remove('inspectorHidden')
+      ..remove('inspectorTab');
+    final old = SessionState.fromJson(legacy);
+    expect(old.inspectorHidden, isNull);
+    expect(old.inspectorTab, isNull);
+
+    // Present fields are strictly typed like the rest of the root.
+    for (final mutation in <Map<String, Object?>>[
+      {...legacy, 'inspectorHidden': 'yes'},
+      {...legacy, 'inspectorTab': 3},
     ]) {
       expect(() => SessionState.fromJson(mutation), throwsFormatException);
     }

@@ -169,12 +169,20 @@ final class PreviewHarness {
   final quickLook = FakeQuickLookChannel();
   late final PreviewSession session;
 
+  /// [infoTabShown] is the D32 inspector's Info tab on screen at
+  /// creation — the app's default (10 §3), where the preview well
+  /// follows the selection on its own. [quickLook] replaces the scripted
+  /// [FakeQuickLookChannel] with a real surface (the in-app overlay). Most suites start from a
+  /// user-hidden inspector instead, so Space's open-and-evaluate leg
+  /// (06 §5.2's hidden → prompt step) stays the first thing they drive.
   static Future<PreviewHarness> create({
     bool withProducer = true,
     bool quickLookAvailable = false,
     TargetPlatform platform = TargetPlatform.linux,
     int thresholdBytes = 4096,
     int cacheCapacityBytes = 1 << 20,
+    bool infoTabShown = false,
+    QuickLookChannel? quickLook,
   }) async {
     final h = PreviewHarness();
     h.tempDir = Directory.systemTemp.createTempSync('preview_test');
@@ -190,13 +198,14 @@ final class PreviewHarness {
       left: testPaneStrip(h.left, lanes: h.lanes),
       right: testPaneStrip(h.right, lanes: h.lanes),
     );
+    if (!infoTabShown) h.workspace.setInspectorHidden(true);
     h.quickLook.available = quickLookAvailable;
     h.session = PreviewSession(
       workspace: h.workspace,
       cache: h.cache,
       largeDownloadThresholdBytes: () => thresholdBytes,
       producer: withProducer ? h.producer : null,
-      quickLook: h.quickLook,
+      quickLook: quickLook ?? h.quickLook,
       platform: platform,
     );
     // Drain in-flight production continuations before disposing — a
@@ -207,6 +216,12 @@ final class PreviewHarness {
       await previewSettle();
       h.session.dispose();
       h.workspace.dispose();
+      // A Quick Look close runs an unawaited temp sweep that may still be
+      // listing the directory; a sweep of our own (and a settle) lets it
+      // finish before the directory goes, or its listing throws after
+      // the test completed.
+      await h.cache.sweepTemps();
+      await previewSettle();
       if (h.tempDir.existsSync()) {
         h.tempDir.deleteSync(recursive: true);
       }

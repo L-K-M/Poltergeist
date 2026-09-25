@@ -11,6 +11,7 @@ import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_permissions.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
+import 'package:poltergeist_app/ui/panes/info_panel.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -258,6 +259,44 @@ void main() {
                     ),
                   ),
                 ),
+                // D32's inspector column: the Info panel follows the
+                // active pane's tab, as InspectorView mounts it.
+                SizedBox(
+                  width: 280,
+                  child: RepaintBoundary(
+                    key: const ValueKey('capture.info'),
+                    child: ColoredBox(
+                      color: theme
+                          .extension<PoltergeistChrome>()!
+                          .inspectorBackground,
+                      child: ListenableBuilder(
+                        listenable: workspace,
+                        builder: (context, _) {
+                          final controller = workspace.activeTabController;
+                          if (controller == null) {
+                            return const SizedBox.shrink();
+                          }
+                          return ListenableBuilder(
+                            listenable: controller,
+                            builder: (context, _) => SingleChildScrollView(
+                              padding: const EdgeInsetsDirectional.fromSTEB(
+                                14,
+                                12,
+                                12,
+                                16,
+                              ),
+                              child: InfoPanel(
+                                controller: controller,
+                                clock: _fixedClock,
+                                onEscape: (_) => KeyEventResult.ignored,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -268,15 +307,13 @@ void main() {
     leftNode.requestFocus();
     await tester.pump();
 
-    final leftBoundary = tester.renderObject<RenderRepaintBoundary>(
-      find.byKey(const ValueKey('capture.paneLeft')),
-    );
-    final rightBoundary = tester.renderObject<RenderRepaintBoundary>(
-      find.byKey(const ValueKey('capture.paneRight')),
-    );
     final shellBoundary = tester.renderObject<RenderRepaintBoundary>(
       find.byKey(const ValueKey('capture.shell')),
     );
+    RenderRepaintBoundary infoBoundary() =>
+        tester.renderObject<RenderRepaintBoundary>(
+          find.byKey(const ValueKey('capture.info')),
+        );
     final captureEnabled =
         Platform.environment['POLTERGEIST_CAPTURE'] == '1';
     final outDir = Directory(_captureDir);
@@ -304,9 +341,8 @@ void main() {
     // The local pane's inspector on a file: full metadata rendered
     // plus the D28 permissions editor (octal field + rwx grid).
     left.setCursorIndex(3); // report.txt
-    leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
-    await capture(leftBoundary, 'info-local-file');
+    await capture(infoBoundary(), 'info-local-file');
 
     // The editor mid-draft: an edited octal value the listing hasn't
     // applied yet — the grid, Apply, and the enclosed affordance.
@@ -349,7 +385,7 @@ void main() {
         reason: 'permCell.${cell.$1}.${cell.$2}',
       );
     }
-    await capture(leftBoundary, 'info-local-permissions-draft');
+    await capture(infoBoundary(), 'info-local-permissions-draft');
 
     // The recursive apply's real confirmation dialog — counted copy —
     // over the shell it guards. The dialog rides the root navigator,
@@ -368,7 +404,7 @@ void main() {
     // tally is the post-apply render.
     expect(left.enclosedApply?.stage, EnclosedApplyStage.done);
     await tester.pump();
-    await capture(leftBoundary, 'info-local-permissions-enclosed-done');
+    await capture(infoBoundary(), 'info-local-permissions-enclosed-done');
 
     // The folder target's on-demand measure: Calculate, then the
     // settled total. The panel still sits where the enclosed-apply
@@ -386,20 +422,20 @@ void main() {
     // progress line that survived a regression.
     expect(left.folderSizeInFlight, isFalse);
     expect(left.folderSize?.status, FolderSizeStatus.done);
-    await capture(leftBoundary, 'info-local-folder-size');
+    await capture(infoBoundary(), 'info-local-folder-size');
 
     // The remote pane's inspector on a file: server-side uid/gid/mode
     // shown. The sorted listing puts directories first — deploy.sh is
     // the last row.
+    workspace.setActivePane(rightStrip);
     right.setCursorIndex(2); // deploy.sh
-    rightStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
-    await capture(rightBoundary, 'info-remote-file');
+    await capture(infoBoundary(), 'info-remote-file');
 
     // A remote folder mid-inspection — the Calculate affordance.
     // pumpAndSettle so the retarget's checkbox transitions finish.
     right.setCursorIndex(0); // logs
     await tester.pumpAndSettle();
-    await capture(rightBoundary, 'info-remote-folder');
+    await capture(infoBoundary(), 'info-remote-folder');
   });
 }

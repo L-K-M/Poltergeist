@@ -123,6 +123,10 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   Completer<void>? Function(String path)? downloadGate;
   Completer<void>? Function(String path)? uploadGate;
 
+  /// Parks the upload before it consumes each chunk — a slow remote
+  /// writer, for flow-control bounds.
+  Completer<void>? Function(String path)? uploadChunkGate;
+
   /// Runs before each downloaded chunk — mid-transfer mutation hooks.
   void Function(String path)? beforeDownloadChunk;
 
@@ -411,6 +415,7 @@ class FakeTreeFileSystem implements RemoteFileSystem {
       var received = 0;
       try {
         await for (final chunk in content) {
+          await uploadChunkGate?.call(path)?.future;
           if (cancellation?.isCancelled ?? false) {
             throw RemoteFileException(
               kind: RemoteFileErrorKind.cancelled,

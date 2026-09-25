@@ -45,6 +45,21 @@ class UpdateCheckController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The menu's Check for Updates… (10 §8): the user asked, so it runs
+  /// even while the launch check is turned off, and a newer release
+  /// lands in Alerts exactly as the launch check's would. Returns that
+  /// release, or null: the checker answers null both when this is the
+  /// latest version and when GitHub could not be reached, so a caller
+  /// must not claim either.
+  Future<UpdateInfo?> checkNow(String currentVersion) async {
+    final info = await _checker.check(currentVersion);
+    if (info != null && !identical(info, _update)) {
+      _update = info;
+      notifyListeners();
+    }
+    return info;
+  }
+
   /// The settings toggle's persist path: the write lands before the
   /// field commits, so a failed save rethrows for the caller's
   /// revert idiom and the in-memory flag never diverges from disk.

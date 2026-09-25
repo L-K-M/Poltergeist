@@ -210,6 +210,21 @@ class FakePaneChannel implements AppBrowseChannel {
   FakePaneChannel(this.homePath);
 
   @override
+  Future<void> createDirectory(String path) async {}
+
+  @override
+  Future<RemoteFileEntry> createEmptyFile(String path) async =>
+      RemoteFileEntry(path: path, name: path, type: RemoteFileType.file);
+
+  @override
+  Future<RemoteFileEntry> stat(String path) => throw RemoteFileException(
+    kind: RemoteFileErrorKind.notFound,
+    operation: 'stat',
+    path: path,
+    message: 'not scripted',
+  );
+
+  @override
   final String homePath;
 
   final listings = <String, List<RemoteFileEntry>>{};

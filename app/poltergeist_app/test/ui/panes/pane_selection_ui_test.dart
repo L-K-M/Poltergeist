@@ -120,6 +120,12 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        // D32 §6's pointer semantics are the desktop ones (select on
+        // press, double-click opens); touch platforms open on tap. The
+        // suite pins a desktop theme unless a test overrides the host.
+        theme: ThemeData(
+          platform: debugDefaultTargetPlatformOverride ?? TargetPlatform.linux,
+        ),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
@@ -157,10 +163,9 @@ void main() {
     return channel;
   }
 
-  /// Taps a listing row and advances past the double-tap
-  /// disambiguation window: rows carry both onTap and onDoubleTap, so a
-  /// zero-duration pump leaves the single tap still pending in the
-  /// gesture arena.
+  /// Clicks a listing row, then lets the double-click window lapse so
+  /// the next click on the same row is a fresh single click (D32 §6:
+  /// the press selects at once; only the window needs waiting out).
   Future<void> tapRow(WidgetTester tester, Finder finder) async {
     await tester.tap(finder);
     await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
@@ -443,15 +448,20 @@ void main() {
     leftNode.requestFocus();
     await tester.pump();
 
-    Color? rowSurface(String name) => tester
-        .widget<Material>(
-          find
-              .ancestor(of: find.text(name), matching: find.byType(Material))
-              .first,
+    // A row's fill is its background DecoratedBox; the cursor ring is
+    // the foreground one (it never shifts the row's layout).
+    Iterable<BoxDecoration> rowDecorations(String name) => tester
+        .widgetList<DecoratedBox>(
+          find.ancestor(of: find.text(name), matching: find.byType(DecoratedBox)),
         )
-        .color;
+        .map((box) => box.decoration)
+        .whereType<BoxDecoration>();
+    Color? rowSurface(String name) =>
+        rowDecorations(name).map((d) => d.color).nonNulls.firstOrNull;
+    bool hasCursorRing(String name) =>
+        rowDecorations(name).any((d) => d.border != null);
 
-    // alpha and omega are selected (range members); a.txt is the
+    // alpha, omega, and a.txt are selected (the range); a.txt is the
     // cursor at the range's far end.
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pump();
@@ -461,43 +471,28 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
     await tester.pump();
 
-    // Rows sort alpha(0), omega(1), a.txt(2), m.txt(3), z.txt(4): the
-    // cursor lands on the range's far end — a.txt.
-    final cursorSurface = rowSurface('a.txt');
+    // Rows sort alpha(0), omega(1), a.txt(2), m.txt(3), z.txt(4).
     final selectedSurface = rowSurface('alpha');
-    final plainSurface = rowSurface('z.txt');
+    expect(selectedSurface, isNotNull);
+    expect(rowSurface('omega'), selectedSurface);
+    // D32 §6: every selected row — the cursor's included — takes the
+    // one selection fill; an unselected row paints none.
+    expect(rowSurface('a.txt'), selectedSurface);
+    expect(rowSurface('z.txt'), isNull);
 
-    expect(
-      selectedSurface,
-      isNot(equals(cursorSurface)),
-      reason:
-          'a selected non-cursor row must tint differently than the '
-          'cursor row',
-    );
-    expect(
-      selectedSurface,
-      isNot(equals(plainSurface)),
-      reason:
-          'a selected row must tint differently than an unselected '
-          'row',
-    );
-    expect(cursorSurface, isNot(equals(plainSurface)));
+    // The cursor's shape marker: only the cursor row carries the ring
+    // (inside a multi-selection the fill alone cannot name it).
+    expect(hasCursorRing('a.txt'), isTrue);
+    expect(hasCursorRing('alpha'), isFalse);
+    expect(hasCursorRing('omega'), isFalse);
+    expect(hasCursorRing('m.txt'), isFalse);
+    expect(hasCursorRing('z.txt'), isFalse);
 
-    // The cursor's shape marker: only the cursor row carries the
-    // leading bar (the tints alone are too close to carry the cursor).
-    bool hasCursorBar(String name) => tester
-        .widget<Stack>(
-          find
-              .ancestor(of: find.text(name), matching: find.byType(Stack))
-              .first,
-        )
-        .children
-        .any((child) => child is PositionedDirectional);
-    expect(hasCursorBar('a.txt'), isTrue);
-    expect(hasCursorBar('alpha'), isFalse);
-    expect(hasCursorBar('omega'), isFalse);
-    expect(hasCursorBar('m.txt'), isFalse);
-    expect(hasCursorBar('z.txt'), isFalse);
+    // A lone selected cursor row is its own marker — no ring.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    expect(left.selectedCount, 1);
+    expect(hasCursorRing('m.txt'), isFalse);
   });
 
   testWidgets('selected rows expose the selected semantics flag', (
@@ -593,13 +588,19 @@ void main() {
           'change while the overlay owns the pane',
     );
 
-    // The error shield is scoped to the listing subtree: the path bar
-    // stays the keyboard-adjacent recovery path while the error shows.
+    // The error shield is scoped to the listing subtree: the location
+    // header's ancestor menu stays a recovery path while the error
+    // shows.
     channel.listingFailure = null;
-    await tester.tap(find.text('tester'));
+    channel.listings['/home'] = [
+      _entry('tester', parent: '/home', type: RemoteFileType.directory),
+    ];
+    await tester.tap(find.byKey(const ValueKey('pane.left.path.ancestors')));
     await tester.pumpAndSettle();
-    expect(left.error, isNull, reason: 'the path segment navigated away');
-    expect(find.text('m.txt'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('pane.left.path.ancestor.0')));
+    await tester.pumpAndSettle();
+    expect(left.error, isNull, reason: 'the ancestor menu navigated away');
+    expect(left.location?.path, '/home');
   });
 
   testWidgets('selection is inert while connection-lost', (tester) async {

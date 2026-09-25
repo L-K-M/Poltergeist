@@ -270,6 +270,90 @@ void main() {
     controller.dispose();
   });
 
+  group('column sort (D32 §6)', () {
+    Future<PaneController> sortedPane() async {
+      final lanes = FakePaneLanes();
+      final channel = FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('b.txt', size: 10, modified: DateTime(2026, 9, 1)),
+        _entry(
+          'docs',
+          type: RemoteFileType.directory,
+          modified: DateTime(2026, 9, 9),
+        ),
+        _entry('a.txt', size: 30, modified: DateTime(2026, 9, 3)),
+        _entry('.hidden', size: 99, modified: DateTime(2026, 9, 5)),
+      ];
+      lanes.nextLocalChannel = channel;
+      final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+      addTearDown(controller.dispose);
+      await controller.openLocalHome();
+      await settle();
+      return controller;
+    }
+
+    List<String> names(PaneController pane) => [
+      for (final entry in pane.entries) entry.name,
+    ];
+
+    test('a new column starts at its initial direction; the sorted '
+        'column flips', () async {
+      final pane = await sortedPane();
+      expect(pane.sortKey, FileSortKey.name);
+      expect(pane.sortDirection, FileSortDirection.ascending);
+      expect(names(pane), ['docs', 'a.txt', 'b.txt']);
+
+      // Size and Date start descending (02 §2.3); folders stay first.
+      pane.sortByColumn(FileSortKey.size);
+      expect(pane.sortDirection, FileSortDirection.descending);
+      expect(names(pane), ['docs', 'a.txt', 'b.txt']);
+      pane.sortByColumn(FileSortKey.size);
+      expect(pane.sortDirection, FileSortDirection.ascending);
+      expect(names(pane), ['docs', 'b.txt', 'a.txt']);
+
+      pane.sortByColumn(FileSortKey.modified);
+      expect(pane.sortDirection, FileSortDirection.descending);
+      expect(names(pane), ['docs', 'a.txt', 'b.txt']);
+
+      pane.sortByColumn(FileSortKey.name);
+      expect(pane.sortDirection, FileSortDirection.ascending);
+      pane.sortByColumn(FileSortKey.name);
+      expect(names(pane), ['docs', 'b.txt', 'a.txt']);
+    });
+
+    test('the selection keeps its rows across a re-sort', () async {
+      final pane = await sortedPane();
+      pane.setCursorIndex(names(pane).indexOf('a.txt'));
+
+      pane.sortByColumn(FileSortKey.size);
+      pane.sortByColumn(FileSortKey.size); // ascending: a.txt moves last
+      final cursor = pane.cursorIndex!;
+      expect(pane.entries[cursor].name, 'a.txt');
+      expect(pane.isRowSelected(cursor), isTrue);
+      expect(pane.selectedCount, 1);
+    });
+
+    test('the sort composes with hidden files and the filter, and '
+        'survives a refresh', () async {
+      final pane = await sortedPane();
+      pane.sortByColumn(FileSortKey.size);
+      pane.showHidden = true;
+      expect(names(pane), ['docs', '.hidden', 'a.txt', 'b.txt']);
+
+      pane.setFilterQuery('txt');
+      expect(names(pane), ['a.txt', 'b.txt']);
+
+      pane.refresh();
+      await settle();
+      expect(names(pane), ['a.txt', 'b.txt']);
+      expect(pane.sortKey, FileSortKey.size);
+
+      pane.setFilterQuery('');
+      pane.showHidden = false;
+      expect(names(pane), ['docs', 'a.txt', 'b.txt']);
+    });
+  });
+
   test('navigation issues optimistically and accepts current listings',
       () async {
     final lanes = FakePaneLanes();

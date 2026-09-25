@@ -541,6 +541,74 @@ counterpart is ported here.
 - Divergences: none — carried verbatim (imports re-pointed).
 - Port-back candidates: none.
 
+## app/poltergeist_app/lib/ui/middle_ellipsis_text.dart
+
+- Source: app/seance_app/lib/ui/middle_ellipsis_text.dart
+- Séance commit: 15d0fdddccde6507156ce84ed31a254d0b9d5b13 (the file is
+  byte-identical at Séance `367e4ea`, 2026-09-24)
+- Ported: 2026-09-24
+- Divergences: `Characters` comes through `package:flutter/widgets.dart`'s
+  re-export instead of a direct `package:characters` import (Poltergeist
+  does not list `characters` as a direct dependency, and adding one for a
+  re-exported type would be a second version constraint on the same
+  package). Behavior is unchanged. The widget sits at the same relative
+  path in both apps so the shared sidebar kit
+  (`lib/ui/sidebar/sidebar_kit.dart`, D32 §10) imports it verbatim.
+- Port-back candidates: none — Séance owns the source.
+
+## app/poltergeist_app/test/ui/middle_ellipsis_text_test.dart
+
+- Source: app/seance_app/test/middle_ellipsis_text_test.dart
+- Séance commit: 15d0fdddccde6507156ce84ed31a254d0b9d5b13
+- Ported: 2026-09-24
+- Divergences: the same `Characters` import re-point as the widget;
+  otherwise verbatim (imports re-pointed).
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/sidebar/sidebar_kit.dart (port-out)
+
+- Direction: Poltergeist → Séance (D32 §10's shared sidebar anatomy). New
+  Poltergeist code written to be copied into Séance verbatim; no Séance
+  source was copied in.
+- Written: 2026-09-24
+- Contract: imports only Flutter, the chrome tokens (through the file's
+  one `_chrome()` function — Séance points it at its own ThemeExtension
+  with the same token names), and `../middle_ellipsis_text.dart` (above,
+  same path in both apps). Every string arrives through
+  `SidebarKitStrings`; every behavior through callbacks. No store,
+  service, or model type is referenced.
+- Port-back candidates: the whole file, when Séance adopts the D32 rail.
+- Port-back from Séance: 2026-09-24, from Séance
+  `153fd657dda8d98908e08d53108c81742f390046` (branch
+  `claude/poltergeist-ui-redesign-albp0m`; rationale in Séance's
+  docs/POLTERGEIST.md, "The sidebar kit"). Séance adopted the kit from
+  `58605fa` and improved it, and Poltergeist takes its copy back so the
+  two files differ only in the chrome import, `_chrome()`, and Séance's
+  provenance header. Taken over:
+  - Bug: Shift+F10 or the Menu key opened a row menu, but the row's key
+    handler still took the arrows and Enter. The row now ignores keys
+    unless it has primary focus, the menu gets `childFocusNode`, a
+    keyboard-opened menu focuses its first enabled verb, and Esc closes
+    and an arrow steps into a right-clicked menu.
+  - Bug: the touch verb sheet was capped at 9/16 of the screen. It is
+    now `isScrollControlled` with `useSafeArea`.
+  - Bug: the focus ring was a decoration border that shifted content
+    2 px. It is a `foregroundDecoration` now.
+  - The touch posture: chevrons and "+" stay drawn, and headers, the
+    filter, icon buttons, the bottom bar, the mark and the dot take
+    touch sizes (`sidebarMarkExtent()`).
+  - `SidebarKitScope.background` for rows on a non-rail surface.
+  - Row `subtitle`, `trailingIcon` and `showMenuButton`, with the new
+    required `SidebarKitStrings.rowMenu` (Poltergeist's
+    `sidebarRowMenu`, "More actions").
+  - The kit test's additions, with the theme and chrome re-pointed.
+- Divergence kept, to port back to Séance: the status dot is one value,
+  `SidebarRow.status: SidebarStatusDot?` (colour plus
+  `SidebarDotStyle`), where Séance passes `statusColor` and
+  `statusStyle` separately. A style without a colour cannot be
+  expressed this way. The ring's rendering, `_hollowStroke`, and the
+  enum are Séance's.
+
 ## app/poltergeist_app/lib/services/badge_image.dart
 
 - Source: app/seance_app/lib/services/badge_image.dart
@@ -964,6 +1032,11 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   consumed from the pin, not ported (D2).
 - Port-back candidates: none — the divergences are Poltergeist-local
   (shell mount point, D20 localization, test seam).
+- Retired: 2026-09-24. D32 moved update availability into the
+  inspector's Alerts tab, and nothing mounted the banner after that.
+  The widget, its test and its three ARB keys (`updateBannerText`,
+  `updateViewRelease`, `updateDismissTooltip`) are removed. The checker
+  and `UpdateInfo` stay, feeding the alert.
 
 ## M10 milestone-close sweep (2026-09-22)
 
@@ -1209,6 +1282,25 @@ The original PR-S3 vendored-path scan found 80 first-party files under
 pinned `seance_core` and `seance_protocol` package trees. No gitlinks exist. The
 license scan found only those notices, first-party license/config references,
 and Séance's root Unlicense.
+
+## app/poltergeist_app/macos/Runner/PoltergeistFlutterViewController.{h,m}
+
+- Source: app/seance_app/macos/Runner/SeanceFlutterViewController.{h,m}
+  (with Runner-Bridging-Header.h and the AppInfo.xcconfig
+  `SWIFT_OBJC_BRIDGING_HEADER` setting)
+- Séance commit: 15d0fdd (main, 2026-09-24)
+- Ported: 2026-09-24 (D32 §11)
+- Divergences: class and category names only; the controller is injected
+  into `MacOSWindowUtilsViewController(flutterViewController:)` instead of
+  becoming the window's content controller directly. Séance's native
+  regression script (`scripts/test-macos-accessibility.sh`) is not ported
+  yet — its CI gate is the follow-up; until then the workaround is
+  verified only by Séance's gate against the same Flutter line.
+- Why: Flutter 3.47 destroys `AccessibilityBridge::tree_` before
+  detaching native `FlutterTextField`s; with any accessibility client
+  active a text-input callback can read the freed tree (Séance's
+  docs/macos-accessibility-crash.md). Remove when the engine fixes the
+  destruction order.
 
 <!-- SEANCE_PIN_AUDIT_V1:START -->
 ## Séance pin audit

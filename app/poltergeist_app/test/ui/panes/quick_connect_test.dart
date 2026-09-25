@@ -4,8 +4,10 @@ import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
+import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
+import 'package:poltergeist_app/ui/panes/quick_connect_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/pane_controller_test.dart' as controller_test;
@@ -68,12 +70,15 @@ Future<PaneController> connectAdhoc(
   return controller;
 }
 
-Bookmark adhocBookmark() {
+Bookmark adhocBookmark({
+  String id = 'adhoc:test-id',
+  String label = 'deploy@example.com',
+}) {
   final now = DateTime.utc(2026, 9, 16);
   return Bookmark(
-    id: 'adhoc:test-id',
+    id: id,
     kind: BookmarkKind.remotePath,
-    label: 'deploy@example.com',
+    label: label,
     server: BookmarkServerRef(
       identity: EmbeddedHostIdentity(
         host: 'example.com',
@@ -83,7 +88,7 @@ Bookmark adhocBookmark() {
       ),
     ),
     remotePath: '/srv/www',
-    sortKey: 'adhoc:test-id',
+    sortKey: id,
     createdAt: now,
     updatedAt: now,
   );
@@ -95,11 +100,13 @@ Future<void> pumpPane(
   PaneTabsController strip,
   WorkspaceController workspace, {
   BookmarkStore? bookmarks,
+  ThemeData? theme,
 }) async {
   final node = FocusNode();
   addTearDown(node.dispose);
   await tester.pumpWidget(
     MaterialApp(
+      theme: theme,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
@@ -252,6 +259,71 @@ void main() {
     });
   });
 
+  group('Quick Connect prefill (D32 §6)', () {
+    Future<void> pumpForm(
+      WidgetTester tester,
+      Map<String, String> environment,
+    ) async {
+      final node = FocusNode();
+      addTearDown(node.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: QuickConnectView(
+              focusNode: node,
+              environment: environment,
+              onConnect: (_, _) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    test('USER wins, USERNAME is the Windows fallback, none means blank',
+        () {
+      expect(quickConnectUserPrefill({'USER': 'lkm'}), 'lkm@');
+      expect(quickConnectUserPrefill({'USERNAME': 'Lukas'}), 'Lukas@');
+      expect(
+        quickConnectUserPrefill({'USER': 'a', 'USERNAME': 'b'}),
+        'a@',
+      );
+      expect(quickConnectUserPrefill(const {}), '');
+    });
+
+    testWidgets('the field starts at "\$USER@" with the host helper and '
+        'no error', (tester) async {
+      await pumpForm(tester, {'USER': 'demo'});
+
+      final field = tester.widget<TextField>(addressField);
+      expect(field.controller?.text, 'demo@');
+      expect(
+        field.controller?.selection,
+        const TextSelection.collapsed(offset: 5),
+        reason: 'typing appends the host',
+      );
+      expect(find.text('host[:port]'), findsOneWidget);
+      // A bare user@ is not an address yet — but it is not an error.
+      expect(field.decoration?.errorText, isNull);
+      expect(tester.widget<FilledButton>(connectButton).enabled, isFalse);
+
+      await tester.enterText(addressField, 'demo@example.com');
+      await tester.pump();
+      expect(find.text('host[:port]'), findsNothing);
+      expect(tester.widget<FilledButton>(connectButton).enabled, isTrue);
+    });
+
+    testWidgets('no user in the environment keeps the field blank', (
+      tester,
+    ) async {
+      await pumpForm(tester, const {});
+      expect(tester.widget<TextField>(addressField).controller?.text, '');
+      expect(find.text('host[:port]'), findsNothing);
+    });
+  });
+
   group('Quick Connect connect', () {
     testWidgets('connects through the remote seam with an adhoc bookmark',
         (tester) async {
@@ -294,58 +366,133 @@ void main() {
     });
   });
 
-  group('Save as favorite bar', () {
-    testWidgets('saves through the wired store with no password anywhere',
-        (tester) async {
+  group('Not saved banner (02 §2.7, D32 §6)', () {
+    Future<(PaneController, WorkspaceController)> rig(
+      WidgetTester tester, {
+      BookmarkStore? store,
+      bool withStore = true,
+    }) async {
       final lanes = controller_test.FakePaneLanes();
-      final bookmark = adhocBookmark();
-      final controller = await connectAdhoc(lanes, bookmark);
+      final controller = await connectAdhoc(lanes, adhocBookmark());
       addTearDown(controller.dispose);
       final strip = testPaneStrip(controller, lanes: lanes);
       final right = PaneTabsController(paneId: 'pane.right', lanes: lanes);
       addTearDown(right.dispose);
       final workspace = WorkspaceController(left: strip, right: right);
       addTearDown(workspace.dispose);
-      final store = FakeBookmarkStore();
-      await pumpPane(tester, controller, strip, workspace,
-          bookmarks: store);
-
-      expect(find.byKey(const ValueKey('saveFavorite.bar')), findsOneWidget);
-      expect(
-        find.textContaining('deploy@example.com'),
-        findsWidgets,
+      await pumpPane(
+        tester,
+        controller,
+        strip,
+        workspace,
+        bookmarks: withStore ? store ?? FakeBookmarkStore() : null,
+        // The desktop chrome the banner is drawn for (D32's 22 px rows).
+        theme: buildPoltergeistTheme(
+          Brightness.light,
+          platform: TargetPlatform.linux,
+        ),
       );
+      return (controller, workspace);
+    }
+
+    final bar = find.byKey(const ValueKey('saveFavorite.bar'));
+
+    testWidgets('is one slim line naming the live endpoint', (tester) async {
+      await rig(tester);
+      expect(bar, findsOneWidget);
+      expect(find.text('Not saved · deploy@example.com'), findsOneWidget);
+      expect(find.text('Save to Servers…'), findsOneWidget);
+      // One line, not a form: no field until the name prompt opens.
+      expect(tester.getSize(bar).height, lessThanOrEqualTo(32));
+      expect(find.byType(TextField), findsNothing);
+    });
+
+    testWidgets('Save to Servers… runs the sidebar\'s prompt and saves '
+        'with no password anywhere', (tester) async {
+      final store = FakeBookmarkStore();
+      await rig(tester, store: store);
 
       await tester.tap(find.byKey(const ValueKey('saveFavorite.save')));
+      await tester.pumpAndSettle();
+      // The sidebar's name prompt, prefilled with the endpoint.
+      expect(find.text('Save to Servers'), findsOneWidget);
+      final field = tester.widget<TextFormField>(
+        find.byKey(const ValueKey('saveFavorite.name')),
+      );
+      expect(field.initialValue, 'deploy@example.com');
+
+      await tester.tap(find.byKey(const ValueKey('saveFavorite.confirm')));
       await tester.pumpAndSettle();
 
       expect(store.bookmarks, hasLength(1));
       final saved = store.bookmarks.single;
       expect(saved.id.startsWith('adhoc:'), isFalse);
+      expect(saved.label, 'deploy@example.com');
       expect(saved.server?.identity?.host, 'example.com');
       expect(saved.remotePath, '/srv/www');
-      expect(
-        saved.toJson().toString().contains('secret'),
-        isFalse,
-      );
-      expect(find.byKey(const ValueKey('saveFavorite.bar')), findsNothing);
+      expect(saved.toJson().toString().contains('secret'), isFalse);
+      expect(bar, findsNothing);
     });
 
-    testWidgets('without a store the save posts the honest notice',
-        (tester) async {
-      final lanes = controller_test.FakePaneLanes();
-      final bookmark = adhocBookmark();
-      final controller = await connectAdhoc(lanes, bookmark);
-      addTearDown(controller.dispose);
-      final strip = testPaneStrip(controller, lanes: lanes);
-      final right = PaneTabsController(paneId: 'pane.right', lanes: lanes);
-      addTearDown(right.dispose);
-      final workspace = WorkspaceController(left: strip, right: right);
-      addTearDown(workspace.dispose);
-      await pumpPane(tester, controller, strip, workspace,
-          bookmarks: null);
+    testWidgets('cancelling the prompt saves nothing and keeps the banner', (
+      tester,
+    ) async {
+      final store = FakeBookmarkStore();
+      await rig(tester, store: store);
+      await tester.tap(find.byKey(const ValueKey('saveFavorite.save')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(store.bookmarks, isEmpty);
+      expect(bar, findsOneWidget);
+    });
 
-      expect(find.byKey(const ValueKey('saveFavorite.bar')), findsOneWidget);
+    testWidgets('leaves once the endpoint is saved from anywhere, the '
+        'sidebar included', (tester) async {
+      final store = FakeBookmarkStore();
+      await rig(tester, store: store);
+      expect(bar, findsOneWidget);
+
+      // The rail's "Save to Servers…" writes the same endpoint.
+      await tester.runAsync(
+        () => store.save(
+          adhocBookmark(id: 'saved-1', label: 'deploy'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(bar, findsNothing);
+    });
+
+    testWidgets('an endpoint already saved shows no banner at all', (
+      tester,
+    ) async {
+      final store = FakeBookmarkStore([
+        adhocBookmark(id: 'saved-1', label: 'deploy'),
+      ]);
+      await rig(tester, store: store);
+      expect(bar, findsNothing);
+    });
+
+    testWidgets('× dismisses it for this tab', (tester) async {
+      final (controller, _) = await rig(tester);
+      await tester.tap(find.byKey(const ValueKey('saveFavorite.dismiss')));
+      await tester.pumpAndSettle();
+      expect(bar, findsNothing);
+      expect(controller.unsavedBannerDismissed, isTrue);
+
+      // A later rebuild (a refresh, a notice) does not bring it back.
+      controller.notePathCopied();
+      await tester.pump();
+      await tester.pump(controller.noticeLifetime);
+      await tester.pumpAndSettle();
+      expect(bar, findsNothing);
+    });
+
+    testWidgets('without a store the save posts the honest notice', (
+      tester,
+    ) async {
+      final (controller, _) = await rig(tester, withStore: false);
+      expect(bar, findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('saveFavorite.save')));
       await tester.pump();
@@ -355,52 +502,29 @@ void main() {
       expect(controller.notice, isNull);
     });
 
-    testWidgets('a store failure stays on the bar with an inline error',
-        (tester) async {
-      final lanes = controller_test.FakePaneLanes();
-      final bookmark = adhocBookmark();
-      final controller = await connectAdhoc(lanes, bookmark);
-      addTearDown(controller.dispose);
-      final strip = testPaneStrip(controller, lanes: lanes);
-      final right = PaneTabsController(paneId: 'pane.right', lanes: lanes);
-      addTearDown(right.dispose);
-      final workspace = WorkspaceController(left: strip, right: right);
-      addTearDown(workspace.dispose);
+    testWidgets('a store failure stays on the banner with the error in its '
+        'line', (tester) async {
       final store = FakeBookmarkStore()..saveFailure = Exception('disk full');
-      await pumpPane(tester, controller, strip, workspace,
-          bookmarks: store);
+      await rig(tester, store: store);
 
       await tester.tap(find.byKey(const ValueKey('saveFavorite.save')));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('saveFavorite.confirm')));
+      await tester.pumpAndSettle();
 
-      // The bar stays mounted so the save remains retryable; the
-      // empty store proves the write went to the store, not a stub.
+      // The banner stays so the save remains retryable; the empty store
+      // proves the write went to the store, not a stub.
       expect(store.bookmarks, isEmpty);
-      expect(find.byKey(const ValueKey('saveFavorite.bar')), findsOneWidget);
+      expect(bar, findsOneWidget);
       expect(find.byKey(const ValueKey('saveFavorite.error')), findsOneWidget);
     });
 
-    testWidgets('the bar never overflows a narrow pane', (tester) async {
-      final lanes = controller_test.FakePaneLanes();
-      final bookmark = adhocBookmark();
-      final controller = await connectAdhoc(lanes, bookmark);
-      addTearDown(controller.dispose);
-      final strip = testPaneStrip(controller, lanes: lanes);
-      final right = PaneTabsController(paneId: 'pane.right', lanes: lanes);
-      addTearDown(right.dispose);
-      final workspace = WorkspaceController(left: strip, right: right);
-      addTearDown(workspace.dispose);
-
-      // A side-by-side Row of title + 240px field + Save needs ~360px;
-      // at 320 the old shape overflows, the Wrap shape reflows.
+    testWidgets('the banner never overflows a narrow pane', (tester) async {
       tester.view.physicalSize = const Size(320, 600);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-
-      await pumpPane(tester, controller, strip, workspace,
-          bookmarks: FakeBookmarkStore());
-
-      expect(find.byKey(const ValueKey('saveFavorite.bar')), findsOneWidget);
+      await rig(tester);
+      expect(bar, findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });

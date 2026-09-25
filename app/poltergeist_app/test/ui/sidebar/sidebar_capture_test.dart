@@ -8,6 +8,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
+import 'package:poltergeist_app/services/local_volumes.dart';
 import 'package:poltergeist_app/services/sidebar_controller.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/sidebar/sidebar_view.dart';
@@ -15,9 +16,9 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../support/fake_bookmark_store.dart';
 
-/// Real-font captures of the M5 sidebar (02 §4) for visual review: the
-/// grouped favorites list with all four bookmark kinds, and a row's
-/// context menu. The widget-test default font renders hollow boxes, so
+/// Real-font captures of the D32 sidebar (10 §5) for visual review:
+/// DEVICES, FAVORITES, and grouped SERVERS over the shared kit, and a
+/// row's context menu. The widget-test default font renders hollow boxes, so
 /// the capture loads a real face when the host provides one — set
 /// POLTERGEIST_CAPTURE_FONT_DIR or rely on the DejaVu fallback. The PNGs
 /// land in tasks/run3-task76/captures/ at the repo root (or
@@ -91,6 +92,49 @@ Future<void> _loadRealFonts() async {
   }
 }
 
+/// Scripted DEVICES for the capture — never the capturing host's mounts.
+final class _CaptureVolumes implements LocalVolumeSource {
+  @override
+  Future<List<LocalVolume>> list() async => const [
+    LocalVolume(
+      path: '/home/deploy',
+      name: 'deploy',
+      kind: LocalVolumeKind.home,
+      freeBytes: 69000000000,
+    ),
+    LocalVolume(
+      path: '/',
+      name: 'Macintosh HD',
+      kind: LocalVolumeKind.root,
+      freeBytes: 69000000000,
+    ),
+    LocalVolume(
+      path: '/Volumes/STICK',
+      name: 'STICK',
+      kind: LocalVolumeKind.removable,
+      freeBytes: 2000000000,
+    ),
+  ];
+
+  @override
+  Future<int?> freeBytes(LocalVolume volume) async => volume.freeBytes;
+
+  @override
+  Future<List<String>> standardFolders() async => const [];
+
+  @override
+  String? get homeDirectory => '/home/deploy';
+
+  @override
+  Future<bool> isDirectory(String path) async => false;
+
+  @override
+  Stream<void> get changes => const Stream.empty();
+
+  @override
+  Future<bool> eject(LocalVolume volume) async => false;
+}
+
 void main() {
   testWidgets('captures the grouped sidebar and a row context menu', (
     tester,
@@ -136,7 +180,10 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
-    final base = buildPoltergeistTheme(Brightness.dark);
+    final base = buildPoltergeistTheme(
+      Brightness.dark,
+      platform: TargetPlatform.linux,
+    );
     final theme = base.copyWith(
       textTheme: base.textTheme.apply(fontFamily: 'DejaVu Sans'),
       primaryTextTheme: base.primaryTextTheme.apply(
@@ -160,9 +207,17 @@ void main() {
               child: SidebarView(
                 controller: controller,
                 onOpenFavorite: (_, _) {},
-                onOpenConnection: (_) {},
                 onDisconnect: (_) {},
                 onReviewBlocked: (_) {},
+                volumes: _CaptureVolumes(),
+                onQuickConnect: () {},
+                onOpenSettings: () {},
+                syncStatus: () => SidebarSyncStatus(
+                  enrolled: true,
+                  lastSyncAt: DateTime.now().subtract(
+                    const Duration(minutes: 2),
+                  ),
+                ),
               ),
             ),
           ),
@@ -196,8 +251,8 @@ void main() {
       File('${outDir.path}/$name.png').writeAsBytesSync(bytes);
     }
 
-    // The grouped list: 'work' and 'home' headers with their members,
-    // then ungrouped local/workspace/sync rows under the flat section.
+    // DEVICES, then the loose favorites, then SERVERS with the 'work'
+    // and 'home' groups as nested disclosure rows.
     expect(find.text('work'), findsOneWidget);
     expect(find.text('home'), findsOneWidget);
     await capture('sidebar-grouped');

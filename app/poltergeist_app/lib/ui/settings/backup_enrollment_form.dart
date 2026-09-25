@@ -69,10 +69,13 @@ final class BackupEnrollmentForm extends StatefulWidget {
 }
 
 class _BackupEnrollmentFormState extends State<BackupEnrollmentForm> {
-  // §4.3's preselection: Design B is the default the copy leads with —
-  // "a new account just for Poltergeist" means register is its first
-  // action, login the existing-account path.
-  SyncAccountMode _mode = SyncAccountMode.separate;
+  // D32 §10 (amending 04 §4.1): the sibling apps share one account, so
+  // the Séance account is preselected whenever the gate offers it; the
+  // fleet checkbox and pin disclosure still guard Continue. A build whose
+  // gate records no tag falls back to the separate account.
+  late SyncAccountMode _mode = widget.gate.sharedAccountOffered
+      ? SyncAccountMode.shared
+      : SyncAccountMode.separate;
   SyncEnrollmentMode _action = SyncEnrollmentMode.register;
   bool _fleetConfirmed = false;
   bool _busy = false;
@@ -193,11 +196,6 @@ class _BackupEnrollmentFormState extends State<BackupEnrollmentForm> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _BackupModeTile(
-                value: SyncAccountMode.separate,
-                label: l10n.backupModeSeparate,
-                key: const ValueKey('backup.mode.separate'),
-              ),
               if (sharedVersion != null)
                 _BackupModeTile(
                   value: SyncAccountMode.shared,
@@ -243,6 +241,13 @@ class _BackupEnrollmentFormState extends State<BackupEnrollmentForm> {
                     ),
                   ),
               ],
+              // The separate account stays one click away for users
+              // who keep Poltergeist's bookmarks apart from Séance.
+              _BackupModeTile(
+                value: SyncAccountMode.separate,
+                label: l10n.backupModeSeparate,
+                key: const ValueKey('backup.mode.separate'),
+              ),
             ],
           ),
         ),

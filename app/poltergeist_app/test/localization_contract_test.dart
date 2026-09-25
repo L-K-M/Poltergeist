@@ -148,16 +148,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // `operation` label is diagnostic metadata (the exception renders
   // `message`, which is ARB copy) — never authored UI text.
   'lib/services/transfer_queue_session.dart': {"'transfer channel'"},
-  // The checkout session's store paths, the `df` probe invocation, and
-  // its output parsing — machine data, never rendered UI copy.
+  // The checkout session's store paths — machine data, never rendered UI
+  // copy (its `df` probe moved to local_volumes.dart).
   'lib/services/checkout_session.dart': {
     "'\$supportDirectoryPath\${Platform.pathSeparator}'",
     "'managed_remote_files.json'",
     "'\$supportDirectoryPath\${Platform.pathSeparator}checkouts'",
-    "'df'",
-    "'-k'",
-    r"'\n'",
-    r"r'\s+'",
   },
   'lib/services/app_preferences.dart': {
     "'layout.paneRatio'",
@@ -168,9 +164,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'tabs.newTabTarget'",
     "'panes.doubleClickAction'",
     "'tabs.reconnectRestored'",
-    // The activity panel's persisted keys (02 §1/§6): height, the two
-    // throttle limits, and the auto-remove flag — settings.json keys.
-    "'layout.activityPanelHeight'",
+    // The D32 region widths (10 §3.1) — settings.json keys.
+    "'layout.sidebarWidth'",
+    "'layout.inspectorWidth'",
+    // The activity panel's persisted keys (02 §1/§6): the two throttle
+    // limits and the auto-remove flag — settings.json keys.
     "'transfer.downloadLimitBytesPerSecond'",
     "'transfer.uploadLimitBytesPerSecond'",
     "'transfer.autoClearCompleted'",
@@ -241,6 +239,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // splitter chrome): key plus its strict-type diagnostic.
     "'activityPanelHidden'",
     "'Invalid session activity panel flag'",
+    // The D32 inspector's optional visibility and tab (10 §3.1): keys
+    // plus their strict-type diagnostics.
+    "'inspectorHidden'",
+    "'inspectorTab'",
+    "'Invalid session inspector flag'",
+    "'Invalid session inspector tab'",
   },
   // The settings.json key the session document lives under (02 §3).
   'lib/services/session_state_store.dart': {"'session.state'"},
@@ -316,9 +320,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The save dialog's name-field widget key — plumbing, not copy.
   'lib/ui/workspace/save_workspace_dialog.dart': {"'workspaceSave.name'"},
-  // The D19 banner's widget keys and the General dialog's keys/toggle
-  // key — plumbing for tests, never rendered.
-  'lib/ui/update_banner.dart': {"'update.viewRelease'", "'update.dismiss'"},
+  // The General dialog's keys/toggle key — plumbing for tests, never
+  // rendered.
   'lib/ui/settings/general_settings.dart': {
     "'general.settings.dialog'",
     "'general.settings.close'",
@@ -326,6 +329,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The Settings command id (D21 plumbing) — registered, never rendered.
   'lib/ui/settings/app_settings_command.dart': {"'app.settings'"},
+  // 10 §8's platform-row command ids (D21 plumbing), never rendered.
+  'lib/ui/menus/app_menu_commands.dart': {
+    "'app.checkForUpdates'",
+    "'app.quit'",
+  },
   // The workspace command ids (D21 plumbing) — the open commands key
   // per-record to the persisted workspace id.
   'lib/ui/workspace/workspace_commands.dart': {
@@ -663,7 +671,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     '\'finally\'',
     '\'float\'',
     '\'fn\'',
-    '\'font-face\'',
     '\'for\'',
     '\'foreach\'',
     '\'foreign\'',
@@ -935,11 +942,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     'r\'^[ \\t]*(?:-[ \\t]+)*([^\\s#-][^:\\n]*?)[ \\t]*:(?=[ \\t]|\$)\'',
     'r\'^[ \\t]*\\[[^\\]\\n]+\\]\'',
   },
-  // Registered commands render from the registry keyed by id — widget
-  // plumbing, not authored copy. The pane ids and focus-node labels key
-  // to the engine's paneTabId channel identity (03 §3.2).
+  // The pane ids and focus-node labels key to the engine's paneTabId
+  // channel identity (03 §3.2) — widget plumbing, not authored copy.
   'lib/ui/workspace_shell.dart': {
-    "'command.\${command.id}'",
     "'connectionEngine is ignored when engineSession is provided'",
     "'pane.left.listing'",
     "'pane.right.listing'",
@@ -948,26 +953,34 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.region'",
     r"'sidebar.open: localFolder ${bookmark.id} has no path'",
     r"'sidebar.open: savedSync ${bookmark.id} has no spec'",
-    r"'sidebar.connOpen: no bookmark for ${server.serverId}'",
     // The catalog open path's unresolved-serverConfigId diagnostic and
     // the transient bookmark's empty sort key — reported fault and
     // machine data, never rendered copy.
     r"'sidebar.open: serverConfigId ${ref.serverConfigId} '",
     "'resolves to no pulled server'",
     "''",
-    // The status bar's sync chip widget key — plumbing, not copy.
-    "'statusbar.syncChip'",
-    // The activity panel's widget keys (splitter, panel, status chips)
-    // and the reveal-in-pane's missing-bookmark diagnostic — plumbing
-    // and a reported fault, never rendered copy.
-    "'activity.panel.splitter'",
-    "'activity.splitter'",
-    "'activity.panel'",
-    "'statusbar.transferChip'",
-    "'statusbar.limitChip'",
+    // The D32 chrome's widget keys and focus-node labels (splitters,
+    // inspector mounts, header title/filter, the connect dialog) and the reveal-in-pane's missing-bookmark diagnostic —
+    // plumbing and a reported fault, never rendered copy.
+    "'sidebar.splitter'",
+    "'inspector.splitter'",
+    "'inspector.overlay'",
+    "'inspector.region'",
+    "'header.title'",
+    "'header.filter'",
     r"'revealInPane: no bookmark for $serverId'",
+    // The header title's address grammar (10 §4): the `user@host`
+    // subtitle and the `user@host:path` / `label:path` tooltip —
+    // machine data like the sidebar's addresses.
+    r"'${identity.username}@${identity.host}'",
+    r"'${identity.username}@${identity.host}:${loc.path}'",
+    r"'${bookmark.label}:${loc.path}'",
     // The confirm dialog's bullet list marker — typographic, not copy.
     r"'• ${tabCloseTriggerLabel(l10n, trigger)}'",
+    // The Connect dialog rows' endpoint grammar (`user@host:port`) —
+    // machine data, like the header subtitle's.
+    r"'$host:$port'",
+    r"'$user@$address'",
     // The built-in editor's route keys (06 §4.2) and the reported
     // wiring fault — machine data and a dev-facing diagnostic, never
     // rendered copy (the toast is the ARB string).
@@ -1052,6 +1065,24 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'\uFFFD'",
     // Debug-only invariant messages — never rendered.
     "'_loweredNames out of sync with _listing — assign via _setListing'",
+    // The create verbs' operation tags and path arithmetic (02 §8.3's
+    // file.newFolder / file.newFile) — the engine's operation labels and
+    // machine path data, never UI copy.
+    "'create directory'",
+    "'create file'",
+    r"'${location.path}$separator'",
+    r"'$parent$candidate'",
+    r"'$parent$baseName'",
+  },
+  // The bridged lease's config source: the resolve operation tag and the
+  // sync-endpoint serverId scheme — machine identifiers, never UI copy
+  // (the catalog-miss message itself is ARB).
+  'lib/services/server_config_source.dart': {
+    "'resolve server'",
+    "'sync-endpoint:'",
+    r"'$_syncServerIdPrefix$catalogId'",
+    r"'$_syncServerIdPrefix${identity!.username}@${identity.host}:'",
+    r"'${identity.port}'",
   },
   // The location type's value semantics: toString output for debugging
   // and the path-separator arithmetic (POSIX and Windows forms).
@@ -1146,10 +1177,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/menus/app_menu_host.dart': {
     r"'menu.${menu.id.name}'",
     r"'menu.item.${command.id}'",
+    "'menu.main'",
   },
   // Debug-only placement-slot invariant diagnostics — never rendered.
   'lib/ui/menus/app_menus.dart': {
-    "'the macOS application menu is platform chrome only'",
+    "'commands reach the macOS application menu via appMenuOnMac'",
     r"'${p.group}:${p.order}'",
     r"'${command.id} shares menu slot ${p.group}:${p.order}'",
   },
@@ -1161,6 +1193,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'go.editPath'",
     "'go.enclosing'",
     "'go.forward'",
+    "'go.home'",
     "'go.open'",
     "'go.toFolder'",
     "'file.editBuiltIn'",
@@ -1186,6 +1219,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'tab.reopenClosed'",
     "'tab.next'",
     "'tab.previous'",
+    // D32's view.toggleHidden and selection.copyPath ids, and the
+    // newline that joins several copied paths — machine data.
+    "'view.toggleHidden'",
+    "'selection.copyPath'",
+    "'view.sortBy'",
+    r"'$kViewSortByCommandId:${key.name}'",
+    r"'\n'",
     r"'Duplicate shortcut activator $activator: later command wins'",
   },
   // The tab strip's widget keys and pane-id name lookup — widget plumbing
@@ -1197,6 +1237,15 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.tabDropIndicator'",
     // The entry-drop wrapper's reorder key — plumbing, not copy.
     r"'entry-drop-${tab.id}'",
+    // D32's active-pane marker and the tab menu's row keys — plumbing
+    // keyed to the strip and tab ids, never authored copy.
+    r"'${tabs.paneId}.activeIndicator'",
+    r"'${tabs.paneId}.inactiveSeparator'",
+    r"'${tab.id}.menu.close'",
+    r"'${tab.id}.menu.closeOthers'",
+    r"'${tab.id}.menu.duplicate'",
+    r"'${tab.id}.menu.moveToOtherPane'",
+    r"'${tab.id}.menu.copyPath'",
     // Root-path fallback in the remote tooltip — path data, not copy.
     "'/'",
     // The sync tab's endpoint tooltip plumbing: the pair's two paths
@@ -1208,7 +1257,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'remote'",
   },
   'lib/ui/panes/pane_view.dart': {
-    "'pane.footer'",
     "'pane.error.retry'",
     "'pane.banner'",
     "'pane.banner.cancel'",
@@ -1224,17 +1272,33 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${controller.paneTabId}.progress'",
     r"'${widget.controller.paneTabId}.quickSelect.field'",
     r"'${widget.controller.paneTabId}.rename.field'",
+    // The rename editor's box key and the single space it measures an
+    // empty name by — plumbing, never copy.
+    r"'${widget.controller.paneTabId}.rename.box'",
+    "' '",
     r"'${widget.controller.paneTabId}.path.field'",
-    r"'${widget.controller.paneTabId}.filter.field'",
-    r"'${widget.controller.paneTabId}.filter.clear'",
+    // D32 §6's location-header keys: the name, the summary line, and
+    // the ancestor menu with its rows — plumbing, never copy.
+    r"'${controller.paneTabId}.path.name'",
+    r"'${controller.paneTabId}.path.summary'",
+    r"'${controller.paneTabId}.path.ancestors'",
+    r"'${controller.paneTabId}.path.ancestor.$i'",
     r"'${controller.paneTabId}.filter.emptyClear'",
     r"'${controller.paneTabId}.notice.dismiss'",
     r"'${controller.paneTabId}.syncChip'",
     "''",
     // The rename editor's stem-selection dot — name arithmetic, not copy.
     "'.'",
-    "'/'",
-    "'\\\\'",
+  },
+  // D32 §6's column header keys — plumbing keyed to the tab id and the
+  // sort key's enum name, never authored copy.
+  'lib/ui/panes/pane_column_header.dart': {
+    r"'$paneTabId.columns'",
+    r"'$paneTabId.column.${key.name}'",
+  },
+  // The context menu's row keys — registry plumbing, never copy.
+  'lib/ui/panes/pane_context_menu.dart': {
+    r"'pane.context.${command.id}'",
   },
   // The missing-mirror cause's empty-name fallback — a null-safety
   // placeholder, never rendered as copy.
@@ -1253,6 +1317,17 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$text ${_byteUnits[unit]}'",
     // The octal pad's fill character — formatting mechanics, not copy.
     "'0'",
+    // The kind-glyph classifier's extension tables, their separator,
+    // and the extension dot — file-name machine data, never rendered.
+    "'png jpg jpeg gif webp bmp tif tiff heic heif svg ico avif psd raw'",
+    "'txt md markdown rst log csv tsv json yaml yml toml xml html htm css'",
+    "'scss js mjs ts jsx tsx dart py rb go rs java kt swift c h cc cpp hpp'",
+    "'m mm cs php sh bash zsh fish ps1 bat sql ini conf cfg env lock'",
+    "'zip tar gz tgz bz2 xz 7z rar zst lz4 dmg iso deb rpm pkg jar apk'",
+    "'mp3 wav flac aac ogg m4a opus mp4 mov mkv avi webm m4v wmv mpg'",
+    "' '",
+    "'pdf'",
+    "'.'",
   },
   // The inspector's widget keys — widget plumbing keyed for tests and
   // the pointer-bounce boundary, never authored copy. '' is the empty
@@ -1261,7 +1336,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // and their uppercase first letters render the rwx column heads.
   'lib/ui/panes/info_panel.dart': {
     "''",
-    "'infoPanel.close'",
     "'infoPanel.calculateSize'",
     "'infoPanel.cancelSize'",
     "'infoPanel.retrySize'",
@@ -1353,17 +1427,31 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$quickConnectAdhocIdPrefix${uuidV4()}'",
     r"'$username@${_hostLabel(target)}'",
     r"'${target.host}:${target.port}'",
+    // The `$USER@` prefill's environment keys and its user@ join (D32
+    // §6) — process-environment machine data, never authored copy.
+    "'USER'",
+    "'USERNAME'",
+    r"'$user@'",
   },
-  // The save bar's widget keys and the live-session label compositions
-  // (endpoint machine data beside ARB-authored copy) — plumbing, never
-  // authored copy.
+  // The Not saved banner's widget keys — plumbing, never authored copy.
   'lib/ui/panes/save_favorite_bar.dart': {
     "'saveFavorite.bar'",
     "'saveFavorite.name'",
+    "'saveFavorite.confirm'",
     "'saveFavorite.save'",
+    "'saveFavorite.label'",
     "'saveFavorite.error'",
+    "'saveFavorite.dismiss'",
+  },
+  // The shared name prompt's empty default and the endpoint grammar a
+  // live session is labelled and matched by (`user@host:port`) —
+  // machine data beside ARB-authored copy, never authored copy.
+  'lib/ui/save_to_servers.dart': {
+    "''",
     r"'${identity.host}:${identity.port}'",
-    r"'$username@$host'",
+    r"'${identity.username}@$host'",
+    r"'${identity.username}@${identity.host.toLowerCase()}:'",
+    r"'${identity.port}'",
   },
   'lib/ui/import/ssh_config_import_command.dart': {
     "'favorite.importSshConfig'",
@@ -1384,67 +1472,222 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'Probe truth must be painted by ProbeStatusDot/ServerStateIndicator; '",
     "'ServerStateGlyph has no probe paint.'",
   },
-  // The sidebar's widget keys, its section-collapse key prefix, the
-  // semantics-label compositions (machine data beside ARB copy), and the
-  // endpoint line — plumbing, never authored copy.
+  // The D32 sidebar library (sidebar_view.dart and its parts): widget keys,
+  // selection-key and menu-key compositions, path separators for folder
+  // labels, and semantics/tooltip labels composed of localized parts or
+  // endpoint data — plumbing, never authored copy.
   'lib/ui/sidebar/sidebar_view.dart': {
-    "'sidebar.connections'",
-    r"'sidebar.connection.${server.serverId}'",
-    "'sidebar.retry'",
-    r"'sidebar.favorite.${bookmark.id}'",
-    r"'sidebar.section.${widget.sectionKey}'",
-    "'sidebar.favorite'",
-    "'sidebar.importSshConfig'",
-    r"'${bookmark.label}, ${appearance.label}'",
-    "'sidebar.menu.open'",
-    "'sidebar.menu.openNewTab'",
-    "'sidebar.menu.openOtherPane'",
-    "'sidebar.menu.updateWorkspace'",
-    "'sidebar.menu.localEdits'",
-    "'sidebar.menu.rename'",
-    "'sidebar.menu.moveToGroup'",
-    "'sidebar.menu.delete'",
-    "'sidebar.menu.ungroup'",
-    "'sidebar.menu.newGroup'",
+    "'sidebar.noMatches'",
+    "'sidebar.filter'",
+    "'sidebar.filter.field'",
+    "'sidebar.bottomBar'",
+    "'sidebar.add'",
+    "'sidebar.settings'",
+    "'sidebar.add.newServer'",
+    "'sidebar.add.quickConnect'",
+    "'sidebar.add.currentFolder'",
+    "'sidebar.add.newGroup'",
+    "'sidebar.add.importSshConfig'",
+    "'/'",
+    "'sidebar.syncChip'",
+    r"r'\'",
+    r"'device:$path'",
+    r"'fav:$id'",
+    r"'server:$serverId'",
+    "'sidebar.menu'",
+    r"'$keyPrefix.open'",
+    r"'$keyPrefix.openNewTab'",
+    r"'$keyPrefix.openOtherPane'",
+  },
+  'lib/ui/sidebar/sidebar_devices_section.dart': {
+    r"'${volume.name} ${volume.path}'",
+    r"'sidebar.device.${volume.path}'",
+    r"'sidebar.section.$sectionKey'",
+    r"'device:${volume.path}'",
+    "''",
+    r"'${volume.name}, ${l10n.sidebarFreeSpaceSemantics(freeSpace!)}'",
+    r"'sidebar.device.eject.${volume.path}'",
+    "'sidebar.menu.addToFavorites'",
+    "'sidebar.menu.eject'",
+    // D32 §9's "This device" row: its widget key and the '~' home anchor
+    // the engine expands (the local pane's own home) — machine data.
+    "'sidebar.device.thisDevice'",
+    "'~'",
+  },
+  // D32 §9's Home presentation of the sidebar: widget keys and the empty
+  // query the clear button writes — plumbing, never authored copy.
+  'lib/ui/sidebar/sidebar_home.dart': {
+    "'sidebar.home.search'",
+    "'sidebar.home.list'",
+    "'sidebar.home.add'",
+    "'sidebar.home.search.clear'",
+    "''",
+    // A Home row's announcement joins its localized parts.
+    "', '",
+  },
+  'lib/ui/sidebar/sidebar_dialogs.dart': {
+    "''",
     "'sidebar.renameField'",
     "'sidebar.renameSave'",
     "'sidebar.groupField'",
     "'sidebar.groupSave'",
     "'sidebar.deleteConfirm'",
-    "'sidebar.connection'",
-    "'sidebar.menu.connOpen'",
-    "'sidebar.menu.disconnect'",
-    r"'sidebar.menu.review.${server.serverId}'",
-    r"'${server.username}@${server.host}:${server.port}'",
-    // The connection semantic label's separator between segments.
-    "', '",
-    // The new-group field's empty seed — a starting value, not copy.
+    "'sidebar.saveServerField'",
+    "'sidebar.saveServerSave'",
+  },
+  'lib/ui/sidebar/sidebar_favorites_section.dart': {
+    "'sidebar.retry'",
+    r"'sidebar.group.$collapseKey'",
+    r"'sidebar.section.$collapseKey'",
+    "'sidebar.favorites.header'",
+    r"'sidebar.section.$sectionKey'",
+    "'sidebar.favorites.add'",
+    "' '",
+    "'sidebar.favorites.empty'",
+    "'sidebar.favorites.addStandard'",
+    r"'sidebar.favorite.${bookmark.id}'",
+    "'sidebar.menu.updateWorkspace'",
+    "'sidebar.menu.rename'",
+    "'sidebar.menu.moveToGroup'",
+    "'sidebar.menu.ungroup'",
+    "'sidebar.menu.newGroup'",
+    "'sidebar.menu.delete'",
+  },
+  'lib/ui/sidebar/sidebar_servers_section.dart': {
     "''",
-    // The catalog section's keys: collapse-key namespaces, row/menu
-    // ValueKeys, the FocusNode debug label, and the semantics label
-    // composed of localized parts — identifiers, not copy.
-    "'sidebar.catalog'",
-    "'sidebar.catalog.'",
-    r"'$_catalogGroupKeyPrefix${section.key}'",
-    r"'$_catalogGroupKeyPrefix$key'",
+    r"'${bookmark.label} ${sessionEndpointLabel(bookmark)}'",
+    r"'sidebar.adhoc.${bookmark.id}'",
+    r"'sidebar.group.$collapseKey'",
+    r"'sidebar.section.$collapseKey'",
+    "'sidebar.servers.empty'",
+    "'sidebar.servers.quickConnect'",
+    "'sidebar.importSshConfig'",
+    "'sidebar.servers.header'",
+    r"'sidebar.section.$sectionKey'",
+    "'sidebar.servers.add'",
+    "' '",
+    r"'sidebar.favorite.${bookmark.id}'",
     r"'sidebar.catalog.row.${server.id}'",
-    "'sidebar.catalog.syncNow'",
-    "'sidebar.catalogRow'",
+    r"'$username@${host.toLowerCase()}:$port'",
+    r"'sidebar.row.disconnect.${server.serverId}'",
+    "'sidebar.menu.disconnect'",
+    "', '",
+    r"'\n'",
+    r"'sidebar.menu.review.$id'",
+    "'sidebar.menu.localEdits'",
+    r"'${identity.username}@${identity.host}:${identity.port}'",
+    r"'${server.username}@${server.host}:${server.port}'",
     r"'${server.label}, ${appearance.label}'",
-    "'sidebar.catalog.menu.open'",
-    "'sidebar.catalog.menu.openNewTab'",
-    "'sidebar.catalog.menu.openOtherPane'",
-    "'sidebar.catalog.add'",
+    "'sidebar.catalog.menu'",
     "'sidebar.catalog.menu.edit'",
     "'sidebar.catalog.menu.duplicate'",
     "'sidebar.catalog.menu.delete'",
+    "'sidebar.adhoc.menu.save'",
   },
-  // The controller's ArgumentError/StateError diagnostics — programmer
-  // errors, never rendered UI copy.
+  // The portable kit's empty query (the filter's clear button).
+  'lib/ui/sidebar/sidebar_kit.dart': {
+    "''",
+    // The first-verb and header "+" focus nodes' debug labels —
+    // diagnostics, never shown.
+    "'SidebarRow first verb'",
+    "'SidebarSectionHeader add'",
+  },
+  // The sidebar filter's term split and the path-separator trimming of
+  // the selection match — machinery, never rendered.
+  'lib/ui/sidebar/sidebar_facts.dart': {
+    r"r'\s+'",
+    "'/'",
+    r"r'\'",
+    r"r'^[A-Za-z]:[\\/]$'",
+    // The compact Home's home-relative paths and `user@host:port`
+    // endpoints — path and address grammar over machine data.
+    "'~'",
+    r"'$base$separator'",
+    r"'~$separator${here.substring(base.length + 1)}'",
+    "':'",
+    r"'[$host]:$port'",
+    r"'$host:$port'",
+    r"'$username@$address'",
+  },
+  // The sidebar commands' registry ids.
+  'lib/ui/sidebar/sidebar_commands.dart': {
+    "'view.filterSidebar'",
+    "'favorite.add'",
+    "'connect.saveToServers'",
+  },
+  // The ported middle-ellipsis glyph and its head/tail compositions —
+  // typography, not copy.
+  'lib/ui/middle_ellipsis_text.dart': {
+    "'…'",
+    r"'${graphemes.take(head).join()}$_ellipsis'",
+    r"'${graphemes.skip(graphemes.length - tail).join()}'",
+  },
+  // The collapse-key namespaces, the legacy keys they migrate, the
+  // empty filter query, and the controller's ArgumentError/StateError
+  // diagnostics — persisted identifiers and programmer errors, never
+  // rendered UI copy.
   'lib/services/sidebar_controller.dart': {
+    "'sec:'",
+    "'fav:'",
+    "'srv:'",
+    r"'$_section${section.name}'",
+    r"'$_favoriteGroup$groupKey'",
+    r"'$_serverGroup$groupKey'",
+    "'sidebar.connections'",
+    "'sidebar.catalog'",
+    "'sidebar.catalog.'",
+    "''",
     "'id'",
     "'unknown bookmark'",
     "'SidebarController used after dispose'",
+  },
+  // DEVICES enumeration: mount roots, OS ids, environment keys, drive
+  // letters, the XDG user-dirs file and its keys, the fallback folder
+  // names (on-disk names, not display copy — rows show the folder's own
+  // name), and the df/diskutil/gio/umount invocations and parsing.
+  'lib/services/local_volumes.dart': {
+    // The home anchor the engine expands (`homeDirectory`).
+    "'~'",
+    "'/Volumes'",
+    "'/media'",
+    "'/run/media'",
+    "'/mnt'",
+    "'/'",
+    "'windows'",
+    "'macos'",
+    "'linux'",
+    "'USERPROFILE'",
+    "'HOME'",
+    "'USER'",
+    "'USERNAME'",
+    "'LOGNAME'",
+    "'SystemDrive'",
+    "'C:'",
+    r"'${String.fromCharCode(code)}:'",
+    r"'$letter\\'",
+    "'XDG_DESKTOP_DIR'",
+    "'Desktop'",
+    "'XDG_DOCUMENTS_DIR'",
+    "'Documents'",
+    "'XDG_DOWNLOAD_DIR'",
+    "'Downloads'",
+    "'XDG_CONFIG_HOME'",
+    "'.config'",
+    "'user-dirs.dirs'",
+    "'diskutil'",
+    "'eject'",
+    "'gio'",
+    "'mount'",
+    "'-u'",
+    "'umount'",
+    r"r'^\s*(XDG_[A-Z]+_DIR)\s*=\s*\x22(.*)\x22\s*$'",
+    r"'\n'",
+    r"r'$HOME'",
+    r"'$home${value.substring(5)}'",
+    "'df'",
+    "'-kP'",
+    "' '",
+    r"r'\s+'",
   },
   // The probe owner's dedup key composition (serverId@host:port) —
   // machine identity, never rendered.
@@ -1501,6 +1744,109 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The activity panel's registered command id (D21 plumbing).
   'lib/ui/activity/activity_commands.dart': {"'queue.togglePause'"},
+  // D32's shell command ids (D21 plumbing) and the Help menu's
+  // repository links — machine identifiers and URLs, not copy.
+  'lib/ui/shell/shell_commands.dart': {
+    "'view.toggleInspector'",
+    "'view.showAlerts'",
+    "'connect.quickConnect'",
+    "'connect.disconnect'",
+    "'view.toggleFullScreen'",
+    "'selection.transferToOtherPane'",
+    "'selection.moveToOtherPane'",
+    "'file.reveal'",
+    "'file.newFolder'",
+    "'file.newFile'",
+    "'file.delete'",
+    "'file.deletePermanently'",
+    "'file.duplicate'",
+    "'help.keyboardShortcuts'",
+    "'help.releaseNotes'",
+    "'help.reportIssue'",
+    "'https://github.com/L-K-M/Poltergeist/releases'",
+    "'https://github.com/L-K-M/Poltergeist/issues'",
+  },
+  // The shortcuts sheet's key and the typographic joiner between a
+  // command's alternative chords (glyph strings, not prose).
+  'lib/ui/shell/keyboard_shortcuts_dialog.dart': {
+    "'  ·  '",
+    "'help.shortcuts.dialog'",
+  },
+  // The delete dialog's widget keys, the prepare-failure detail passed
+  // as a placeholder, and the empty size stand-in for an unsized count.
+  'lib/ui/shell/delete_confirm_dialog.dart': {
+    "'delete.dialog'",
+    "'delete.cancel'",
+    "'delete.confirm'",
+    "'delete.headline'",
+    "'delete.serverTrash'",
+    "'delete.trashUnavailable'",
+    r"'$_error'",
+    "''",
+  },
+  // The Connect dialog's keys and a server row's announced label (its
+  // name and endpoint, both data) — plumbing, never authored copy.
+  'lib/ui/shell/connect_dialog.dart': {
+    "'connect.dialog'",
+    r"'connect.server.${choice.id}'",
+    r"'${choice.label}, ${choice.detail}'",
+  },
+  // The Quick Look overlay's widget keys and the line break it splits
+  // the first line on for syntax detection — plumbing, never copy.
+  'lib/ui/quick_look_overlay.dart': {
+    r"'\n'",
+    "'quickLook.overlay'",
+    "'quickLook.title'",
+    "'quickLook.close'",
+    "'quickLook.text'",
+    "'quickLook.image'",
+    "'quickLook.noPreview'",
+  },
+  // The activity button's ring key — test plumbing, never copy.
+  'lib/ui/shell/header_activity_button.dart': {"'header.activityRing'"},
+  // The header's button and overflow-menu keys, keyed to the registry's
+  // command ids — widget plumbing, not authored copy.
+  'lib/ui/shell/header_toolbar.dart': {
+    r"'command.${command.id}'",
+    r"'toolbar.overflow.${command.id}'",
+    "'toolbar.overflow'",
+  },
+  // D32 §9's compact posture: the browser subtitle's `user@host` address
+  // grammar (10 §4, machine data like the header's), the Transfers
+  // panel's shared widget key, the rename seed's extension dot, and the
+  // empty fallbacks of optional labels — plumbing, never authored copy.
+  'lib/ui/compact/compact_browser.dart': {
+    r"'${identity.username}@${identity.host}'",
+  },
+  'lib/ui/compact/compact_inspector_sheet.dart': {"'activity.panel'"},
+  'lib/ui/compact/compact_listing.dart': {"''"},
+  'lib/ui/compact/compact_pane_messages.dart': {"''"},
+  'lib/ui/compact/compact_rename_dialog.dart': {"'.'"},
+  // The inspector's widget keys (its surface, the Transfers panel it
+  // mounts, the tab switcher's per-tab keys) — plumbing, not copy.
+  'lib/ui/inspector/inspector_view.dart': {
+    "'inspector'",
+    "'activity.panel'",
+    r"'inspector.tab.${value.name}'",
+  },
+  // The Alerts tab's list/empty-state keys and per-alert row keys —
+  // plumbing keyed to the alert identity, not copy.
+  'lib/ui/inspector/alerts_view.dart': {
+    "'alerts.empty'",
+    "'alerts.list'",
+    r"'alert.${alert.key}'",
+    r"'alert.${alert.key}.dismiss'",
+  },
+  // Alert identities for session dismissal and list keys — machine
+  // data, never rendered (the view localizes each alert's copy).
+  'lib/services/alert_center.dart': {
+    r"'task:${task.id}'",
+    "'conflicts'",
+    "'restored'",
+    r"'server:${server.serverId}'",
+    r"'edits:$serverId'",
+    r"'update:${info.latestVersion}'",
+  },
   // Rate/ETA rendering and path grammar: the `/s` suffix, the ETA unit
   // glyphs, the custom-rate regex and its unit table, both path
   // separators, the endpoint:path composition, and the `→` route arrow
@@ -1529,9 +1875,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'\\\\'",
     r"'$candidate/'",
     r"'$path/'",
-    r"'${transferEndpointLabel(task.source, localLabel: localLabel)}:'",
+    r"'${transferEndpointLabel(task.source, localLabel: localLabel, serverLabel: serverLabel)}:'",
     r"' $sourcePath'",
-    r"'${transferEndpointLabel(task.destination, localLabel: localLabel)}:'",
+    r"'${transferEndpointLabel(task.destination, localLabel: localLabel, serverLabel: serverLabel)}:'",
     r"' ${task.destinationDir}'",
     r"'$source → $destination'",
   },
@@ -1599,8 +1945,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'\n'",
     "', '",
     "' → '",
-    r"'${transferEndpointLabel(entry.source, localLabel: l10n.activityTaskRouteLocal)}'",
-    r"'${transferEndpointLabel(entry.destination, localLabel: l10n.activityTaskRouteLocal)}'",
+    r"'${transferEndpointLabel(entry.source, localLabel: l10n.activityTaskRouteLocal, serverLabel: serverLabel)}'",
+    r"'${transferEndpointLabel(entry.destination, localLabel: l10n.activityTaskRouteLocal, serverLabel: serverLabel)}'",
     r"':${entry.destinationDir}'",
     r"'$time · $verb · $names'",
     r"'$route · $outcome'",
@@ -1891,17 +2237,103 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/sync/sync_plan_view.dart': {
     "''",
     "'sync.plan.table'",
-    r"'${group.items.length}'",
-    "'/'",
-    r"'sync.row.${item.relativePath}'",
     "'DELETE'",
     r"'${l10n.syncSideLeft} ⇄ ${l10n.syncSideRight}'",
     "'sync.header.clause'",
+    // D32 §7's hold banner: widget key and the comma join of its ARB
+    // reason fragments.
+    "'sync.plan.holdBanner'",
+    "', '",
     "' · '",
     r"'${item.relativePath}\t${item.effective.name}\t'",
     r"'${item.status.name}${item.error != null ? '\t${item.error}' : ''}'",
     r"'\t${item.error}'",
     "'—'",
+  },
+  // The Sync sheet's machine literals (D32 §7): widget keys, the
+  // compare sentence's split marker (U+FFFC, never in a translation),
+  // the empty-path/empty-label placeholders, the rules tooltip's line
+  // join and the tolerance row's comma join over ARB fragments, the
+  // user@host[:port] address form of an embedded identity, and the
+  // path shortener's separators and ellipsis — plumbing and machine
+  // data, never authored copy.
+  'lib/ui/sync/sync_setup_sheet.dart': {
+    "''",
+    "'sync.sheet'",
+    "'sync.sheet.name'",
+    "'sync.sheet.favoriteName'",
+    "'sync.sheet.left'",
+    "'sync.sheet.right'",
+    "'sync.sheet.deleteOrphans'",
+    "'sync.sheet.deleteTrash'",
+    "'sync.sheet.deletePermanent'",
+    "'sync.sheet.includeHidden'",
+    "'sync.sheet.skipRules'",
+    "'\\n'",
+    "'sync.sheet.ruleCount'",
+    "'sync.sheet.editRules'",
+    "'sync.sheet.tolerance'",
+    "'sync.sheet.timeOffset'",
+    "'sync.sheet.unavailable'",
+    "', '",
+    "'sync.sheet.more'",
+    "'sync.sheet.more.bothWays'",
+    "'sync.sheet.more.saveFavorite'",
+    "'sync.sheet.more.advanced'",
+    "'sync.sheet.more.rsync'",
+    "'sync.sheet.cancel'",
+    "'sync.sheet.save'",
+    "'sync.sheet.simulate'",
+    "'sync.sheet.synchronize'",
+    r"'${identity.username}@${identity.host}'",
+    r"'${identity.username}@${identity.host}:${identity.port}'",
+    "'sync.sheet.direction'",
+    "'sync.sheet.direction.left'",
+    "'sync.sheet.direction.right'",
+    "'\\u{FFFC}'",
+    "'sync.sheet.compare'",
+    "' '",
+    "'sync.sheet.plan.warning'",
+    "'sync.sheet.plan'",
+    r"'\\'",
+    "'/'",
+    r"'…$separator$tail'",
+  },
+  // The plan sentence's ICU select keys, its clause join, and the
+  // clause's debug toString — machine data, never authored copy.
+  'lib/ui/sync/sync_policy_sentence.dart': {
+    r"'${tone.name}: $text'",
+    "'remote'",
+    "'local'",
+    "' '",
+  },
+  // The sheet dialogs' widget keys, the rules field's line split/join,
+  // and the tolerance field's numeric seed — plumbing, never copy.
+  'lib/ui/sync/sync_sheet_dialogs.dart': {
+    "'sync.favoriteName.field'",
+    "'sync.favoriteName.save'",
+    "'\\n'",
+    "'sync.rules.field'",
+    "'sync.rules.defaults'",
+    "'sync.rules.done'",
+    r"'${widget.initial.toleranceSecs}'",
+    "'sync.timeOffset.tolerance'",
+    "'sync.timeOffset.hourShift'",
+    "'sync.timeOffset.done'",
+  },
+  // The review table's widget keys (sections, rows, their checkboxes,
+  // the column header), the section count, and the empty/dash cells
+  // of an absent side or a folder's size — plumbing, never copy.
+  'lib/ui/sync/sync_plan_table.dart': {
+    "'sync.plan.table'",
+    r"'sync.section.${group.section.name}'",
+    r"'sync.section.${group.section.name}.check'",
+    r"'sync.row.${item.relativePath}'",
+    "'sync.plan.columns'",
+    r"'${items.length}'",
+    "''",
+    "'—'",
+    r"'sync.row.${item.relativePath}.check'",
   },
   // The sync plan format layer's machine data: the rail-3 numeric
   // percentage injected into the ARB {pct} slot, and the config-less
@@ -1948,6 +2380,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The recents document's schema keys, format diagnostics, dedupe-key
   // prefixes, and the settings.json document key — wire format, never
   // rendered UI copy.
+  // Bookmark JSON keys and the home landing path ("/").
+  'lib/services/bookmark_landing_path.dart': {
+    "'kind'",
+    "'remotePath'",
+    "'/'",
+  },
   'lib/services/recent_locations.dart': {
     "'quickOpen.recentLocations'",
     "'version'",
@@ -2139,6 +2577,34 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "' pinned'",
     "'Pinned'",
     "'Other servers'",
+  },
+  // D32 §11's platform integration: Dock progress diagnostics and the
+  // file-manager reveal's process arguments (never user-facing copy).
+  'lib/services/dock_progress.dart': {
+    r"'$live'",
+    r"'Dock progress disabled: $error\n$stack'",
+    r"'Dock progress unavailable: $error\n$stack'",
+  },
+  'lib/services/file_manager_reveal.dart': {
+    "'macos'",
+    "'windows'",
+    "'linux'",
+    "'open'",
+    "'-R'",
+    r"""'explorer.exe /select,"$path"'""",
+    "'dbus-send'",
+    "'--session'",
+    "'--print-reply'",
+    "'--dest=org.freedesktop.FileManager1'",
+    "'--type=method_call'",
+    "'/org/freedesktop/FileManager1'",
+    "'org.freedesktop.FileManager1.ShowItems'",
+    r"'array:string:$uri'",
+    "'string:'",
+    "','",
+    "'%2C'",
+    "'xdg-open'",
+    "'gio'",
   },
 };
 

@@ -60,13 +60,11 @@ the porting policy is part of the plan.
 
 ## Known issues
 
-- **Remote transfers are not wired yet.** The engine proves remote
-  transfers (including remote→remote piping) in its test suite, but the
-  engine protocol has not grown transfer verbs, so the app's queue can
-  only run local↔local work. Tasks that name a remote endpoint — upload,
-  download, remote sync runs, remote managed checkouts — fail fast with a
-  visible typed `unsupported` error rather than stalling. Remote browsing,
-  rename, and the rest of the pane surface are unaffected. Tracked as
+- **Remote transfers in 1.0.0.** In the 1.0.0 release, tasks that name
+  a remote endpoint (uploads, downloads, remote sync runs, and remote
+  managed checkouts) fail fast with a typed `unsupported` error. The
+  engine's bridged transfer lease (protocol v13) fixes this for the next
+  release. See
   [STATUS open item 23](docs/STATUS.md).
 - **Linux screen readers.** Flutter's Linux embedder exposes semantics
   through the legacy ATK layer; custom widgets are largely invisible to

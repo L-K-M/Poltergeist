@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/activity_panel_controller.dart';
 import 'package:poltergeist_app/ui/activity/activity_panel.dart';
+import 'package:poltergeist_app/ui/inspector/inspector_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../support/fake_app_transfer_queue.dart';
@@ -72,6 +73,8 @@ void main() {
     await pumpPanel(tester);
     expect(find.text('No transfers in progress.'), findsOneWidget);
     expect(find.byKey(const ValueKey('activity.taskList')), findsNothing);
+    // Nor a footer counting "0 of 0 items · 0 B of 0 B so far".
+    expect(find.byKey(const ValueKey('activity.footer')), findsNothing);
   });
 
   testWidgets('task rows render while tasks exist, with honest state '
@@ -555,5 +558,59 @@ void main() {
     await settle(tester);
     expect(queue.removeTaskCalls, [done.id]);
     expect(controller.tasks.map((t) => t.id), [failed.id]);
+  });
+
+  testWidgets('embedded at the inspector minimum width, the header fits '
+      'and keeps every queue control (D32)', (tester) async {
+    tester.view.physicalSize = const Size(1100, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final task = queue.addTask(
+      state: TransferTaskState.running,
+      totalBytes: 4000,
+    );
+    // The conflict strip and the restored banner share the column too.
+    final item = queue.addItem(task, name: 'a-long-conflicting-name.txt');
+    queue.addConflict(task, item);
+    queue.addTask(state: TransferTaskState.paused, wasRestored: true);
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: SizedBox(
+              width: inspectorMinWidth,
+              child: ListenableBuilder(
+                listenable: controller,
+                builder: (context, _) => ActivityPanel(
+                  controller: controller,
+                  embedded: true,
+                  onClose: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await settle(tester);
+
+    // No RenderFlex overflow: the tab labels yield, the buttons stay.
+    expect(tester.takeException(), isNull);
+    for (final key in [
+      'activity.pause',
+      'activity.clearCompleted',
+      'activity.tab.activity',
+      'activity.tab.history',
+      'activity.restoredBanner.resume',
+      'activity.restoredBanner.discard',
+      'activity.conflictResolve.${item.id}',
+    ]) {
+      expect(find.byKey(ValueKey(key)).hitTestable(), findsOneWidget);
+    }
+    // The inspector toggle owns visibility — no ✕ in the tab.
+    expect(find.byKey(const ValueKey('activity.close')), findsNothing);
   });
 }

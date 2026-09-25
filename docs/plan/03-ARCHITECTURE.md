@@ -1503,6 +1503,41 @@ tested long before drag-out exists.
 | Engine isolate | `ConnectionManager` + pools + every SSH/SFTP socket, `LocalFileSystem` instances used by panes, `TransferQueue` execution, inline SHA-256 hashing, sync scan/diff execution (05) | widgets, plugins |
 | Short-lived `Isolate.run` workers | archive work (v1.x, D27), any future CPU burst that is not stream-shaped | shared state |
 
+> **As built (protocol v13, D8 addendum 2026-09-24).** The transfer queue,
+> the checkout manager, the preview producer, and the sync scanner/executor
+> run on the UI isolate. They lease channels through
+> `EngineConnectionManager` (`engine/engine_connection_manager.dart`). Each
+> lease is an engine-held pool channel, and its `fs` is an
+> `EngineRemoteFileSystem` proxy:
+>
+> - **Leases.** `LeaseTransferChannelRequest` carries the server's config,
+>   because a restored task can be a server's first connection. The engine
+>   answers once the pool grants a channel. `ReleaseTransferLeaseRequest`
+>   retires the lease id immediately but waits for the lease's in-flight
+>   operations before returning the channel.
+> - **Metadata calls.** One generic `VfsOpRequest` carries each call as a
+>   plain-data `VfsOp` over a `LeaseTarget` or a `ChannelTarget`; the pane
+>   verbs use the latter. `VfsContentDigest` hashes a file engine-side, so a
+>   digest-only read moves no bytes across the port.
+> - **Byte streams.** Downloads cross as `DownloadChunkEvent`s. The engine
+>   keeps at most one window sent but uncredited, and the consumer sends
+>   `StreamCreditRequest` as its sink takes bytes, so a paused sink stalls
+>   the SFTP read. Uploads start only after `UploadReadyEvent` (the VFS
+>   subscribed to its content), then send `UploadChunkRequest`s paced on
+>   `UploadProgressEvent` credit. `CancelVfsStreamRequest` trips the
+>   engine-side token. Every stream's final `ResponseEvent` follows all of
+>   its events on the one port.
+> - **Failures.** Typed errors keep their kind. A released lease or a dead
+>   engine answers `disconnected`, which the queue requeues within its retry
+>   budget. Sink and content errors raised UI-side are wrapped the way the
+>   VFS adapter wraps them.
+> - **Local trash.** Local deletes trash through the engine
+>   (`LocalTrashRequest`, via `EngineTrashBackend`).
+> - **Still unbuilt.** The `EnqueueTransferRequest` / `CancelRequest` /
+>   `SetBandwidthLimitsRequest` sketch below describes an engine-hosted queue
+>   executor that does not exist. It stays the escalation path if the D8
+>   gates fail when re-measured under the bridge.
+
 Sockets cannot cross isolates, so everything that holds one lives in the
 engine isolate; the UI isolate holds only view state. The two communicate
 over send/receive ports with a typed, versioned protocol of plain-data

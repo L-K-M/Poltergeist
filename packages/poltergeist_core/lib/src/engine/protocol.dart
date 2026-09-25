@@ -1,4 +1,4 @@
-import 'dart:isolate' show SendPort;
+import 'dart:isolate' show SendPort, TransferableTypedData;
 
 import 'package:seance_core/seance_core.dart';
 
@@ -7,6 +7,7 @@ import '../connection/connection_manager.dart'
 import '../connection/incident_store.dart' show IncidentRecord;
 import '../connection/pool_key.dart' show PoolKey;
 import '../connection/pool_policy.dart' show PoolPolicy;
+import '../transfer/trash_service.dart' show TrashErrorKind, TrashException;
 
 /// Increment when the cross-isolate message contract changes.
 ///
@@ -27,8 +28,12 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 /// for §2.6's Get Info permissions editor (D28). v12 adds
 /// [EngineConfig.trashRequests] — the app-side `poltergeist/trash`
 /// channel port the engine's D15 local-trash service invokes through
-/// (03 §7.1).
-const engineProtocolVersion = 12;
+/// (03 §7.1). v13 adds the bridged transfer lease (STATUS item 23, the
+/// D8 addendum): [LeaseTransferChannelRequest]/[ReleaseTransferLeaseRequest],
+/// the generic [VfsOpRequest] over a lease or a browse channel, the
+/// credit-flow-controlled download/upload streams, and the engine-side
+/// local-trash requests.
+const engineProtocolVersion = 13;
 
 // ── Engine → UI events ──────────────────────────────────────────────────
 
@@ -663,6 +668,410 @@ final class ShutdownRequest extends EngineRequest {
   const ShutdownRequest({required super.requestId});
 }
 
+// ── Bridged transfer leases and VFS operations (v13) ────────────────────
+//
+// The UI-isolate transfer queue, checkout manager, preview producer, and
+// sync engine speak `RemoteFileSystem` over a leased channel (03 §3.2's
+// `TransferChannelLease`). Sockets cannot cross isolates (D8), so the
+// lease stays engine-side and the UI holds a proxy: every VFS call
+// becomes a [VfsOpRequest], and the two byte-carrying calls become
+// credit-flow-controlled streams. One port carries one stream's events
+// and its final [ResponseEvent] in order, so every chunk arrives before
+// the result that ends it.
+
+/// Borrows one transfer channel from the server's pool (03 §3.2). Blocks
+/// engine-side while the pool is at capacity; the answer is
+/// [TransferLeaseGranted] once a channel is granted. Carries the
+/// [ServerConfig] like every connection-bearing request: a restored task
+/// or a sync run can lease a server no pane has browsed yet. A null
+/// [config] means the app holds none (a Quick Connect `adhoc:` id lives
+/// only in its tab): the engine then uses the config the server's browse
+/// open supplied, and refuses typed when no open ever did.
+final class LeaseTransferChannelRequest extends EngineRequest {
+  final String serverId;
+  final ServerConfig? config;
+
+  const LeaseTransferChannelRequest({
+    required super.requestId,
+    required this.serverId,
+    this.config,
+  });
+}
+
+/// Returns a lease to the pool. Idempotent: an unknown or already
+/// released id acks. The engine waits for the lease's in-flight
+/// operations to settle (bounded) before the channel goes back, so a
+/// channel is never lent on while an earlier borrower's operation is
+/// still unwinding on it.
+final class ReleaseTransferLeaseRequest extends EngineRequest {
+  final int leaseId;
+
+  const ReleaseTransferLeaseRequest({
+    required super.requestId,
+    required this.leaseId,
+  });
+}
+
+/// What a [VfsOpRequest] runs against.
+sealed class VfsTarget {
+  const VfsTarget();
+}
+
+/// A granted transfer lease ([TransferLeaseGranted.leaseId]).
+final class LeaseTarget extends VfsTarget {
+  final int leaseId;
+
+  const LeaseTarget(this.leaseId);
+}
+
+/// An open browse channel ([BrowseChannelOpened.channelId]) — local or
+/// pool — for the panes' single-shot file verbs.
+final class ChannelTarget extends VfsTarget {
+  final int channelId;
+
+  const ChannelTarget(this.channelId);
+}
+
+/// One `RemoteFileSystem` call as plain data. The engine answers each
+/// with the result type named on the subtype.
+sealed class VfsOp {
+  const VfsOp();
+
+  /// The VFS verb, for typed refusals raised before the call runs.
+  String get operation;
+}
+
+/// → [VfsStringResult].
+final class VfsCanonicalize extends VfsOp {
+  final String path;
+
+  const VfsCanonicalize(this.path);
+
+  @override
+  String get operation => 'canonicalize';
+}
+
+/// → [DirectoryListed].
+final class VfsListDirectory extends VfsOp {
+  final String path;
+
+  const VfsListDirectory(this.path);
+
+  @override
+  String get operation => 'list directory';
+}
+
+/// → [VfsEntryResult].
+final class VfsStat extends VfsOp {
+  final String path;
+  final bool followLinks;
+
+  const VfsStat(this.path, {this.followLinks = true});
+
+  @override
+  String get operation => 'stat';
+}
+
+/// → [EngineAck]. [permissions] is the full twelve-bit mode.
+final class VfsSetMode extends VfsOp {
+  final String path;
+  final int permissions;
+
+  const VfsSetMode(this.path, this.permissions);
+
+  @override
+  String get operation => 'change permissions for';
+}
+
+/// → [EngineAck]. At least one time must be set.
+final class VfsSetTimes extends VfsOp {
+  final String path;
+  final DateTime? accessedAt;
+  final DateTime? modifiedAt;
+
+  const VfsSetTimes(this.path, {this.accessedAt, this.modifiedAt});
+
+  @override
+  String get operation => 'set times for';
+}
+
+/// → [EngineAck]. At least one id must be set.
+final class VfsSetOwner extends VfsOp {
+  final String path;
+  final int? uid;
+  final int? gid;
+
+  const VfsSetOwner(this.path, {this.uid, this.gid});
+
+  @override
+  String get operation => 'change owner of';
+}
+
+/// → [VfsStringResult].
+final class VfsReadSymbolicLink extends VfsOp {
+  final String path;
+
+  const VfsReadSymbolicLink(this.path);
+
+  @override
+  String get operation => 'read link';
+}
+
+/// → [EngineAck].
+final class VfsCreateSymbolicLink extends VfsOp {
+  final String linkPath;
+  final String targetPath;
+
+  const VfsCreateSymbolicLink(this.linkPath, this.targetPath);
+
+  @override
+  String get operation => 'create link';
+}
+
+/// → [EngineAck].
+final class VfsCreateDirectory extends VfsOp {
+  final String path;
+
+  const VfsCreateDirectory(this.path);
+
+  @override
+  String get operation => 'create directory';
+}
+
+/// → [EngineAck].
+final class VfsRename extends VfsOp {
+  final String oldPath;
+  final String newPath;
+  final bool overwrite;
+
+  const VfsRename(this.oldPath, this.newPath, {this.overwrite = false});
+
+  @override
+  String get operation => 'rename';
+}
+
+/// → [EngineAck]. A file, symlink, or empty directory — recursion is the
+/// transfer queue's delete task, never this call.
+final class VfsDelete extends VfsOp {
+  final RemoteFileEntry entry;
+
+  const VfsDelete(this.entry);
+
+  @override
+  String get operation => 'delete';
+}
+
+/// → [VfsEntryResult]. Creates an empty regular file through the VFS's
+/// own upload (temporary sibling + rename): an existing [path] fails with
+/// the typed conflict error — never an overwrite.
+final class VfsCreateEmptyFile extends VfsOp {
+  final String path;
+
+  const VfsCreateEmptyFile(this.path);
+
+  @override
+  String get operation => 'create file';
+}
+
+/// → [VfsEntryResult] carrying `contentSha256`. The engine streams the
+/// file into a discarding sink with hashing on, so the digest is computed
+/// where the socket lives (D7/D8) and no byte crosses the port.
+final class VfsContentDigest extends VfsOp {
+  final String path;
+
+  const VfsContentDigest(this.path);
+
+  @override
+  String get operation => 'download';
+}
+
+/// Runs one [VfsOp] on [target]. A released lease or closed channel
+/// answers the typed `disconnected` refusal; a `disconnected` failure of
+/// the operation itself is reported to the pool for recovery before the
+/// answer crosses (the browse-channel rule, 03 §3.2).
+final class VfsOpRequest extends EngineRequest {
+  final VfsTarget target;
+  final VfsOp op;
+
+  const VfsOpRequest({
+    required super.requestId,
+    required this.target,
+    required this.op,
+  });
+}
+
+/// Streams [path] from the lease's VFS as [DownloadChunkEvent]s; the
+/// stream id is this request's id and the final [ResponseEvent] carries
+/// the committed [VfsEntryResult] (or the typed failure). The engine
+/// keeps at most [windowBytes] sent-but-uncredited (a single batch
+/// larger than the window may still go when nothing is in flight); the
+/// consumer returns credit with [StreamCreditRequest] as it hands bytes
+/// to its sink, which is how a slow consumer pauses the remote read.
+final class DownloadStreamRequest extends EngineRequest {
+  final int leaseId;
+  final String path;
+  final bool computeHash;
+  final int windowBytes;
+
+  const DownloadStreamRequest({
+    required super.requestId,
+    required this.leaseId,
+    required this.path,
+    required this.computeHash,
+    required this.windowBytes,
+  });
+}
+
+/// Uploads to [path] through the lease's VFS. The engine announces
+/// [UploadReadyEvent] once the VFS subscribes to its content (a refusal
+/// raised before that — an existing target without [overwrite] — never
+/// asks for a byte), then the client sends [UploadChunkRequest]s keeping
+/// at most [windowBytes] unconsumed, pacing on [UploadProgressEvent], and
+/// ends with [UploadEndRequest] or [UploadAbortRequest]. The final
+/// [ResponseEvent] carries the committed [VfsEntryResult].
+final class UploadStreamRequest extends EngineRequest {
+  final int leaseId;
+  final String path;
+  final int? length;
+  final bool overwrite;
+  final int? preserveMode;
+  final RemoteFileEntry? expectedTarget;
+  final bool computeHash;
+  final int windowBytes;
+
+  const UploadStreamRequest({
+    required super.requestId,
+    required this.leaseId,
+    required this.path,
+    this.length,
+    this.overwrite = false,
+    this.preserveMode,
+    this.expectedTarget,
+    required this.computeHash,
+    required this.windowBytes,
+  });
+}
+
+/// Download credit: [bytes] more the consumer has handed to its sink.
+/// Fire-and-forget; credit for a finished stream is ignored.
+final class StreamCreditRequest extends EngineRequest {
+  final int streamId;
+  final int bytes;
+
+  const StreamCreditRequest({
+    required super.requestId,
+    required this.streamId,
+    required this.bytes,
+  });
+}
+
+/// One upload chunk. [bytes] materializes exactly once, engine-side.
+/// Fire-and-forget; a chunk for a finished stream is dropped.
+final class UploadChunkRequest extends EngineRequest {
+  final int streamId;
+  final TransferableTypedData bytes;
+
+  UploadChunkRequest({
+    required super.requestId,
+    required this.streamId,
+    required this.bytes,
+  });
+}
+
+/// The upload's content ended normally. Fire-and-forget.
+final class UploadEndRequest extends EngineRequest {
+  final int streamId;
+
+  const UploadEndRequest({required super.requestId, required this.streamId});
+}
+
+/// The upload's content failed: the engine-side content stream errors
+/// with [error], which unwinds the VFS upload (temporary cleaned up).
+/// Fire-and-forget.
+final class UploadAbortRequest extends EngineRequest {
+  final int streamId;
+  final EngineError error;
+
+  const UploadAbortRequest({
+    required super.requestId,
+    required this.streamId,
+    required this.error,
+  });
+}
+
+/// Trips the stream's engine-side `RemoteTransferCancellation`. The
+/// stream's final [ResponseEvent] still arrives — typically `cancelled`
+/// — once the VFS call has actually unwound. Fire-and-forget.
+final class CancelVfsStreamRequest extends EngineRequest {
+  final int streamId;
+
+  const CancelVfsStreamRequest({
+    required super.requestId,
+    required this.streamId,
+  });
+}
+
+/// Whether the engine's D15 local-trash service can serve
+/// (→ [TrashAvailability]). The service lives engine-side because its
+/// Linux backend spawns `gio` and its macOS/Windows backends ride the
+/// [EngineConfig.trashRequests] channel relay (D8: the UI isolate never
+/// spawns).
+final class LocalTrashAvailableRequest extends EngineRequest {
+  const LocalTrashAvailableRequest({required super.requestId});
+}
+
+/// Moves one local [path] to the OS trash (→ [TrashMoved], or the typed
+/// [EngineTrashError]).
+final class LocalTrashRequest extends EngineRequest {
+  final String path;
+
+  const LocalTrashRequest({required super.requestId, required this.path});
+}
+
+/// One batch of a download stream's bytes. [length] is the batch size;
+/// [transferred] the stream's cumulative byte count including this batch;
+/// [total] the file size once the VFS reported it.
+final class DownloadChunkEvent extends EngineEvent {
+  final int streamId;
+  final TransferableTypedData bytes;
+  final int length;
+  final int transferred;
+  final int? total;
+
+  DownloadChunkEvent({
+    required this.streamId,
+    required this.bytes,
+    required this.length,
+    required this.transferred,
+    required this.total,
+  });
+}
+
+/// The engine-side upload subscribed to its content: chunks may flow.
+final class UploadReadyEvent extends EngineEvent {
+  final int streamId;
+
+  const UploadReadyEvent({required this.streamId});
+}
+
+/// Upload flow control plus progress: [consumed] bytes the VFS has pulled
+/// from the content stream (the credit the client paces on) and
+/// [committed] the VFS's own last progress report (null until it made
+/// one).
+final class UploadProgressEvent extends EngineEvent {
+  final int streamId;
+  final int consumed;
+  final int? committed;
+  final int? total;
+
+  const UploadProgressEvent({
+    required this.streamId,
+    required this.consumed,
+    this.committed,
+    this.total,
+  });
+}
+
 // ── Responses ───────────────────────────────────────────────────────────
 
 /// The payload of a [ResponseEvent] — always typed, never a bare Object.
@@ -723,6 +1132,68 @@ final class ServerIdsListed extends EngineResult {
 /// Void results: channel close, disconnect, shutdown.
 final class EngineAck extends EngineResult {
   const EngineAck();
+}
+
+/// A granted transfer lease; the id addresses [LeaseTarget] and the
+/// stream requests until [ReleaseTransferLeaseRequest].
+final class TransferLeaseGranted extends EngineResult {
+  final int leaseId;
+
+  const TransferLeaseGranted({required this.leaseId});
+}
+
+/// A VFS call's entry answer (stat, committed download/upload, digest).
+final class VfsEntryResult extends EngineResult {
+  final RemoteFileEntry entry;
+
+  const VfsEntryResult({required this.entry});
+}
+
+/// A VFS call's string answer (canonicalize, readSymbolicLink).
+final class VfsStringResult extends EngineResult {
+  final String value;
+
+  const VfsStringResult({required this.value});
+}
+
+/// Whether the engine's local trash can serve right now.
+final class TrashAvailability extends EngineResult {
+  final bool available;
+
+  const TrashAvailability({required this.available});
+}
+
+/// A completed local trash move; [trashedPath] is the platform's
+/// reported location (the macOS Put Back anchor), when it reports one.
+final class TrashMoved extends EngineResult {
+  final String? trashedPath;
+
+  const TrashMoved({this.trashedPath});
+}
+
+/// A failed trash request, reconstructed client-side as a
+/// [TrashException] — callers of the trash layer only ever interpret
+/// that type as "trash failed" (03 §7.3).
+final class EngineTrashError extends EngineResult {
+  final TrashErrorKind kind;
+  final String? path;
+  final String message;
+
+  const EngineTrashError({
+    required this.kind,
+    this.path,
+    required this.message,
+  });
+
+  factory EngineTrashError.fromException(TrashException error) =>
+      EngineTrashError(
+        kind: error.kind,
+        path: error.path,
+        message: error.message,
+      );
+
+  TrashException toException() =>
+      TrashException(kind: kind, path: path, message: message);
 }
 
 // ── Spawn configuration ─────────────────────────────────────────────────

@@ -276,7 +276,31 @@ void main() {
   setUp(() => h = _Harness());
 
   group('enrollment form (04 §4.3)', () {
-    testWidgets('leads with Design B preselected and the verbatim copy',
+    testWidgets('D32: preselects the shared Séance account when offered',
+        (tester) async {
+      tester.view.physicalSize = const Size(720, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await _pumpSection(tester, h.service, gate: _gateOffered);
+      await tester.pumpAndSettle();
+
+      final group = tester.widget<RadioGroup<SyncAccountMode>>(
+        find.byType(RadioGroup<SyncAccountMode>),
+      );
+      expect(group.groupValue, SyncAccountMode.shared);
+      // Shared accounts log in; the register/login segment is hidden and
+      // Continue still waits on the fleet assertion.
+      expect(find.byKey(const ValueKey('backup.enroll.action')),
+          findsNothing);
+      expect(find.byKey(const ValueKey('backup.fleet.checkbox')),
+          findsOneWidget);
+      // The separate account stays reachable.
+      expect(find.byKey(const ValueKey('backup.mode.separate')),
+          findsOneWidget);
+    });
+
+    testWidgets('a closed gate preselects Design B with the verbatim copy',
         (tester) async {
       tester.view.physicalSize = const Size(720, 1200);
       tester.view.devicePixelRatio = 1;

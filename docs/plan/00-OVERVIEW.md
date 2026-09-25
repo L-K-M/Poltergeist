@@ -29,6 +29,7 @@ update the plan first.**
 | [07-MILESTONES.md](07-MILESTONES.md) | Milestones M0–M10 with exit criteria; the distribution workstream; the mobile-constraints memo |
 | [08-TESTING.md](08-TESTING.md) | Test strategy: engine tests, fakes, sshd-in-Docker matrix, perf benchmarks, a11y checks |
 | [09-PLAYBOOK.md](09-PLAYBOOK.md) | The implementation playbook: conventions, guardrails, definition of done, PR workflow, what never to do |
+| [10-WORKSPACE-REDESIGN.md](10-WORKSPACE-REDESIGN.md) | The D32 inspector workspace: window anatomy, header toolbar, shared sidebar, pane anatomy, inspector, Sync sheet, menus, Android posture, the Séance sibling contract |
 
 Repository infrastructure (CI, GLM review workflow, release pipeline, build
 scripts) already exists on `main` and is documented in
@@ -63,7 +64,8 @@ D12 perf budgets · D13 single window · D14 drag & drop · D15 trash ·
 D16 activity panel · D17 editor · D18 security model · D19 trust
 stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
 D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
-permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
+permissions · D29 mobile hooks · D30 Séance license · D31 no mounting ·
+D32 inspector workspace
 
 ### Stack and shape
 
@@ -363,6 +365,27 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   0.997 throughput parity, 40.938 ms cancellation, 22.83 progress flushes/s,
   and a 4.401 ms maximum UI-isolate timer stall, all inside D8's gates, so the
   single engine-isolate split is final for v1.
+  - **Addendum (2026-09-24) — the bridged transfer lease.** The shipped app
+    composes the transfer queue, the managed-checkout manager, the preview
+    producer, and the sync scanner/executor on the UI isolate, so the plan's
+    engine-hosted queue (03 §5's `EnqueueTransferRequest` sketch) was never
+    built and remote transfers failed (STATUS item 23). Protocol v13 bridges
+    the lease instead: the engine keeps every socket, SFTP channel, and pool
+    lease, and the UI-isolate `EngineConnectionManager` hands those consumers
+    a proxy `RemoteFileSystem` whose metadata calls cross as typed VFS ops and
+    whose bytes cross as credit-flow-controlled `TransferableTypedData`
+    streams. What D8 guarantees still holds: no socket, SFTP handle, or
+    remote-side hash leaves the engine (digest-only reads run engine-side via
+    `VfsContentDigest`, so they move no bytes), and the platform trash is
+    reached through the engine too. What changes: the queue's scheduling,
+    journal writes, bandwidth gates, local disk I/O, and local-side hashing
+    run on the UI isolate. That was already true for local↔local work before
+    this addendum; it now covers remote legs too, and remote→remote bytes
+    cross the port twice. A local 32 MiB loopback measurement put bridged
+    throughput at roughly 0.85–0.95 of an in-process pool on a loaded host.
+    That is indicative, not a D8 gate re-run: the M0 gates must be re-measured
+    under the bridge before this is declared final, and moving the queue
+    executor engine-side stays the escalation if they fail.
 - **D9 — M0 ends at fallback rung 4: keep dartssh2 3.0.2 and document the
   ceiling.** Version 3.0.2 is the minimum: earlier releases can abandon
   pipelined read futures when a consumer cancels the stream, while 3.0.2 owns
@@ -506,6 +529,35 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   traversal is not the only extraction hazard; pin an audited
   `package:archive` version at implementation time. Remote-side extraction and
   browsable archives are later, consciously scheduled in 07.
+
+- **D32 — The inspector workspace (2026-09-24, owner-directed redesign).**
+  The v1.0 chrome is replaced by a ForkLift/Transmit-grade layout
+  specified in [10-WORKSPACE-REDESIGN.md](10-WORKSPACE-REDESIGN.md):
+  a curated, registry-driven header toolbar (a command appears only if it
+  declares a toolbar placement — D21 holds), a full-height sidebar with
+  DEVICES / FAVORITES / SERVERS in the anatomy Séance shares, panes with
+  a location header and column header, and a resizable right
+  **inspector** with Info / Transfers / Alerts tabs. It supersedes:
+  02 §1's bottom activity panel, always-on status bar, and stage table
+  (the inspector collapses first, then the sidebar, then pane B); 02
+  §2.6's per-pane Get Info overlay and 06 §5.2's separate preview rail
+  (both merge into the Info tab); 02 §2.9's footer (its facts move to
+  the location header); 02 §9's "Commands" menu (renamed Server, Settings
+  moves to the macOS app menu, Linux/Windows render the tree behind a ☰
+  header button instead of a menu-bar band); 05 §7's "never a modal
+  wizard" (sync opens Transmit's options sheet with a truthful
+  plain-language plan sentence; Simulate opens the existing review) and
+  05 §8 rail 1 for the one case of a plan with no deletions, no
+  replacements, and no conflicts, which Synchronize may run without the
+  review step (every other plan still lands on the review; rails 2–4 are
+  unchanged); and 04 §4.1's default of a separate backup account (the
+  shared Séance account becomes the default, per the owner's "same
+  server, same account" requirement; the version gate and pin-trust
+  disclosure stay). D16's substance is untouched: per-item rows, pause,
+  cancel, retry, History, and bandwidth all live in the Transfers tab,
+  the header shows a progress ring whenever work runs, and new work
+  opens the inspector on Transfers. Anything D32 does not name in 02
+  still holds.
 
 ### Security, trust, distribution
 

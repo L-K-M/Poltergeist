@@ -197,6 +197,31 @@ void main() {
     expect(sessionJson()['secondPaneHidden'], isTrue);
   });
 
+  test('the inspector\'s visibility and tab are commit points (D32)',
+      () async {
+    persistence.attach(workspace);
+    await debounce.fire();
+    // Default-shown on Info (10 §3).
+    expect(sessionJson()['inspectorHidden'], isFalse);
+    expect(sessionJson()['inspectorTab'], 'info');
+
+    workspace.setInspectorHidden(true);
+    await debounce.fire();
+    expect(sessionJson()['inspectorHidden'], isTrue);
+
+    workspace.showInspector(InspectorTab.alerts);
+    await debounce.fire();
+    expect(sessionJson()['inspectorHidden'], isFalse);
+    expect(sessionJson()['inspectorTab'], 'alerts');
+
+    final decoded = SessionState.fromJson(sessionJson());
+    expect(decoded.inspectorHidden, isFalse);
+    expect(decoded.inspectorTab, 'alerts');
+    // The legacy flag stays derivable for older readers: Transfers is
+    // not on screen.
+    expect(decoded.activityPanelHidden, isTrue);
+  });
+
   test('a selection-only change costs no write', () async {
     final channel = FakePaneChannel('/home/tester')
       ..listings['/home/tester'] = [_row('a'), _row('b')];

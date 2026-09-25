@@ -16,6 +16,7 @@ void main() {
     group('${brightness.name} theme', () {
       final theme = buildPoltergeistTheme(brightness);
       final scheme = theme.colorScheme;
+      final chrome = theme.extension<PoltergeistChrome>()!;
 
       test('text tokens stay ≥ 4.5:1 on their surfaces', () {
         final pairs = <(String, Color, Color)>[
@@ -53,6 +54,41 @@ void main() {
           ),
           // Tooltips paint the inverse surface pair.
           ('tooltip', scheme.onInverseSurface, scheme.inverseSurface),
+          // D32 §6: the active pane's selected rows (name and caption
+          // columns both paint on-accent) and the linked sync chip.
+          (
+            'text on active selection',
+            chrome.onSelection,
+            chrome.selectionFill,
+          ),
+          (
+            'caption on inactive selection',
+            chrome.secondaryText,
+            chrome.inactiveSelectionFill,
+          ),
+          ('caption on capsule', chrome.secondaryText, chrome.capsuleFill),
+          // The sync plan's selected row in the focused table: its action
+          // glyph (a character) and a failure's reason paint on-accent,
+          // not in their tones — those fall to about 1:1 on the fill.
+          (
+            'sync plan glyph and reason on active selection',
+            chrome.onSelection,
+            chrome.selectionFill,
+          ),
+          // The Connect dialog's highlighted server row: the 11 px
+          // user@host detail is opaque on-accent (a dimmed one measured
+          // under 4 on the fill).
+          (
+            'connect row detail on highlight',
+            chrome.onSelection,
+            chrome.selectionFill,
+          ),
+          // D32 §8's menu rows: the shortcut hint on the menu panel.
+          (
+            'menu shortcut hint',
+            chrome.secondaryText,
+            scheme.surfaceContainer,
+          ),
         ];
         for (final (name, fg, bg) in pairs) {
           expect(
@@ -85,6 +121,25 @@ void main() {
           // The unknown-dot/semantic `outline` IS meaningful, so it is
           // pinned instead.
           ('outline', scheme.outline, scheme.surface),
+          // D32 §6's kind-glyph tints on the listing surface.
+          ('folder glyph', scheme.primary, chrome.paneBackground),
+          ('image/media glyph', scheme.tertiary, chrome.paneBackground),
+          ('archive glyph', scheme.secondary, chrome.paneBackground),
+          ('pdf glyph', scheme.error, chrome.paneBackground),
+          ('generic glyph', chrome.secondaryText, chrome.paneBackground),
+          // The sync plan's status marks and override dot on a selected
+          // row in the focused table (on-accent, as the glyph above).
+          (
+            'sync plan status marks on active selection',
+            chrome.onSelection,
+            chrome.selectionFill,
+          ),
+          // The active pane's 2 px marker against the strip it underlines.
+          (
+            'active pane line',
+            chrome.activePaneIndicator,
+            chrome.headerBackground,
+          ),
           // theme.disabledColor (the dimmed glyph/text on inactive rows)
           // is deliberately exempt: WCAG exempts inactive UI components
           // from the contrast floor, and §13's readable element on a
@@ -97,6 +152,33 @@ void main() {
             greaterThanOrEqualTo(minimumNonTextContrast),
             reason: '$name (${brightness.name})',
           );
+        }
+      });
+
+      test('sidebar status dots stay ≥ 3:1 on every row state', () {
+        // D32 §5: the 7 px dot composed into a row's mark sits on the
+        // rail at rest, on the 6 % hover fill, and on the selection
+        // pill of the row the active pane shows — the pill is where a
+        // single green once fell below the floor.
+        final rail = chrome.sidebarBackground;
+        final rowStates = <(String, Color)>[
+          ('rail', rail),
+          ('hover', Color.alphaBlend(chrome.hoverFill, rail)),
+          ('pill', Color.alphaBlend(chrome.inactiveSelectionFill, rail)),
+        ];
+        final dots = <(String, Color)>[
+          ('connected', chrome.statusConnected),
+          ('connecting', chrome.statusConnecting),
+          ('failed', scheme.error),
+        ];
+        for (final (dot, color) in dots) {
+          for (final (state, surface) in rowStates) {
+            expect(
+              contrast(color, surface),
+              greaterThanOrEqualTo(minimumNonTextContrast),
+              reason: '$dot dot on $state (${brightness.name})',
+            );
+          }
         }
       });
     });

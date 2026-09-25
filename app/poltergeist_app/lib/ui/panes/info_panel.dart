@@ -11,15 +11,10 @@ import '../../services/pane_permissions.dart';
 import '../../theme/app_theme.dart';
 import 'pane_format.dart';
 
-/// The inspector's width — Transmit's inspector is a fixed-width rail,
-/// not a resizable split, so the listing underneath keeps its layout.
-const _infoPanelWidth = 280.0;
-
-/// 02 §2.6's Get Info inspector: a non-modal panel sliding over the
-/// pane's right edge. It is a Stack sibling of the listing — never a
-/// route, never a dialog — so the pane stays interactive beneath it,
-/// and it retargets on every [PaneController] change as the selection
-/// moves.
+/// 02 §2.6's Get Info facts, rendered in D32's inspector Info tab (10
+/// §3): the window-level inspector owns the chrome — no slide-in, no
+/// elevation, no ✕ — and the panel never covers the listing. It
+/// retargets on every [PaneController] change as the selection moves.
 ///
 /// The slice renders the metadata rows (name, kind, size, dates,
 /// permissions, owner/group, path), the on-demand folder-size measure,
@@ -31,7 +26,6 @@ class InfoPanel extends StatelessWidget {
     super.key,
     required this.controller,
     required this.clock,
-    required this.onClose,
     required this.onEscape,
   });
 
@@ -43,14 +37,8 @@ class InfoPanel extends StatelessWidget {
   /// same seam).
   final DateTime Function() clock;
 
-  /// The ✕ affordance — the strip's [PaneTabsController.closeInfoPanel]
-  /// routed through the pane view.
-  final VoidCallback onClose;
-
-  /// The pane's shared Esc-tier dispatch (02 §8.2): when a control
-  /// inside the panel holds focus, Esc still runs the full ordered
-  /// chain — a higher surface (an in-flight navigation) wins over the
-  /// panel's own close slot.
+  /// Esc pressed while a control inside the panel holds focus: the
+  /// inspector routes it (an open preview answers first).
   final KeyEventResult Function(KeyEvent event) onEscape;
 
   @override
@@ -59,9 +47,7 @@ class InfoPanel extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final target = controller.infoTarget;
     return Focus(
-      // The panel never takes focus itself — its controls do — but Esc
-      // pressed while one of them holds it still runs the pane's tier
-      // order, mirroring the field strips' pattern.
+      // The panel never takes focus itself — its controls do.
       canRequestFocus: false,
       skipTraversal: true,
       onKeyEvent: (node, event) {
@@ -71,70 +57,49 @@ class InfoPanel extends StatelessWidget {
         }
         return onEscape(event);
       },
-      child: TweenAnimationBuilder<Offset>(
-        // The slide-in over the right edge (02 §2.6); a close unmounts
-        // the panel, so the tween only ever plays the entrance.
-        tween: Tween(begin: const Offset(1, 0), end: Offset.zero),
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        builder: (context, offset, child) => FractionalTranslation(
-          translation: offset,
-          child: child,
-        ),
-        child: Semantics(
-          container: true,
-          label: l10n.infoPanelLabel,
-          child: Material(
-            elevation: 8,
-            color: colors.surfaceContainerHigh,
-            shape: BorderDirectional(
-              start: BorderSide(color: colors.outlineVariant),
-            ),
-            child: SizedBox(
-              width: _infoPanelWidth,
-              height: double.infinity,
-              child: SingleChildScrollView(
-                padding: const EdgeInsetsDirectional.only(
-                  start: 14,
-                  end: 10,
-                  top: 8,
-                  bottom: 14,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _header(context, l10n, target),
-                    if (target != null) ...[
-                      const SizedBox(height: 4),
-                      if (controller.selectedCount > 1)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            l10n.infoPanelSelectedCount(
-                              controller.selectedCount,
-                            ),
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: colors.onSurfaceVariant),
-                          ),
-                        ),
-                      _detailRows(context, l10n, target),
-                    ] else
-                      Padding(
-                        padding: const EdgeInsets.only(top: 24),
-                        child: Text(
-                          l10n.infoPanelEmpty,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: colors.onSurfaceVariant),
-                        ),
-                      ),
-                  ],
-                ),
+      child: Semantics(
+        container: true,
+        label: l10n.infoPanelLabel,
+        child: _body(context, l10n, colors, target),
+      ),
+    );
+  }
+
+  Widget _body(
+    BuildContext context,
+    AppLocalizations l10n,
+    ColorScheme colors,
+    RemoteFileEntry? target,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _header(context, l10n, target),
+        if (target != null) ...[
+          const SizedBox(height: 4),
+          if (controller.selectedCount > 1)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                l10n.infoPanelSelectedCount(controller.selectedCount),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
               ),
             ),
+          _detailRows(context, l10n, target),
+        ] else
+          Padding(
+            padding: const EdgeInsets.only(top: 24),
+            child: Text(
+              l10n.infoPanelEmpty,
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+            ),
           ),
-        ),
-      ),
+      ],
     );
   }
 
@@ -175,13 +140,6 @@ class InfoPanel extends StatelessWidget {
               softWrap: true,
             ),
           ),
-        ),
-        IconButton(
-          key: const ValueKey('infoPanel.close'),
-          tooltip: l10n.infoPanelClose,
-          onPressed: onClose,
-          icon: const Icon(Icons.close, size: 18),
-          visualDensity: VisualDensity.compact,
         ),
       ],
     );

@@ -63,6 +63,33 @@ void main() {
     ]);
   });
 
+  test('a second leading BOM is content and survives the round trip', () async {
+    // Utf8Decoder drops a BOM at the start of whatever it is handed, so
+    // stripping one BOM and decoding the rest would also swallow the
+    // U+FEFF right behind it (ported from Séance's fix).
+    const bom = [0xef, 0xbb, 0xbf];
+    await file.writeAsBytes([...bom, ...bom, ...bom, ...'a\n'.codeUnits]);
+    final document = await loadBuiltInTextDocumentDetails(file);
+
+    expect(document.hasUtf8Bom, isTrue);
+    expect(document.text, '﻿﻿a\n');
+
+    await saveBuiltInTextDocument(
+      file,
+      document.text,
+      hasUtf8Bom: document.hasUtf8Bom,
+      lineEnding: document.lineEnding,
+      expectedSha256: document.sha256,
+    );
+
+    expect(await file.readAsBytes(), [
+      ...bom,
+      ...bom,
+      ...bom,
+      ...'a\n'.codeUnits,
+    ]);
+  });
+
   test('a BOM-less LF file round-trips byte-for-byte', () async {
     await file.writeAsBytes('one\ntwo\n'.codeUnits);
     final document = await loadBuiltInTextDocumentDetails(file);

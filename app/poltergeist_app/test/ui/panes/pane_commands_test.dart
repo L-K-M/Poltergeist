@@ -458,8 +458,8 @@ void main() {
       [const SingleActivator(LogicalKeyboardKey.keyL, control: true)],
     );
 
-    // 02 §9's Go menu: Back 10, Forward 20, Enclosing 30, then the
-    // field commands at 50/60 (slot 40 stays open for Home).
+    // 10 §8's Go menu: Back 10, Forward 20, Enclosing 30, Home 40,
+    // then the path-field section at 50/60.
     expect(back.menuPlacement?.menu, AppMenuId.go);
     expect(back.menuPlacement?.order, 10);
     expect(forward.menuPlacement?.order, 20);
@@ -505,6 +505,55 @@ void main() {
     expect(back.enabled(), isFalse);
     expect(editPath.enabled(), isFalse);
     expect(toFolder.enabled(), isFalse);
+  });
+
+  testWidgets('go.home browses the binding\'s home with ⇧⌘H / '
+      'Ctrl+Shift+H from 10 §8\'s Go menu', (tester) async {
+    final lanes = controller_test.FakePaneLanes();
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('a')];
+    channel.listings['/home/tester/a'] = [_entry('inner')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
+    addTearDown(workspace.dispose);
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await tester.pump();
+    workspace.setActivePane(leftStrip);
+
+    final home = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((command) => command.id == kGoHomeCommandId);
+
+    expect(home.scope, CommandScope.pane);
+    expect(home.activators!(TargetPlatform.macOS), const [
+      SingleActivator(LogicalKeyboardKey.keyH, meta: true, shift: true),
+    ]);
+    expect(home.activators!(TargetPlatform.linux), const [
+      SingleActivator(LogicalKeyboardKey.keyH, control: true, shift: true),
+    ]);
+    expect(home.menuPlacement?.menu, AppMenuId.go);
+    expect(home.menuPlacement?.order, 40);
+    expect(home.menuPlacement?.group, 0);
+
+    await tester.pumpWidget(const SizedBox());
+    final context = tester.element(find.byType(SizedBox));
+    left.navigate('/home/tester/a');
+    await tester.pump();
+    expect(home.enabled(), isTrue);
+    await home.run(context);
+    await tester.pump();
+    expect(left.location?.path, '/home/tester');
+
+    // An unbound pane has no home to browse.
+    workspace.setActivePane(rightStrip);
+    expect(home.enabled(), isFalse);
   });
 
   testWidgets('file.rename is selection-scoped, opens the editor on '
@@ -576,8 +625,8 @@ void main() {
         reason: 'the inactive pane never opens a session');
   });
 
-  testWidgets('file.getInfo is selection-scoped, toggles the active '
-      'pane\'s inspector, and documents its §8.3 keys', (tester) async {
+  testWidgets('file.getInfo is selection-scoped, toggles the inspector\'s '
+      'Info tab (D32), and documents its §8.3 keys', (tester) async {
     final lanes = controller_test.FakePaneLanes();
     final channel = controller_test.FakePaneChannel('/home/tester');
     channel.listings['/home/tester'] = [_entry('a'), _entry('b')];
@@ -614,18 +663,19 @@ void main() {
       getInfo.activators!(TargetPlatform.windows),
       [const SingleActivator(LogicalKeyboardKey.enter, alt: true)],
     );
-    // 02 §9's File menu: between Edit in Poltergeist and Duplicate —
-    // ahead of Rename at 70.
+    // 10 §8's File menu: Get Info leads its section, ahead of Rename
+    // at 70.
     expect(getInfo.menuPlacement?.menu, AppMenuId.file);
     expect(getInfo.menuPlacement?.order, 65);
-    expect(getInfo.menuPlacement?.group, 1);
+    expect(getInfo.menuPlacement?.group, 2);
 
-    // Enablement needs an inspector target — a cursor/selected row —
-    // or an already-open panel (so the same chord toggles it closed).
+    // D32: the Info tab follows the focused item and shows its own
+    // empty state, so the verb is live whenever a browsing tab exists —
+    // with or without a row to describe.
     workspace.setActivePane(rightStrip);
-    expect(getInfo.enabled(), isFalse);
+    expect(getInfo.enabled(), isTrue);
     workspace.setActivePane(leftStrip);
-    expect(getInfo.enabled(), isFalse);
+    expect(getInfo.enabled(), isTrue);
     left.setCursorIndex(1);
     expect(getInfo.enabled(), isTrue);
 
@@ -637,12 +687,21 @@ void main() {
       ),
     );
     final context = tester.element(find.byType(Scaffold));
+    // The inspector opens on Info by default: the chord toggles it away
+    // and back — window chrome, never a per-pane overlay.
+    expect(workspace.inspectorHidden, isFalse);
+    expect(workspace.inspectorTab, InspectorTab.info);
     await getInfo.run(context);
-    expect(leftStrip.infoPanelOpen, isTrue);
-    expect(rightStrip.infoPanelOpen, isFalse,
-        reason: 'the inspector is pane chrome of the ACTIVE pane only');
+    expect(workspace.inspectorHidden, isTrue);
     await getInfo.run(context);
-    expect(leftStrip.infoPanelOpen, isFalse);
+    expect(workspace.inspectorHidden, isFalse);
+    expect(workspace.inspectorTab, InspectorTab.info);
+
+    // From another tab it switches to Info rather than hiding.
+    workspace.selectInspectorTab(InspectorTab.transfers);
+    await getInfo.run(context);
+    expect(workspace.inspectorHidden, isFalse);
+    expect(workspace.inspectorTab, InspectorTab.info);
   });
 
   testWidgets('file.editBuiltIn is selection-scoped, opens the cursor row '
@@ -887,6 +946,182 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump();
     expect(ran, isTrue);
+  });
+
+  testWidgets('view.toggleHidden flips the active tab\'s hidden-file lens '
+      'with Finder/GNOME chords and a checked View-menu row', (tester) async {
+    final lanes = controller_test.FakePaneLanes();
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('.env'), _entry('a.txt')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final workspace = WorkspaceController(
+      left: testPaneStrip(left),
+      right: testPaneStrip(right),
+    );
+    addTearDown(workspace.dispose);
+    final toggle = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((c) => c.id == kViewToggleHiddenCommandId);
+
+    expect(toggle.scope, CommandScope.pane);
+    expect(toggle.activators!(TargetPlatform.macOS), [
+      const SingleActivator(
+        LogicalKeyboardKey.period,
+        meta: true,
+        shift: true,
+      ),
+    ]);
+    expect(toggle.activators!(TargetPlatform.linux), [
+      const SingleActivator(LogicalKeyboardKey.keyH, control: true),
+    ]);
+    expect(toggle.menuPlacement?.menu, AppMenuId.view);
+    // An unbound tab has no lens to flip.
+    expect(toggle.enabled(), isFalse);
+
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await tester.pump();
+    expect(toggle.enabled(), isTrue);
+    expect(toggle.checked!(), isFalse);
+    expect(left.entries.map((e) => e.name), ['a.txt']);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    final context = tester.element(find.byType(Scaffold));
+    await toggle.run(context);
+    expect(left.showHidden, isTrue);
+    expect(toggle.checked!(), isTrue);
+    expect(left.entries.map((e) => e.name), ['.env', 'a.txt']);
+    expect(right.showHidden, isFalse, reason: 'the active tab only');
+    await toggle.run(context);
+    expect(left.showHidden, isFalse);
+  });
+
+  testWidgets('view.sortBy is the column header\'s menu path: one row per '
+      'column, checked on the sorted one', (tester) async {
+    final lanes = controller_test.FakePaneLanes();
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('a.txt'), _entry('b.txt')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final workspace = WorkspaceController(
+      left: testPaneStrip(left),
+      right: testPaneStrip(
+        PaneController(paneTabId: 'pane.right', lanes: lanes),
+      ),
+    );
+    addTearDown(workspace.dispose);
+    final sortBy = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((c) => c.id == kViewSortByCommandId);
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    final context = tester.element(find.byType(Scaffold));
+    final l10n = AppLocalizations.of(context);
+    expect(sortBy.menuPlacement?.menu, AppMenuId.view);
+    final items = sortBy.submenuItems!(l10n);
+    expect([for (final item in items) item.label(l10n)], [
+      'Name',
+      'Size',
+      'Date Modified',
+    ]);
+    expect([for (final item in items) item.checked!()], [true, false, false]);
+
+    await items[1].run(context);
+    expect(left.sortKey, FileSortKey.size);
+    expect(left.sortDirection, FileSortDirection.descending);
+    expect(items[1].checked!(), isTrue);
+    // The palette path flips the sorted column.
+    await sortBy.run(context);
+    expect(left.sortDirection, FileSortDirection.ascending);
+  });
+
+  testWidgets('selection.copyPath copies the selection, else the folder, '
+      'and confirms through the pane notice', (tester) async {
+    final clipboard = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboard.add((call.arguments as Map)['text'] as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    final lanes = controller_test.FakePaneLanes();
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('a.txt'), _entry('b.txt')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final workspace = WorkspaceController(
+      left: testPaneStrip(left),
+      right: testPaneStrip(
+        PaneController(paneTabId: 'pane.right', lanes: lanes),
+      ),
+    );
+    addTearDown(workspace.dispose);
+    final copy = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((c) => c.id == kSelectionCopyPathCommandId);
+
+    expect(copy.scope, CommandScope.selection);
+    expect(copy.activators!(TargetPlatform.macOS), [
+      const SingleActivator(LogicalKeyboardKey.keyC, meta: true, alt: true),
+    ]);
+    expect(copy.activators!(TargetPlatform.windows), [
+      const SingleActivator(LogicalKeyboardKey.keyC, control: true, alt: true),
+    ]);
+    expect(copy.menuPlacement?.menu, AppMenuId.edit);
+    expect(copy.enabled(), isFalse, reason: 'nothing to name yet');
+
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    final context = tester.element(find.byType(Scaffold));
+
+    // No selection: the folder itself (Finder's ⌥⌘C).
+    await copy.run(context);
+    expect(clipboard.last, '/home/tester');
+    expect(left.notice, PaneNotice.pathCopied);
+
+    left.selectAll();
+    await copy.run(context);
+    expect(clipboard.last, '/home/tester/a.txt\n/home/tester/b.txt');
+    // Let the notice's auto-hide timer run out.
+    await tester.pump(const Duration(seconds: 5));
   });
 }
 

@@ -1,9 +1,10 @@
-// The sync commands (05 §7/§9): `sync.synchronizePanes` — ⌥⌘Y /
-// Ctrl+Alt+Y (02 §8.3) — builds an ad-hoc pair from the two panes'
-// current locations and opens its plan view; `sync.newSavedSync`
-// opens the pair editor and persists the result as a savedSync
-// bookmark; `sync.copyRsyncCommand` copies the active plan's rsync
-// export (05 §2.1). All live in 02 §9's Commands menu.
+// The sync commands (05 §7/§9, D32 §7): `sync.synchronizePanes` —
+// ⌥⌘Y / Ctrl+Alt+Y (02 §8.3) — builds an ad-hoc pair from the two
+// panes' current locations (the focused pane is the source) and shows
+// it in the Sync sheet; `sync.newSavedSync` opens the same sheet in its
+// new-favorite mode, which persists a savedSync bookmark;
+// `sync.copyRsyncCommand` copies the active plan's rsync export (05
+// §2.1). All live in the Server menu.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -17,9 +18,9 @@ const kSyncNewSavedSyncCommandId = 'sync.newSavedSync';
 const kSyncCopyRsyncCommandId = 'sync.copyRsyncCommand';
 
 /// The sync command registrations. The verbs themselves are shell
-/// operations (pair construction reads both pane strips; the editor's
-/// save writes the bookmark store and opens a plan tab), so they
-/// arrive as delegates — the shell owns the seams, this file owns the
+/// operations (pair construction reads both pane strips; the sheet's
+/// verbs write the bookmark store and open a plan tab), so they arrive
+/// as delegates — the shell owns the seams, this file owns the
 /// registration surface.
 List<RegisteredCommand> buildSyncCommands({
   required WorkspaceController workspace,
@@ -54,8 +55,16 @@ List<RegisteredCommand> buildSyncCommands({
       // 02 §9's Commands table: "Synchronize…" holds the third slot —
       // between the transfer/move block and Calculate Folder Sizes.
       menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.commands,
+        menu: AppMenuId.server,
         order: 30,
+        group: 1,
+      ),
+      // D32 §4: Sync is a labelled primary header action.
+      shortLabel: (l10n) => l10n.syncShortLabel,
+      toolbarPlacement: const CommandToolbarPlacement(
+        slot: ToolbarSlot.primary,
+        order: 10,
+        labelled: true,
       ),
     ),
     RegisteredCommand(
@@ -70,8 +79,9 @@ List<RegisteredCommand> buildSyncCommands({
       // Directly under Synchronize…; the §9 table names no saved-sync
       // slot, so it sits in the gap before Calculate Folder Sizes (40).
       menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.commands,
+        menu: AppMenuId.server,
         order: 35,
+        group: 1,
       ),
     ),
     RegisteredCommand(
@@ -88,8 +98,9 @@ List<RegisteredCommand> buildSyncCommands({
       // plan tab is focused (05 §2.1: the exporter is reachable only
       // from the plan view).
       menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.commands,
+        menu: AppMenuId.server,
         order: 37,
+        group: 1,
       ),
     ),
   ];

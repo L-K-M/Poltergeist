@@ -16,8 +16,8 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import '../../services/pane_controller_test.dart' as controller_test;
 import '../../support/test_panes.dart';
 
-/// Real-font captures of the Filter strip (02 §2.5) and the §2.7
-/// filtered-empty state for visual review. The widget-test default font
+/// Real-font captures of the filter lens (02 §2.5, driven by D32's
+/// header field) and the §2.7 filtered-empty state for visual review. The widget-test default font
 /// renders hollow boxes, so the capture loads a real face when the host
 /// provides one — set POLTERGEIST_CAPTURE_FONT_DIR or rely on the DejaVu
 /// fallback. The PNGs land in tasks/run3-task35/ at the repo root (or
@@ -80,7 +80,7 @@ RemoteFileEntry _entry(
 }
 
 void main() {
-  testWidgets('captures the filter strip active and the filtered-empty '
+  testWidgets('captures the filter lens active and the filtered-empty '
       'state', (tester) async {
     await tester.runAsync(_loadRealFonts);
 
@@ -184,33 +184,26 @@ void main() {
       File('${outDir.path}/$name.png').writeAsBytesSync(bytes);
     }
 
-    final field = find.byKey(
-      const ValueKey('pane.left.filter.field'),
-    );
-
     // Closed baseline.
     await capture('filter-closed');
 
-    // Open and filter to 'photo': two rows visible, the helper reads
-    // `2 of 6` beside the live field.
-    left.openFilter();
-    await tester.pump();
-    await tester.pump();
-    await tester.enterText(field, 'photo');
+    // D32 §4: the header owns the field; the pane renders the lens —
+    // two rows visible, the location header counting what shows.
+    left.setFilterQuery('photo');
     await tester.pump();
     expect(left.entries.length, 2);
-    expect(find.text('2 of 6'), findsOneWidget);
+    expect(find.text('2 items'), findsOneWidget);
     await capture('filter-active');
 
     // A query matching nothing renders the §2.7 empty state with the
     // Clear affordance — never a blank pane.
-    await tester.enterText(field, 'zzz');
+    left.setFilterQuery('zzz');
     await tester.pump();
     expect(left.entries, isEmpty);
     expect(find.text('No items match "zzz"'), findsOneWidget);
     await capture('filter-empty');
 
-    // Esc from the field clears the filter and closes the strip.
+    // Esc on the listing clears the filter (its below-navigation tier).
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
     expect(left.filterActive, isFalse);

@@ -11,9 +11,24 @@ const _desktopBoundary = 1080.0;
 /// private to [allocatePanes].
 const double desktopStageBoundary = _desktopBoundary;
 
-const _mobileBoundary = 680.0;
-const _splitterExtent = 16.0;
-const _minimumPaneWidth = 240.0;
+/// The A|B splitter's layout extent: a 1 px hairline centered in a grab
+/// area, matching the region splitters (D32 §3.1).
+const _splitterExtent = 7.0;
+
+/// D32 §3.1's pane floor.
+const _minimumPaneWidth = 260.0;
+
+/// Below this pane-region width pane B auto-hides: two panes at their
+/// floor no longer fit. The shell folds the inspector and then the
+/// sidebar away at the same floor (D32 §3.2), so the panes are the last
+/// region to give way; a desktop window (content ≥ 720) never gets
+/// here, and a touch window under 600 dp takes the compact posture.
+const _mobileBoundary = 2 * _minimumPaneWidth + _splitterExtent;
+
+/// Public mirrors for the shell's region allocation (D32 §3.2): the
+/// panes' floor is what the inspector and sidebar yield to.
+const double minPaneWidth = _minimumPaneWidth;
+const double paneSplitterExtent = _splitterExtent;
 
 class PaneAllocation {
   const PaneAllocation({

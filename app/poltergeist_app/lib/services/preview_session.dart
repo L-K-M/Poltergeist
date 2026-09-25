@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'pane_controller.dart';
@@ -109,8 +110,9 @@ final class _Production {
 enum PreviewSurface { none, panel, quickLook }
 
 /// 06 §5's preview driver: the per-window owner of the Space/Esc state
-/// machine (§5.2), the macOS Quick Look surface (§5.1), and every
-/// remote production through the §5.3 cache.
+/// machine (§5.2), the Quick Look surface (§5.1: the native panel on
+/// macOS, the in-app overlay on Linux and Windows), and every remote
+/// production through the §5.3 cache.
 ///
 /// The session listens to the workspace's focus chain (active pane →
 /// active tab → selection) and re-evaluates on every identity change of
@@ -133,6 +135,7 @@ final class PreviewSession extends ChangeNotifier {
        _producer = producer,
        _quickLook = quickLook ?? const NoopQuickLookChannel(),
        _platform = platform ?? defaultTargetPlatform {
+    _wellShown = !workspace.previewPanelHidden;
     _workspace.addListener(_onFocusChainChanged);
     _onFocusChainChanged();
   }
@@ -233,6 +236,16 @@ final class PreviewSession extends ChangeNotifier {
   QuickLookCardKind _quickLookCard = QuickLookCardKind.none;
   QuickLookCardKind get quickLookCard => _quickLookCard;
 
+  /// The entry names behind the produced paths handed to the Quick Look
+  /// surface: a remote item shows from its preview-cache file, whose
+  /// name is a cache key, so the in-app overlay's title asks here.
+  final _quickLookNames = <String, String>{};
+
+  /// The display name for a path the Quick Look surface is showing: the
+  /// remote entry's name for a produced cache file, else the file name.
+  String quickLookNameFor(String path) =>
+      _quickLookNames[path] ?? p.basename(path);
+
   // -- Focus chain -----------------------------------------------------
 
   PaneTabsController? _boundStrip;
@@ -272,6 +285,10 @@ final class PreviewSession extends ChangeNotifier {
   /// (progress, gate, close edge) early-returns on this.
   bool _disposed = false;
 
+  /// Whether the Info tab's preview well was on screen at the last
+  /// workspace notification — the edge [_syncWellVisibility] watches.
+  late bool _wellShown;
+
   void _onFocusChainChanged() {
     final strip = _workspace.activePane;
     if (!identical(strip, _boundStrip)) {
@@ -286,6 +303,33 @@ final class PreviewSession extends ChangeNotifier {
       _boundTab = tab;
     }
     _selectionChanged();
+    _syncWellVisibility();
+  }
+
+  /// D32 moved the preview into the inspector's Info tab (10 §3), which
+  /// many paths show or hide besides this session's own verbs: the
+  /// inspector toggle, the tab switcher, Get Info, a restored session,
+  /// the Transfers auto-show. The well is evaluated on the shown edge
+  /// (a selection made while it was hidden never evaluated) and parked
+  /// on the hidden edge, so it can never come back rendering a file the
+  /// selection has since left.
+  void _syncWellVisibility() {
+    final shown = !_workspace.previewPanelHidden;
+    if (shown == _wellShown) return;
+    _wellShown = shown;
+    if (shown) {
+      _evaluate();
+      return;
+    }
+    // Production keeps running silently into the cache (§5.1/§5.2);
+    // the park sweep retries any unlink an open handle blocked.
+    _phase = PreviewPhase.idle;
+    _refusal = PreviewRefusal.none;
+    _file = null;
+    _text = null;
+    _gate = null;
+    notifyListeners();
+    unawaited(_cache.sweepTemps());
   }
 
   /// The focused item's identity key: the §5.3 cache key for remote
@@ -330,12 +374,12 @@ final class PreviewSession extends ChangeNotifier {
     _entry = entry;
     _pane = entry == null ? null : pane;
     _syncSelectionHeader(pane);
-    if (_quickLookActive) {
-      _quickLookFollow();
-      return;
-    }
-    if (_workspace.previewPanelHidden) return;
-    _evaluate();
+    // The Info tab's well and an open Quick Look both follow the focused
+    // item (D32: Quick Look opens over the panes while the inspector
+    // stays up). The well evaluates first; the follow then only adds
+    // its own card state on top.
+    if (!_workspace.previewPanelHidden) _evaluate();
+    if (_quickLookActive) _quickLookFollow();
   }
 
   void _syncSelectionHeader(PaneController? pane) {
@@ -356,11 +400,15 @@ final class PreviewSession extends ChangeNotifier {
 
   // -- The Space verb --------------------------------------------------
 
-  /// `file.preview` (02 §8.3's Space, sel scope): routes to Quick Look
-  /// on macOS while the docked panel is hidden (§5's surface split —
-  /// the two macOS surfaces never both claim the key), the panel
-  /// otherwise. Returns false when nothing is previewable — the pane
-  /// then lets the key fall through to ancestors.
+  /// `file.preview` (02 §8.3's Space, sel scope): Quick Look on every
+  /// desktop platform — the native panel on macOS, the in-app overlay on
+  /// Linux and Windows — since D32 moved the docked preview into the
+  /// inspector's Info tab, a passive well that follows the selection
+  /// rather than a surface competing for Space. Space never hides the
+  /// inspector. Touch platforms (and a desktop without a Quick Look
+  /// surface) answer on the Info tab instead. Returns false when nothing
+  /// is previewable — the pane then lets the key fall through to
+  /// ancestors.
   bool previewFocused() {
     final pane = _boundTab;
     if (pane == null || !pane.verbsEnabled) return false;
@@ -372,21 +420,32 @@ final class PreviewSession extends ChangeNotifier {
     // always acts on the row the type-ahead landed on (02 §8.2's
     // precedence rule).
     _selectionChanged();
-    if (_platform == TargetPlatform.macOS && _panelHidden) {
+    if (_desktop) {
       return _quickLookVerb(pane);
     }
     return _panelVerb(pane);
   }
 
+  bool get _desktop => switch (_platform) {
+    TargetPlatform.macOS ||
+    TargetPlatform.linux ||
+    TargetPlatform.windows => true,
+    TargetPlatform.android ||
+    TargetPlatform.iOS ||
+    TargetPlatform.fuchsia => false,
+  };
+
   bool get _panelHidden => _workspace.previewPanelHidden;
 
-  /// The panel's Space leg (§5.2's state machine): open-and-evaluate
-  /// when hidden; from the prompt card, start the download; rendered or
-  /// promptless → close; confirmation and in-flight are no-ops.
+  /// The Info tab's Space leg (§5.2's state machine, D32): show the tab
+  /// when it is not on screen (the shown edge evaluates); from the
+  /// prompt card, start the download; everything else is a no-op. The
+  /// Info tab is persistent chrome, so Space never hides the inspector —
+  /// the old rendered → close leg hid the whole column.
   bool _panelVerb(PaneController pane) {
     if (_panelHidden) {
+      // The shown edge evaluates the focused item.
       _workspace.setPreviewPanelHidden(false);
-      _evaluate();
       return true;
     }
     switch (_phase) {
@@ -396,10 +455,8 @@ final class PreviewSession extends ChangeNotifier {
       case PreviewPhase.confirm:
       case PreviewPhase.gateConfirm:
       case PreviewPhase.producing:
-        return true;
       case PreviewPhase.idle:
       case PreviewPhase.rendered:
-        closePanel();
         return true;
     }
   }
@@ -485,8 +542,10 @@ final class PreviewSession extends ChangeNotifier {
       case PreviewPhase.idle:
       case PreviewPhase.prompt:
       case PreviewPhase.rendered:
-        closePanel();
-        return true;
+        // D32: the preview lives in the inspector column, which is
+        // persistent chrome — Esc never closes it (10 §2's "nothing
+        // blocks the view"): the press falls through to lower tiers.
+        return false;
     }
   }
 
@@ -497,8 +556,8 @@ final class PreviewSession extends ChangeNotifier {
   /// it, running the surface-close cache sweep either way (§5.3).
   void togglePanel() {
     if (_panelHidden) {
+      // The shown edge evaluates the focused item.
       _workspace.setPreviewPanelHidden(false);
-      _evaluate();
       return;
     }
     closePanel();
@@ -509,14 +568,8 @@ final class PreviewSession extends ChangeNotifier {
   /// retries any unlink an open handle blocked.
   void closePanel() {
     if (_panelHidden) return;
+    // The hidden edge parks the well and runs the sweep.
     _workspace.setPreviewPanelHidden(true);
-    _phase = PreviewPhase.idle;
-    _refusal = PreviewRefusal.none;
-    _file = null;
-    _text = null;
-    _gate = null;
-    notifyListeners();
-    unawaited(_cache.sweepTemps());
   }
 
   /// The prompt/confirm card's Download and the gate card's "Keep
@@ -977,9 +1030,9 @@ final class PreviewSession extends ChangeNotifier {
     if (!await _quickLook.isAvailable()) {
       if (_disposed) return;
       // Channel absent on a non-macOS host or a headless test — the
-      // panel is the honest fallback surface.
-      _workspace.setPreviewPanelHidden(false);
-      _evaluate();
+      // Info tab's well is the honest fallback surface, and Space gets
+      // its answer there (show it, or the visible card's own verb).
+      _panelVerb(pane);
       return;
     }
     if (_disposed) return;
@@ -1078,6 +1131,7 @@ final class PreviewSession extends ChangeNotifier {
     final cached = await _cache.lookup(key);
     if (_disposed) return;
     if (cached != null) {
+      _quickLookNames[cached.path] = entry.name;
       if (_quickLookActive) {
         await _quickLook.updatePreview([cached.path], 0);
       } else {
@@ -1120,6 +1174,7 @@ final class PreviewSession extends ChangeNotifier {
         production.generation != _generation) {
       return;
     }
+    _quickLookNames[file.path] = production.entry.name;
     if (_quickLookActive) {
       await _quickLook.updatePreview([file.path], 0);
     } else {
@@ -1140,6 +1195,7 @@ final class PreviewSession extends ChangeNotifier {
       _quickLookActive = false;
       _quickLookRequested = false;
       _quickLookCard = QuickLookCardKind.none;
+      _quickLookNames.clear();
       notifyListeners();
       // The surface-close sweep (§5.3): released handles unblock the
       // evictions a previous pass tolerated.
@@ -1151,6 +1207,7 @@ final class PreviewSession extends ChangeNotifier {
     _quickLookActive = false;
     _quickLookRequested = false;
     _quickLookCard = QuickLookCardKind.none;
+    _quickLookNames.clear();
     unawaited(_quickLook.hidePreview());
     unawaited(_cache.sweepTemps());
     notifyListeners();

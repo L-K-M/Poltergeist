@@ -205,6 +205,47 @@ void main() {
     });
   });
 
+  group('checkNow (the menu\'s Check for Updates…)', () {
+    test('runs even with the launch check turned off', () async {
+      final controller = UpdateCheckController(
+        enabled: false,
+        checker: UpdateChecker(
+          repo: poltergeistUpdateRepo,
+          client: clientWith(releaseJson('v9.9.9')),
+        ),
+      );
+      var notified = 0;
+      controller.addListener(() => notified++);
+
+      final info = await controller.checkNow('1.0.0');
+
+      expect(requests, hasLength(1));
+      expect(info?.latestVersion, '9.9.9');
+      // What the user asked for lands in Alerts like the launch check's.
+      expect(controller.update, same(info));
+      expect(notified, 1);
+    });
+
+    test('answers null for up to date and for a failed check alike', () async {
+      final current = UpdateCheckController(
+        checker: UpdateChecker(
+          repo: poltergeistUpdateRepo,
+          client: clientWith(releaseJson('v1.0.0')),
+        ),
+      );
+      expect(await current.checkNow('1.0.0'), isNull);
+
+      final offline = UpdateCheckController(
+        checker: UpdateChecker(
+          repo: poltergeistUpdateRepo,
+          client: failingClient(),
+        ),
+      );
+      expect(await offline.checkNow('1.0.0'), isNull);
+      expect(offline.update, isNull);
+    });
+  });
+
   group('AppPreferences updates.checkEnabled', () {
     late Directory dir;
     late AppPreferences prefs;

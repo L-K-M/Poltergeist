@@ -65,6 +65,40 @@ void main() {
     expect(window.events, ['ready', 'bounds', 'show', 'focus']);
   });
 
+  test('windowReady resolves only once waitUntilReadyToShow has', () async {
+    // Windows: window_manager creates the taskbar list that its
+    // setProgressBar dereferences inside waitUntilReadyToShow, so the
+    // Dock/taskbar reporter waits on this signal.
+    final window = FakeWindowAdapter()..blockReadyToShow = true;
+    final lifecycle = _lifecycle(window: window);
+    var ready = false;
+    unawaited(lifecycle.windowReady.then((_) => ready = true));
+
+    await lifecycle.prepare();
+    final showing = lifecycle.show();
+    await window.readyToShowStarted.future;
+    await Future<void>.delayed(Duration.zero);
+    expect(ready, isFalse);
+
+    window.releaseReadyToShow();
+    await showing;
+    expect(ready, isTrue);
+  });
+
+  test('windowReady never resolves when prepare failed', () async {
+    final window = FakeWindowAdapter()..failEnsureInitialized = true;
+    final lifecycle = _lifecycle(window: window);
+    var ready = false;
+    unawaited(lifecycle.windowReady.then((_) => ready = true));
+
+    await expectLater(lifecycle.prepare(), throwsA(isA<StateError>()));
+    await lifecycle.show();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(window.events, isNot(contains('ready')));
+    expect(ready, isFalse);
+  });
+
   test('prepare returns platform initialization failures', () async {
     final window = FakeWindowAdapter()..failEnsureInitialized = true;
     final lifecycle = _lifecycle(window: window);

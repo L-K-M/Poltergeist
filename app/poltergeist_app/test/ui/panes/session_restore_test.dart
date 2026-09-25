@@ -17,6 +17,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
 import '../../support/fake_bookmark_store.dart';
+import '../../support/shell_commands.dart';
 
 /// 02 §3's launch restoration inside the production shell: the persisted
 /// document rebuilds both strips (remote tabs land as inert cached
@@ -245,10 +246,7 @@ void main() {
       expect(find.text('photo.jpg'), findsNothing);
 
       // Re-showing pane B presents the already-live listing.
-      await tester.tap(
-        find.byKey(const ValueKey('command.view.toggleSecondPane')),
-      );
-      await tester.pumpAndSettle();
+      await runShellCommand(tester, 'view.toggleSecondPane');
       expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsOneWidget);
       expect(find.text('photo.jpg'), findsOneWidget);
     },

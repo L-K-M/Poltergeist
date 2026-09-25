@@ -815,6 +815,74 @@ void main() {
       expect(s1.entryAt('/src/dir/sub'), isNotNull);
       expect(s1.entryAt('/src/dir'), isNotNull);
     });
+
+    // D26's never-self-overwrite rule on one server: a destination
+    // spelling that the server resolves to the source itself (another
+    // casing on a case-insensitive server, a symlinked directory) must
+    // complete in place. Replace would pipe the file onto its own entry
+    // and then unlink the only copy.
+    test('a same-server move onto an aliased path completes in place, '
+        'even when answered Replace', () async {
+      s1.caseInsensitive = true;
+      s1.addFile('/site/index.html', 'home'.codeUnits);
+      final task = enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s1'),
+          rootPaths: ['/site/index.html'],
+          destinationDir: '/SITE',
+          files: ConflictResolution.replace,
+          operation: TransferOperation.move,
+        ),
+      );
+      await awaitTaskDone(task);
+      expect(task.state, TransferTaskState.completed);
+      expect(task.items.single.state, TransferItemState.completed);
+      expect(s1.uploadCalls, 0);
+      expect(s1.deleteCalls, 0);
+      expect(s1.fileBytes['/site/index.html'], 'home'.codeUnits);
+    });
+
+    test('a same-server folder move onto an aliased path, merged and '
+        'replaced, leaves the tree in place', () async {
+      s1.caseInsensitive = true;
+      s1.addFile('/www/site/index.html', 'home'.codeUnits);
+      s1.addFile('/www/site/css/app.css', 'css'.codeUnits);
+      final task = enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s1'),
+          rootPaths: ['/www/site'],
+          destinationDir: '/WWW',
+          files: ConflictResolution.replace,
+          operation: TransferOperation.move,
+        ),
+      );
+      await awaitTaskDone(task);
+      expect(task.state, TransferTaskState.completed);
+      expect(s1.uploadCalls, 0);
+      expect(s1.deleteCalls, 0);
+      expect(s1.fileBytes['/www/site/index.html'], 'home'.codeUnits);
+      expect(s1.fileBytes['/www/site/css/app.css'], 'css'.codeUnits);
+      expect(s1.entryAt('/www/site'), isNotNull);
+    });
+
+    test('a same-server move to another directory still moves', () async {
+      s1.addFile('/src/m.txt', 'mm'.codeUnits);
+      final task = enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s1'),
+          rootPaths: ['/src/m.txt'],
+          destinationDir: '/dst',
+          operation: TransferOperation.move,
+        ),
+      );
+      await awaitTaskDone(task);
+      expect(task.state, TransferTaskState.completed);
+      expect(s1.fileBytes['/dst/m.txt'], 'mm'.codeUnits);
+      expect(s1.entryAt('/src/m.txt'), isNull);
+    });
   });
 
   group('failures', () {

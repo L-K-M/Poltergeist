@@ -121,11 +121,17 @@ void main() {
   test('seeded collapse state applies and a failed sink keeps the toggle',
       () async {
     store.bookmarks = [_remote('a', group: 'alpha')];
+    // A pre-D32 set: the bare group key migrates into the fav: namespace.
     final controller = buildController(collapsed: {'alpha'});
     addTearDown(controller.dispose);
     await controller.reload();
 
-    expect(controller.isCollapsed(controller.sections.single.key), isTrue);
+    expect(
+      controller.isCollapsed(
+        SidebarCollapseKeys.favoriteGroup(controller.sections.single.key),
+      ),
+      isTrue,
+    );
 
     // A throwing persist seam is reported, not fatal — the in-memory
     // toggle already landed.
@@ -264,5 +270,167 @@ void main() {
     await fresh;
 
     expect(controller.bookmarks, hasLength(2));
+  });
+
+  group('collapse keys', () {
+    test('every surface namespaces its keys', () {
+      expect(
+        SidebarCollapseKeys.section(SidebarSection.devices),
+        'sec:devices',
+      );
+      expect(SidebarCollapseKeys.favoriteGroup('work'), 'fav:work');
+      expect(SidebarCollapseKeys.serverGroup('work'), 'srv:work');
+    });
+
+    test('the migration maps every legacy key and is idempotent', () {
+      final migrated = SidebarCollapseKeys.migrate({
+        'work', // a favorite group's bare key
+        '', // the old ungrouped "Favorites" header
+        'sidebar.connections', // a section that no longer exists
+        'sidebar.catalog', // the Séance-servers section → SERVERS
+        'sidebar.catalog.prod', // a catalog group
+        'sec:devices', // already namespaced
+      });
+      expect(migrated, {'fav:work', 'sec:servers', 'srv:prod', 'sec:devices'});
+      expect(SidebarCollapseKeys.migrate(migrated), migrated);
+    });
+  });
+
+  group('filter', () {
+    test('a request opens the field and leaves focus to take once', () {
+      final controller = buildController();
+      addTearDown(controller.dispose);
+      expect(controller.filterOpen, isFalse);
+      expect(controller.takeFilterFocus(), isFalse);
+
+      controller.requestFilter();
+      expect(controller.filterOpen, isTrue);
+      expect(controller.takeFilterFocus(), isTrue);
+      expect(controller.takeFilterFocus(), isFalse);
+    });
+
+    test('dismiss clears a live query first, then closes', () {
+      final controller = buildController();
+      addTearDown(controller.dispose);
+      controller
+        ..requestFilter()
+        ..setFilterQuery('web');
+
+      controller.dismissFilter();
+      expect(controller.filterQuery, isEmpty);
+      expect(controller.filterOpen, isTrue);
+
+      controller.dismissFilter();
+      expect(controller.filterOpen, isFalse);
+    });
+  });
+
+  group('pending groups', () {
+    test(
+      'a new group waits in memory and retires once it has a member',
+      () async {
+        store.bookmarks = [_remote('a')];
+        final controller = buildController();
+        addTearDown(controller.dispose);
+        await controller.reload();
+
+        controller
+          ..addPendingGroup('Clients')
+          // Case-insensitive duplicates and blanks are ignored.
+          ..addPendingGroup('clients')
+          ..addPendingGroup('  ');
+        expect(controller.pendingGroups, ['Clients']);
+
+        await controller.moveToGroup('a', 'Clients');
+        await pumpEventQueue();
+        expect(controller.pendingGroups, isEmpty);
+      },
+    );
+
+    test('an existing group is never re-created as pending', () async {
+      store.bookmarks = [_remote('a', group: 'Ops')];
+      final controller = buildController();
+      addTearDown(controller.dispose);
+      await controller.reload();
+
+      controller.addPendingGroup('ops');
+      expect(controller.pendingGroups, isEmpty);
+    });
+  });
+
+  group('adding', () {
+    test(
+      'local folders land in order, labelled, and never duplicated',
+      () async {
+        store.bookmarks = [
+          Bookmark(
+            id: 'docs',
+            kind: BookmarkKind.localFolder,
+            label: 'Docs',
+            localPath: '/home/me/Documents',
+            sortKey: 'mm',
+            createdAt: _now,
+            updatedAt: _now,
+          ),
+        ];
+        final controller = buildController();
+        addTearDown(controller.dispose);
+        await controller.reload();
+
+        final added = await controller.addLocalFolders([
+          '/home/me/Desktop',
+          '/home/me/Documents',
+          '/home/me/Downloads',
+        ], labelOf: (path) => path.split('/').last);
+        await pumpEventQueue();
+
+        expect(
+          [for (final b in added) b.localPath],
+          ['/home/me/Desktop', '/home/me/Downloads'],
+        );
+        expect([for (final b in added) b.label], ['Desktop', 'Downloads']);
+        expect(added.every((b) => b.kind == BookmarkKind.localFolder), isTrue);
+        // Store order follows the ask: Desktop before Downloads, both after
+        // the existing favorite (the ungrouped tail).
+        expect(
+          [for (final b in controller.bookmarks) b.id],
+          ['docs', added[0].id, added[1].id],
+        );
+      },
+    );
+
+    test('a remote location saves the endpoint under a fresh id', () async {
+      final controller = buildController();
+      addTearDown(controller.dispose);
+      final live = Bookmark(
+        id: 'adhoc:1',
+        kind: BookmarkKind.remotePath,
+        label: 'demo@host',
+        server: BookmarkServerRef(
+          identity: EmbeddedHostIdentity(
+            host: 'host',
+            port: 2222,
+            username: 'demo',
+            authMethod: AuthMethod.password,
+          ),
+        ),
+        remotePath: '/',
+        sortKey: 'adhoc:1',
+        createdAt: _now,
+        updatedAt: _now,
+      );
+
+      final saved = await controller.saveRemoteLocation(
+        live: live,
+        path: '/var/www',
+        label: 'web root',
+      );
+
+      expect(saved.id, isNot(live.id));
+      expect(saved.server?.identity?.port, 2222);
+      expect(saved.remotePath, '/var/www');
+      expect(saved.label, 'web root');
+      expect(store.bookmarks.single.id, saved.id);
+    });
   });
 }

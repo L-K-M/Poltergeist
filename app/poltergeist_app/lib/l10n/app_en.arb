@@ -20,9 +20,9 @@
   "@menuGo": {
     "description": "Title of the Go application menu."
   },
-  "menuCommands": "Commands",
-  "@menuCommands": {
-    "description": "Title of the Commands application menu (02 §9 menu table)."
+  "menuServer": "Server",
+  "@menuServer": {
+    "description": "Title of the Server application menu (D32's rename of 02 §9's Commands menu: connect, sync, workspaces, transfers)."
   },
   "menuWindow": "Window",
   "@menuWindow": {
@@ -872,9 +872,9 @@
   "@goEditPathLabel": {
     "description": "Command label: swap the pane's path bar for an editable field seeded with the current location (go.editPath, 02 §2.1)."
   },
-  "goEnclosingLabel": "Parent Folder",
+  "goEnclosingLabel": "Enclosing Folder",
   "@goEnclosingLabel": {
-    "description": "Command label: navigate to the parent folder."
+    "description": "Command label: navigate to the parent folder (go.enclosing; 10 §8's Go menu names it Enclosing Folder, Finder's term)."
   },
   "goForwardLabel": "Forward",
   "@goForwardLabel": {
@@ -1170,10 +1170,6 @@
   "quickConnectUnsupportedSchemeError": "Only sftp:// addresses are supported here.",
   "@quickConnectUnsupportedSchemeError": {
     "description": "Error shown for a non-sftp URL pasted into Quick Connect (02 §2.7)."
-  },
-  "saveFavoriteTitle": "Save as favorite…",
-  "@saveFavoriteTitle": {
-    "description": "Title of the post-connect bar offering to keep the live adhoc session as a favorite (02 §2.7)."
   },
   "saveFavoriteNameLabel": "Name",
   "@saveFavoriteNameLabel": {
@@ -1583,9 +1579,9 @@
   "@workspaceMenuEmpty": {
     "description": "Disabled row inside the Workspaces submenu while no workspace has been saved yet."
   },
-  "viewToggleActivityPanelLabel": "Show/Hide Activity",
+  "viewToggleActivityPanelLabel": "Transfers",
   "@viewToggleActivityPanelLabel": {
-    "description": "Menu label for view.toggleActivityPanel (02 §9's View table: Show/Hide Activity)."
+    "description": "Menu label for view.toggleActivityPanel, which shows or hides the inspector's Transfers tab (10 §8's View menu: Info, Transfers, Alerts). Also the header activity button's tooltip."
   },
   "queueTogglePauseLabel": "Pause/Resume Transfers",
   "@queueTogglePauseLabel": {
@@ -2027,9 +2023,9 @@
   "@settingsTitle": {
     "description": "Title of the Settings surface (02 §10)."
   },
-  "settingsBackupCommand": "Back up bookmarks…",
+  "settingsBackupCommand": "Back up and sync…",
   "@settingsBackupCommand": {
-    "description": "Menu command opening Settings at the Bookmark backup section (D21)."
+    "description": "Menu command opening Settings at the Bookmark backup section (D21). 10 §8's Server menu wording; 10 §10 says Sync in both sibling apps."
   },
   "settingsCommand": "Settings…",
   "@settingsCommand": {
@@ -2046,23 +2042,6 @@
   "updateCheckEnabledSubtitle": "Checks GitHub on launch and only links to the release page — it never downloads anything.",
   "@updateCheckEnabledSubtitle": {
     "description": "Explainer under the update-check toggle; the D19/D23 trust claim."
-  },
-  "updateBannerText": "Poltergeist {version} is available.",
-  "@updateBannerText": {
-    "description": "Dismissible banner shown when GitHub's latest release tag is newer than the running version (D19).",
-    "placeholders": {
-      "version": {
-        "type": "String"
-      }
-    }
-  },
-  "updateViewRelease": "View release",
-  "@updateViewRelease": {
-    "description": "Update banner button opening the GitHub releases page in the OS browser (a link, never a download)."
-  },
-  "updateDismissTooltip": "Dismiss",
-  "@updateDismissTooltip": {
-    "description": "Tooltip for the update banner's close affordance (session dismiss; the next launch re-checks)."
   },
   "backupTitle": "Bookmark backup",
   "@backupTitle": {
@@ -2692,7 +2671,7 @@
       }
     }
   },
-  "checkoutLocalEditsBanner": "{count, plural, =1{1 file has local edits from a previous session.} other{{count} files have local edits from a previous session.}}",
+  "checkoutLocalEditsBanner": "{count, plural, =1{1 file has local edits that aren't on the server yet.} other{{count} files have local edits that aren't on the server yet.}}",
   "@checkoutLocalEditsBanner": {
     "description": "06 §3.7's persistent pane banner while a bound server's managed checkouts hold dirty or missing local edits — the resume offer a relaunch owes the user.",
     "placeholders": {
@@ -2880,9 +2859,9 @@
   "@filePreviewLabelNeutral": {
     "description": "file.preview's command label off macOS — the docked in-app panel owns Space there, so the macOS-only 'Quick Look' name would be wrong (02 §8.3/§9, 06 §5)."
   },
-  "viewTogglePreviewLabel": "Show/Hide Preview",
+  "viewTogglePreviewLabel": "Info",
   "@viewTogglePreviewLabel": {
-    "description": "Command label: hide or show the docked preview rail (view.togglePreview, 02 §8.3/§9, 06 §5.2). While it shows on macOS, Space owns the panel and Quick Look is suppressed."
+    "description": "Command label for view.togglePreview, which shows or hides the inspector's Info tab, where the preview renders (10 §8's View menu: Info, Transfers, Alerts; D32 merged 06 §5.2's preview rail into Info)."
   },
   "previewPanelLabel": "Preview",
   "@previewPanelLabel": {
@@ -3722,9 +3701,9 @@
       "right": {"type": "String"}
     }
   },
-  "syncSynchronizePanes": "Synchronize Panes",
+  "syncSynchronizePanes": "Synchronize…",
   "@syncSynchronizePanes": {
-    "description": "Command label: build an ad-hoc pair from the two panes and open its plan view (05 §7, sync.synchronizePanes, ⌥⌘Y)."
+    "description": "Command label: build an ad-hoc pair from the two panes and open the Sync sheet (05 §7, 10 §7/§8, sync.synchronizePanes, ⌥⌘Y). The ellipsis says a sheet opens before anything runs."
   },
   "syncRescan": "Rescan",
   "@syncRescan": {
@@ -4494,5 +4473,1636 @@
   "connectionTestFailed": "Connection test failed",
   "@connectionTestFailed": {
     "description": "Screen-reader label of the failure icon in the connection-test report."
+  },
+  "mainMenuTooltip": "Main menu",
+  "@mainMenuTooltip": {
+    "description": "D32 §8: tooltip of the header's ☰ button that holds the whole menu tree on Windows and Linux."
+  },
+  "toolbarMoreTooltip": "More",
+  "@toolbarMoreTooltip": {
+    "description": "D32 §4: tooltip of the header's » overflow button on narrow windows."
+  },
+  "inspectorLabel": "Inspector",
+  "@inspectorLabel": {
+    "description": "D32 §3: accessibility label of the right inspector column."
+  },
+  "inspectorTabInfo": "Info",
+  "@inspectorTabInfo": {
+    "description": "D32 §3: the inspector's Info tab (the focused item's preview and facts)."
+  },
+  "inspectorTabTransfers": "Transfers",
+  "@inspectorTabTransfers": {
+    "description": "D32 §3: the inspector's Transfers tab (the transfer queue's rows)."
+  },
+  "inspectorTabAlerts": "Alerts",
+  "@inspectorTabAlerts": {
+    "description": "D32 §3: the inspector's Alerts tab (things that need the user)."
+  },
+  "alertsEmpty": "All clear",
+  "@alertsEmpty": {
+    "description": "D32 §3: the Alerts tab's empty state."
+  },
+  "alertTransferFailed": "Couldn't transfer “{name}”",
+  "@alertTransferFailed": {
+    "description": "D32 alert row: a transfer task failed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "alertConflictsPending": "{count, plural, =1{1 conflict needs a decision} other{{count} conflicts need a decision}}",
+  "@alertConflictsPending": {
+    "description": "D32 alert row: parked transfer conflicts (02 §5.2).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "alertRestoredQueue": "{count, plural, =1{1 transfer from last session is paused} other{{count} transfers from last session are paused}}",
+  "@alertRestoredQueue": {
+    "description": "D32 alert row: journaled work restored behind the queue pause.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "alertHostKeyChanged": "The host key for {server} changed",
+  "@alertHostKeyChanged": {
+    "description": "D32 alert row: a server is blocked on a changed host key (D18).",
+    "placeholders": {
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "alertConnectionFailed": "Couldn't connect to {server}",
+  "@alertConnectionFailed": {
+    "description": "D32 alert row: a server's connection failed.",
+    "placeholders": {
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "alertLocalEdits": "{count, plural, =1{1 local edit on {server} isn't uploaded} other{{count} local edits on {server} aren't uploaded}}",
+  "@alertLocalEdits": {
+    "description": "D32 alert row: managed checkouts with un-uploaded edits (06 §3.7).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "alertUpdateAvailable": "Poltergeist {version} is available",
+  "@alertUpdateAvailable": {
+    "description": "D32 alert row: a newer release exists (D19).",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "alertActionRetry": "Retry",
+  "@alertActionRetry": {
+    "description": "Alert row action: retry the failed transfer."
+  },
+  "alertActionShow": "Show",
+  "@alertActionShow": {
+    "description": "Alert row action: show the Transfers tab."
+  },
+  "alertActionResolve": "Resolve…",
+  "@alertActionResolve": {
+    "description": "Alert row action: go to the pending conflicts."
+  },
+  "alertActionReview": "Review…",
+  "@alertActionReview": {
+    "description": "Alert row action: open the review surface (host key, local edits)."
+  },
+  "alertActionViewRelease": "View Release",
+  "@alertActionViewRelease": {
+    "description": "Alert row action: open the release page in the browser."
+  },
+  "alertActionDismiss": "Dismiss",
+  "@alertActionDismiss": {
+    "description": "Tooltip of an alert row's dismiss button."
+  },
+  "viewShowInspectorLabel": "Show Inspector",
+  "@viewShowInspectorLabel": {
+    "description": "D32: view.toggleInspector's label while the inspector is hidden."
+  },
+  "viewHideInspectorLabel": "Hide Inspector",
+  "@viewHideInspectorLabel": {
+    "description": "D32: view.toggleInspector's label while the inspector is shown."
+  },
+  "viewShowAlertsLabel": "Alerts",
+  "@viewShowAlertsLabel": {
+    "description": "D32: View menu item that shows the inspector's Alerts tab."
+  },
+  "connectQuickConnectLabel": "Connect…",
+  "@connectQuickConnectLabel": {
+    "description": "D32 §4: connect.quickConnect (⌘K) — Server menu item and header button tooltip."
+  },
+  "connectShortLabel": "Connect",
+  "@connectShortLabel": {
+    "description": "D32 §4: the header's labelled Connect button."
+  },
+  "connectDialogTitle": "Connect to Server",
+  "@connectDialogTitle": {
+    "description": "Title of the Connect dialog (⌘K)."
+  },
+  "syncShortLabel": "Sync",
+  "@syncShortLabel": {
+    "description": "D32 §4: the header's labelled Sync button."
+  },
+  "selectionCopyToOtherPaneLabel": "Copy to Other Pane",
+  "@selectionCopyToOtherPaneLabel": {
+    "description": "D32 §4: selection.transferToOtherPane (F5)."
+  },
+  "selectionMoveToOtherPaneLabel": "Move to Other Pane",
+  "@selectionMoveToOtherPaneLabel": {
+    "description": "D32: selection.moveToOtherPane (F6)."
+  },
+  "commandDisabledNeedsTwoPanes": "Select items, and open a folder in the other pane",
+  "@commandDisabledNeedsTwoPanes": {
+    "description": "Disabled reason for Copy/Move to Other Pane."
+  },
+  "resizeSidebar": "Resize sidebar",
+  "@resizeSidebar": {
+    "description": "Accessibility label of the sidebar splitter."
+  },
+  "resizeInspector": "Resize inspector",
+  "@resizeInspector": {
+    "description": "Accessibility label of the inspector splitter."
+  },
+  "splitterWidthPx": "{value} pixels",
+  "@splitterWidthPx": {
+    "description": "A region splitter's current width in whole pixels.",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "headerFilterHint": "Filter",
+  "@headerFilterHint": {
+    "description": "Placeholder of the header's filter field (filters the active pane)."
+  },
+  "headerTitleEmpty": "No location",
+  "@headerTitleEmpty": {
+    "description": "Header title while the active pane shows the launcher."
+  },
+  "fileRevealMacLabel": "Show in Finder",
+  "@fileRevealMacLabel": {
+    "description": "D32 §11: file.reveal on macOS — reveals the local item in Finder."
+  },
+  "fileRevealLinuxLabel": "Show in File Manager",
+  "@fileRevealLinuxLabel": {
+    "description": "D32 §11: file.reveal on Linux — reveals the local item in the desktop file manager."
+  },
+  "fileRevealWindowsLabel": "Show in Explorer",
+  "@fileRevealWindowsLabel": {
+    "description": "D32 §11: file.reveal on Windows — reveals the local item in File Explorer."
+  },
+  "commandDisabledRevealLocalOnly": "Select a local item",
+  "@commandDisabledRevealLocalOnly": {
+    "description": "Disabled reason for Show in Finder/File Manager: only local items can be revealed."
+  },
+  "helpKeyboardShortcutsLabel": "Keyboard Shortcuts",
+  "@helpKeyboardShortcutsLabel": {
+    "description": "D32 §8 Help menu: the sheet listing every command's shortcut."
+  },
+  "helpReleaseNotesLabel": "Release Notes",
+  "@helpReleaseNotesLabel": {
+    "description": "D32 §8 Help menu: opens the releases page in the browser."
+  },
+  "helpReportIssueLabel": "Report an Issue",
+  "@helpReportIssueLabel": {
+    "description": "D32 §8 Help menu: opens the issue tracker in the browser."
+  },
+  "helpShortcutsOtherGroup": "Other",
+  "@helpShortcutsOtherGroup": {
+    "description": "Keyboard Shortcuts sheet: group for commands that live in no menu."
+  },
+  "paneNewFolderName": "untitled folder",
+  "@paneNewFolderName": {
+    "description": "Default name of a folder created by New Folder (file.newFolder); numbered like 'untitled folder (2)' when the name is taken. The inline rename opens on it right away."
+  },
+  "paneNewFileName": "untitled file",
+  "@paneNewFileName": {
+    "description": "Default name of an empty file created by New File (file.newFile); numbered like 'untitled file (2)' when the name is taken. The inline rename opens on it right away."
+  },
+  "paneCreateNamesExhausted": "No free name is left for \"{name}\" in this folder.",
+  "@paneCreateNamesExhausted": {
+    "description": "Error when New Folder / New File finds its default name and every numbered variant up to the limit already taken.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "untitled folder"
+      }
+    }
+  },
+  "activityTaskServerNotInCatalog": "The shared server \"{server}\" is not in the synced server list on this device.",
+  "@activityTaskServerNotInCatalog": {
+    "description": "Failed transfer, checkout, or sync row: the bookmark names a shared (synced) server that this device's pulled server list does not contain, so there is nothing to connect to.",
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "web.example.com"
+      }
+    }
+  },
+  "fileNewFolderLabel": "New Folder",
+  "@fileNewFolderLabel": {
+    "description": "file.newFolder (⇧⌘N / F7): creates an untitled folder and opens its rename."
+  },
+  "fileNewFileLabel": "New File",
+  "@fileNewFileLabel": {
+    "description": "file.newFile (⌥⌘N): creates an empty untitled file and opens its rename."
+  },
+  "fileDuplicateLabel": "Duplicate",
+  "@fileDuplicateLabel": {
+    "description": "file.duplicate (⌘D): a keep-both copy beside the selection."
+  },
+  "fileMoveToTrashLabel": "Move to Trash",
+  "@fileMoveToTrashLabel": {
+    "description": "file.delete on local items (macOS/Linux)."
+  },
+  "fileMoveToRecycleBinLabel": "Move to Recycle Bin",
+  "@fileMoveToRecycleBinLabel": {
+    "description": "file.delete on local items (Windows)."
+  },
+  "fileDeleteRemoteLabel": "Delete…",
+  "@fileDeleteRemoteLabel": {
+    "description": "file.delete on a remote pane: remote deletes confirm first (D15)."
+  },
+  "fileDeletePermanentlyLabel": "Delete Immediately…",
+  "@fileDeletePermanentlyLabel": {
+    "description": "file.deletePermanently (⌥⌘⌫ / Shift+Delete): always confirms."
+  },
+  "deleteDialogCounting": "Counting items…",
+  "@deleteDialogCounting": {
+    "description": "Delete dialog while the quantifying walk runs (cancellable)."
+  },
+  "deleteDialogPrepareFailed": "Couldn't prepare the delete: {error}",
+  "@deleteDialogPrepareFailed": {
+    "description": "Delete dialog when preparing the delete failed.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogDeleteCount": "{count, plural, =1{Delete 1 item ({size}) from {location}?} other{Delete {count} items ({size}) from {location}?}}",
+  "@deleteDialogDeleteCount": {
+    "description": "02 §10 permanent delete headline with the walk's count and size.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      },
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogDeleteNames": "Delete “{names}” from {location}?",
+  "@deleteDialogDeleteNames": {
+    "description": "02 §10 permanent delete headline naming up to three items.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      },
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogDeleteUnquantified": "Delete the selected items from {location}?",
+  "@deleteDialogDeleteUnquantified": {
+    "description": "02 §10 permanent delete headline when the counting walk gave up.",
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogMoveCount": "{count, plural, =1{Move 1 item ({size}) to .poltergeist-trash/ on {location}?} other{Move {count} items ({size}) to .poltergeist-trash/ on {location}?}}",
+  "@deleteDialogMoveCount": {
+    "description": "02 §10 server-trash headline.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      },
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogMoveNames": "Move “{names}” to .poltergeist-trash/ on {location}?",
+  "@deleteDialogMoveNames": {
+    "description": "02 §10 server-trash headline naming up to three items.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      },
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogMoveUnquantified": "Move the selected items to .poltergeist-trash/ on {location}?",
+  "@deleteDialogMoveUnquantified": {
+    "description": "02 §10 server-trash headline when the counting walk gave up.",
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteDialogIrreversible": "This cannot be undone.",
+  "@deleteDialogIrreversible": {
+    "description": "02 §10 permanent delete warning line."
+  },
+  "deleteDialogMoveWarning": "Items are moved to .poltergeist-trash/ on the server.",
+  "@deleteDialogMoveWarning": {
+    "description": "02 §10 server-trash warning line."
+  },
+  "deleteDialogTrashUnavailable": "{count, plural, =1{The Trash isn't available here, so this item will be deleted permanently.} other{The Trash isn't available here, so these items will be deleted permanently.}}",
+  "@deleteDialogTrashUnavailable": {
+    "description": "D15's one-time trash-unavailable notice in the delete dialog; count is the number of selected items.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteDialogFlaggedExact": "{count, plural, =1{Includes 1 item with an undecodable name.} other{Includes {count} items with an undecodable name.}}",
+  "@deleteDialogFlaggedExact": {
+    "description": "02 §13 flagged-descendant disclosure (exact count).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteDialogFlaggedMaybe": "May include items with undecodable names.",
+  "@deleteDialogFlaggedMaybe": {
+    "description": "02 §13 flagged-descendant disclosure when the walk did not finish."
+  },
+  "deleteDialogServerTrashCheckbox": "Move to .poltergeist-trash/ instead",
+  "@deleteDialogServerTrashCheckbox": {
+    "description": "02 §10 per-server trash option (pre-checked when the server opts in)."
+  },
+  "deleteDialogServerTrashHelper": "Trashed files stay on the server, readable by anything that can read the folder, until you purge them.",
+  "@deleteDialogServerTrashHelper": {
+    "description": "02 §10 helper under the server-trash checkbox."
+  },
+  "deleteDialogConfirmDelete": "{count, plural, =1{Delete} other{Delete {count} Items}}",
+  "@deleteDialogConfirmDelete": {
+    "description": "Delete dialog's destructive confirm button.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteDialogConfirmMove": "{count, plural, =1{Move to Trash} other{Move {count} Items}}",
+  "@deleteDialogConfirmMove": {
+    "description": "Delete dialog's confirm button while the server-trash move is on.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "toolbarTooltipWithShortcut": "{label}  {shortcut}",
+  "@toolbarTooltipWithShortcut": {
+    "description": "A header toolbar button's tooltip: its label, then its first keyboard shortcut (\"New Folder  ⇧⌘N\").",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "shortcut": {
+        "type": "String"
+      }
+    }
+  },
+  "badgeCount": "{count}",
+  "@badgeCount": {
+    "description": "The number on a count badge (the inspector toggle's alert count, the Transfers tab's live tasks).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "badgeCountOverflow": "99+",
+  "@badgeCountOverflow": {
+    "description": "A count badge's text once the count passes 99."
+  },
+  "syncPolicyOneWay": "Your {destinationKind, select, remote{remote} other{local}} folder “{destination}” will be updated from your {sourceKind, select, remote{remote} other{local}} folder “{source}”.",
+  "@syncPolicyOneWay": {
+    "description": "Sync sheet plan sentence (D32 §7): a one-way pair's opening clause.",
+    "placeholders": {
+      "destinationKind": {
+        "type": "String",
+        "description": "\"remote\" for a server side, anything else renders the local form."
+      },
+      "destination": {
+        "type": "String"
+      },
+      "sourceKind": {
+        "type": "String",
+        "description": "\"remote\" for a server side, anything else renders the local form."
+      },
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyReplaceSizeDate": "Files that differ in size or modification date will be replaced with the version from “{source}”, even when the copy in “{destination}” is newer.",
+  "@syncPolicyReplaceSizeDate": {
+    "description": "Plan sentence: one-way replacement under the size-and-date comparison. The engine replaces on ANY difference, so the copy never says only older files are replaced.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      },
+      "destination": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyReplaceSize": "Files that differ in size will be replaced with the version from “{source}”. Files of the same size are left alone, even when their dates differ.",
+  "@syncPolicyReplaceSize": {
+    "description": "Plan sentence: one-way replacement under the size-only comparison.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyReplaceChecksum": "Files whose size or contents differ will be replaced with the version from “{source}”. Contents are compared by checksum, which reads every file of matching size on both sides.",
+  "@syncPolicyReplaceChecksum": {
+    "description": "Plan sentence: one-way replacement under the checksum comparison.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicySizeOnlyFallback": "Modification dates proved unreliable for this pair, so only sizes are compared.",
+  "@syncPolicySizeOnlyFallback": {
+    "description": "Plan sentence: the engine's automatic size-only fallback after a side refused to keep modification dates."
+  },
+  "syncPolicyBackupsInRoot": "Previous versions of replaced files are kept in {trash} inside “{destination}”.",
+  "@syncPolicyBackupsInRoot": {
+    "description": "Plan sentence: overwrite backups go to the in-root sync trash folder of the destination.",
+    "placeholders": {
+      "trash": {
+        "type": "String"
+      },
+      "destination": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyBackupsAt": "Previous versions of replaced files are kept in {trashPath}.",
+  "@syncPolicyBackupsAt": {
+    "description": "Plan sentence: overwrite backups go to a configured out-of-root trash path.",
+    "placeholders": {
+      "trashPath": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyBackupsNone": "Replaced files are overwritten without a backup.",
+  "@syncPolicyBackupsNone": {
+    "description": "Plan sentence: overwrite backups are turned off (a destructive clause)."
+  },
+  "syncPolicyDeleteTrash": "Files in “{destination}” that aren’t in “{source}” will be deleted (moved to {trash}).",
+  "@syncPolicyDeleteTrash": {
+    "description": "Plan sentence: Mirror deletions into the sync trash (a destructive clause).",
+    "placeholders": {
+      "destination": {
+        "type": "String"
+      },
+      "source": {
+        "type": "String"
+      },
+      "trash": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyDeletePermanent": "Files in “{destination}” that aren’t in “{source}” will be deleted permanently.",
+  "@syncPolicyDeletePermanent": {
+    "description": "Plan sentence: Mirror deletions without a trash (a destructive clause).",
+    "placeholders": {
+      "destination": {
+        "type": "String"
+      },
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyNoDeletes": "No files will be deleted.",
+  "@syncPolicyNoDeletes": {
+    "description": "Plan sentence: the no-deletion assurance."
+  },
+  "syncPolicyBothWays": "Your {leftKind, select, remote{remote} other{local}} folder “{left}” and your {rightKind, select, remote{remote} other{local}} folder “{right}” will each receive the files only the other one has.",
+  "@syncPolicyBothWays": {
+    "description": "Plan sentence: an Additive (both ways) pair's opening clause.",
+    "placeholders": {
+      "leftKind": {
+        "type": "String",
+        "description": "\"remote\" for a server side, anything else renders the local form."
+      },
+      "left": {
+        "type": "String"
+      },
+      "rightKind": {
+        "type": "String",
+        "description": "\"remote\" for a server side, anything else renders the local form."
+      },
+      "right": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyDifferSizeDate": "Files count as different when their size or modification date differs.",
+  "@syncPolicyDifferSizeDate": {
+    "description": "Plan sentence (both ways): what makes two copies differ under size-and-date."
+  },
+  "syncPolicyDifferSize": "Files count as different only when their size differs.",
+  "@syncPolicyDifferSize": {
+    "description": "Plan sentence (both ways): what makes two copies differ under size-only."
+  },
+  "syncPolicyDifferChecksum": "Files count as different when their size or checksum differs.",
+  "@syncPolicyDifferChecksum": {
+    "description": "Plan sentence (both ways): what makes two copies differ under checksum."
+  },
+  "syncPolicyConflictAsk": "Files that differ are held as conflicts for you to decide; nothing is replaced automatically.",
+  "@syncPolicyConflictAsk": {
+    "description": "Plan sentence (both ways): differing files become conflicts."
+  },
+  "syncPolicyConflictNewer": "When a file differs, the newer copy replaces the older one.",
+  "@syncPolicyConflictNewer": {
+    "description": "Plan sentence (both ways): the newer-wins conflict default."
+  },
+  "syncPolicyConflictKeep": "When a file differs, the version from “{winner}” replaces the other copy.",
+  "@syncPolicyConflictKeep": {
+    "description": "Plan sentence (both ways): a keep-this-side conflict default.",
+    "placeholders": {
+      "winner": {
+        "type": "String"
+      }
+    }
+  },
+  "syncPolicyConflictSkip": "Files that differ are left alone.",
+  "@syncPolicyConflictSkip": {
+    "description": "Plan sentence (both ways): the skip conflict default."
+  },
+  "syncPolicyBackupsEachSide": "Previous versions of replaced files are kept in each side’s sync trash.",
+  "@syncPolicyBackupsEachSide": {
+    "description": "Plan sentence (both ways): overwrite backups land in the trash of whichever side is written."
+  },
+  "syncPolicyHiddenSkipped": "Hidden files are left out.",
+  "@syncPolicyHiddenSkipped": {
+    "description": "Plan sentence: include-hidden is off."
+  },
+  "syncPolicyRulesSkipped": "{count, plural, =1{Items matching 1 rule are left out.} other{Items matching {count} rules are left out.}}",
+  "@syncPolicyRulesSkipped": {
+    "description": "Plan sentence: the pair skips items matching its exclude rules.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetTitle": "Sync Files",
+  "@syncSheetTitle": {
+    "description": "Title of the sync options sheet (D32 §7)."
+  },
+  "syncSheetNewSavedTitle": "New Saved Sync",
+  "@syncSheetNewSavedTitle": {
+    "description": "Title of the sync sheet when it creates a saved sync favorite."
+  },
+  "syncSheetThisComputer": "This computer",
+  "@syncSheetThisComputer": {
+    "description": "Endpoint tile caption for a local folder."
+  },
+  "syncSheetServerFallback": "Server",
+  "@syncSheetServerFallback": {
+    "description": "Endpoint tile caption for a server whose name is unknown."
+  },
+  "syncSheetChooseFolders": "Choose Folders…",
+  "@syncSheetChooseFolders": {
+    "description": "Endpoint tile label when a side has no folder yet; opens the full pair editor."
+  },
+  "syncSheetDirectionTooltip": "From {source} to {destination}. Click to reverse.",
+  "@syncSheetDirectionTooltip": {
+    "description": "Tooltip and accessibility label of the direction toggle between the endpoint tiles.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      },
+      "destination": {
+        "type": "String"
+      }
+    }
+  },
+  "syncSheetBothWaysTooltip": "Both ways. Click to sync one way.",
+  "@syncSheetBothWaysTooltip": {
+    "description": "Tooltip of the direction toggle while the pair syncs both ways."
+  },
+  "syncSheetCompareSentence": "Use the {choice} to determine if a file has changed",
+  "@syncSheetCompareSentence": {
+    "description": "The comparison row. {choice} marks where the comparison dropdown sits; the text around it renders on either side.",
+    "placeholders": {
+      "choice": {
+        "type": "String"
+      }
+    }
+  },
+  "syncSheetCompareSizeDate": "Size and Modification Date",
+  "@syncSheetCompareSizeDate": {
+    "description": "Comparison dropdown choice."
+  },
+  "syncSheetCompareSize": "File Size",
+  "@syncSheetCompareSize": {
+    "description": "Comparison dropdown choice."
+  },
+  "syncSheetCompareChecksum": "Checksum",
+  "@syncSheetCompareChecksum": {
+    "description": "Comparison dropdown choice."
+  },
+  "syncSheetDeleteOrphans": "Delete orphaned destination files",
+  "@syncSheetDeleteOrphans": {
+    "description": "Checkbox: delete destination files the source does not have (Mirror)."
+  },
+  "syncSheetDeleteOrphansBothWays": "Not available when syncing both ways",
+  "@syncSheetDeleteOrphansBothWays": {
+    "description": "Caption under the disabled delete checkbox in Additive mode."
+  },
+  "syncSheetDeleteToTrash": "Move to trash (recommended)",
+  "@syncSheetDeleteToTrash": {
+    "description": "Radio under the delete checkbox."
+  },
+  "syncSheetDeletePermanently": "Delete permanently",
+  "@syncSheetDeletePermanently": {
+    "description": "Radio under the delete checkbox."
+  },
+  "syncSheetIncludeHidden": "Include hidden files",
+  "@syncSheetIncludeHidden": {
+    "description": "Checkbox in the sync sheet."
+  },
+  "syncSheetSkipRules": "Skip items matching rules",
+  "@syncSheetSkipRules": {
+    "description": "Checkbox in the sync sheet."
+  },
+  "syncSheetRuleCount": "{count, plural, =0{No rules} =1{1 rule} other{{count} rules}}",
+  "@syncSheetRuleCount": {
+    "description": "Button showing how many exclude rules the pair has.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetEditRules": "Edit Rules…",
+  "@syncSheetEditRules": {
+    "description": "Opens the exclude-rules editor."
+  },
+  "syncSheetTolerance": "{seconds, plural, =1{Modification date tolerance: 1 second} other{Modification date tolerance: {seconds} seconds}}",
+  "@syncSheetTolerance": {
+    "description": "The time-tolerance row of the sync sheet.",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetToleranceHourShift": "ignoring exact 1-hour differences",
+  "@syncSheetToleranceHourShift": {
+    "description": "Appended to the tolerance row when 1-hour shifts are accepted."
+  },
+  "syncSheetToleranceOtherShifts": "{count, plural, =1{plus 1 custom time shift} other{plus {count} custom time shifts}}",
+  "@syncSheetToleranceOtherShifts": {
+    "description": "Appended to the tolerance row for accepted shifts other than one hour (set in older builds or the advanced editor).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetToleranceUnused": "Modification dates aren’t compared",
+  "@syncSheetToleranceUnused": {
+    "description": "The tolerance row while the comparison ignores dates."
+  },
+  "syncSheetTimeOffset": "Time Offset…",
+  "@syncSheetTimeOffset": {
+    "description": "Opens the time-tolerance dialog."
+  },
+  "syncSheetPlanLead": "Here’s the plan:",
+  "@syncSheetPlanLead": {
+    "description": "Lead-in above the plain-language plan sentence."
+  },
+  "syncSheetMore": "More options",
+  "@syncSheetMore": {
+    "description": "Tooltip of the sheet’s ⋯ menu button."
+  },
+  "syncSheetBothWays": "Sync Both Ways (Additive)",
+  "@syncSheetBothWays": {
+    "description": "⋯ menu item that makes the pair copy missing files in both directions."
+  },
+  "syncSheetAdvanced": "Advanced…",
+  "@syncSheetAdvanced": {
+    "description": "⋯ menu item opening the full pair editor."
+  },
+  "syncSheetSimulate": "Simulate",
+  "@syncSheetSimulate": {
+    "description": "Sheet button: scan and open the review without changing anything."
+  },
+  "syncSheetSynchronize": "Synchronize",
+  "@syncSheetSynchronize": {
+    "description": "Sheet button (default): scan, then run when nothing is replaced, deleted, or in conflict."
+  },
+  "syncSheetSimulateTooltip": "Scan both sides and review the plan. Nothing changes until you run it.",
+  "@syncSheetSimulateTooltip": {
+    "description": "Tooltip of the Simulate button."
+  },
+  "syncSheetSynchronizeTooltip": "Scan, then copy straight away when nothing would be replaced, deleted, or in conflict. Otherwise you review the plan first.",
+  "@syncSheetSynchronizeTooltip": {
+    "description": "Tooltip of the Synchronize button."
+  },
+  "syncFavoriteNameTitle": "Save as Favorite",
+  "@syncFavoriteNameTitle": {
+    "description": "Title of the name dialog that saves a sync pair to the sidebar."
+  },
+  "syncRulesTitle": "Skip Rules",
+  "@syncRulesTitle": {
+    "description": "Title of the exclude-rules editor."
+  },
+  "syncRulesHint": "One pattern per line, gitignore style: *.log, build/, /private.txt, !keep.log",
+  "@syncRulesHint": {
+    "description": "Help text of the exclude-rules field."
+  },
+  "syncRulesDefaultsTitle": "Always skipped",
+  "@syncRulesDefaultsTitle": {
+    "description": "Heading of the read-only list of built-in exclude patterns."
+  },
+  "syncRulesDone": "Done",
+  "@syncRulesDone": {
+    "description": "Confirms the rules or time-offset dialog."
+  },
+  "syncTimeOffsetTitle": "Time Offset",
+  "@syncTimeOffsetTitle": {
+    "description": "Title of the time-tolerance dialog."
+  },
+  "syncTimeOffsetToleranceLabel": "Tolerance in seconds",
+  "@syncTimeOffsetToleranceLabel": {
+    "description": "Field label: dates this close count as equal."
+  },
+  "syncTimeOffsetToleranceHelp": "Modification dates this close together count as the same.",
+  "@syncTimeOffsetToleranceHelp": {
+    "description": "Help text under the tolerance field."
+  },
+  "syncTimeOffsetHourShift": "Ignore exact 1-hour differences",
+  "@syncTimeOffsetHourShift": {
+    "description": "Checkbox in the time-offset dialog."
+  },
+  "syncTimeOffsetHourShiftHelp": "For drives that store local time, such as FAT, across a daylight saving change.",
+  "@syncTimeOffsetHourShiftHelp": {
+    "description": "Help text under the 1-hour checkbox."
+  },
+  "syncHoldBanner": "This plan {reasons} — review before running.",
+  "@syncHoldBanner": {
+    "description": "Banner on the review tab when Synchronize stopped before running. {reasons} is a comma-joined list of the fragments below.",
+    "placeholders": {
+      "reasons": {
+        "type": "String"
+      }
+    }
+  },
+  "syncHoldDeletes": "{count, plural, =1{deletes 1 file} other{deletes {count} files}}",
+  "@syncHoldDeletes": {
+    "description": "Hold-banner fragment.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncHoldEmptyFolders": "{count, plural, =1{removes 1 empty folder} other{removes {count} empty folders}}",
+  "@syncHoldEmptyFolders": {
+    "description": "Hold-banner fragment.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncHoldReplaces": "{count, plural, =1{replaces 1 file} other{replaces {count} files}}",
+  "@syncHoldReplaces": {
+    "description": "Hold-banner fragment.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncHoldConflicts": "{count, plural, =1{has 1 conflict} other{has {count} conflicts}}",
+  "@syncHoldConflicts": {
+    "description": "Hold-banner fragment.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSectionCopy": "Copy",
+  "@syncSectionCopy": {
+    "description": "Plan review section: new files and folders."
+  },
+  "syncSectionUpdate": "Update",
+  "@syncSectionUpdate": {
+    "description": "Plan review section: files that replace an existing copy."
+  },
+  "syncSectionDelete": "Delete",
+  "@syncSectionDelete": {
+    "description": "Plan review section: removals."
+  },
+  "syncSectionConflicts": "Conflicts",
+  "@syncSectionConflicts": {
+    "description": "Plan review section: rows that need a decision."
+  },
+  "syncSectionSkipped": "Skipped",
+  "@syncSectionSkipped": {
+    "description": "Plan review section: rows that will not change."
+  },
+  "syncSectionSemantics": "{section}, {count, plural, =1{1 item} other{{count} items}}",
+  "@syncSectionSemantics": {
+    "description": "Accessibility label of a plan review section header.",
+    "placeholders": {
+      "section": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncColumnPath": "Path",
+  "@syncColumnPath": {
+    "description": "Plan review column header."
+  },
+  "syncColumnReason": "Reason",
+  "@syncColumnReason": {
+    "description": "Plan review column header."
+  },
+  "syncRowSemantics": "{path}: {action}, {reason}",
+  "@syncRowSemantics": {
+    "description": "Accessibility label of a plan review row.",
+    "placeholders": {
+      "path": {
+        "type": "String"
+      },
+      "action": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "syncRowActionCopy": "copy to “{side}”",
+  "@syncRowActionCopy": {
+    "description": "Row accessibility action.",
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "syncRowActionUpdate": "replace in “{side}”",
+  "@syncRowActionUpdate": {
+    "description": "Row accessibility action.",
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "syncRowActionMakeDir": "create folder in “{side}”",
+  "@syncRowActionMakeDir": {
+    "description": "Row accessibility action.",
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "syncRowActionDelete": "delete from “{side}”",
+  "@syncRowActionDelete": {
+    "description": "Row accessibility action.",
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "syncRowActionConflict": "conflict",
+  "@syncRowActionConflict": {
+    "description": "Row accessibility action."
+  },
+  "syncRowActionSkip": "skip",
+  "@syncRowActionSkip": {
+    "description": "Row accessibility action."
+  },
+  "syncRowToggleHint": "Space includes or skips this row",
+  "@syncRowToggleHint": {
+    "description": "Tooltip of a plan review row checkbox."
+  },
+  "deleteDialogNameSeparator": "”, “",
+  "@deleteDialogNameSeparator": {
+    "description": "Joins the quoted item names inside the delete headline (“a.txt”, “b.txt”): closes one quote, separates, opens the next. Use your locale's quotation marks, matching deleteDialogDeleteNames."
+  },
+  "paneColumnName": "Name",
+  "@paneColumnName": {
+    "description": "Listing column header: the item name column (click to sort)."
+  },
+  "paneColumnSize": "Size",
+  "@paneColumnSize": {
+    "description": "Listing column header: the size column (click to sort)."
+  },
+  "paneColumnModified": "Date Modified",
+  "@paneColumnModified": {
+    "description": "Listing column header: the modification date column (click to sort)."
+  },
+  "paneColumnSortedAscending": "Sorted ascending",
+  "@paneColumnSortedAscending": {
+    "description": "Accessibility value of the column header the listing is sorted by, ascending."
+  },
+  "paneColumnSortedDescending": "Sorted descending",
+  "@paneColumnSortedDescending": {
+    "description": "Accessibility value of the column header the listing is sorted by, descending."
+  },
+  "paneColumnSortHint": "Sort by this column",
+  "@paneColumnSortHint": {
+    "description": "Accessibility hint of a listing column header."
+  },
+  "paneSelectionSummary": "{selected} of {total} selected",
+  "@paneSelectionSummary": {
+    "description": "Location header's second line while rows are selected.",
+    "placeholders": {
+      "selected": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "paneSelectionSummaryWithSize": "{summary} · {size}",
+  "@paneSelectionSummaryWithSize": {
+    "description": "Location header's selection line with the selected files' total size, e.g. '3 of 329 selected · 42.1 MB'.",
+    "placeholders": {
+      "summary": {
+        "type": "String"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "paneAncestorMenuTooltip": "Enclosing folders",
+  "@paneAncestorMenuTooltip": {
+    "description": "Tooltip of the location header's menu button listing the enclosing folders."
+  },
+  "viewToggleHiddenLabel": "Show Hidden Files",
+  "@viewToggleHiddenLabel": {
+    "description": "View menu toggle: show or hide dotfiles in the active tab."
+  },
+  "selectionCopyPathLabel": "Copy Path",
+  "@selectionCopyPathLabel": {
+    "description": "Copies the selected items' full paths (or the folder's) to the clipboard."
+  },
+  "tabCloseOthersLabel": "Close Other Tabs",
+  "@tabCloseOthersLabel": {
+    "description": "Tab context menu: closes every other tab in this pane."
+  },
+  "tabDuplicateLabel": "Duplicate Tab",
+  "@tabDuplicateLabel": {
+    "description": "Tab context menu: opens a new tab at this tab's location."
+  },
+  "tabMoveToOtherPaneLabel": "Move to Other Pane",
+  "@tabMoveToOtherPaneLabel": {
+    "description": "Tab context menu: moves the tab to the other pane's tab strip."
+  },
+  "tabCopyPathLabel": "Copy Path",
+  "@tabCopyPathLabel": {
+    "description": "Tab context menu: copies the tab's folder path to the clipboard."
+  },
+  "quickConnectAddressHostHint": "host[:port]",
+  "@quickConnectAddressHostHint": {
+    "description": "Helper under the prefilled Quick Connect field: what to type after the user name."
+  },
+  "viewSortByLabel": "Sort By",
+  "@viewSortByLabel": {
+    "description": "View menu submenu: sort the listing by Name, Size, or Date Modified."
+  },
+  "sidebarDevicesSection": "Devices",
+  "@sidebarDevicesSection": {
+    "description": "Sidebar section header over the local volumes (D32 §5). Rendered in caps."
+  },
+  "sidebarFavoritesSection": "Favorites",
+  "@sidebarFavoritesSection": {
+    "description": "Sidebar section header over the local-folder, workspace, and saved-sync bookmarks (D32 §5). Rendered in caps."
+  },
+  "sidebarServersSection": "Servers",
+  "@sidebarServersSection": {
+    "description": "Sidebar section header over saved servers, shared-account servers, and live Quick Connect sessions (D32 §5). Rendered in caps."
+  },
+  "sidebarShowSection": "Show",
+  "@sidebarShowSection": {
+    "description": "Tooltip of a collapsed sidebar section's chevron."
+  },
+  "sidebarHideSection": "Hide",
+  "@sidebarHideSection": {
+    "description": "Tooltip of an expanded sidebar section's chevron."
+  },
+  "sidebarFilterHint": "Filter",
+  "@sidebarFilterHint": {
+    "description": "Placeholder of the sidebar's filter field; it filters every section."
+  },
+  "sidebarNoMatches": "No matches",
+  "@sidebarNoMatches": {
+    "description": "Shown in the sidebar when the filter matches no row in any section."
+  },
+  "sidebarAddMenu": "Add",
+  "@sidebarAddMenu": {
+    "description": "Tooltip of the sidebar bottom bar's + menu."
+  },
+  "sidebarSettings": "Settings",
+  "@sidebarSettings": {
+    "description": "Tooltip of the sidebar bottom bar's gear (opens Settings)."
+  },
+  "sidebarAddNewServer": "New Server…",
+  "@sidebarAddNewServer": {
+    "description": "Sidebar + menu: opens the server editor for a new shared-account server."
+  },
+  "sidebarAddQuickConnect": "Quick Connect…",
+  "@sidebarAddQuickConnect": {
+    "description": "Sidebar + menu: opens Connect (⌘K)."
+  },
+  "sidebarAddCurrentFolder": "Add Current Folder to Favorites",
+  "@sidebarAddCurrentFolder": {
+    "description": "Sidebar + menu: saves the active pane's folder. Local folders land in Favorites, remote ones in Servers."
+  },
+  "sidebarFavoritesAdd": "Add Current Folder",
+  "@sidebarFavoritesAdd": {
+    "description": "Tooltip of the Favorites section header's + button."
+  },
+  "sidebarServersAddNew": "New Server",
+  "@sidebarServersAddNew": {
+    "description": "Tooltip of the Servers section header's + button when the server editor is available."
+  },
+  "sidebarServersAddConnect": "Quick Connect",
+  "@sidebarServersAddConnect": {
+    "description": "Tooltip of the Servers section header's + button when only Quick Connect is available."
+  },
+  "sidebarSyncOff": "Sync off",
+  "@sidebarSyncOff": {
+    "description": "Sidebar sync chip while this device is not enrolled in Sync; clicking opens the Sync settings."
+  },
+  "sidebarSyncOffTooltip": "Set up Sync",
+  "@sidebarSyncOffTooltip": {
+    "description": "Tooltip of the sidebar sync chip while Sync is off."
+  },
+  "sidebarSyncFailedChip": "Sync failed",
+  "@sidebarSyncFailedChip": {
+    "description": "Sidebar sync chip after a failed round; clicking retries."
+  },
+  "sidebarSyncNever": "Not synced yet",
+  "@sidebarSyncNever": {
+    "description": "Sidebar sync chip while enrolled but before the first completed round."
+  },
+  "sidebarSyncedJustNow": "Synced · just now",
+  "@sidebarSyncedJustNow": {
+    "description": "Sidebar sync chip within a minute of the last completed round."
+  },
+  "sidebarSyncedMinutes": "Synced · {minutes} min",
+  "@sidebarSyncedMinutes": {
+    "description": "Sidebar sync chip: minutes since the last completed round.",
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarSyncedHours": "Synced · {hours} h",
+  "@sidebarSyncedHours": {
+    "description": "Sidebar sync chip: hours since the last completed round.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarSyncedDays": "Synced · {days} d",
+  "@sidebarSyncedDays": {
+    "description": "Sidebar sync chip: days since the last completed round.",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarTabCount": "×{count}",
+  "@sidebarTabCount": {
+    "description": "Trailing text of a server row shown in more than one tab: the number of tabs.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarFavoritesAddStandard": "Add Desktop, Documents, and Downloads",
+  "@sidebarFavoritesAddStandard": {
+    "description": "Empty-Favorites offer: one click adds whichever of the three folders exist. Favorites sync, so they are never added silently."
+  },
+  "sidebarFavoritesEmpty": "Drag folders here to keep them close.",
+  "@sidebarFavoritesEmpty": {
+    "description": "Empty-Favorites hint when none of the standard folders exist to offer."
+  },
+  "sidebarServersEmpty": "No servers yet. Connect to one, then save it here.",
+  "@sidebarServersEmpty": {
+    "description": "Empty-Servers hint."
+  },
+  "sidebarGroupEmpty": "Drag favorites here",
+  "@sidebarGroupEmpty": {
+    "description": "Placeholder row inside a group created with New Group… that has no members yet."
+  },
+  "sidebarAddToFavorites": "Add to Favorites",
+  "@sidebarAddToFavorites": {
+    "description": "Device row menu verb: saves the volume's folder as a favorite."
+  },
+  "sidebarEject": "Eject",
+  "@sidebarEject": {
+    "description": "Device row verb (menu and hover glyph) for removable volumes."
+  },
+  "sidebarSaveToServers": "Save to Servers…",
+  "@sidebarSaveToServers": {
+    "description": "Menu verb on an unsaved Quick Connect session in the sidebar: saves it as a server."
+  },
+  "sidebarSaveToServersTitle": "Save to Servers",
+  "@sidebarSaveToServersTitle": {
+    "description": "Title of the name dialog that saves a Quick Connect session."
+  },
+  "sidebarUnsavedSession": "not saved",
+  "@sidebarUnsavedSession": {
+    "description": "Announced after a live Quick Connect session's name in the sidebar (the row is shown in italics)."
+  },
+  "sidebarRenameServerTitle": "Rename Server",
+  "@sidebarRenameServerTitle": {
+    "description": "Title of the rename dialog for a saved server row."
+  },
+  "sidebarDeleteServerTitle": "Remove Server",
+  "@sidebarDeleteServerTitle": {
+    "description": "Title of the confirmation before removing a saved server row."
+  },
+  "viewFilterSidebarLabel": "Filter Sidebar",
+  "@viewFilterSidebarLabel": {
+    "description": "Command label: shows and focuses the sidebar's filter field (view.filterSidebar, ⌥⌘F / Ctrl+Alt+F)."
+  },
+  "sidebarEjectFailed": "Couldn't eject “{name}”. Close anything using it and try again.",
+  "@sidebarEjectFailed": {
+    "description": "Shown when the OS refuses to eject a volume.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarAlreadyFavorite": "“{label}” is already in Favorites.",
+  "@sidebarAlreadyFavorite": {
+    "description": "Shown when Add Current Folder names a folder a favorite already holds.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarDeleteServerBody": "Remove “{label}” from Servers? This cannot be undone.",
+  "@sidebarDeleteServerBody": {
+    "description": "Body of the confirmation before removing a saved server row.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarFreeSpaceSemantics": "{size} available",
+  "@sidebarFreeSpaceSemantics": {
+    "description": "Announced after a device's name: its free space.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "compactHomeSearchHint": "Search servers and folders",
+  "@compactHomeSearchHint": {
+    "description": "D32 §9: hint of the search bar at the top of the compact Home screen (the full-screen sidebar)."
+  },
+  "compactMoreOptions": "More options",
+  "@compactMoreOptions": {
+    "description": "D32 §9: tooltip of the ⋮ overflow on the compact app bars; opens the command menus as a sheet."
+  },
+  "compactPaneLetterA": "A",
+  "@compactPaneLetterA": {
+    "description": "D32 §9: the pane switcher's short name for pane A (the left pane on wide windows)."
+  },
+  "compactPaneLetterB": "B",
+  "@compactPaneLetterB": {
+    "description": "D32 §9: the pane switcher's short name for pane B (the right pane on wide windows)."
+  },
+  "compactPaneSwitchTooltip": "Switch to {pane}",
+  "@compactPaneSwitchTooltip": {
+    "description": "D32 §9: tooltip and announced action of the app bar's A · B pane switcher, e.g. 'Switch to Pane B'.",
+    "placeholders": {
+      "pane": {
+        "type": "String"
+      }
+    }
+  },
+  "compactPaneSwitcherSemantics": "{shown} is showing",
+  "@compactPaneSwitcherSemantics": {
+    "description": "D32 §9: announced state of the A · B pane switcher, e.g. 'Pane A is showing'.",
+    "placeholders": {
+      "shown": {
+        "type": "String"
+      }
+    }
+  },
+  "compactFilterOpen": "Filter this folder",
+  "@compactFilterOpen": {
+    "description": "D32 §9: tooltip of the compact browser's search action, which filters the listing as you type."
+  },
+  "compactFilterClose": "Close filter",
+  "@compactFilterClose": {
+    "description": "D32 §9: tooltip of the button that closes the compact browser's filter field and clears the filter."
+  },
+  "compactRowDetails": "{size} · {date}",
+  "@compactRowDetails": {
+    "description": "D32 §9: second line of a compact listing row, e.g. '4.2 KB · Today 10:24'.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "compactRowFolder": "Folder",
+  "@compactRowFolder": {
+    "description": "D32 §9: the size slot of a folder row's second line (a folder's listed size is not its contents)."
+  },
+  "compactRowLink": "Link",
+  "@compactRowLink": {
+    "description": "D32 §9: the size slot of a symbolic link row's second line."
+  },
+  "compactRowActions": "Actions for {name}",
+  "@compactRowActions": {
+    "description": "D32 §9: tooltip of a compact row's trailing ⋮, which opens the item's action sheet.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "compactSelectionCount": "{count, plural, =1{1 selected} other{{count} selected}}",
+  "@compactSelectionCount": {
+    "description": "D32 §9: the contextual app bar's title while items are selected, e.g. '3 selected'. The selected files' size is appended through paneSelectionSummaryWithSize.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "compactSelectionClear": "Clear selection",
+  "@compactSelectionClear": {
+    "description": "D32 §9: tooltip of the ✕ that leaves selection mode."
+  },
+  "compactActionCopyTo": "Copy to {pane}",
+  "@compactActionCopyTo": {
+    "description": "D32 §9: selection bar label of Copy to Other Pane, naming the other pane's letter, e.g. 'Copy to B'.",
+    "placeholders": {
+      "pane": {
+        "type": "String"
+      }
+    }
+  },
+  "compactActionMoveTo": "Move to {pane}",
+  "@compactActionMoveTo": {
+    "description": "D32 §9: selection bar label of Move to Other Pane, naming the other pane's letter, e.g. 'Move to B'.",
+    "placeholders": {
+      "pane": {
+        "type": "String"
+      }
+    }
+  },
+  "compactActionDelete": "Delete",
+  "@compactActionDelete": {
+    "description": "D32 §9: selection bar label of the delete verb (Move to Trash locally, Delete on a server)."
+  },
+  "compactActionMore": "More",
+  "@compactActionMore": {
+    "description": "D32 §9: selection bar item that opens the remaining selection verbs as a sheet."
+  },
+  "compactTransfersPill": "{count, plural, =1{1 transfer} other{{count} transfers}}",
+  "@compactTransfersPill": {
+    "description": "D32 §9: the floating progress pill shown while transfers run.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "compactTransfersPillProgress": "{transfers} · {percent}%",
+  "@compactTransfersPillProgress": {
+    "description": "D32 §9: the progress pill with the queue's overall progress, e.g. '2 transfers · 45%'.",
+    "placeholders": {
+      "transfers": {
+        "type": "String"
+      },
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "compactTransfersPillTooltip": "Show transfers",
+  "@compactTransfersPillTooltip": {
+    "description": "D32 §9: announced action of the progress pill; opens the inspector sheet on Transfers."
+  },
+  "compactSheetClose": "Close inspector",
+  "@compactSheetClose": {
+    "description": "D32 §9: announced action of the inspector sheet's drag handle."
+  },
+  "compactCancel": "Cancel",
+  "@compactCancel": {
+    "description": "D32 §9: dismisses the compact rename dialog without renaming."
+  },
+  "compactBreadcrumbsLabel": "Folder path",
+  "@compactBreadcrumbsLabel": {
+    "description": "D32 §9: announced name of the compact browser's horizontally scrolling breadcrumb chips."
+  },
+  "compactLauncherHint": "Connect to a server here, or go back to Home to pick a location.",
+  "@compactLauncherHint": {
+    "description": "D32 §9: hint above Quick Connect when the shown pane has no tab open."
+  },
+  "compactGoToFolderTitle": "Go to folder",
+  "@compactGoToFolderTitle": {
+    "description": "D32 §9: title of the compact posture's path dialog (Go to Folder and Edit Path)."
+  },
+  "compactGo": "Go",
+  "@compactGo": {
+    "description": "D32 §9: the path dialog's confirm button; navigates to the typed path."
+  },
+  "compactDone": "Done",
+  "@compactDone": {
+    "description": "D32 §9: confirms the compact Quick Select strip, keeping the matched selection."
+  },
+  "sidebarThisDevice": "This device",
+  "@sidebarThisDevice": {
+    "description": "DEVICES row on platforms that list no volumes (Android, iOS): opens the app's own files on this device."
+  },
+  "quickLookOverlayLabel": "Quick Look",
+  "@quickLookOverlayLabel": {
+    "description": "Screen-reader name of the in-app Quick Look overlay Space opens on Linux and Windows (D32, 06 §5.1)."
+  },
+  "quickLookClose": "Close Quick Look",
+  "@quickLookClose": {
+    "description": "Tooltip of the Quick Look overlay's close button; Space and Esc close it too."
+  },
+  "quickLookPosition": "{index} of {count}",
+  "@quickLookPosition": {
+    "description": "The Quick Look overlay's place in a multi-item selection, e.g. '2 of 5'.",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "quickLookNoPreview": "No preview for this kind of item.",
+  "@quickLookNoPreview": {
+    "description": "Shown under the name in the Quick Look overlay for folders and file kinds it cannot render."
+  },
+  "paneUnsavedSession": "Not saved · {endpoint}",
+  "@paneUnsavedSession": {
+    "description": "The pane's slim banner after a Quick Connect: the live session is not a saved server yet. The endpoint is user@host with any non-default port.",
+    "placeholders": {
+      "endpoint": {
+        "type": "String"
+      }
+    }
+  },
+  "paneUnsavedDismiss": "Dismiss",
+  "@paneUnsavedDismiss": {
+    "description": "Tooltip of the Not saved banner's close button; hides the banner for this tab."
+  },
+  "connectDialogServers": "Servers",
+  "@connectDialogServers": {
+    "description": "Section label over the saved servers the Connect dialog (⌘K) offers as one-click rows above Quick Connect (D32 §4)."
+  },
+  "sidebarRowMenu": "More actions",
+  "@sidebarRowMenu": {
+    "description": "Tooltip of a sidebar row's visible ⋮ button, which opens the row's verbs (the shared sidebar kit's showMenuButton; Séance uses the same words)."
+  },
+  "compactHomeThisDeviceSubtitle": "App storage",
+  "@compactHomeThisDeviceSubtitle": {
+    "description": "D32 §9: second line of the compact Home's \"This device\" row. The local pane on a phone is the app's own storage, not the whole device."
+  },
+  "compactHomeFreeSpace": "{size} free",
+  "@compactHomeFreeSpace": {
+    "description": "D32 §9: second line of a DEVICES row on the compact Home, e.g. '23 GB free'.",
+    "placeholders": {
+      "size": {
+        "type": "String",
+        "example": "23 GB"
+      }
+    }
+  },
+  "compactHomeRemoteLocation": "{server} · {path}",
+  "@compactHomeRemoteLocation": {
+    "description": "D32 §9: a remote location on a compact Home row's second line: the server's name, then the folder, e.g. 'demo · /srv/www'.",
+    "placeholders": {
+      "server": {
+        "type": "String"
+      },
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "compactHomeSyncRoute": "{source} → {destination}",
+  "@compactHomeSyncRoute": {
+    "description": "D32 §9: second line of a saved-sync favorite on the compact Home: its source and destination, e.g. '~/site → demo · /srv/www'.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      },
+      "destination": {
+        "type": "String"
+      }
+    }
+  },
+  "compactHomeServerState": "{state} · {endpoint}",
+  "@compactHomeServerState": {
+    "description": "D32 §9: second line of a server row on the compact Home while its state needs words: the state first, then user@host, e.g. 'Connecting… · deploy@example.com'.",
+    "placeholders": {
+      "state": {
+        "type": "String",
+        "example": "Connection failed"
+      },
+      "endpoint": {
+        "type": "String",
+        "example": "deploy@example.com"
+      }
+    }
+  },
+  "compactHomeTabsOpen": "{count, plural, =1{1 tab open} other{{count} tabs open}}",
+  "@compactHomeTabsOpen": {
+    "description": "D32 §9: announced on a compact Home server row shown in several tabs (the row's visible ×N).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "compactHomeServersEmptyTitle": "Connect to a server",
+  "@compactHomeServersEmptyTitle": {
+    "description": "D32 §9: title of the compact Home's empty SERVERS state, above the Quick Connect and Import from ssh config buttons."
+  },
+  "compactHomeServersEmptyBody": "Servers you save appear here, with their status.",
+  "@compactHomeServersEmptyBody": {
+    "description": "D32 §9: body of the compact Home's empty SERVERS state."
+  },
+  "compactHomeFavoritesEmptyTitle": "Keep folders close",
+  "@compactHomeFavoritesEmptyTitle": {
+    "description": "D32 §9: title of the compact Home's empty FAVORITES state."
+  },
+  "compactHomeFavoritesEmptyBody": "Open a folder, then choose Add Current Folder to Favorites from its menu.",
+  "@compactHomeFavoritesEmptyBody": {
+    "description": "D32 §9: body of the compact Home's empty FAVORITES state: how a folder becomes a favorite on a phone (the browser's ⋮ menu offers the verb)."
+  },
+  "compactAddedToFavorites": "Added “{label}” to Favorites.",
+  "@compactAddedToFavorites": {
+    "description": "D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local folder (Home, where the row appears, is a screen away).",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "compactSavedToServers": "Saved “{label}” to Servers.",
+  "@compactSavedToServers": {
+    "description": "D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a remote folder, which lands under Servers.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "goHomeLabel": "Home",
+  "@goHomeLabel": {
+    "description": "Command label: browse the tab's home, the user's home folder locally or the login folder on a server (go.home, ⇧⌘H, 02 §8.3, 10 §8's Go menu)."
+  },
+  "viewEnterFullScreenLabel": "Enter Full Screen",
+  "@viewEnterFullScreenLabel": {
+    "description": "View menu command on Windows and Linux while the window is not full screen (10 §8). macOS shows AppKit's own item instead."
+  },
+  "viewExitFullScreenLabel": "Exit Full Screen",
+  "@viewExitFullScreenLabel": {
+    "description": "The same View menu command's label while the window is full screen (Windows and Linux, 10 §8)."
+  },
+  "commandDisabledNotConnected": "Requires a tab connected to a server",
+  "@commandDisabledNotConnected": {
+    "description": "Disabled-command reason for Server ▸ Disconnect (connect.disconnect): the active tab shows no live server connection."
+  },
+  "commandDisabledNoQuickConnect": "Requires an unsaved Quick Connect session",
+  "@commandDisabledNoQuickConnect": {
+    "description": "Disabled-command reason for Server ▸ Save to Servers… (connect.saveToServers): the active tab is not browsing a Quick Connect session that is not saved yet."
+  },
+  "connectDialogHighlightAnnouncement": "{server}, {detail}. Press Return to open it.",
+  "@connectDialogHighlightAnnouncement": {
+    "description": "Screen-reader announcement when ↑/↓ in the Connect dialog's (⌘K) address field highlight a saved server row: focus stays in the field, so this says which server Return now opens. {detail} is the row's user@host.",
+    "placeholders": {
+      "server": {
+        "type": "String"
+      },
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "connectDialogHighlightCleared": "No server highlighted. Press Return to connect to the address.",
+  "@connectDialogHighlightCleared": {
+    "description": "Screen-reader announcement when ↑/↓ in the Connect dialog's address field move the highlight past the saved server rows, so Return submits the typed address again."
+  },
+  "alertCountSemantics": "{count, plural, =1{1 alert} other{{count} alerts}}",
+  "@alertCountSemantics": {
+    "description": "D32 §3: what a screen reader hears for the alert count badged on the inspector toggle and the Alerts tab (the painted badge shows only the number).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "transferCountSemantics": "{count, plural, =1{1 unfinished transfer} other{{count} unfinished transfers}}",
+  "@transferCountSemantics": {
+    "description": "D32 §3: what a screen reader hears for the count badged on the inspector's Transfers tab: queued, running, and paused transfers.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "fileRevealFailed": "“{name}” could not be shown in the file manager.",
+  "@fileRevealFailed": {
+    "description": "D32 §11: toast when file.reveal (Show in Finder / File Manager / Explorer) could not start any file manager for the local item; a failed reveal is never silent.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "appCheckForUpdatesLabel": "Check for Updates…",
+  "@appCheckForUpdatesLabel": {
+    "description": "10 §8: the macOS application menu's manual update check (D19's link-only checker, run on demand even when the launch check is turned off)."
+  },
+  "appUpdateNoneFound": "No newer version was found. If you’re offline, try again later.",
+  "@appUpdateNoneFound": {
+    "description": "Toast after Check for Updates… found no newer release. The checker cannot tell “up to date” from “could not reach GitHub”, so the copy claims neither."
+  },
+  "appQuitLabel": "Quit",
+  "@appQuitLabel": {
+    "description": "10 §8: the Linux/Windows File menu's Quit row, which closes the window through the same quit guard as the titlebar's close button."
   }
 }

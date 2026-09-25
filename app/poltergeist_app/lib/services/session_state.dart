@@ -1,5 +1,7 @@
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import 'bookmark_landing_path.dart';
+
 /// 02 §3's session-state document — what launch restoration persists per
 /// pane and per tab. Pure data with strict decoding (the sibling stores'
 /// posture: unknown fields ignored, malformed present fields fail, an
@@ -82,7 +84,7 @@ final class SessionTabState {
       case SessionTabKind.remote:
         base['serverId'] = serverId;
         base['path'] = path;
-        base['bookmark'] = bookmark!.toJson();
+        base['bookmark'] = withRemoteLandingPath(bookmark!.toJson());
     }
     if (listing.isNotEmpty) {
       base['listing'] = [for (final entry in listing) _entryToJson(entry)];
@@ -120,7 +122,7 @@ final class SessionTabState {
           serverId: serverId,
           path: _requiredPath(json),
           bookmark: Bookmark.fromJson(
-            bookmarkJson.cast<String, dynamic>(),
+            withRemoteLandingPath(bookmarkJson.cast<String, dynamic>()),
             recordId: 'bookmark:${bookmarkJson['id']}',
           ),
           listing: listing,
@@ -215,6 +217,8 @@ final class SessionState {
     required this.activePaneId,
     required this.secondPaneHidden,
     this.activityPanelHidden = true,
+    this.inspectorHidden,
+    this.inspectorTab,
     required this.panes,
   });
 
@@ -228,6 +232,13 @@ final class SessionState {
   /// document written before the panel existed decodes to the default
   /// (hidden) rather than failing the strict root.
   final bool activityPanelHidden;
+
+  /// The D32 inspector's persisted visibility and tab (10 §3.1): optional
+  /// fields inside v1 like [activityPanelHidden] — a document written
+  /// before the inspector existed decodes them as null and the shell
+  /// derives them from the legacy flag.
+  final bool? inspectorHidden;
+  final String? inspectorTab;
   final List<SessionPaneState> panes;
 
   Map<String, Object?> toJson() => {
@@ -235,6 +246,8 @@ final class SessionState {
     'activePane': activePaneId,
     'secondPaneHidden': secondPaneHidden,
     'activityPanelHidden': activityPanelHidden,
+    if (inspectorHidden != null) 'inspectorHidden': inspectorHidden,
+    if (inspectorTab != null) 'inspectorTab': inspectorTab,
     'panes': [for (final pane in panes) pane.toJson()],
   };
 
@@ -250,6 +263,8 @@ final class SessionState {
     final activePane = json['activePane'];
     final secondPaneHidden = json['secondPaneHidden'];
     final activityPanelHidden = json['activityPanelHidden'];
+    final inspectorHidden = json['inspectorHidden'];
+    final inspectorTab = json['inspectorTab'];
     final panes = json['panes'];
     if (activePane is! String) {
       throw const FormatException('Invalid session active pane');
@@ -261,6 +276,12 @@ final class SessionState {
     // means the pre-panel default; present means a bool, strictly.
     if (activityPanelHidden != null && activityPanelHidden is! bool) {
       throw const FormatException('Invalid session activity panel flag');
+    }
+    if (inspectorHidden != null && inspectorHidden is! bool) {
+      throw const FormatException('Invalid session inspector flag');
+    }
+    if (inspectorTab != null && inspectorTab is! String) {
+      throw const FormatException('Invalid session inspector tab');
     }
     if (panes is! List) {
       throw const FormatException('Invalid session panes');
@@ -288,6 +309,8 @@ final class SessionState {
       activePaneId: activePane,
       secondPaneHidden: secondPaneHidden,
       activityPanelHidden: activityPanelHidden as bool? ?? true,
+      inspectorHidden: inspectorHidden as bool?,
+      inspectorTab: inspectorTab as String?,
       panes: decodedPanes,
     );
   }

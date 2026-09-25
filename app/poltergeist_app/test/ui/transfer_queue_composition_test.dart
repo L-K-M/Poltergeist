@@ -13,6 +13,7 @@
 // (POLTERGEIST_CAPTURE_FONT_DIR or the DejaVu fallback), the same
 // convention as activity_panel_capture_test.
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -148,11 +149,44 @@ void main() {
     }
   });
 
-  test('remote endpoints fail honestly instead of stalling', () async {
+  test('a supplied lease seam carries remote tasks end to end', () async {
+    // Production composes the engine's bridged EngineConnectionManager
+    // (protocol v13); the core bridge suites prove the port itself. Here
+    // the boot path must hand the queue the seam it was given — and the
+    // checkout session reads the same instance back.
+    final remote = _OneFileRemote('/srv/site/index.html', [1, 2, 3, 4]);
+    final connections = _LeasingConnections(remote);
+    final session = await startTransferQueue(
+      supportDirectoryPath: supportDir.path,
+      connections: connections,
+    );
+    expect(session, isNotNull);
+    sessions.add(session!);
+    expect(identical(session.connections, connections), isTrue);
+    final task = session.queue.enqueue(
+      TransferTaskSpec(
+        source: const ServerFsLocation('server-1'),
+        destination: const LocalFsLocation(),
+        rootPaths: const ['/srv/site/index.html'],
+        destinationDir: destDir.path,
+        policy: ResolvedConflictPolicy(
+          files: ConflictResolution.replace,
+          folders: ConflictResolution.merge,
+        ),
+      ),
+    );
+    await pumpUntil(() => task.isTerminal, reason: 'bridged task stuck');
+    expect(task.state, TransferTaskState.completed);
+    expect(File('${destDir.path}/index.html').readAsBytesSync(), [1, 2, 3, 4]);
+    expect(connections.leases, greaterThan(0));
+    expect(connections.released, connections.leases);
+  });
+
+  test('an engine-less boot fails remote endpoints honestly', () async {
     final session = await boot();
-    // The engine protocol carries no transfer verbs yet, so the
-    // app-side queue cannot lease a channel — the task must land as a
-    // visible failed row, never hang in scanning.
+    // No engine spawned, so no seam was supplied: the fallback cannot
+    // lease a channel — the task must land as a visible failed row,
+    // never hang in scanning.
     final task = session.queue.enqueue(
       TransferTaskSpec(
         source: const ServerFsLocation('server-1'),
@@ -418,4 +452,80 @@ void main() {
       });
     }
   });
+}
+
+/// One remote file for the lease-seam composition test: stat and
+/// download are all a remote→local single-file task needs.
+final class _OneFileRemote implements RemoteFileSystem {
+  _OneFileRemote(this.path, this.bytes);
+
+  final String path;
+  final List<int> bytes;
+
+  RemoteFileEntry get _entry => RemoteFileEntry(
+    path: path,
+    name: path.split('/').last,
+    type: RemoteFileType.file,
+    size: bytes.length,
+  );
+
+  @override
+  Future<RemoteFileEntry> stat(String path, {bool followLinks = true}) async {
+    if (path == this.path) return _entry;
+    throw RemoteFileException(
+      kind: RemoteFileErrorKind.notFound,
+      operation: 'stat',
+      path: path,
+      message: 'no such path',
+    );
+  }
+
+  @override
+  Future<RemoteFileEntry> download(
+    String path,
+    StreamSink<List<int>> destination, {
+    RemoteTransferProgress? onProgress,
+    RemoteTransferCancellation? cancellation,
+    bool computeHash = true,
+  }) async {
+    await destination.addStream(Stream.value(bytes));
+    onProgress?.call(bytes.length, bytes.length);
+    return _entry;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
+final class _LeasingConnections implements ConnectionManager {
+  _LeasingConnections(this.fs);
+
+  final RemoteFileSystem fs;
+  int leases = 0;
+  int released = 0;
+
+  @override
+  Future<TransferChannelLease> leaseTransferChannel(String serverId) async {
+    leases++;
+    return _Lease(fs, () => released++);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
+final class _Lease implements TransferChannelLease {
+  _Lease(this.fs, this._onRelease);
+
+  @override
+  final RemoteFileSystem fs;
+  final void Function() _onRelease;
+
+  @override
+  Future<void> release() async => _onRelease();
+
+  @override
+  void reportFailure(RemoteFileSystem source, RemoteFileException error) {}
 }

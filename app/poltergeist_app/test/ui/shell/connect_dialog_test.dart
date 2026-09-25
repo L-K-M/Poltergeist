@@ -1,0 +1,229 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:poltergeist_app/app.dart';
+import 'package:poltergeist_app/services/engine_session.dart';
+import 'package:poltergeist_core/poltergeist_core.dart';
+
+import '../../services/engine_session_test.dart' as session_test;
+import '../../support/fake_app_transfer_queue.dart';
+import '../../support/fake_bookmark_store.dart';
+import '../../support/shell_commands.dart';
+
+RemoteFileEntry _entry(String dir, String name) => RemoteFileEntry(
+  path: '$dir/$name',
+  name: name,
+  type: RemoteFileType.file,
+  size: 10,
+);
+
+/// D32 §4's Connect verb (⌘K): the header's Connect button opens the
+/// quick-connect form as a dialog and binds the address on a fresh tab
+/// in the active pane.
+void main() {
+  late session_test.FakeAppEngine engine;
+
+  setUp(() {
+    engine = session_test.FakeAppEngine();
+    engine.localChannels.addAll([
+      session_test.FakeAppBrowseChannel(homePath: '/home/tester')
+        ..listings['/home/tester'] = [_entry('/home/tester', 'left.txt')],
+      session_test.FakeAppBrowseChannel(homePath: '/home/tester')
+        ..listings['/home/tester'] = [_entry('/home/tester', 'right.txt')],
+    ]);
+    engine.channel = session_test.FakeAppBrowseChannel(homePath: '/home/demo')
+      ..listings['/home/demo'] = [_entry('/home/demo', 'remote.txt')];
+  });
+
+  Future<void> pumpApp(
+    WidgetTester tester, {
+    FakeAppTransferQueue? queue,
+    List<Bookmark> saved = const [],
+  }) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    addTearDown(engine.close);
+    final navigatorKey = GlobalKey<NavigatorState>();
+    final supportDir = Directory.systemTemp.createTempSync('pg-connect-');
+    addTearDown(() => supportDir.deleteSync(recursive: true));
+    final bookmarks = FakeBookmarkStore(saved);
+    final session = await startEngineSession(
+      supportDirectoryPath: supportDir.path,
+      bookmarks: bookmarks,
+      navigatorKey: navigatorKey,
+      pinStore: InMemoryHostKeyStore(),
+      incidentStore: InMemoryIncidentStore(),
+      spawn: (config) async => engine,
+    );
+    addTearDown(session!.shutdown);
+    await tester.pumpWidget(
+      PoltergeistApp(
+        bookmarks: bookmarks,
+        engineSession: session,
+        navigatorKey: navigatorKey,
+        transferQueue: queue,
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('submitting an address connects it and closes cleanly', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+
+    await runShellCommand(tester, 'connect.quickConnect');
+    expect(find.byKey(const ValueKey('connect.dialog')), findsOneWidget);
+
+    // The field takes focus on open: typing needs no click first.
+    final field = find.byKey(const ValueKey('quickConnect.field'));
+    final editable = tester.widget<TextField>(field);
+    expect(editable.focusNode!.hasFocus, isTrue);
+
+    await tester.enterText(field, 'demo@example.com');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    // The dialog's exit transition keeps the field mounted after the
+    // route pops — the frames that would use a disposed focus node.
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('connect.dialog')), findsNothing);
+    expect(engine.openCalls, hasLength(1));
+    expect(engine.openCalls.single.config.host, 'example.com');
+    expect(engine.openCalls.single.config.username, 'demo');
+    expect(find.text('remote.txt'), findsOneWidget);
+  });
+
+  testWidgets('Cancel via Esc leaves the panes as they were', (tester) async {
+    await pumpApp(tester);
+
+    await runShellCommand(tester, 'connect.quickConnect');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('connect.dialog')), findsNothing);
+    expect(engine.openCalls, isEmpty);
+  });
+
+  testWidgets('a finished upload refreshes the remote pane showing its '
+      'destination', (tester) async {
+    final queue = FakeAppTransferQueue();
+    await pumpApp(tester, queue: queue);
+    await runShellCommand(tester, 'connect.quickConnect');
+    await tester.enterText(
+      find.byKey(const ValueKey('quickConnect.field')),
+      'demo@example.com',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    final remote = engine.channel!;
+    final listedBefore = remote.listCalls.length;
+
+    // The queue's task carries its OWN endpoint instance (built by the
+    // enqueue path, or decoded from the journal) — never the pane's.
+    queue.addTask(
+      destination: ServerFsLocation(engine.openCalls.single.serverId),
+      destinationDir: '/home/demo',
+      state: TransferTaskState.completed,
+    );
+    await tester.pumpAndSettle();
+
+    expect(remote.listCalls.length, greaterThan(listedBefore));
+    expect(remote.listCalls.last, '/home/demo');
+  });
+
+  testWidgets('transfer rows name a Quick Connect server by its address', (
+    tester,
+  ) async {
+    final queue = FakeAppTransferQueue();
+    await pumpApp(tester, queue: queue);
+    await runShellCommand(tester, 'connect.quickConnect');
+    await tester.enterText(
+      find.byKey(const ValueKey('quickConnect.field')),
+      'demo@example.com',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    final serverId = engine.openCalls.single.serverId;
+
+    queue.addTask(
+      source: ServerFsLocation(serverId),
+      destination: const LocalFsLocation(),
+      rootPaths: const ['/home/demo/app.log'],
+      destinationDir: '/home/tester',
+      state: TransferTaskState.completed,
+    );
+    await tester.tap(find.byKey(const ValueKey('inspector.tab.transfers')));
+    await tester.pumpAndSettle();
+
+    final panel = find.byKey(const ValueKey('activity.panel'));
+    expect(
+      find.descendant(of: panel, matching: find.textContaining(serverId)),
+      findsNothing,
+      reason: 'an ad-hoc server id is plumbing, never a label',
+    );
+    expect(
+      find.descendant(
+        of: panel,
+        matching: find.textContaining('demo@example.com'),
+      ),
+      findsWidgets,
+    );
+  });
+
+  testWidgets('a saved server opens from its row on a new tab in the '
+      'active pane, as the sidebar opens it', (tester) async {
+    final now = DateTime.utc(2026, 9, 20);
+    await pumpApp(
+      tester,
+      saved: [
+        Bookmark(
+          id: 'srv-demo',
+          kind: BookmarkKind.remotePath,
+          label: 'Demo box',
+          server: const BookmarkServerRef(
+            identity: EmbeddedHostIdentity(
+              host: 'demo.example.com',
+              port: 2222,
+              username: 'demo',
+              authMethod: AuthMethod.password,
+            ),
+          ),
+          remotePath: '/home/demo',
+          sortKey: 'a',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+    );
+
+    await runShellCommand(tester, 'connect.quickConnect');
+    final row = find.byKey(const ValueKey('connect.server.srv-demo'));
+    expect(row, findsOneWidget);
+    expect(find.text('demo@demo.example.com:2222'), findsOneWidget);
+    // The row sits above the Quick Connect field, which keeps focus.
+    final field = find.byKey(const ValueKey('quickConnect.field'));
+    expect(
+      tester.getTopLeft(row).dy,
+      lessThan(tester.getTopLeft(field).dy),
+    );
+    expect(tester.widget<TextField>(field).focusNode!.hasFocus, isTrue);
+
+    // ↓ highlights the row; Return opens it.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('connect.dialog')), findsNothing);
+    expect(engine.openCalls, hasLength(1));
+    expect(engine.openCalls.single.config.host, 'demo.example.com');
+    expect(engine.openCalls.single.config.port, 2222);
+    expect(find.text('remote.txt'), findsOneWidget);
+  });
+}

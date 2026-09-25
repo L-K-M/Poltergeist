@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show basicLocaleListResolution;
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import '../l10n/app_localizations.dart';
 import 'double_click_action.dart';
 import 'engine_session.dart';
 import 'folder_size.dart';
@@ -541,6 +543,15 @@ class PaneController extends ChangeNotifier {
   /// reopen restores it.
   PaneViewMode _viewMode = PaneViewMode.details;
 
+  /// D32 §6's column-header sort, per tab: the key and direction the
+  /// visible listing is ordered by. [_sortedListing] keeps the §2.3
+  /// default order (name, ascending) as the snapshot every restore path
+  /// shares; a non-default sort re-orders the hidden-file projection
+  /// on top of it, so no listing, snapshot, or rollback ever has to
+  /// know which column the user clicked.
+  FileSortKey _sortKey = FileSortKey.name;
+  FileSortDirection _sortDirection = FileSortDirection.ascending;
+
   /// The open inline-rename session (02 §2.6); null while the row's
   /// field is closed. The pane owns its invalidation: a location change
   /// ends it at navigation-issue time, every row-set replacement ends it
@@ -559,6 +570,12 @@ class PaneController extends ChangeNotifier {
   /// convention). Consumed by the next accepted listing; cleared by any
   /// newer navigation issue.
   String? _pendingRenameSelectPath;
+
+  /// Set with [_pendingRenameSelectPath] by the create verbs: the
+  /// accepted listing that lands the cursor on the new row also opens
+  /// its inline rename (Finder's New Folder flow). Cleared with the
+  /// select path by every invalidation.
+  bool _renameAfterSelect = false;
 
   /// The Get Info inspector's on-demand folder-size session (02 §2.6):
   /// the walk's live or terminal snapshot, keyed by target path so the
@@ -690,7 +707,10 @@ class PaneController extends ChangeNotifier {
   bool get verbsEnabled =>
       _phase == PanePhase.browsing &&
       _location != null &&
-      _error == null &&
+      // A failed file Open is about that one file: the listing is
+      // intact, so it never locks the folder's verbs (02 §2.6's inline
+      // error stays up for its Retry until the selection moves on).
+      (_error == null || _error is OpenEntryError) &&
       !connectionLost &&
       !loading;
 
@@ -769,6 +789,27 @@ class PaneController extends ChangeNotifier {
     _noticeTimer?.cancel();
     _notice = value;
     _noticeTimer = Timer(noticeLifetime, dismissNotice);
+    notifyListeners();
+  }
+
+  /// The Quick Connect session whose "Not saved" banner the user
+  /// dismissed in this tab (D32 §6's banner slot): the banner stays away
+  /// for that session here, and a different session binding shows it
+  /// again.
+  String? _unsavedBannerDismissedFor;
+
+  /// Whether this tab's user dismissed the "Not saved" banner for the
+  /// session it is bound to.
+  bool get unsavedBannerDismissed {
+    final id = remoteBookmark?.id;
+    return id != null && id == _unsavedBannerDismissedFor;
+  }
+
+  /// The banner's ×: hides it for the bound session in this tab.
+  void dismissUnsavedBanner() {
+    final id = remoteBookmark?.id;
+    if (_disposed || id == null || id == _unsavedBannerDismissedFor) return;
+    _unsavedBannerDismissedFor = id;
     notifyListeners();
   }
 
@@ -1115,6 +1156,15 @@ class PaneController extends ChangeNotifier {
     navigate(parent);
   }
 
+  /// Browses the binding's home (02 §8.3's `go.home`): the user's home
+  /// on a local tab, the login directory on a remote one — the folder
+  /// path input's `~` names.
+  void goHome() {
+    final channel = _channel;
+    if (channel == null) return;
+    navigate(channel.homePath);
+  }
+
   /// Re-lists the current location (a fresh generation, so in-flight
   /// answers for the same path go stale).
   void refresh() {
@@ -1438,6 +1488,8 @@ class PaneController extends ChangeNotifier {
     final before = _selection;
     _selection = _selection.activate(_rowKeys[clamped], update);
     if (identical(before, _selection)) return;
+    // Moving on from the file that failed to open retires its error.
+    if (_error is OpenEntryError) _error = null;
     notifyListeners();
   }
 
@@ -1448,6 +1500,21 @@ class PaneController extends ChangeNotifier {
     final before = _selection;
     _selection = _selection.selectAll();
     if (identical(before, _selection)) return;
+    notifyListeners();
+  }
+
+  /// Drops the selection AND the cursor — D32 §9's touch posture, where
+  /// nothing outside an explicit selection may stay a verb's subject: the
+  /// selection verbs fall back to the cursor row when nothing is
+  /// selected, so a cursor left on the last row a tap opened would make
+  /// Delete act on a row the user never picked. Inert when both are
+  /// already clear (no notify).
+  void clearSelection() {
+    if (_disposed) return;
+    if (_selection.selectedKeys.isEmpty && _selection.cursorKey == null) {
+      return;
+    }
+    _selection = SelectionState<_RowKey>.begin(rows: _rowKeys);
     notifyListeners();
   }
 
@@ -1521,6 +1588,44 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The column the visible listing is sorted by (D32 §6).
+  FileSortKey get sortKey => _sortKey;
+
+  /// The direction of [sortKey]'s order.
+  FileSortDirection get sortDirection => _sortDirection;
+
+  /// A column-header click (D32 §6): the sorted column flips its
+  /// direction; any other column starts at its own initial direction —
+  /// ascending, except Size and Date, which start descending
+  /// ([FileSortKey.initialDirection], 02 §2.3).
+  void sortByColumn(FileSortKey key) {
+    if (key != _sortKey) {
+      setSort(key, key.initialDirection);
+      return;
+    }
+    setSort(
+      key,
+      _sortDirection == FileSortDirection.ascending
+          ? FileSortDirection.descending
+          : FileSortDirection.ascending,
+    );
+  }
+
+  /// Re-orders the visible listing by [key] in [direction] without a
+  /// re-list. Selection, cursor, and anchor are identities, so they
+  /// survive the reorder; an open Quick Select or rename session ends
+  /// with the row set it opened on, the same as any listing replacement.
+  void setSort(FileSortKey key, FileSortDirection direction) {
+    if (_disposed || (key == _sortKey && direction == _sortDirection)) {
+      return;
+    }
+    _sortKey = key;
+    _sortDirection = direction;
+    _setListing(_hiddenFiltered(_sortedListing));
+    _applyEntries(_filteredListing());
+    notifyListeners();
+  }
+
   /// Whether an inline rename is open or committing on this tab — the
   /// tab close guard's trigger probe (02 §3). True while the field is
   /// mounted AND while its submitted rename is still in flight, so a
@@ -1544,6 +1649,137 @@ class PaneController extends ChangeNotifier {
   /// commit, the row's current name on a fresh open.
   String get renameSeed =>
       _renameSession?.attempted ?? _renameSession?.entry.name ?? '';
+
+  /// `file.newFolder` (02 §8.3): creates a folder in the pane's current
+  /// location named [name] — by default the localized "untitled folder" —
+  /// numbered `untitled folder (2)`, `(3)`, … past any name the listing
+  /// shows or the filesystem already holds. The listing then refreshes
+  /// with the new row under the cursor and its inline rename open
+  /// (Finder's New Folder flow), so typing names it.
+  ///
+  /// Returns the created path, or null when the pane cannot act right
+  /// now ([verbsEnabled] false — mid-navigation, recovering, unbound). A
+  /// pane that moved on while the create was in flight still gets the
+  /// created path back; it just opens no editor. Typed refusals
+  /// (permission denied, a read-only volume, a vanished directory) are
+  /// thrown as the channel's [RemoteFileException] for the caller to
+  /// render.
+  Future<String?> createFolder({String? name}) =>
+      _createEntry(name ?? _l10n().paneNewFolderName, directory: true);
+
+  /// `file.newFile` (02 §8.3): [createFolder]'s twin for an empty regular
+  /// file — default name the localized "untitled file", created through
+  /// the VFS's temporary-then-rename upload so an existing name is a
+  /// typed conflict, never an overwrite. Same return and error contract
+  /// as [createFolder].
+  Future<String?> createFile({String? name}) =>
+      _createEntry(name ?? _l10n().paneNewFileName, directory: false);
+
+  /// Numbering stops here: a directory holding 100 taken variants is a
+  /// pathological case worth a typed refusal, not an unbounded probe.
+  static const int _maxCreateAttempts = 100;
+
+  Future<String?> _createEntry(
+    String baseName, {
+    required bool directory,
+  }) async {
+    final channel = _channel;
+    final location = _location;
+    if (_disposed || channel == null || location == null || !verbsEnabled) {
+      return null;
+    }
+    final operation = directory ? 'create directory' : 'create file';
+    // An explicit name obeys the rename field's rules and refuses with
+    // the same typed faults the view already renders.
+    final nameError = renameNameError(
+      baseName,
+      remote: location is RemotePaneLocation,
+      platform: defaultTargetPlatform,
+    );
+    if (nameError != null) {
+      throw PaneFaultException(switch (nameError) {
+        RenameNameError.empty => PaneFault.renameNameEmpty,
+        RenameNameError.separator => PaneFault.renameNameSeparator,
+        RenameNameError.invalid => PaneFault.renameNameInvalid,
+      }, operation: operation);
+    }
+
+    // The same ownership token submitRename uses: a rebind or a
+    // navigation retires it, so a late create never drives a listing
+    // the pane no longer shows.
+    final attempt = _bindAttempt;
+    final revision = _locationRevision;
+    bool ownsPresentation() =>
+        !_disposed &&
+        identical(channel, _channel) &&
+        attempt == _bindAttempt &&
+        revision == _locationRevision &&
+        location == _location;
+
+    final taken = {for (final entry in _sortedListing) entry.name};
+    final separator = paneSeparator(location.path);
+    final parent = location.path.endsWith(separator)
+        ? location.path
+        : '${location.path}$separator';
+    for (var number = 1; number <= _maxCreateAttempts; number++) {
+      final candidate = number == 1
+          ? baseName
+          : numberedConflictName(baseName, number, isDirectory: directory);
+      if (taken.contains(candidate)) continue;
+      final path = '$parent$candidate';
+      try {
+        if (directory) {
+          await channel.createDirectory(path);
+        } else {
+          await channel.createEmptyFile(path);
+        }
+      } on RemoteFileException catch (error) {
+        if (await _nameTaken(channel, path, error)) continue;
+        rethrow;
+      }
+      if (!ownsPresentation()) return path;
+      refresh();
+      // Set AFTER refresh() issues: a navigation issue clears the
+      // pending select, and the refresh's own accept consumes it.
+      _pendingRenameSelectPath = path;
+      _renameAfterSelect = true;
+      return path;
+    }
+    throw RemoteFileException(
+      kind: RemoteFileErrorKind.conflict,
+      operation: operation,
+      path: '$parent$baseName',
+      message: _l10n().paneCreateNamesExhausted(baseName),
+    );
+  }
+
+  /// Whether a create refusal means "that name exists": the channel's
+  /// typed conflict, or SFTP's plain failure (OpenSSH answers an
+  /// existing mkdir target with SSH_FX_FAILURE, which the adapter maps
+  /// to `other`) when the path now stats.
+  Future<bool> _nameTaken(
+    AppBrowseChannel channel,
+    String path,
+    RemoteFileException error,
+  ) async {
+    if (error.kind == RemoteFileErrorKind.conflict) return true;
+    if (error.kind != RemoteFileErrorKind.other) return false;
+    try {
+      await channel.stat(path);
+      return true;
+    } on RemoteFileException {
+      return false;
+    }
+  }
+
+  /// The ARB copy for defaults resolved without a BuildContext — the
+  /// same locale resolution the MaterialApp applies.
+  static AppLocalizations _l10n() => lookupAppLocalizations(
+    basicLocaleListResolution(
+      PlatformDispatcher.instance.locales,
+      AppLocalizations.supportedLocales,
+    ),
+  );
 
   /// `file.rename` (02 §2.6): opens the inline editor on the cursor row.
   /// Inert off the verb surface (unbound, loading, errored, or lost
@@ -2501,6 +2737,30 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether the header filter field takes input: [verbsEnabled]'s
+  /// browsing surface, but NOT paused by [loading]. A directory watch's
+  /// re-list or a post-transfer refresh must never disable the field
+  /// mid-typing (focus would fall to the listing and the next keys
+  /// become type-ahead); the query survives navigation like the strip
+  /// filter's and re-applies when the listing lands.
+  bool get acceptsFilterQuery =>
+      !_disposed &&
+      _phase == PanePhase.browsing &&
+      _location != null &&
+      (_error == null || _error is OpenEntryError) &&
+      !connectionLost;
+
+  /// D32 §4's header filter field: sets the query directly. The header
+  /// owns the text surface, so no pane strip opens; an empty query shows
+  /// the whole listing again (Esc in the pane still clears through
+  /// [clearFilter]'s below-navigation tier).
+  void setFilterQuery(String query) {
+    if (!acceptsFilterQuery || query == _filterQuery) return;
+    _filterQuery = query;
+    _applyEntries(_filteredListing());
+    notifyListeners();
+  }
+
   /// Clears the query AND closes the strip — the field tier's Esc while
   /// the field is focused, the below-navigation tier's Esc once the
   /// filter outlives focus, and the strip's Clear affordance all land
@@ -2771,6 +3031,7 @@ class PaneController extends ChangeNotifier {
     _quickSelect = null;
     _renameSession = null;
     _pendingRenameSelectPath = null;
+    _renameAfterSelect = false;
     _endFolderSize();
     _endEnclosedApply();
     _noticeTimer?.cancel();
@@ -3065,6 +3326,7 @@ class PaneController extends ChangeNotifier {
     _answeredGeneration = _issuedGeneration;
     // A cancelled listing can never consume a pending rename re-select.
     _pendingRenameSelectPath = null;
+    _renameAfterSelect = false;
   }
 
   /// The browse target of the in-flight or last-failed local open —
@@ -3143,6 +3405,7 @@ class PaneController extends ChangeNotifier {
     // A rename's refresh-select hint is consumed by the listing THIS
     // issue's answer accepts; any newer issue invalidates it.
     _pendingRenameSelectPath = null;
+    _renameAfterSelect = false;
     // Every navigation issue is newer intent: an in-flight mirror probe
     // taken before it is stale and must be abandoned by the replay.
     _operationIdentity = Object();
@@ -3246,14 +3509,20 @@ class PaneController extends ChangeNotifier {
       _staleRows = false;
       _applyEntries(_filteredListing());
       final renameSelect = _pendingRenameSelectPath;
+      final renameAfterSelect = _renameAfterSelect;
       _pendingRenameSelectPath = null;
+      _renameAfterSelect = false;
+      var openRenameAt = -1;
       if (renameSelect != null) {
         // The rename changed the row's key; re-anchor the cursor to the
         // renamed row's new index instead of letting the prune drop it.
         final index = _entries.indexWhere(
           (entry) => entry.path == renameSelect,
         );
-        if (index >= 0) setCursorIndex(index);
+        if (index >= 0) {
+          setCursorIndex(index);
+          if (renameAfterSelect) openRenameAt = index;
+        }
       }
       _recovery = _RecoveryPhase.none;
       _answeredGeneration = generation;
@@ -3271,6 +3540,18 @@ class PaneController extends ChangeNotifier {
         );
       }
       _error = null;
+      // A created row opens its inline rename once the listing is live
+      // (the session needs an owned, answered listing to anchor on).
+      if (openRenameAt >= 0 &&
+          openRenameAt < _entries.length &&
+          _renameSession == null &&
+          !_renameInFlight &&
+          !nameIsFlagged(_entries[openRenameAt].name)) {
+        _renameSession = _RenameSession(
+          entry: _entries[openRenameAt],
+          rowKey: _rowKeys[openRenameAt],
+        );
+      }
       notifyListeners();
       // A change signalled while this listing was in flight may
       // postdate it.
@@ -3715,13 +3996,28 @@ class PaneController extends ChangeNotifier {
   /// runs and Unicode simple folding — and `sortFileEntries` returns an
   /// unmodifiable copy over new row order, so the VFS-returned list is
   /// never mutated.
+  ///
+  /// A non-default column sort (D32 §6) re-orders the projection here,
+  /// after the policy, so the default-ordered [_sortedListing] stays
+  /// the one snapshot every restore path shares.
   List<RemoteFileEntry> _hiddenFiltered(List<RemoteFileEntry> sorted) {
+    final defaultOrder =
+        _sortKey == FileSortKey.name &&
+        _sortDirection == FileSortDirection.ascending;
+    final Iterable<RemoteFileEntry> visible = _showHidden
+        ? sorted
+        : sorted.where((entry) => !entry.name.startsWith('.'));
+    if (!defaultOrder) {
+      return sortFileEntries(
+        visible,
+        key: _sortKey,
+        direction: _sortDirection,
+      );
+    }
     if (_showHidden) return sorted;
     // unmodifiable, not just non-growable: [entries]' §2.3 contract is
     // that mutating the accepted listing throws.
-    return List.unmodifiable(
-      sorted.where((entry) => !entry.name.startsWith('.')),
-    );
+    return List.unmodifiable(visible);
   }
 
   /// Assigns the accepted listing and rebuilds the lowercased-name cache

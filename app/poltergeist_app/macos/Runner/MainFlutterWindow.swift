@@ -33,7 +33,14 @@ class MainFlutterWindow: NSWindow {
     tabbingMode = .disallowed
 
     let windowFrame = self.frame
-    let macOSWindowUtilsViewController = MacOSWindowUtilsViewController()
+    // The accessibility-lifecycle guard (ported from Séance; see
+    // PoltergeistFlutterViewController.m): Flutter 3.47 destroys the
+    // accessibility tree before detaching native text fields, which can
+    // crash text input while any accessibility client (VoiceOver, window
+    // managers, writing tools) is active.
+    let macOSWindowUtilsViewController = MacOSWindowUtilsViewController(
+      flutterViewController: PoltergeistFlutterViewController()
+    )
     self.contentViewController = macOSWindowUtilsViewController
     self.setFrame(windowFrame, display: true)
 

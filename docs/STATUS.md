@@ -39,9 +39,9 @@ collision to a spec decision; open item 25's tag re-pin landed with
 M8's first slice — the shared-mode "Your Séance servers" surface is
 the recorded follow-up; open item 26 carries M7's manual-QA
 residual (native macOS Quick Look runtime). Open item 23's remaining
-half (remote transfers — and remote *sync endpoints*, which share the
-engine-protocol gap — fail honestly until the engine grows
-filesystem/transfer verbs) stays open for the engine-host slice.
+half (remote transfers and remote sync endpoints) closed 2026-09-24
+with the bridged transfer lease (protocol v13 — dated section below);
+the D8 gate re-measurement under the bridge is its recorded residual.
 
 ## Done
 
@@ -7689,6 +7689,111 @@ if risk 8's cut line is ever exercised). None is started here. Item
 23's remote-transfer wiring is the de-facto headline fast-follow even
 though §3.13 predates naming it.
 
+## Bridged transfer lease — remote transfers, checkout, preview, sync (2026-09-24)
+
+This closes open item 23's remote half. v1.0 shipped with the transfer queue
+composed on the UI isolate over a lease seam that refused everything, so every
+remote upload, download, checkout, preview, and sync endpoint failed. Protocol
+v13 keeps D8's socket rule and bridges the lease instead (D8 addendum, 03 §5
+"As built").
+
+- **Engine.** `LeaseHost` (`engine/lease_host.dart`) owns:
+  - the lease table;
+  - the generic `VfsOpRequest` over a lease or a browse channel;
+  - the download and upload streams: `TransferableTypedData` batches of up
+    to 256 KiB, with a credit window of at most one window of unconsumed
+    bytes each way.
+
+  How it behaves:
+  - A release retires the id at once but drains in-flight operations before
+    the channel goes back to the pool.
+  - A disconnect or bookmark removal retires that server's leases.
+  - Shutdown cancels every stream and returns every lease.
+  - Late credit and chunk messages are ignored.
+  - `disconnected` failures report to the pool for recovery, as browse
+    channels do.
+  - A lease carries its `ServerConfig`. It may omit it for Quick Connect's
+    `adhoc:` ids, which then reuse the config their browse open supplied.
+- **UI side.** `EngineConnectionManager` and `EngineRemoteFileSystem` mirror
+  in-process semantics:
+  - An upload that is refused before reading never pulls a byte.
+  - A sink or content failure is wrapped like the VFS adapter wraps it, so
+    the editor-limit suffix checks hold.
+  - Neither stream settles before the engine's final answer.
+
+  `remoteContentDigest` routes the checkout snapshot repair and sync's
+  content comparison through the engine-side digest.
+- **App composition.**
+  - `main.dart` builds one bridged manager over `AppServerConfigSource`
+    (bookmark, then pulled catalog, then ad-hoc registrations) and hands it
+    to the queue, checkout, preview, and sync.
+  - Local deletes trash through `EngineTrashBackend`, so Linux's `gio` and
+    the macOS/Windows channel relay stay engine-side. The UI-side queue
+    previously had no trash invoker on macOS and Windows.
+  - `SyncEnvironment` serves remote endpoints through `LeasedRemoteFileSystem`
+    (one shared lease, released when a scan, run, retry, or restore settles,
+    plus a 30 s idle backstop).
+  - `_LocalOnlyConnectionManager` remains only as the fallback when the
+    engine fails to spawn.
+- **Trust before secrets.** A first connect to an unpinned endpoint now runs
+  a host-key preflight on a short, never-authenticated SSH connection before
+  the credential resolver can prompt. Quick Connect used to ask for the
+  password before the unknown-host-key dialog.
+  - The cause was `_firstConnect` resolving credentials before
+    `openAuthenticatedClient`, which verifies the key inside the same
+    handshake.
+  - Pinned endpoints skip the preflight, so a changed key is still surfaced
+    by the authenticated connect.
+- **Pane verb service APIs** (the UI layer adds the commands, menus, and
+  dialogs):
+  - `PaneController.createFolder` and `createFile` use localized default
+    names, numbered past taken names, and open the inline rename on the new
+    row.
+  - `PaneFileOps` (`prepareDeleteSelection`, `deleteSelection`,
+    `duplicateSelection`, and `refreshWhenSettled`) routes these verbs
+    through the queue.
+  - `AppTransferQueue` gains `prepareDelete` and `enqueueDelete`.
+
+Coverage:
+
+- **Core.**
+  - `engine_vfs_proxy_test` runs over a real host behind the new in-process
+    client seam and covers leases, every VFS op, window bounds each way, a
+    window above the batch cap, cancel, the wrap rules, config-less leases,
+    drain-before-release, late messages, channel targets, and trash.
+  - `transfer_queue_engine_bridge_test` runs the production queue over the
+    bridge: bytes in every direction, pause, cancel, conflict, disconnect
+    requeue, remote delete, and same-server move. Every lease is returned.
+  - `leased_file_system_test`, `pool_host_key_preflight_test`, and the v13
+    protocol round-trip.
+- **App.** `pane_file_verbs_test`; `transfer_queue_composition_test` now
+  proves the supplied seam carries a remote task and that an engine-less boot
+  still fails honestly.
+- **Real sshd.** Two env-gated integration suites ran against a local
+  OpenSSH 9.6 (`127.0.0.1:2222`, password auth, first-use host key) and all
+  passed:
+  - `engine_transfer_sshd_test`: prompt order, a 3 MiB tree uploaded,
+    downloaded, and copied remote→remote with verified digests, checkout
+    edit and save under CAS, preview produce, cancel, and conflict.
+  - `sync_bridge_sshd_test` (sync package): a local-to-remote run converges,
+    including a content-hash re-diff.
+
+  Neither is wired into CI yet; the Docker fixtures use key auth on other
+  ports.
+- **Changed tests.** The two real-isolate prompt-bridge tests in
+  `engine_client_test` connect to a refused port. They now seed a pin so
+  they keep exercising the credential path; unpinned, the preflight fails
+  fast, which a new case pins.
+- **Counts.**
+  - Core and sync: 1739 passed, 43 skipped (7 of them the new env-gated
+    suites). The baseline was 1688 passed, 36 skipped.
+  - App: 1828 passed; the baseline was 1809. One full run hit a single
+    timing flake in `external_editor_checkout_test`'s upload-on-save
+    case. It passed on the rerun, alone, and three times in isolation.
+  - The two `checkout_manager_test` "review hardening" cases fail
+    identically before and after this change, in a container running as
+    root, where the chmod fixtures cannot refuse.
+
 ## M3 follow-through — pane directory watch wiring (2026-09-24)
 
 03 §7.5's pane policy over the engine seam of 2026-09-13, reimplemented
@@ -7729,6 +7834,194 @@ Validation: 20 tests in `test/services/pane_watch_test.dart` over the
 scripted channel's new watch seam; the full app suite and
 `flutter analyze` pass locally. Native backend behavior stays with the
 engine seam's records (items 14 and 18).
+
+## D32 — the workspace redesign (2026-09-24)
+
+The v1.0 chrome is replaced by the ForkLift/Transmit-style workspace of
+[plan/10](plan/10-WORKSPACE-REDESIGN.md) (decision D32). The shipped
+build rendered every registered command as a toolbar icon (about 40,
+several showing the fallback glyph), stacked six chrome bands above the
+first row, and had three right-hand surfaces plus a status bar that
+always read "Ready".
+
+- **Shell** (`workspace_shell.dart`, `ui/shell/`): a full-height,
+  resizable sidebar (180–360 px); a registry-driven header where a
+  command appears only if it declares a `toolbarPlacement` (D21 holds);
+  and a resizable inspector (240–440 px) with Info, Transfers and
+  Alerts tabs replacing the bottom activity panel, the Get Info
+  overlay, the preview rail and the status bar. Alerts derive from
+  `AlertCenter`. Widths persist; auto-collapse by width never does.
+- **Menus and verbs:** Settings in the macOS app menu, "Commands"
+  renamed Server, a Help menu with a registry-generated shortcuts
+  sheet, and the full tree behind ☰ on Linux and Windows. New verbs:
+  Connect (⌘K), New Folder/File, Duplicate, Delete with D15's
+  confirmation, Copy/Move to Other Pane (F5/F6), Reveal in the file
+  manager.
+- **Panes:** location header with an enclosing-folder menu and
+  selection summary, sortable column header, 22 px rows with kind
+  glyphs, select on pointer-down, registry-built context menus, a tab
+  strip with its own menu, and one banner slot.
+- **Sidebar:** DEVICES / FAVORITES / SERVERS on the portable
+  `sidebar_kit.dart`, which Séance adopted (docs/PORTS.md). Live dots,
+  filter at 8+ servers, bottom bar with "+", sync status and Settings.
+- **Sync:** the Transmit-style Sync Files sheet with a plain-language
+  plan sentence (`sync_policy_sentence.dart`), Simulate / Synchronize,
+  auto-run only for create-only plans, and a review grouped by action.
+- **Platform:** Dock/taskbar progress, the unified macOS toolbar,
+  Séance's accessibility-lifecycle guard, no black flash on Linux
+  resize, and local Open falling back to `gio open` without xdg-utils.
+
+End-to-end check: the Linux debug build against a local sshd (Xvfb,
+xdotool). Connect prompts for the host key before the password and
+remembers it; a 3 MB upload completes (4.7 MB/s) and lands intact with
+its mtime; New Folder, inline rename and Delete (D15 wording) work on
+the server; a remote file opens through a managed checkout and the
+system handler; editing the checkout raises the upload prompt. The run
+found and fixed six bugs, each with a regression test: the Connect
+dialog's disposed focus node (red screen), remote panes never
+refreshing after a transfer (`ServerFsLocation` had no value
+equality), a failed Open disabling the pane's verbs, the missing
+xdg-open fallback, Quick Connect servers shown as `adhoc:<uuid>`, and
+Quick Connect edits that could not be uploaded.
+
+Validation: the full app suite (2093 tests) and `flutter analyze` pass
+locally; the pure-Dart packages pass except two chmod-based checkout
+tests that cannot fail while running as root (CI runs unprivileged).
+Not verified here: anything needing a Mac (toolbar passthrough, the
+ObjC guard, VoiceOver) or an Android device.
+
+Deferred: drag-out to Finder (file promises, D14), column resizing and
+per-location sort persistence, free space in the pane header, and the
+Android slices listed under item 33.
+
+## D32 — adversarial review fixes (2026-09-25)
+
+Before merge, a ten-agent review read the whole redesign along five
+lines (shell and inspector, data safety, accessibility and the sidebar
+kit, platform integration, menus and chords). It confirmed 46 findings
+and refuted 4. Each confirmed finding was reproduced by a failing test
+before its fix, and the fixes landed in five batches:
+
+- **Shell and inspector.** Info work keeps running when new work
+  switches the inspector to Transfers. Info and the header filter follow
+  the active tab. An alert dismissal ends once its cause resolves, so a
+  recurrence alerts again. A gradual drag past a region's minimum hides
+  it, and a resize stops where the panes need the room. Pane B hides only
+  when two 260 px panes no longer fit. The header folds by measured
+  content and keeps its title, which now carries the server dot and
+  `user@host`.
+- **Data safety.** Delete and Shift+Delete fire only from a pane listing,
+  and so does the macOS menu's ⌘⌫ when a key equivalent reaches it with
+  nothing in the window having taken the key. Delete and Duplicate are
+  disabled without selected rows. The delete dialog's final choice
+  decides the disposition. A local file dropped on a device copies
+  unless Move is held.
+- **Accessibility and the kit.** Tab and the arrows get past a section
+  header's "+". Menu items, the ⋮ button and a row's verbs reach a screen
+  reader, including as custom actions. Header buttons, inspector tabs,
+  the Sync sheet's direction toggle, a plan row's glyph and the
+  splitters all answer a screen reader's activation, and badge counts
+  are announced. The Séance review added two kit fixes: hover clears
+  when the pointer leaves from the "+", and a click on an already focused
+  row drops the ring. On macOS, Control-click opens a row's menu.
+- **Platform.** Dock and taskbar progress waits for the window to be
+  ready. Non-shell surfaces, the drawer and the splitter sit below the
+  macOS toolbar band. A dead mount can no longer block or hide DEVICES,
+  since each probe times out and free space fills in per row. Show in
+  File Manager survives commas and missing tools, and says so when every
+  route fails.
+- **Menus.** The tree follows 10 §8's table, with Disconnect, Save to
+  Servers, Add to Favorites, Go Home and Linux/Windows Enter Full Screen
+  as new commands. Check for Updates… sits beside Settings… on macOS,
+  and Quit closes the Linux/Windows File menu through the same guarded
+  close as the titlebar.
+
+Deferred:
+- The empty-tab launcher's recent locations, server grid and Open Home
+  (C18).
+- Optional Kind, Permissions, Owner and Group columns (C25).
+- Undo/Redo and Cut/Copy/Paste for files.
+- F11 for full screen.
+- A native `SHOpenFolderAndSelectItems` reveal on Windows.
+- Quick Open's "File ▸" path for app-menu commands on macOS.
+- Withdrawing the header's toolbar passthrough views while an opaque
+  route covers the shell. Today the only cost is a few band spots that
+  do not drag the window.
+
+Validation: the full app suite (2293 tests) and `flutter analyze` pass
+locally, and the protocol guard is clean. Not verified here: anything
+that needs macOS, Windows or a device (native hit testing in the toolbar
+band, the Windows taskbar and reveal, VoiceOver, TalkBack, a real hung
+NFS mount).
+
+## D32 — Android and the compact posture (2026-09-24)
+
+Below 600 dp on a touch platform the workspace takes 10 §9's compact
+posture (`lib/ui/compact/`). Wider touch windows (tablets, a landscape
+phone) keep the desktop layout with its staged drawer sidebar and
+inspector overlay; desktop windows never reach the posture (their
+content minimum is 720 × 480) and keep `AdaptiveShell`'s pane-B
+auto-hide unchanged.
+
+- **Home** is the shared `SidebarView` in its new home presentation:
+  DEVICES / FAVORITES / SERVERS at touch size under an always-shown
+  search bar, the rail's "+" menu as a FAB (New Server, Quick Connect,
+  Add Current Folder, New Group, Import), the sync status as the list
+  footer, and Settings plus an app-scoped ⋮ in the app bar. Android's
+  volume source lists nothing by design, so DEVICES shows one "This
+  device" row onto the local pane's home.
+- **The browser** shows the active pane: back, the folder name,
+  `user@host` for a remote (the item count for a local folder), a
+  filter field, the A · B pane switcher, and ⋮ — the registry's full
+  menu tree as a sheet (D21, 10 §8's Android row). Breadcrumb chips
+  scroll under the bar; rows are 56 dp, two lines (name; size · date);
+  a tap opens, the trailing ⋮ opens the registry row sheet, and pull to
+  refresh re-lists. Rename and Go to Folder / Edit Path render their
+  controller sessions as dialogs; Quick Select as a strip.
+- **Two panes on a phone:** the workspace hears pane B as shown, so
+  Copy/Move to Other Pane keep their destination ("Copy to B").
+- **Selection:** long-press starts it (a bulk registry selection —
+  Select All, Invert, Quick Select — enters it too); the contextual bar
+  reads "3 selected · 42 MB" (the pane's files-only size rule); the
+  bottom bar carries Copy to B, Move to B, Delete, and More (the other
+  selection verbs, in the row menu's order). A disabled item answers a
+  tap with the command's reason. **Share is omitted** — it needs a
+  platform share plugin (deferred, open item 33).
+- **Inspector:** a draggable, non-modal bottom sheet with the same
+  Info / Transfers / Alerts tabs over the same controllers; its
+  visibility and tab are the workspace's inspector state, so Get Info,
+  Show Alerts, and the pill open it. A floating progress pill shows
+  while transfers run and opens Transfers; in this posture new work
+  raises the pill instead of the sheet.
+- **Sync** stays the full-screen dialog below 600 px, reachable from ⋮
+  (Server ▸ Synchronize…) and from a savedSync favorite on Home.
+- **Back** walks, in order: clear the selection → close the sheet →
+  close an open field (filter, Quick Select) → folder history → Home →
+  leave the app, through one `PopScope` (Séance's Android model — a
+  state flag, so every modal stays on the app navigator and closes
+  first). `android:enableOnBackInvokedCallback="true"` opts into
+  predictive back.
+- **Touch at every width:** section chevrons rest visible on touch and
+  the hover-only header "+" steps aside there (its verbs live in the +
+  menu); row hover actions (eject, disconnect) already had menu
+  equivalents; desktop-layout rows keep the chrome's 48 dp touch extent.
+- `PaneController.clearSelection()` drops the selection and the cursor:
+  outside selection mode no row may stay a verb's hidden subject (the
+  selection verbs fall back to the cursor row).
+
+Verification: `flutter analyze` clean; the compact behavior suite
+(`test/ui/compact/compact_posture_test.dart`) drives the real shell over
+the fake engine at 390 × 844 — Home, the browser, rows, breadcrumbs,
+pull to refresh, the row and ⋮ sheets, the filter, rename (including a
+regression for a double pop on back), Go to Folder, Quick Select, the
+pane switcher and Copy to B, selection and More, the sheet and the
+pill, every back step through `SystemNavigator.pop`, the posture's
+command routing, Sync's reachability, and the 700 dp tablet layout.
+Captures (`test/ui/compact/compact_capture_test.dart`, gated on
+`POLTERGEIST_CAPTURE=1`) render every scene in dark and light. Not
+verified here: a device or emulator run (no Android SDK in the
+container), real predictive-back animation, IME behavior, and
+TalkBack.
 
 ## Open items
 
@@ -8406,12 +8699,14 @@ engine seam's records (items 14 and 18).
     startup and every consumer — pane drops, activity panel, quit
     guard — shares it; the composition test's delegate-identity
     assertion is the requested boot-path smoke check. The deferred
-    "Quit Anyway" decision above is unchanged. **Still open:** remote
-    transfers — until the engine protocol grows transfer verbs and an
-    engine-hosted queue (or a bridged lease) exists, remote-endpoint
-    tasks enqueued through the composed queue fail with a typed
-    `unsupported` error instead of running; local↔local work runs
-    for real.
+    "Quit Anyway" decision above is unchanged. **Remote half closed
+    2026-09-24** (the bridged-transfer-lease dated section): protocol
+    v13's bridged lease carries uploads, downloads, remote→remote,
+    managed checkouts, previews, and remote sync endpoints. Only an
+    engine that failed to spawn still takes the typed-`unsupported`
+    fallback. **Residual:** the D8 gates (UI-isolate stall, throughput
+    parity) must be re-measured under the bridge (see the D8
+    addendum).
 24. **2026-09-19: Ctrl+Alt+letter chords collide with AltGr on
     Windows/Linux international layouts (spec decision needed).**
     Windows reports AltGr as Ctrl+Alt, so 02 §8.3's Windows/Linux
@@ -8566,6 +8861,16 @@ engine seam's records (items 14 and 18).
     `docs/qa/screen-reader-notes.md`), native chrome and dialogs, scroll
     feel, macOS Quick Look on real hardware, and real-IME entry. First
     fill is due with the v1.0 release PR.
+33. **2026-09-24: D32 §9 — Android slices deferred from the compact
+    posture.** Each is its own slice: all-files storage access (the
+    local pane is the app's own storage until then, and DEVICES shows
+    only "This device"); the share-to-Poltergeist upload intent; the
+    selection bar's Share (needs a platform share plugin, which this
+    slice did not add); a transfer foreground service with notification
+    progress (transfers stop when Android freezes the backgrounded
+    process); and a DocumentsProvider exposing servers to other apps.
+    Also unverified until a device run: predictive-back animation, IME
+    insets, and TalkBack over the compact surfaces.
 
 ## Independent audit
 

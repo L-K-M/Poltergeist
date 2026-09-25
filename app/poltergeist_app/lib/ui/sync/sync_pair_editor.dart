@@ -35,11 +35,18 @@ final class SyncPairEditorDialog extends StatefulWidget {
   const SyncPairEditorDialog({
     super.key,
     this.initial,
+    this.initialCaseOverrides,
     this.servers = const [],
     this.saveLabel,
   });
 
   final SyncPair? initial;
+
+  /// The pair state's current per-side case answers, when the caller
+  /// holds them (a live session has scanned; a sheet opened from the
+  /// sidebar has not). They seed the two case fields so an unrelated
+  /// save never resets a stored override to "auto".
+  final SyncCaseOverrides? initialCaseOverrides;
 
   /// Remote candidates — the bookmark store's identity-backed
   /// `remotePath` rows (a missing embedded identity has nothing a
@@ -105,6 +112,8 @@ class _SyncPairEditorDialogState extends State<SyncPairEditorDialog> {
       text: '${rules.deleteFractionWarn}',
     );
     _concurrency = rules.transferConcurrency;
+    _caseLeft = widget.initialCaseOverrides?.left;
+    _caseRight = widget.initialCaseOverrides?.right;
   }
 
   String _endpointPath(SyncEndpoint? endpoint) => switch (endpoint) {
@@ -172,40 +181,69 @@ class _SyncPairEditorDialogState extends State<SyncPairEditorDialog> {
     final deletions = _direction == SyncDirection.bidirectional
         ? DeletionPolicy.none
         : _deletions;
+    final left = _endpointFor(_leftServer, _leftPath);
+    final right = _endpointFor(_rightServer, _rightPath);
+    // copyWith over the edited set: the fields this dialog does not
+    // show (acceptedTimeShifts, symlinks) survive the save instead of
+    // reverting to their defaults.
+    final rules = (initial?.rules ?? const SyncRuleSet()).copyWith(
+      direction: _direction,
+      deletions: deletions,
+      backups: _backups,
+      comparison: _comparison,
+      mtimeToleranceSecs: int.tryParse(_mtimeTolerance.text.trim()) ?? 2,
+      conflictDefault: _conflictDefault,
+      excludeGlobs: [
+        for (final line in _excludes.text.split('\n'))
+          if (line.trim().isNotEmpty) line.trim(),
+      ],
+      includeHidden: _includeHidden,
+      trashPathLeft: () => _optionalText(_trashLeft),
+      trashPathRight: () => _optionalText(_trashRight),
+      maxDelete: int.tryParse(_maxDelete.text.trim()) ?? 500,
+      deleteFractionWarn: double.tryParse(_fractionWarn.text.trim()) ?? 0.5,
+      preserveMtime: _preserveMtime,
+      transferConcurrency: _concurrency,
+    );
     return SyncPairEditorResult(
       pair: SyncPair(
         id: initial?.id ?? uuidV4(),
         name: _name.text.trim(),
-        left: _endpointFor(_leftServer, _leftPath),
-        right: _endpointFor(_rightServer, _rightPath),
+        left: left,
+        right: right,
         lastRunAt: initial?.lastRunAt,
-        rules: SyncRuleSet(
-          direction: _direction,
-          deletions: deletions,
-          backups: _backups,
-          comparison: _comparison,
-          mtimeToleranceSecs: int.tryParse(_mtimeTolerance.text.trim()) ?? 2,
-          conflictDefault: _conflictDefault,
-          excludeGlobs: [
-            for (final line in _excludes.text.split('\n'))
-              if (line.trim().isNotEmpty) line.trim(),
-          ],
-          includeHidden: _includeHidden,
-          trashPathLeft: _trashLeft.text.trim().isEmpty
-              ? null
-              : _trashLeft.text.trim(),
-          trashPathRight: _trashRight.text.trim().isEmpty
-              ? null
-              : _trashRight.text.trim(),
-          maxDelete: int.tryParse(_maxDelete.text.trim()) ?? 500,
-          deleteFractionWarn:
-              double.tryParse(_fractionWarn.text.trim()) ?? 0.5,
-          preserveMtime: _preserveMtime,
-          transferConcurrency: _concurrency,
-        ),
+        rules: rules,
       ),
-      caseOverrides: SyncCaseOverrides(left: _caseLeft, right: _caseRight),
+      caseOverrides: _caseOverridesResult(left, right),
     );
+  }
+
+  String? _optionalText(TextEditingController field) {
+    final text = field.text.trim();
+    return text.isEmpty ? null : text;
+  }
+
+  /// The case answers to write, or null to leave the stored pair state
+  /// authoritative. Untouched fields over unchanged endpoints return
+  /// null — a save that edited only the excludes must not reset an
+  /// override the dialog could not see (its seed may be unknown). A
+  /// changed endpoint writes what the dialog shows, since the stored
+  /// state belongs to the old pair id.
+  SyncCaseOverrides? _caseOverridesResult(
+    SyncEndpoint left,
+    SyncEndpoint right,
+  ) {
+    final seed = widget.initialCaseOverrides;
+    final initial = widget.initial;
+    final touched = _caseLeft != seed?.left || _caseRight != seed?.right;
+    final moved =
+        initial == null ||
+        canonicalEndpointIdentity(left) !=
+            canonicalEndpointIdentity(initial.left) ||
+        canonicalEndpointIdentity(right) !=
+            canonicalEndpointIdentity(initial.right);
+    if (!touched && !moved) return null;
+    return SyncCaseOverrides(left: _caseLeft, right: _caseRight);
   }
 
   @override

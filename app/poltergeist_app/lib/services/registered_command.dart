@@ -5,10 +5,50 @@ import '../l10n/app_localizations.dart';
 /// Which surface a command acts on (02 §8.1).
 enum CommandScope { app, pane, selection, editor }
 
-/// The app's top-level menus (02 §9's table, in menu-bar order). `app` is
-/// the macOS application menu — platform chrome the registry renders on
-/// macOS only; no command ever places into it.
-enum AppMenuId { app, file, edit, view, go, commands, window, help }
+/// The app's top-level menus (10 §8's table, in menu-bar order). `app` is
+/// the macOS application menu — commands reach it only through
+/// [CommandMenuPlacement.appMenuOnMac], never by naming it directly.
+/// `server` is D32's rename of 02 §9's "Commands" menu.
+enum AppMenuId { app, file, edit, view, go, server, window, help }
+
+/// Where a command sits in the D32 header toolbar (10 §4). Commands
+/// without one never render there — the toolbar is a curated rendering
+/// of the registry, not the registry itself (D21 holds: every control
+/// is still a registered command).
+enum ToolbarSlot {
+  /// Before the title: sidebar toggle, back/forward.
+  leading,
+
+  /// The everyday file verbs (New Folder, Trash, Copy to Other Pane).
+  actions,
+
+  /// Labelled primary actions (Sync, Connect).
+  primary,
+
+  /// Status toggles (activity, inspector).
+  status,
+}
+
+class CommandToolbarPlacement {
+  const CommandToolbarPlacement({
+    required this.slot,
+    required this.order,
+    this.labelled = false,
+    this.group = 0,
+  });
+
+  final ToolbarSlot slot;
+
+  /// Ascending within the slot.
+  final int order;
+
+  /// Whether the button shows its label beside the icon at full width
+  /// (primary actions); icon-only buttons still carry a tooltip.
+  final bool labelled;
+
+  /// Buttons sharing a group inside a slot render in one capsule.
+  final int group;
+}
 
 /// A command's position inside a top-level menu, declared at registration
 /// (D21: menus are a rendering of the registry, never a parallel list).
@@ -27,9 +67,16 @@ class CommandMenuPlacement {
     required this.order,
     this.group = 0,
     this.submenu,
+    this.appMenuOnMac = false,
   });
 
   final AppMenuId menu;
+
+  /// On macOS the command moves into the application menu instead of
+  /// [menu] (Settings…, About, Check for Updates — the AppKit
+  /// convention); every other platform keeps [menu]. The same [order]
+  /// and [group] apply inside the app menu.
+  final bool appMenuOnMac;
 
   /// The 02 §9 table slot; ascending within a group.
   final int order;
@@ -53,13 +100,11 @@ const Map<String, String> kMenuReachabilityExceptions = {};
 /// command; menus, shortcuts, and toolbar buttons are renderings of the
 /// registry).
 ///
-/// This is the M2 debug subset of the 02 §8.1 command model: id, scope,
-/// an ARB label, enablement, an optional per-platform shortcut, and the
+/// The 02 §8.1 command model: id, scope, an ARB label, enablement, an
+/// optional per-platform shortcut, menu and toolbar placements, and the
 /// run action with its invoking [BuildContext] resolved at invocation
-/// time, never captured. The M3 command registry adds CommandContext
-/// resolution, menu/palette renderings, and the keyboard-completeness
-/// invariant, and replaces this shape together with the debug-only
-/// surface that consumes it.
+/// time, never captured. Menus, the D32 header toolbar, context menus,
+/// and the Quick Open palette are all renderings of these rows.
 class RegisteredCommand {
   // Not const: the initializer assert reads a function-typed field,
   // which is not a potentially-constant expression.
@@ -74,6 +119,10 @@ class RegisteredCommand {
     this.activators,
     this.menuPlacement,
     this.submenuItems,
+    this.toolbarPlacement,
+    this.checked,
+    this.tooltip,
+    this.shortLabel,
   }) : assert(
          submenuItems == null || menuPlacement?.submenu == null,
          'A parameterized command must not also join a merged submenu '
@@ -88,9 +137,8 @@ class RegisteredCommand {
   /// The ARB-sourced label (D20); commands carry no hard-coded copy.
   final String Function(AppLocalizations) label;
 
-  /// The Material icon the toolbar renders for this command. Null keeps
-  /// the M2 debug surface's bug icon; M3's registry replaces these
-  /// per-command renderings.
+  /// The icon the toolbar, context menus, and palette render for this
+  /// command. A command with a [toolbarPlacement] must carry one.
   final IconData? icon;
 
   final bool Function() enabled;
@@ -122,6 +170,23 @@ class RegisteredCommand {
   /// the registry id).
   final List<RegisteredCommand> Function(AppLocalizations l10n)?
   submenuItems;
+
+  /// Where the D32 header toolbar renders this command; null keeps it
+  /// out of the toolbar (menus, chords, palette, and context menus only).
+  final CommandToolbarPlacement? toolbarPlacement;
+
+  /// Toggle state for view toggles (Show/Hide Sidebar, Inspector): menus
+  /// render a checkmark where the platform supports one, and toolbar
+  /// buttons render selected. Null means the command is not a toggle.
+  final bool Function()? checked;
+
+  /// The toolbar tooltip when it should differ from [label] (a toggle's
+  /// "Show Inspector" vs its menu label); null uses [label].
+  final String Function(AppLocalizations)? tooltip;
+
+  /// The compact label a labelled toolbar button shows ("Sync" for
+  /// "Synchronize Panes…"); null uses [label].
+  final String Function(AppLocalizations)? shortLabel;
 
   /// Executes the command with the invoking surface's [context].
   /// Implementations must not capture [context] and must re-check

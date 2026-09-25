@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/gestures.dart' show kMiddleMouseButton;
+import 'package:flutter/gestures.dart'
+    show kMiddleMouseButton, kPrimaryMouseButton, kSecondaryMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart'
@@ -15,11 +16,14 @@ import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
 import '../../services/pane_tabs_controller.dart';
 import '../../services/preview_session.dart';
+import '../../services/registered_command.dart';
 import '../../services/sync_plan_controller.dart';
 import '../../services/workspace_controller.dart';
+import '../../theme/app_theme.dart';
 import '../server_appearance.dart';
 import '../server_state_indicator.dart';
 import '../sync/sync_plan_view.dart';
+import 'pane_commands.dart' show copyPanePath;
 import 'pane_drop_area.dart';
 import 'pane_view.dart';
 import 'quick_connect_view.dart';
@@ -99,6 +103,8 @@ class PaneTabsView extends StatelessWidget {
     this.onSyncSaveAsFavorite,
     this.onSyncEditRules,
     this.onImportSshConfig,
+    this.commands,
+    this.onRunCommand,
     this.clock,
   });
 
@@ -156,6 +162,13 @@ class PaneTabsView extends StatelessWidget {
   /// routes it through the registered command so enablement and the
   /// one-shot session rule apply. Null mounts no offer.
   final VoidCallback? onImportSshConfig;
+
+  /// The registry the listing's context menu renders from (D32 §6) —
+  /// forwarded to the mounted [PaneView]. Null mounts no menu.
+  final List<RegisteredCommand>? commands;
+
+  /// The shell's command runner for the context menu's rows.
+  final Future<void> Function(RegisteredCommand command)? onRunCommand;
 
   /// Injectable clock forwarded to the tab view's date rendering.
   final DateTime Function()? clock;
@@ -215,6 +228,8 @@ class PaneTabsView extends StatelessWidget {
                 preview: preview,
                 checkoutSession: checkoutSession,
                 onReviewLocalEdits: onReviewLocalEdits,
+                commands: commands,
+                onRunCommand: onRunCommand,
                 clock: clock ?? DateTime.now,
               );
             },
@@ -224,6 +239,13 @@ class PaneTabsView extends StatelessWidget {
     );
   }
 }
+
+/// The strip's height (D32 §6), including the 2 px active-pane line.
+const _tabStripHeight = 30.0;
+
+/// ForkLift's active-pane marker: a 2 px accent line under the ACTIVE
+/// pane's strip; the inactive pane keeps a 1 px separator.
+const _activePaneLineHeight = 2.0;
 
 /// The strip (02 §3): ordered tab chips plus the `tab.new` affordance.
 /// Scrolls horizontally instead of shrinking chips below usability; the
@@ -335,6 +357,7 @@ class _TabStripState extends State<_TabStrip> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final chrome = PoltergeistChrome.of(context);
     final l10n = AppLocalizations.of(context);
     final tabs = widget.tabs;
     return Semantics(
@@ -358,13 +381,8 @@ class _TabStripState extends State<_TabStrip> {
         },
         builder: (context, candidateData, rejectedData) => Container(
           key: _stripKey,
-          height: 34,
-          decoration: BoxDecoration(
-            color: colors.surfaceContainerLow,
-            border: Border(
-              bottom: BorderSide(color: colors.outlineVariant),
-            ),
-          ),
+          height: _tabStripHeight,
+          color: chrome.headerBackground,
           child: Stack(
             children: [
               Row(
@@ -492,10 +510,45 @@ class _TabStripState extends State<_TabStrip> {
                     key: ValueKey('${tabs.paneId}.tab.new'),
                     tooltip: l10n.tabNewLabel,
                     onPressed: () => tabs.newTab(),
-                    icon: const Icon(Icons.add, size: 18),
+                    icon: const Icon(Icons.add, size: 16),
                     visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 28,
+                      height: 26,
+                    ),
+                    padding: EdgeInsets.zero,
                   ),
                 ],
+              ),
+              // D32 §3's active-pane marker, repainted as activity moves
+              // between the panes (the workspace notifies; the strip's
+              // own tab list does not change).
+              PositionedDirectional(
+                start: 0,
+                end: 0,
+                bottom: 0,
+                child: IgnorePointer(
+                  child: ListenableBuilder(
+                    listenable: widget.workspace,
+                    builder: (context, _) {
+                      final active = identical(
+                        widget.workspace.activePane,
+                        tabs,
+                      );
+                      return Container(
+                        key: ValueKey(
+                          active
+                              ? '${tabs.paneId}.activeIndicator'
+                              : '${tabs.paneId}.inactiveSeparator',
+                        ),
+                        height: active ? _activePaneLineHeight : 1,
+                        color: active
+                            ? chrome.activePaneIndicator
+                            : chrome.separator,
+                      );
+                    },
+                  ),
+                ),
               ),
               if (_dropX != null)
                 // The insertion indicator (02 §3's hover feedback) —
@@ -518,17 +571,20 @@ class _TabStripState extends State<_TabStrip> {
   }
 }
 
-/// One tab chip: title, remote badge + connection dot, close affordance.
-/// Primary tap activates the tab (and its pane); middle-click closes it
-/// through the SAME guarded operation ⌘W uses — [requestCloseTab] owns
-/// the confirmation, so no close route can bypass the guard (02 §3).
+/// One tab chip (D32 §6): the server dot/badge, then the title; the ✕
+/// shows on hover and on the active tab only. Primary tap activates the
+/// tab (and its pane); middle-click closes it through the SAME guarded
+/// operation ⌘W uses — [requestCloseTab] owns the confirmation, so no
+/// close route can bypass the guard (02 §3). Right-click (or Shift+F10
+/// / the Menu key on a focused chip) opens the tab menu: Close, Close
+/// Others, Duplicate, Move to Other Pane, Copy Path.
 ///
 /// The chip is also the drag source for the inter-pane move (02 §3):
 /// the drag carries the [PaneTab] itself and only ever lands on the
 /// OTHER pane's strip, which owns the insertion index; a release
 /// anywhere else cancels. While the chip is dragged it stays in place,
 /// dimmed — the tab is not moving until the drop commits.
-class _TabChip extends StatelessWidget {
+class _TabChip extends StatefulWidget {
   const _TabChip({
     super.key,
     required this.tabs,
@@ -543,96 +599,254 @@ class _TabChip extends StatelessWidget {
   final FocusNode focusNode;
 
   @override
+  State<_TabChip> createState() => _TabChipState();
+}
+
+class _TabChipState extends State<_TabChip> {
+  final _menu = MenuController();
+  final _menuFirstItem = FocusNode();
+  bool _hovered = false;
+
+  @override
+  void dispose() {
+    _menuFirstItem.dispose();
+    super.dispose();
+  }
+
+  PaneTabsController get _otherStrip =>
+      identical(widget.workspace.left, widget.tabs)
+      ? widget.workspace.right
+      : widget.workspace.left;
+
+  void _activate() {
+    // A chip tap claims the pane too — the two-pane muscle memory
+    // applies to the strip, not just the listing.
+    widget.workspace.setActivePane(widget.tabs);
+    widget.tabs.activateTab(widget.tab);
+    widget.focusNode.requestFocus();
+  }
+
+  /// Close Others: every sibling through the one guarded close, one at
+  /// a time — a declined confirm keeps that tab and moves on.
+  Future<void> _closeOthers() async {
+    final others = [
+      for (final other in widget.tabs.tabs)
+        if (!identical(other, widget.tab)) other,
+    ];
+    for (final other in others) {
+      if (!mounted) return;
+      await widget.tabs.requestCloseTab(other);
+    }
+  }
+
+  void _duplicate() {
+    // NewTabTarget.duplicate copies the ACTIVE tab's location — make
+    // this tab the source first.
+    widget.tabs.activateTab(widget.tab);
+    widget.tabs.newTab(target: NewTabTarget.duplicate);
+  }
+
+  List<Widget> _menuItems(AppLocalizations l10n) {
+    final tab = widget.tab;
+    final controller = tab.controller;
+    final path = tab.syncSession == null ? controller.location?.path : null;
+    final duplicable =
+        tab.syncSession == null &&
+        (controller.location != null || controller.remoteBookmark != null);
+    return [
+      MenuItemButton(
+        key: ValueKey('${tab.id}.menu.close'),
+        focusNode: _menuFirstItem,
+        onPressed: () => unawaited(widget.tabs.requestCloseTab(tab)),
+        child: Text(l10n.tabCloseLabel),
+      ),
+      MenuItemButton(
+        key: ValueKey('${tab.id}.menu.closeOthers'),
+        onPressed: widget.tabs.tabs.length > 1
+            ? () => unawaited(_closeOthers())
+            : null,
+        child: Text(l10n.tabCloseOthersLabel),
+      ),
+      const Divider(height: 9, indent: 12, endIndent: 12),
+      MenuItemButton(
+        key: ValueKey('${tab.id}.menu.duplicate'),
+        onPressed: duplicable ? _duplicate : null,
+        child: Text(l10n.tabDuplicateLabel),
+      ),
+      MenuItemButton(
+        key: ValueKey('${tab.id}.menu.moveToOtherPane'),
+        onPressed: widget.workspace.secondPaneShown
+            ? () => widget.workspace.moveTabToPane(tab, _otherStrip)
+            : null,
+        child: Text(l10n.tabMoveToOtherPaneLabel),
+      ),
+      const Divider(height: 9, indent: 12, endIndent: 12),
+      MenuItemButton(
+        key: ValueKey('${tab.id}.menu.copyPath'),
+        onPressed: path == null
+            ? null
+            : () => unawaited(copyPanePath(controller, path)),
+        child: Text(l10n.tabCopyPathLabel),
+      ),
+    ];
+  }
+
+  void _openMenuBelow() {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    _menu.open(position: box.size.bottomLeft(Offset.zero));
+  }
+
+  KeyEventResult _handleMenuKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    final opens =
+        key == LogicalKeyboardKey.contextMenu ||
+        (key == LogicalKeyboardKey.f10 &&
+            HardwareKeyboard.instance.isShiftPressed);
+    if (!opens) return KeyEventResult.ignored;
+    _openMenuBelow();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _menu.isOpen) _menuFirstItem.requestFocus();
+    });
+    return KeyEventResult.handled;
+  }
+
+  void _openMenuAt(Offset global) {
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    _menu.open(position: box.globalToLocal(global));
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final colors = Theme.of(context).colorScheme;
+    final chrome = PoltergeistChrome.of(context);
+    final tab = widget.tab;
+    final tabs = widget.tabs;
     final controller = tab.controller;
     final active = identical(tabs.activeTab, tab);
     final bookmark = controller.remoteBookmark;
     final title = paneTabTitle(tab, l10n);
+    final showClose = active || _hovered;
 
-    final chip = Listener(
+    Widget chip = Container(
+      height: _tabStripHeight,
+      constraints: const BoxConstraints(minWidth: 72, maxWidth: 220),
+      padding: const EdgeInsetsDirectional.only(start: 10, end: 4),
+      decoration: BoxDecoration(
+        // The active chip takes the listing's surface, so it reads as
+        // the front of the pane it heads (ForkLift's tab shape).
+        color: active
+            ? chrome.paneBackground
+            : _hovered
+            ? chrome.hoverFill
+            : null,
+        border: BorderDirectional(end: BorderSide(color: chrome.separator)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (bookmark != null) ...[
+            ServerBadge.glyph(
+              tint: ServerTint(named: bookmark.color),
+              icon: bookmark.icon,
+              size: 14,
+            ),
+            const SizedBox(width: 4),
+            PaneConnectionDot(controller: controller),
+            const SizedBox(width: 2),
+          ],
+          Flexible(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: active
+                    ? Theme.of(context).colorScheme.onSurface
+                    : chrome.secondaryText,
+                fontWeight: active ? FontWeight.w600 : null,
+              ),
+            ),
+          ),
+          // The ✕ keeps its slot while hidden, so a hover never
+          // reflows the strip.
+          Visibility(
+            visible: showClose,
+            maintainSize: true,
+            maintainAnimation: true,
+            maintainState: true,
+            child: SizedBox(
+              width: 22,
+              height: 22,
+              child: IconButton(
+                key: ValueKey('${tab.id}.close'),
+                tooltip: l10n.tabCloseLabel,
+                padding: EdgeInsets.zero,
+                iconSize: 13,
+                onPressed: () => unawaited(tabs.requestCloseTab(tab)),
+                icon: const Icon(Icons.close),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    chip = Listener(
       // Buttons are read at pointer-DOWN: the up event reports buttons
       // already released. Middle-click closes through the one guarded
       // operation — no call-site confirm (02 §3, SEA-009 lesson).
       onPointerDown: (event) {
         if (event.buttons & kMiddleMouseButton != 0) {
           unawaited(tabs.requestCloseTab(tab));
+          return;
+        }
+        final macControlClick =
+            event.buttons & kPrimaryMouseButton != 0 &&
+            Theme.of(context).platform == TargetPlatform.macOS &&
+            HardwareKeyboard.instance.isControlPressed;
+        if (event.buttons & kSecondaryMouseButton != 0 || macControlClick) {
+          _openMenuAt(event.position);
         }
       },
-      child: Tooltip(
-        message: _paneTabTooltip(tab, l10n),
-        child: Semantics(
-          button: true,
-          selected: active,
-          label: title,
-          child: Material(
-            color: active
-                ? colors.surfaceContainerHighest
-                : colors.surfaceContainerLow,
-            child: InkWell(
-              onTap: () {
-                // A chip tap claims the pane too — the two-pane muscle
-                // memory applies to the strip, not just the listing.
-                workspace.setActivePane(tabs);
-                tabs.activateTab(tab);
-                focusNode.requestFocus();
-              },
-              child: Container(
-                height: 34,
-                constraints: const BoxConstraints(
-                  minWidth: 72,
-                  maxWidth: 220,
-                ),
-                padding: const EdgeInsetsDirectional.only(start: 10),
-                decoration: BoxDecoration(
-                  border: BorderDirectional(
-                    end: BorderSide(color: colors.outlineVariant),
-                    top: active
-                        ? BorderSide(color: colors.primary, width: 2)
-                        : BorderSide.none,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (bookmark != null) ...[
-                      ServerBadge.glyph(
-                        tint: ServerTint(named: bookmark.color),
-                        icon: bookmark.icon,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 4),
-                      _ConnectionDot(controller: controller),
-                    ],
-                    Flexible(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelMedium,
-                      ),
-                    ),
-                    SizedBox(
-                      width: 26,
-                      height: 26,
-                      child: IconButton(
-                        key: ValueKey('${tab.id}.close'),
-                        tooltip: l10n.tabCloseLabel,
-                        padding: EdgeInsets.zero,
-                        iconSize: 14,
-                        onPressed: () =>
-                            unawaited(tabs.requestCloseTab(tab)),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ),
-                  ],
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: Tooltip(
+          message: _paneTabTooltip(tab, l10n),
+          child: Semantics(
+            button: true,
+            selected: active,
+            label: title,
+            // Shift+F10 / the Menu key on a focused chip: the tab menu's
+            // keyboard path (02 §8's keyboard-complete rule). An
+            // ancestor of the chip's own focus node, so it sees the keys
+            // the InkWell does not consume.
+            child: Focus(
+              canRequestFocus: false,
+              skipTraversal: true,
+              onKeyEvent: _handleMenuKey,
+              child: Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  onTap: _activate,
+                  onLongPress: _openMenuBelow,
+                  child: chip,
                 ),
               ),
             ),
           ),
         ),
       ),
+    );
+
+    chip = MenuAnchor(
+      controller: _menu,
+      consumeOutsideTap: true,
+      menuChildren: _menuItems(l10n),
+      child: chip,
     );
 
     // The immediate multi-drag recognizer claims the pointer only after
@@ -892,9 +1106,10 @@ class _TabEntryDropState extends State<_TabEntryDrop> {
 
 /// The remote tab's connection dot (02 §3): the shared server-truth
 /// glyph, mapped through the pane's own status lane — reconnecting and
-/// mid-connect states read as pending, a dropped binding as failed.
-class _ConnectionDot extends StatelessWidget {
-  const _ConnectionDot({required this.controller});
+/// mid-connect states read as pending, a dropped binding as failed. The
+/// header title shows the same dot for the active tab (10 §4).
+class PaneConnectionDot extends StatelessWidget {
+  const PaneConnectionDot({super.key, required this.controller});
 
   final PaneController controller;
 

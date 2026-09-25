@@ -163,6 +163,90 @@ class FakePaneChannel implements AppBrowseChannel {
     return entries;
   }
 
+  /// Recorded create calls (`dir:<path>` / `file:<path>`), plus the
+  /// paths created so far — a later create or stat of one sees it. A
+  /// scripted [createFailure] refuses every create.
+  final createCalls = <String>[];
+  final created = <String>{};
+  Object? createFailure;
+
+  bool _exists(String path) {
+    if (created.contains(path)) return true;
+    for (final entries in listings.values) {
+      if (entries.any((entry) => entry.path == path)) return true;
+    }
+    return false;
+  }
+
+  RemoteFileException _conflict(String operation, String path) =>
+      RemoteFileException(
+        kind: RemoteFileErrorKind.conflict,
+        operation: operation,
+        path: path,
+        message: 'already exists: $path',
+      );
+
+  @override
+  Future<void> createDirectory(String path) async {
+    createCalls.add('dir:$path');
+    final failure = createFailure;
+    if (failure != null) throw failure;
+    if (_exists(path)) throw _conflict('create directory', path);
+    created.add(path);
+    _list(path, RemoteFileType.directory);
+  }
+
+  /// A create lands in its parent's scripted listing, so the refresh
+  /// that follows shows it like a real filesystem would.
+  void _list(String path, RemoteFileType type) {
+    final slash = path.lastIndexOf('/');
+    final parent = slash <= 0 ? '/' : path.substring(0, slash);
+    final entries = listings[parent];
+    if (entries == null) return;
+    listings[parent] = [
+      ...entries,
+      RemoteFileEntry(
+        path: path,
+        name: path.substring(slash + 1),
+        type: type,
+        size: type == RemoteFileType.file ? 0 : null,
+      ),
+    ];
+  }
+
+  @override
+  Future<RemoteFileEntry> createEmptyFile(String path) async {
+    createCalls.add('file:$path');
+    final failure = createFailure;
+    if (failure != null) throw failure;
+    if (_exists(path)) throw _conflict('create file', path);
+    created.add(path);
+    _list(path, RemoteFileType.file);
+    return RemoteFileEntry(
+      path: path,
+      name: path.split('/').last,
+      type: RemoteFileType.file,
+      size: 0,
+    );
+  }
+
+  @override
+  Future<RemoteFileEntry> stat(String path) async {
+    if (_exists(path)) {
+      return RemoteFileEntry(
+        path: path,
+        name: path.split('/').last,
+        type: RemoteFileType.file,
+      );
+    }
+    throw RemoteFileException(
+      kind: RemoteFileErrorKind.notFound,
+      operation: 'stat',
+      path: path,
+      message: 'no such path: $path',
+    );
+  }
+
   @override
   Future<void> close() async {
     closeCalls++;

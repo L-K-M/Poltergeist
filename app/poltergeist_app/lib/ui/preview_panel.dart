@@ -50,9 +50,16 @@ class PreviewPanel extends StatelessWidget {
     this.onOpenInEditor,
     required this.onClose,
     required this.onEscape,
+    this.embedded = false,
   });
 
   final PreviewSession session;
+
+  /// D32's inspector embedding (10 §3): the preview renders as the Info
+  /// tab's preview well — no header, no ✕, no fixed width, and no
+  /// metadata rows (the Info tab's own rows carry kind/size/dates, so
+  /// nothing is shown twice). False keeps the standalone rail.
+  final bool embedded;
 
   /// The §5.2 PDF seam — null mounts the metadata card for .pdf rows.
   final PreviewPdfBuilder? pdfRenderer;
@@ -99,7 +106,24 @@ class PreviewPanel extends StatelessWidget {
         }
         return onEscape(event);
       },
-      child: Semantics(
+      child: embedded
+          ? Semantics(
+              container: true,
+              label: l10n.previewPanelLabel,
+              child: ListenableBuilder(
+                listenable: session,
+                builder: (context, _) => _PreviewBody(
+                  session: session,
+                  pdfRenderer: pdfRenderer,
+                  onOpen: onOpen,
+                  onOpenWith: onOpenWith,
+                  onOpenInEditor: onOpenInEditor,
+                  onClose: onClose,
+                  embedded: true,
+                ),
+              ),
+            )
+          : Semantics(
         container: true,
         label: l10n.previewPanelLabel,
         child: Material(
@@ -136,8 +160,10 @@ class _PreviewBody extends StatelessWidget {
     required this.onOpenWith,
     required this.onOpenInEditor,
     required this.onClose,
+    this.embedded = false,
   });
 
+  final bool embedded;
   final PreviewSession session;
   final PreviewPdfBuilder? pdfRenderer;
   final void Function(PaneController pane, RemoteFileEntry entry)? onOpen;
@@ -154,6 +180,19 @@ class _PreviewBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    if (embedded) {
+      return switch (session.phase) {
+        PreviewPhase.idle => _kindGlyph(context),
+        PreviewPhase.prompt ||
+        PreviewPhase.confirm ||
+        PreviewPhase.producing ||
+        PreviewPhase.gateConfirm => _card(context, l10n),
+        PreviewPhase.rendered =>
+          session.refusal != PreviewRefusal.none || session.file == null
+              ? _kindGlyph(context)
+              : _content(context, l10n),
+      };
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -241,6 +280,22 @@ class _PreviewBody extends StatelessWidget {
     );
   }
 
+  /// The preview well's resting state (Transmit's inspector): a large
+  /// kind glyph for folders, unpreviewable kinds, and refusals — the
+  /// Info rows below carry every fact, so the well stays quiet.
+  Widget _kindGlyph(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Center(
+      child: ExcludeSemantics(
+        child: Icon(
+          _iconFor(session),
+          size: 88,
+          color: colors.onSurfaceVariant.withValues(alpha: 0.55),
+        ),
+      ),
+    );
+  }
+
   IconData _iconFor(PreviewSession session) {
     if (session.entry?.isDirectory ?? false) return Icons.folder_outlined;
     return switch (session.kind) {
@@ -279,8 +334,8 @@ class _PreviewBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (entry != null) _metadataRows(context, l10n, entry),
-          const Divider(height: 20),
+          if (!embedded && entry != null) _metadataRows(context, l10n, entry),
+          if (!embedded) const Divider(height: 20),
           switch (session.phase) {
             PreviewPhase.prompt => _prompt(context, l10n),
             PreviewPhase.confirm => _confirm(context, l10n),

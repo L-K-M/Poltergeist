@@ -5,11 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
+import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/sidebar_controller.dart';
+import 'package:poltergeist_app/services/workspace_controller.dart';
+import 'package:poltergeist_app/theme/app_theme.dart';
+import 'package:poltergeist_app/ui/server_appearance.dart';
+import 'package:poltergeist_app/ui/sidebar/sidebar_kit.dart';
 import 'package:poltergeist_app/ui/sidebar/sidebar_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import '../../services/pane_controller_test.dart' as controller_test;
 import '../../support/fake_bookmark_store.dart';
+import '../../support/test_panes.dart';
 
 const _nowMs = 1780000000000;
 
@@ -51,9 +58,6 @@ void main() {
   late SeanceServerCatalog catalog;
   late _CatalogSource source;
   late List<(ServerConfig, SidebarOpenAction)> opens;
-  late int syncCalls;
-  var syncing = false;
-  String? syncError;
   late int addCalls;
   late List<ServerConfig> edits;
   late List<ServerConfig> duplicates;
@@ -63,11 +67,10 @@ void main() {
     WidgetTester tester, {
     bool withCatalog = true,
     bool withOpen = true,
-    bool withSync = true,
     bool withManage = true,
-    bool settle = true,
+    WorkspaceController? workspace,
   }) async {
-    tester.view.physicalSize = const Size(300, 900);
+    tester.view.physicalSize = const Size(600, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
@@ -80,78 +83,70 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildPoltergeistTheme(
+          Brightness.light,
+          platform: TargetPlatform.linux,
+        ),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
-          body: SizedBox(
-            width: 300,
-            child: SidebarView(
-              controller: controller,
-              onOpenFavorite: (_, _) {},
-              catalog: withCatalog ? catalog : null,
-              catalogListenable: source,
-              catalogSyncing: syncing,
-              catalogSyncError: syncError,
-              onSyncNow: withSync ? () => syncCalls++ : null,
-              onOpenCatalogServer: withOpen
-                  ? (server, action) => opens.add((server, action))
-                  : null,
-              onAddCatalogServer: withManage ? () => addCalls++ : null,
-              onEditCatalogServer: withManage
-                  ? (server) => edits.add(server)
-                  : null,
-              onDuplicateCatalogServer: withManage
-                  ? (server) => duplicates.add(server)
-                  : null,
-              onDeleteCatalogServer: withManage
-                  ? (server) => deletes.add(server)
-                  : null,
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 300,
+              child: SidebarView(
+                controller: controller,
+                onOpenFavorite: (_, _) {},
+                catalog: withCatalog ? catalog : null,
+                catalogListenable: source,
+                workspace: workspace,
+                onOpenCatalogServer: withOpen
+                    ? (server, action) => opens.add((server, action))
+                    : null,
+                onAddCatalogServer: withManage ? () => addCalls++ : null,
+                onEditCatalogServer: withManage
+                    ? (server) => edits.add(server)
+                    : null,
+                onDuplicateCatalogServer: withManage
+                    ? (server) => duplicates.add(server)
+                    : null,
+                onDeleteCatalogServer: withManage
+                    ? (server) => deletes.add(server)
+                    : null,
+              ),
             ),
           ),
         ),
       ),
     );
-    if (settle) {
-      await tester.pumpAndSettle();
-    } else {
-      // A syncing round paints an animating spinner — pumpAndSettle
-      // would wait on it forever.
-      await tester.pump();
-    }
+    await tester.pumpAndSettle();
     return controller;
   }
+
+  Finder row(String id) => find.byKey(ValueKey('sidebar.catalog.row.$id'));
 
   setUp(() {
     store = FakeBookmarkStore();
     catalog = SeanceServerCatalog();
     source = _CatalogSource();
     opens = [];
-    syncCalls = 0;
-    syncing = false;
-    syncError = null;
     addCalls = 0;
     edits = [];
     duplicates = [];
     deletes = [];
   });
 
-  testWidgets('no catalog renders no section', (tester) async {
+  testWidgets('no catalog and no saved server renders the empty SERVERS', (
+    tester,
+  ) async {
     await pump(tester, withCatalog: false);
+    expect(find.text('SERVERS'), findsOneWidget);
+    expect(find.textContaining('No servers yet'), findsOneWidget);
+    // The retired section title never renders.
     expect(find.text('Séance servers'), findsNothing);
   });
 
-  testWidgets('empty catalog renders the section with empty copy', (
-    tester,
-  ) async {
-    await pump(tester);
-    expect(find.text('Séance servers'), findsOneWidget);
-    expect(
-      find.textContaining('No servers on this account yet'),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('servers render in Séance grouping order with marks', (
+  testWidgets('catalog servers join SERVERS, grouped by the Séance rules', (
     tester,
   ) async {
     catalog.replace([
@@ -162,20 +157,56 @@ void main() {
     ]);
     await pump(tester);
 
-    // Group headers alphabetical, ungrouped last — Séance's order.
-    expect(find.text('Dev'), findsOneWidget);
-    expect(find.text('Prod'), findsOneWidget);
-    expect(find.text('Ungrouped'), findsOneWidget);
-    expect(find.text('zeta'), findsOneWidget);
-    // The emoji mark paints rather than rendering as text (appearance
-    // coverage lives in server_appearance_test); the row it marks is
-    // what matters here.
+    // Loose rows first, then the groups alphabetically (the rail's one
+    // order, shared with FAVORITES).
+    final zeta = tester.getTopLeft(row('z1')).dy;
+    final dev = tester.getTopLeft(find.text('Dev')).dy;
+    final prod = tester.getTopLeft(find.text('Prod')).dy;
+    expect(zeta, lessThan(dev));
+    expect(dev, lessThan(prod));
     expect(find.text('beta'), findsOneWidget);
-    // Endpoint subtitle matches the pulled config.
-    expect(find.text('deploy@z1.example.com:22'), findsOneWidget);
+    // The endpoint is the tooltip now (one-line rows, 10 §5).
+    expect(find.text('deploy@z1.example.com:22'), findsNothing);
+    expect(find.byTooltip('deploy@z1.example.com:22'), findsOneWidget);
+    // A coloured or emoji server keeps its Séance badge.
+    expect(
+      find.descendant(of: row('m1'), matching: find.byType(ServerBadge)),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('outer section collapses; inner group collapses too', (
+  testWidgets('a saved server and a catalog server share one group row', (
+    tester,
+  ) async {
+    final now = DateTime.utc(2026, 10, 1);
+    store.bookmarks = [
+      Bookmark(
+        id: 'b1',
+        kind: BookmarkKind.remotePath,
+        label: 'saved-web',
+        group: 'Prod',
+        server: BookmarkServerRef(
+          identity: EmbeddedHostIdentity(
+            host: 'web.example.com',
+            port: 22,
+            username: 'deploy',
+            authMethod: AuthMethod.agent,
+          ),
+        ),
+        sortKey: 'mm',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+    catalog.replace([_server('a1', label: 'alpha', group: 'prod')]);
+    await pump(tester);
+
+    expect(find.text('Prod'), findsOneWidget);
+    expect(find.text('saved-web'), findsOneWidget);
+    expect(find.text('alpha'), findsOneWidget);
+  });
+
+  testWidgets('the section and its groups collapse under srv: keys', (
     tester,
   ) async {
     catalog.replace([
@@ -183,20 +214,20 @@ void main() {
       _server('b1', group: 'Prod'),
       _server('c1'),
     ]);
-    await pump(tester);
+    final controller = await pump(tester);
 
-    // Collapse the inner Prod group: its rows leave, others stay.
     await tester.tap(find.text('Prod'));
     await tester.pumpAndSettle();
     expect(find.text('label-a1'), findsNothing);
     expect(find.text('label-c1'), findsOneWidget);
+    expect(controller.isCollapsed('srv:prod'), isTrue);
 
-    // Expand again, then collapse the outer section: everything leaves.
     await tester.tap(find.text('Prod'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Séance servers'));
+    await tester.tap(find.text('SERVERS'));
     await tester.pumpAndSettle();
     expect(find.text('label-c1'), findsNothing);
+    expect(controller.isCollapsed('sec:servers'), isTrue);
   });
 
   testWidgets('tap opens with the modifier vocabulary', (tester) async {
@@ -205,7 +236,6 @@ void main() {
 
     await tester.tap(find.text('label-s1'));
     await tester.pumpAndSettle();
-    expect(opens, hasLength(1));
     expect(opens.single.$1.id, 's1');
     expect(opens.single.$2, SidebarOpenAction.plain);
 
@@ -221,10 +251,7 @@ void main() {
     catalog.replace([_server('s1')]);
     await pump(tester);
 
-    await tester.tap(
-      find.byKey(const ValueKey('sidebar.catalog.row.s1')),
-      buttons: kSecondaryButton,
-    );
+    await tester.tap(row('s1'), buttons: kSecondaryButton);
     await tester.pumpAndSettle();
     expect(find.text('Open in New Tab'), findsOneWidget);
     expect(find.text('Open in Other Pane'), findsOneWidget);
@@ -234,68 +261,33 @@ void main() {
     expect(opens.single.$2, SidebarOpenAction.oppositePane);
   });
 
-  testWidgets('filter field appears at five servers and filters', (
+  testWidgets('the filter field appears at eight servers and filters', (
     tester,
   ) async {
     catalog.replace([
       _server('a1', label: 'alpha'),
       _server('a2', label: 'alpine'),
-      _server('b1', label: 'beta'),
-      _server('c1', label: 'gamma'),
-      _server('d1', label: 'delta'),
+      for (final id in ['b1', 'c1', 'd1', 'e1', 'f1']) _server(id),
     ]);
     await pump(tester);
+    // Seven: still chrome (10 §5's threshold is eight).
+    expect(find.byType(TextField), findsNothing);
+
+    catalog.replace([...catalog.servers, _server('g1')]);
+    source.pulse();
+    await tester.pumpAndSettle();
     expect(find.byType(TextField), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), 'alp');
     await tester.pumpAndSettle();
     expect(find.text('alpha'), findsOneWidget);
     expect(find.text('alpine'), findsOneWidget);
-    expect(find.text('beta'), findsNothing);
-    // The helper names the Enter-opens-first affordance.
-    expect(find.textContaining('opens the first'), findsOneWidget);
+    expect(find.text('label-b1'), findsNothing);
+    expect(find.text('2 of 8'), findsOneWidget);
 
-    // Enter opens the first match.
     await tester.testTextInput.receiveAction(TextInputAction.go);
     await tester.pumpAndSettle();
     expect(opens.single.$1.label, 'alpha');
-  });
-
-  testWidgets('a query drops itself once the catalog it filtered empties', (
-    tester,
-  ) async {
-    catalog.replace([
-      for (final id in ['a1', 'a2', 'b1', 'c1', 'd1']) _server(id),
-    ]);
-    await pump(tester);
-    await tester.enterText(find.byType(TextField), 'a');
-    await tester.pumpAndSettle();
-
-    // A round lands with no servers while the field still holds a query:
-    // the reset runs inside build, against the still-mounted field.
-    catalog.replace(const []);
-    source.pulse();
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-    expect(find.byType(TextField), findsNothing);
-
-    // The query is gone for good: a returning list renders unfiltered.
-    catalog.replace([
-      for (final id in ['a1', 'a2', 'b1', 'c1', 'd1']) _server(id),
-    ]);
-    source.pulse();
-    await tester.pumpAndSettle();
-    expect(find.text('label-b1'), findsOneWidget);
-    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
-        isEmpty);
-  });
-
-  testWidgets('below the threshold no filter field renders', (
-    tester,
-  ) async {
-    catalog.replace([_server('a1'), _server('b1')]);
-    await pump(tester);
-    expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets('a sync round repaints the section via the listenable', (
@@ -315,24 +307,41 @@ void main() {
     expect(find.text('New'), findsOneWidget);
   });
 
-  testWidgets('sync button drives the round and shows busy/error', (
+  testWidgets('a catalog server bound in a pane paints its live dot', (
     tester,
   ) async {
+    final lanes = controller_test.FakePaneLanes();
+    final left = PaneController(paneTabId: 'pane.left.tab1', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right.tab1', lanes: lanes);
+    final workspace = WorkspaceController(
+      left: testPaneStrip(left),
+      right: testPaneStrip(right),
+    );
+    addTearDown(workspace.dispose);
     catalog.replace([_server('s1')]);
-    await pump(tester);
-    await tester.tap(find.byKey(const ValueKey('sidebar.catalog.syncNow')));
-    expect(syncCalls, 1);
+    await pump(tester, workspace: workspace);
 
-    // Sync state is a constructor field — a status change re-pumps the
-    // view, same as the service's own notify in the shell.
-    syncing = true;
-    await pump(tester, settle: false);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    syncing = false;
+    SidebarRow sidebarRow() => tester.widget<SidebarRow>(
+      find.descendant(of: row('s1'), matching: find.byType(SidebarRow)),
+    );
+    expect(sidebarRow().status, isNull);
 
-    syncError = 'Connection refused';
-    await pump(tester);
-    expect(find.byIcon(Icons.sync_problem), findsOneWidget);
+    final now = DateTime.utc(2026, 10, 1);
+    await left.connectRemote(
+      Bookmark(
+        id: 's1',
+        kind: BookmarkKind.remotePath,
+        label: 'label-s1',
+        server: const BookmarkServerRef(serverConfigId: 's1'),
+        sortKey: '',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      resolvedConfig: catalog.byId('s1'),
+    );
+    await tester.pumpAndSettle();
+    expect(sidebarRow().status, isNotNull);
+    expect(sidebarRow().selected, isTrue);
   });
 
   testWidgets('null open callback renders non-activatable rows', (
@@ -345,10 +354,26 @@ void main() {
     expect(opens, isEmpty);
   });
 
-  testWidgets('the header add button fires the add callback', (tester) async {
+  testWidgets('the SERVERS + is New Server when the editor exists', (
+    tester,
+  ) async {
     catalog.replace([_server('s1')]);
     await pump(tester);
-    await tester.tap(find.byKey(const ValueKey('sidebar.catalog.add')));
+    final add = find.byKey(const ValueKey('sidebar.servers.add'));
+    // Hidden until the header is hovered (10 §5): inert until then.
+    await tester.tap(add, warnIfMissed: false);
+    expect(addCalls, 0);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(
+      tester.getCenter(
+        find.byKey(const ValueKey('sidebar.section.sec:servers')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(add);
     expect(addCalls, 1);
   });
 
@@ -358,10 +383,7 @@ void main() {
     catalog.replace([_server('s1'), _server('s2', label: 'other')]);
     await pump(tester);
 
-    await tester.tap(
-      find.byKey(const ValueKey('sidebar.catalog.row.s2')),
-      buttons: kSecondaryButton,
-    );
+    await tester.tap(row('s2'), buttons: kSecondaryButton);
     await tester.pumpAndSettle();
     expect(find.text('Edit'), findsOneWidget);
     expect(find.text('Duplicate'), findsOneWidget);
@@ -371,19 +393,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(edits.single.id, 's2');
 
-    await tester.tap(
-      find.byKey(const ValueKey('sidebar.catalog.row.s1')),
-      buttons: kSecondaryButton,
-    );
+    await tester.tap(row('s1'), buttons: kSecondaryButton);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Duplicate'));
     await tester.pumpAndSettle();
     expect(duplicates.single.id, 's1');
 
-    await tester.tap(
-      find.byKey(const ValueKey('sidebar.catalog.row.s1')),
-      buttons: kSecondaryButton,
-    );
+    await tester.tap(row('s1'), buttons: kSecondaryButton);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
@@ -396,17 +412,10 @@ void main() {
     catalog.replace([_server('s1')]);
     await pump(tester, withManage: false);
 
-    // No add affordance in the header.
-    expect(
-      find.byKey(const ValueKey('sidebar.catalog.add')),
-      findsNothing,
-    );
+    // No add affordance: no editor and no Quick Connect seam.
+    expect(find.byKey(const ValueKey('sidebar.servers.add')), findsNothing);
 
-    // And no management verbs in the row menu — open verbs only.
-    await tester.tap(
-      find.byKey(const ValueKey('sidebar.catalog.row.s1')),
-      buttons: kSecondaryButton,
-    );
+    await tester.tap(row('s1'), buttons: kSecondaryButton);
     await tester.pumpAndSettle();
     expect(find.text('Open in New Tab'), findsOneWidget);
     expect(find.text('Edit'), findsNothing);

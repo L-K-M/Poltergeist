@@ -13,6 +13,7 @@ import 'services/application_error_reporter.dart';
 import 'services/bookmark_backup_service.dart';
 import 'services/checkout_session.dart';
 import 'services/desktop_window_lifecycle.dart';
+import 'services/dock_progress.dart';
 import 'services/dynamic_secret_vault.dart';
 import 'services/editor_registry_controller.dart';
 import 'services/engine_session.dart';
@@ -23,6 +24,7 @@ import 'services/probe_settings_store.dart';
 import 'services/quit_guard.dart';
 import 'services/recent_locations.dart';
 import 'services/secure_master_key.dart';
+import 'services/server_config_source.dart';
 import 'services/server_editor_backend.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
@@ -120,7 +122,8 @@ Future<void> main() async {
   // The activity panel's persisted chrome state (02 §1/§6): height,
   // per-direction throttle limits, and the auto-remove setting — all
   // plain settings keys beside the pane ratio.
-  final activityPanelHeight = await preferences.loadActivityPanelHeight();
+  final sidebarWidth = await preferences.loadSidebarWidth();
+  final inspectorWidth = await preferences.loadInspectorWidth();
   final downloadLimit = await preferences.loadDownloadLimit();
   final uploadLimit = await preferences.loadUploadLimit();
   final autoClearCompleted =
@@ -210,16 +213,29 @@ Future<void> main() async {
     onError: errorReporter.report,
   );
 
+  // The bridged transfer lease (protocol v13, STATUS item 23): one
+  // engine-backed ConnectionManager every remote byte path leases
+  // through — the queue, the checkout manager, the preview producer, and
+  // the sync endpoints. The config source answers what each lease dials;
+  // the pulled catalog lookup binds once the backup service exists below.
+  final serverConfigs = AppServerConfigSource(bookmarks: bookmarks);
+  final transferConnections =
+      engineSession?.transferConnections(serverConfigs);
+
   // The transfer queue (03 §4, D16): one real queue over the
   // app-support journal (03 §4.6) restores the crashed session's
   // survivors — journaled-paused stays paused, every other non-terminal
   // task replays queued behind the forced restore pause — and hands the
   // workspace shell's drop delegate, the activity panel, and the quit
-  // guard their one shared seam. Remote endpoints fail honestly until
-  // the engine protocol grows transfer verbs (docs/STATUS.md item 23);
-  // local work runs for real.
+  // guard their one shared seam. Remote endpoints lease engine-side;
+  // an engine that failed to spawn leaves them failing honestly while
+  // local work still runs. Local deletes trash through the engine (D8).
   final transferQueueSession = await startTransferQueue(
     supportDirectoryPath: supportDirectory.path,
+    connections: transferConnections,
+    localTrash: engineSession == null
+        ? null
+        : LocalTrashService.withBackend(engineSession.localTrash),
     onError: errorReporter.report,
   );
 
@@ -233,8 +249,21 @@ Future<void> main() async {
   final syncEnvironment = SyncEnvironment.forSupportDirectory(
     supportDirectory.path,
     deviceId: () async => syncEnrollmentState.cachedDeviceId ?? 'local',
+    connections: transferConnections,
+    serverConfigs: serverConfigs,
   );
   final transferQueue = transferQueueSession?.queue;
+  // D32 §11: Dock/taskbar progress while transfers run (macOS/Windows —
+  // window_manager has no Linux progress surface). It stays silent until
+  // the window is ready: on Windows an earlier setProgressBar crashes
+  // the process natively (see DockProgressReporter).
+  if (transferQueue != null && (Platform.isMacOS || Platform.isWindows)) {
+    DockProgressReporter(
+      queue: transferQueue,
+      surface: const WindowManagerDockSurface(),
+      surfaceReady: windowLifecycle.windowReady,
+    );
+  }
   final composedQueue = transferQueue == null
       ? null
       : CompositeAppTransferQueue(transferQueue, syncTasks);
@@ -261,9 +290,8 @@ Future<void> main() async {
   // The managed-checkout pipeline (06 §3, M7): one CheckoutManager over
   // the app-support store, driving every byte through the queue session
   // above so checkout downloads and upload-on-save rows surface in the
-  // activity panel. The session is the future editor UI's only handle —
-  // no editor surface exists yet. Remote endpoints fail honestly under
-  // the same unsupported lease the queue's tasks do (item 23).
+  // activity panel. It leases through the same engine bridge the queue
+  // does, so both answer remote access identically.
   final checkoutSession = transferQueueSession == null
       ? null
       : await startCheckoutSession(
@@ -337,6 +365,9 @@ Future<void> main() async {
   // than dropping the feature — the enrolled state must never vanish
   // because one status key failed to decode.
   await errorReporter.guard(bookmarkBackup.load);
+  // Leases for `serverConfigId` bookmarks resolve through the pulled
+  // catalog, exactly like the sidebar's open path.
+  serverConfigs.catalogLookup = (id) => bookmarkBackup.catalog?.byId(id);
 
   // The server editor's application layer (04 §4.2's management verbs):
   // catalog truth and sync writes through the backup service, credential
@@ -396,10 +427,10 @@ Future<void> main() async {
       transferQueue: composedQueue,
       checkoutSession: checkoutSession,
       editorRegistry: editorRegistry,
-      initialActivityPanelHeight: activityPanelHeight,
-      onActivityPanelHeightChanged:
-          preferences.saveActivityPanelHeight,
-      onActivityPanelHeightSaveError: errorReporter.report,
+      initialSidebarWidth: sidebarWidth,
+      onSidebarWidthChanged: preferences.saveSidebarWidth,
+      initialInspectorWidth: inspectorWidth,
+      onInspectorWidthChanged: preferences.saveInspectorWidth,
       initialDownloadLimit: downloadLimit,
       initialUploadLimit: uploadLimit,
       onDownloadLimitChanged: preferences.saveDownloadLimit,

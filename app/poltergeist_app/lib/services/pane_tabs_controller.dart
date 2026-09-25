@@ -295,11 +295,6 @@ class PaneTabsController extends ChangeNotifier {
   /// the same operation — never a second dialog.
   final _closeInFlight = <PaneTab, Future<TabCloseOutcome>>{};
 
-  /// 02 §2.6's Get Info inspector: pane chrome, so the flag lives on the
-  /// strip rather than any one tab — it retargets to the ACTIVE tab's
-  /// selection, and a tab switch carries it to the new tab.
-  bool _infoPanelOpen = false;
-
   int _nextTabOrdinal = 1;
   int _activeIndex = -1;
   bool _disposed = false;
@@ -318,38 +313,6 @@ class PaneTabsController extends ChangeNotifier {
   /// The active tab's browsing controller — the surface pane commands
   /// resolve against; null while the pane sits on the launcher.
   PaneController? get activeTabController => activeTab?.controller;
-
-  /// Whether the Get Info inspector is showing (02 §2.6). Read as false
-  /// while the pane sits on the launcher — there is no listing for the
-  /// panel to slide over.
-  bool get infoPanelOpen => _infoPanelOpen && activeTab != null;
-
-  /// `file.getInfo` (⌘I / Alt+Enter): toggles the inspector over this
-  /// pane's right edge. Opening needs no target check — the command's
-  /// enablement owns that; closing ends every tab's folder-size
-  /// measurement and enclosed-apply operation (the panel is their only
-  /// consumer, so work outliving it would hold the close-guard trigger
-  /// for nothing — and the apply's confirmation dialog would be
-  /// orphaned).
-  void toggleInfoPanel() {
-    // No listing, no inspector: a chord landing on the launcher must
-    // not latch the flag open for the next tab to inherit — the getter
-    // masks it, so the toggle would otherwise move hidden state.
-    if (_disposed || activeTab == null) return;
-    _infoPanelOpen = !_infoPanelOpen;
-    if (!_infoPanelOpen) {
-      for (final tab in _tabs) {
-        tab.controller.cancelFolderSize();
-        tab.controller.cancelEnclosedApply();
-      }
-    }
-    notifyListeners();
-  }
-
-  /// The inspector's Esc tier and ✕ affordance (02 §8.2's slot).
-  void closeInfoPanel() {
-    if (_infoPanelOpen) toggleInfoPanel();
-  }
 
   /// `tab.new` (⌘T): creates, appends, and activates a tab per [target]
   /// (the persisted preference when omitted). The bind is initiated but
@@ -792,9 +755,6 @@ class PaneTabsController extends ChangeNotifier {
     } else if (_activeIndex > index) {
       _activeIndex--;
     }
-    // The launcher has no listing to inspect — drop the flag with the
-    // last tab so the next tab can't inherit a latched-open inspector.
-    if (_tabs.isEmpty) _infoPanelOpen = false;
     _applyTabActivity();
     notifyListeners();
 
@@ -889,8 +849,6 @@ class PaneTabsController extends ChangeNotifier {
     } else if (_activeIndex > index) {
       _activeIndex--;
     }
-    // A stripped pane lands on the launcher — no listing, no inspector.
-    if (_tabs.isEmpty) _infoPanelOpen = false;
     _applyTabActivity();
     notifyListeners();
   }

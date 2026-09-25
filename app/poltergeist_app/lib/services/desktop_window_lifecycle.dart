@@ -139,6 +139,16 @@ final class DesktopWindowLifecycle {
   final Future<bool> Function()? _confirmClose;
   final void Function(Object, StackTrace)? _onError;
 
+  final _windowReady = Completer<void>();
+
+  /// Resolves once the platform window has finished
+  /// `waitUntilReadyToShow`: the point after which window_manager's
+  /// per-window native state exists (on Windows, the taskbar list its
+  /// `setProgressBar` dereferences unchecked). Never resolves when
+  /// prepare or show failed first, so a caller gated on it simply stays
+  /// idle instead of reaching a half-initialized plugin.
+  Future<void> get windowReady => _windowReady.future;
+
   Rect? _restoredBounds;
   void Function()? _cancelScheduledSave;
   Future<void> _windowTail = Future.value();
@@ -216,6 +226,7 @@ final class DesktopWindowLifecycle {
           minimumSize: _minimumContentSize,
         ),
       );
+      if (!_windowReady.isCompleted) _windowReady.complete();
       if (_closing) return;
 
       if (_restoredBounds case final bounds?) await _window.setBounds(bounds);
@@ -519,5 +530,15 @@ final class _MacTitlebarAdapter implements MacTitlebarAdapter {
     await WindowManipulator.enableFullSizeContentView();
     await WindowManipulator.makeTitlebarTransparent();
     await WindowManipulator.hideTitle();
+    // D32 §3: an empty unified toolbar makes the titlebar band 52 pt
+    // tall, so the traffic lights sit centered on the Flutter header
+    // drawn beneath it (Finder/ForkLift geometry). Empty areas keep the
+    // native drag and double-click-to-zoom; the header wraps its
+    // controls in MacosToolbarPassthrough so clicks reach Flutter, and
+    // every other surface stays below the band (ReserveMacosToolbarBand).
+    await WindowManipulator.addToolbar();
+    await WindowManipulator.setToolbarStyle(
+      toolbarStyle: NSWindowToolbarStyle.unified,
+    );
   }
 }

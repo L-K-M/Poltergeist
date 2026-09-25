@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../panes/pane_format.dart';
 
 /// The activity panel's transfer formatting (02 §5.3/§6): rates, ETAs,
@@ -141,17 +142,34 @@ String commonParentPath(List<String> paths) {
 }
 
 /// A task's endpoint label for the `source → destination` line: the
-/// localized "This computer" for a local side, the server id otherwise
-/// (the bookmark label lookup rides the Connections surface; the id is
-/// the honest fallback a task can always show).
+/// localized "This computer" for a local side, the server's name via
+/// [serverLabel] otherwise — the raw id only when nothing resolves it
+/// (a server deleted since the task ran), the honest last resort.
 String transferEndpointLabel(
   FsLocation location, {
   required String localLabel,
+  String? Function(String serverId)? serverLabel,
 }) =>
     switch (location) {
       LocalFsLocation() => localLabel,
-      ServerFsLocation(:final serverId) => serverId,
+      ServerFsLocation(:final serverId) =>
+        serverLabel?.call(serverId) ?? serverId,
     };
+
+/// The task's one-line title: the single root's name, or a counted
+/// summary for multi-root and delete tasks.
+String transferTaskTitle(TransferTask task, AppLocalizations l10n) {
+  if (task.rootPaths.length == 1) {
+    return pathBasename(task.rootPaths.first);
+  }
+  if (task.operation == TransferOperation.delete) {
+    return l10n.activityTaskTitleDelete(task.rootPaths.length);
+  }
+  return l10n.activityTaskTitleMulti(
+    task.rootPaths.length,
+    pathBasename(task.destinationDir),
+  );
+}
 
 /// The `source → destination` route text (02 §6's row grammar): each
 /// endpoint's display path prefixed by its endpoint name. A multi-root
@@ -160,15 +178,16 @@ String transferEndpointLabel(
 String formatTransferRoute(
   TransferTask task, {
   required String localLabel,
+  String? Function(String serverId)? serverLabel,
 }) {
   final sourcePath = task.rootPaths.length == 1
       ? task.rootPaths.first
       : commonParentPath(task.rootPaths);
   final source =
-      '${transferEndpointLabel(task.source, localLabel: localLabel)}:'
+      '${transferEndpointLabel(task.source, localLabel: localLabel, serverLabel: serverLabel)}:'
       ' $sourcePath';
   final destination =
-      '${transferEndpointLabel(task.destination, localLabel: localLabel)}:'
+      '${transferEndpointLabel(task.destination, localLabel: localLabel, serverLabel: serverLabel)}:'
       ' ${task.destinationDir}';
   return '$source → $destination';
 }

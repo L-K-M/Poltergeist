@@ -36,8 +36,9 @@ List<RegisteredCommand> buildWorkspaceCommands({
       enabled: enabled,
       disabledReason: (l10n) => l10n.commandDisabledBusy,
       menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.commands,
+        menu: AppMenuId.server,
         order: 50,
+        group: 3,
       ),
       run: (context) =>
           _saveWorkspace(context, workspace: workspace, library: library),
@@ -53,8 +54,9 @@ List<RegisteredCommand> buildWorkspaceCommands({
         enabled: () => false,
         disabledReason: (l10n) => l10n.commandDisabledNoWorkspaces,
         menuPlacement: CommandMenuPlacement(
-          menu: AppMenuId.commands,
+          menu: AppMenuId.server,
           order: 55,
+          group: 3,
           submenu: (l10n) => l10n.menuWorkspaces,
         ),
         run: (_) async {},
@@ -89,8 +91,9 @@ RegisteredCommand _openCommand(
     enabled: enabled,
     disabledReason: (l10n) => l10n.commandDisabledBusy,
     menuPlacement: CommandMenuPlacement(
-      menu: AppMenuId.commands,
+      menu: AppMenuId.server,
       order: 55 + rank,
+      group: 3,
       submenu: (l10n) => l10n.menuWorkspaces,
     ),
     run: (context) =>

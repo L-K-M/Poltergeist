@@ -18,7 +18,13 @@ with the QA machine's result and date, and attach the filled copy to the PR.
   placed correctly at every window size; native menu bar complete with
   enabled-states correct; Edit-menu routing (Copy/Paste against file list
   vs rename field vs editor); no "Show Tab Bar" leakage; focus flag
-  cleared after closing the last editor (the SEA-008 class).
+  cleared after closing the last editor (the SEA-008 class). The 52 pt
+  toolbar band: every header control, the sidebar filter and splitter
+  (inline and in the narrow-window drawer), the built-in editor's back,
+  Find, Save and Upload buttons, dialog tops, and top-toast actions take
+  clicks, while empty band space still drags and double-click zooms
+  (the band insets are pinned by `macos_toolbar_band_test.dart`; only
+  the native hit-testing needs a Mac).
 - [ ] **Windows** — OWNER MANUAL QA: native titlebar; snap layouts work;
   Flutter-drawn `MenuBar` complete; Alt+F4 quits cleanly with a running
   queue (prevent-close flush prompt).

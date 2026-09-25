@@ -1,16 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_sync/poltergeist_sync.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/activity_panel_controller.dart';
+import '../services/alert_center.dart';
 import '../services/app_lifecycle_forwarder.dart';
-import '../services/app_preferences.dart' show minActivityPanelHeight;
 import '../services/app_transfer_queue.dart';
 import '../services/application_error_reporter.dart';
 import '../services/bookmark_backup_service.dart';
@@ -21,8 +24,11 @@ import '../services/double_click_action.dart';
 import '../services/editor_registry_controller.dart';
 import '../services/engine_session.dart';
 import '../services/external_file_opener.dart';
+import '../services/in_app_quick_look.dart';
+import '../services/local_volumes.dart' show LocalVolumeSource;
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
+import '../services/pane_file_ops.dart';
 import '../services/pane_location.dart';
 import '../services/pane_tabs_controller.dart';
 import '../services/preview_session.dart';
@@ -38,7 +44,6 @@ import '../services/session_state.dart';
 import '../services/sidebar_controller.dart';
 import '../services/sidebar_probe_owner.dart';
 import '../services/ssh_config_import_setup.dart';
-import '../services/sync_browsing_controller.dart';
 import '../services/sync_environment.dart';
 import '../services/sync_plan_controller.dart';
 import '../services/sync_queue_facade.dart';
@@ -47,42 +52,48 @@ import '../services/uuid.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
 import '../services/workspace_state.dart';
-import '../theme/app_theme.dart' show poltergeistMonoFontFamilies;
+import '../theme/app_theme.dart';
 import 'activity/activity_commands.dart';
-import 'activity/activity_format.dart';
-import 'activity/activity_panel.dart';
 import 'adaptive_shell.dart';
+import 'inspector/alerts_view.dart';
+import 'inspector/inspector_view.dart';
 import 'built_in_text_editor.dart';
+import 'compact/compact_browser.dart' show CompactPaneSeams;
+import 'compact/compact_posture.dart';
+import 'compact/compact_workspace.dart';
 import 'import/ssh_config_import_command.dart';
 import 'layout/pane_allocation.dart';
 import 'local_edits_review.dart';
+import 'menus/app_menu_commands.dart';
 import 'menus/app_menu_host.dart';
 import 'panes/open_with_commands.dart';
 import 'panes/pane_commands.dart';
-import 'panes/pane_format.dart' show paneUnevaluated;
 import 'panes/pane_tabs_view.dart';
-import 'panes/sync_browse_chip.dart';
 import 'pdf_preview.dart';
 import 'preview_panel.dart';
+import 'quick_look_overlay.dart';
 import 'quick_open/quick_open_palette.dart';
 import 'settings/app_settings_command.dart';
 import 'settings/backup_settings_command.dart';
 import 'settings/general_settings.dart';
 import 'settings/preview_settings.dart';
+import 'server_appearance.dart';
 import 'server_editor.dart';
+import 'server_label_scope.dart';
+import 'shell/connect_dialog.dart';
+import 'shell/header_activity_button.dart';
+import 'shell/header_toolbar.dart';
+import 'shell/macos_toolbar_band.dart';
+import 'shell/shell_commands.dart';
+import 'shell/shell_splitter.dart';
 import 'sidebar/sidebar_view.dart';
 import 'sync/rsync_copy.dart';
 import 'sync/sync_commands.dart';
 import 'sync/sync_pair_editor.dart';
 import 'sync/sync_plan_format.dart' show syncEndpointLabel;
+import 'sync/sync_setup_sheet.dart';
 import 'top_toast.dart';
-import 'update_banner.dart';
 import 'workspace/workspace_commands.dart';
-
-/// The inline sidebar's width (02 §1: default 240, min 200, max 320 —
-/// the sidebar↔panes splitter and its persisted width land with the
-/// layout-splitter slice; a fixed default keeps this slice honest).
-const _sidebarWidth = 240.0;
 
 /// The production two-pane shell (02 §1): toolbar over the registered
 /// commands (D21), the global sidebar of 02 §4 inline at stage 0 and in
@@ -116,9 +127,10 @@ class WorkspaceShell extends StatefulWidget {
     this.externalOpener = const ExternalFileOpener(),
     this.quitGuard,
     this.conflictPolicy,
-    this.initialActivityPanelHeight = 200,
-    this.onActivityPanelHeightChanged,
-    this.onActivityPanelHeightSaveError,
+    this.initialSidebarWidth = sidebarDefaultWidth,
+    this.onSidebarWidthChanged,
+    this.initialInspectorWidth = inspectorDefaultWidth,
+    this.onInspectorWidthChanged,
     this.initialDownloadLimit,
     this.initialUploadLimit,
     this.onDownloadLimitChanged,
@@ -140,6 +152,7 @@ class WorkspaceShell extends StatefulWidget {
     this.syncEnvironment,
     this.syncTasks,
     this.updateCheck,
+    this.localVolumes,
   });
 
   final double initialPaneRatio;
@@ -268,12 +281,12 @@ class WorkspaceShell extends StatefulWidget {
   /// settings slice — until then the default keeps the ask-park flow.
   final ConflictPolicy? conflictPolicy;
 
-  /// The activity panel's persisted pixel height (02 §1's third
-  /// splitter): default 200, floor 120, capped at half the window in
-  /// the splitter's resize path.
-  final double initialActivityPanelHeight;
-  final PaneRatioSaver? onActivityPanelHeightChanged;
-  final void Function(Object, StackTrace)? onActivityPanelHeightSaveError;
+  /// The persisted region widths (D32, 10 §3.1): seeded once, clamped to
+  /// their bounds, and saved once at the end of each splitter drag.
+  final double initialSidebarWidth;
+  final FutureOr<void> Function(double width)? onSidebarWidthChanged;
+  final double initialInspectorWidth;
+  final FutureOr<void> Function(double width)? onInspectorWidthChanged;
 
   /// The persisted throttle choices seeded onto the queue's limiters
   /// (02 §6's "persisted"); null is unlimited.
@@ -354,6 +367,11 @@ class WorkspaceShell extends StatefulWidget {
   /// Null leaves both unwired — tests and seam-less boots stay silent.
   final UpdateCheckController? updateCheck;
 
+  /// The sidebar's DEVICES source; null reads the host's volumes. Tests
+  /// script it so a phone-posture run never lists the test machine's
+  /// mounts.
+  final LocalVolumeSource? localVolumes;
+
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
@@ -395,6 +413,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// the stage-0 boundary (02 §1's stage-1 collapse).
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  /// D32 §9's compact posture: its surface owns Home vs the browser and
+  /// the back order. The shell reaches it from the verbs that land a
+  /// location from Home and from the commands whose desktop surface
+  /// (the drawer, the header filter) the compact posture replaces.
+  final _compactKey = GlobalKey<CompactWorkspaceState>();
+
+  /// Whether the current build took the compact posture.
+  bool _compactPosture = false;
+
   /// 06 §5's preview driver: owned here so the pane's Space/Esc
   /// dispatch, the docked panel, and the Quick Look overlay share one
   /// session. Rebuilt with the workspace (it binds the focus chain —
@@ -411,7 +438,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// rebuilds share the one native binding (06 §5.1).
   QuickLookChannel? _defaultQuickLook;
   QuickLookChannel get _resolvedQuickLook =>
-      widget.quickLook ?? (_defaultQuickLook ??= MethodChannelQuickLook());
+      widget.quickLook ?? (_defaultQuickLook ??= _platformQuickLook());
+
+  /// D32: Space is Quick Look on every desktop — the native panel on
+  /// macOS, the in-window overlay on Linux and Windows. Touch platforms
+  /// have no surface; Space answers on the Info tab there.
+  static QuickLookChannel _platformQuickLook() =>
+      switch (defaultTargetPlatform) {
+        TargetPlatform.macOS => MethodChannelQuickLook(),
+        TargetPlatform.linux || TargetPlatform.windows => InAppQuickLook(),
+        _ => const NoopQuickLookChannel(),
+      };
 
   /// The pane pair and active pane (03 §6's WorkspaceController, foundation
   /// slice) plus the per-pane listing focus nodes (02 §8.2). Rebuilt when
@@ -425,8 +462,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// a workspace rebuild rebinds panes, not the queue mirror — so it
   /// lives on the shell state, not inside [_buildWorkspace].
   late final ActivityPanelController _activity;
-  late final FocusNode _activitySplitterFocus;
-  double _activityPanelHeight = 0;
+  /// The pane file verbs over the composed queue (New Folder, Delete,
+  /// Duplicate — the bridged engine's queue tasks); null without a queue.
+  PaneFileOps? _fileOps;
+  StreamSubscription<TransferQueueEvent>? _settledRefresh;
+
+  /// D32's alert inbox over the queue mirror, connections, checkouts,
+  /// and the update check (10 §3's Alerts tab).
+  late final AlertCenter _alerts;
+
+  /// The region widths (10 §3.1) and the splitter/header focus nodes.
+  late double _sidebarWidth;
+  late double _inspectorWidth;
+  final _sidebarSplitterFocus = FocusNode(debugLabel: 'sidebar.splitter');
+  final _inspectorSplitterFocus = FocusNode(debugLabel: 'inspector.splitter');
+  final _headerFilterFocus = FocusNode(debugLabel: 'header.filter');
 
   /// The live queue seam the quit guard reads — a lookup, not a
   /// snapshot, so a didUpdateWidget rebind is always seen.
@@ -453,8 +503,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // re-claimed by the left pane.
     _leftFocus = FocusNode(debugLabel: 'pane.left.listing');
     _rightFocus = FocusNode(debugLabel: 'pane.right.listing');
-    _activitySplitterFocus = FocusNode(debugLabel: 'activity.panel.splitter');
-    _activityPanelHeight = widget.initialActivityPanelHeight;
+    _sidebarWidth = widget.initialSidebarWidth.clamp(
+      sidebarMinWidth,
+      sidebarMaxWidth,
+    );
+    _inspectorWidth = widget.initialInspectorWidth.clamp(
+      inspectorMinWidth,
+      inspectorMaxWidth,
+    );
     _previewThresholdBytes = widget.initialPreviewThresholdBytes;
     _activity = ActivityPanelController(
       queue: widget.transferQueue,
@@ -467,9 +523,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // D16's anti-hiding rule made concrete: the first live task
       // re-opens the chrome — the panel's rows are the queue's only
       // window, so new work must never sit behind a hidden panel.
-      onTasksArrived: () => _workspace?.setActivityPanelHidden(false),
+      // The compact posture keeps the sheet closed on new work: its
+      // floating progress pill is the always-visible signal there, and a
+      // half-height sheet must not cover the listing mid-flow (D32 §9).
+      onTasksArrived: () {
+        if (!_compactPosture) _workspace?.setActivityPanelHidden(false);
+      },
     );
     _connections = _buildConnections();
+    _bindFileOps(widget.transferQueue);
+    _alerts = AlertCenter(
+      activity: _activity,
+      connections: _connections,
+      checkouts: widget.checkoutSession,
+      updates: widget.updateCheck,
+    );
     _sidebar = _buildSidebar();
     _probes = _buildProbes();
     _attachBookmarkBackup(widget.bookmarkBackup);
@@ -597,6 +665,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // A later-arriving queue seam rebinds the mirror; the persisted
       // limits re-apply inside the setter.
       _activity.queue = widget.transferQueue;
+      _bindFileOps(widget.transferQueue);
     }
     // The settings slice writes the strips' live newTabTarget directly;
     // this sync only covers a parent rebuild with a changed seed, which
@@ -639,9 +708,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _probes?.dispose();
     _sidebar?.dispose();
     _activity.dispose();
-    _activitySplitterFocus.dispose();
+    _alerts.dispose();
+    unawaited(_settledRefresh?.cancel());
+    _sidebarSplitterFocus.dispose();
+    _inspectorSplitterFocus.dispose();
+    _headerFilterFocus.dispose();
     _connections?.dispose();
     _disposeWorkspace();
+    if (_defaultQuickLook case final InAppQuickLook overlay) overlay.dispose();
     _leftFocus?.dispose();
     _leftFocus = null;
     _rightFocus?.dispose();
@@ -754,13 +828,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// Whether [serverId] currently reports a live connection — the
   /// dirty-prompt's connected gate (a disconnected server cannot upload,
   /// so prompting would dead-end into a raw connection error).
-  bool _serverConnected(String serverId) {
-    for (final server in _connections?.servers ?? const <ConnectionServer>[]) {
-      if (server.serverId == serverId) {
-        return server.status?.state == ServerConnectionState.connected;
+  bool _serverConnected(String serverId) => serverConnectedNow(
+    serverId,
+    catalog: _connections?.servers ?? const <ConnectionServer>[],
+    panes: _openPanes(),
+  );
+
+  /// Every open tab's pane, both strips.
+  Iterable<PaneController> _openPanes() sync* {
+    final workspace = _workspace;
+    if (workspace == null) return;
+    for (final strip in [workspace.left, workspace.right]) {
+      for (final tab in strip.tabs) {
+        yield tab.controller;
       }
     }
-    return false;
   }
 
   /// 06 §3.3's prompt surface: a copy the watcher just marked dirty
@@ -862,7 +944,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     if (session == null || !mounted) return;
     final bookmark = await widget.bookmarks?.byId(serverId);
     if (!mounted) return;
-    final serverLabel = bookmark?.label ?? serverId;
+    final serverLabel = bookmark?.label ?? _serverLabel(serverId) ?? serverId;
     await showLocalEditsReview(
       context,
       session: session,
@@ -876,7 +958,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         // Re-resolve the label per upload — a rename while the dialog
         // is open must not reach the progress/toast copy stale.
         final label =
-            (await widget.bookmarks?.byId(serverId))?.label ?? serverId;
+            (await widget.bookmarks?.byId(serverId))?.label ??
+            _serverLabel(serverId) ??
+            serverId;
         final uploaded = await _uploadCheckout(record, label);
         if (uploaded && mounted) {
           showTopToastIn(
@@ -1086,9 +1170,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         strip?.restoreSession(pane);
       }
       workspace.setSecondPaneHidden(restored.secondPaneHidden);
-      // The panel's persisted intent (02 §1): only explicit user
-      // toggles land here — auto-hide never writes this flag.
-      workspace.setActivityPanelHidden(restored.activityPanelHidden);
+      // The inspector's persisted intent (D32, 10 §3.1): only explicit
+      // user toggles land here — the responsive overlay never writes it.
+      // A pre-inspector document derives it from the activity flag.
+      final restoredTab = InspectorTab.values
+          .where((tab) => tab.name == restored.inspectorTab)
+          .firstOrNull;
+      if (restoredTab != null) workspace.selectInspectorTab(restoredTab);
+      final inspectorHidden = restored.inspectorHidden;
+      if (inspectorHidden != null) {
+        workspace.setInspectorHidden(inspectorHidden);
+      } else if (!restored.activityPanelHidden) {
+        workspace.showInspector(InspectorTab.transfers);
+      }
       if (restored.activePaneId == PaneTabsController.rightPaneId) {
         // Refused while pane B is hidden — the workspace's own rule
         // parks commands on the survivor (02 §3).
@@ -1222,9 +1316,6 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
   @override
   Widget build(BuildContext context) {
-    final strings = AppLocalizations.of(context);
-    final colors = Theme.of(context).colorScheme;
-
     final sshConfigImport = widget.sshConfigImport;
     final workspace = _workspace;
     final sidebar = _sidebar;
@@ -1240,6 +1331,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         : buildSshConfigImportCommand(
             setup: sshConfigImport,
             enabled: () => !_commandSessionActive,
+          );
+    // The drop enqueue seam (02 §5.1, D14): exists only while a queue
+    // is bound — without one there is nowhere a drop could land, so
+    // rows stay undraggable and every target refuses. Cheap and
+    // stateless, so it rebuilds per build like the command list.
+    final transferQueue = widget.transferQueue;
+    final dropDelegate = transferQueue == null
+        ? null
+        : PaneDropDelegate(
+            queue: transferQueue,
+            conflictPolicy: widget.conflictPolicy,
           );
     final commands = <RegisteredCommand>[
       if (workspace != null) buildQuickOpenCommand(open: _openQuickOpen),
@@ -1257,6 +1359,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           settings: _generalSettings,
           enabled: () => !_commandSessionActive,
         ),
+      // 10 §8's platform rows: Check for Updates… in the macOS app menu,
+      // Quit in the Linux/Windows File menu (macOS has AppKit's own).
+      if (widget.updateCheck != null &&
+          Theme.of(context).platform == TargetPlatform.macOS)
+        buildCheckForUpdatesCommand(
+          updates: widget.updateCheck!,
+          openUrl: (url) async {
+            await launchUrl(url);
+          },
+        ),
+      if (Theme.of(context).platform
+          case TargetPlatform.linux || TargetPlatform.windows)
+        buildQuitCommand(),
       if (workspace != null && widget.workspaces != null)
         ...buildWorkspaceCommands(
           workspace: workspace,
@@ -1271,7 +1386,37 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           swapFocus: () => _focusPane(workspace.swapFocus()),
           sidebarAvailable: () => _sidebar != null,
           toggleSidebarDrawer: _toggleSidebarDrawer,
+          sidebarIsDrawer: () => !_sidebarFits,
+          focusFilter: _focusHeaderFilter,
           preview: preview,
+        ),
+      // 10 §5's ⌥⌘F: the sidebar's filter field, registered with it.
+      if (workspace != null && sidebar != null)
+        buildSidebarFilterCommand(
+          sidebar: sidebar,
+          workspace: workspace,
+          sidebarIsDrawer: () => !_sidebarFits,
+          toggleSidebarDrawer: _toggleSidebarDrawer,
+        ),
+      // The rail's active-pane verbs (D21): Add Current Folder to
+      // Favorites and Save to Servers… run from the menus too.
+      if (workspace != null && sidebar != null)
+        ...buildSidebarVerbCommands(sidebar: sidebar, workspace: workspace),
+      if (workspace != null)
+        ...buildShellCommands(
+          workspace: workspace,
+          dropDelegate: () => dropDelegate,
+          openConnect: () => unawaited(_openConnectDialog()),
+          allCommands: () => _commands,
+          openUrl: (url) async {
+            await launchUrl(url);
+          },
+          fileOps: () => _fileOps,
+          reportFailure: _reportCommandFailure,
+          locationLabel: _paneLocationLabel,
+          disconnectServer: widget.engineSession == null
+              ? null
+              : _disconnectServer,
         ),
       // `open-with-external` registers whenever a workspace exists
       // (D21): the Open With ▸ submenu renders disabled rows while no
@@ -1316,17 +1461,6 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // registry reachable outside build (it is rebuilt cheaply anyway).
     _commands = commands;
 
-    // The drop enqueue seam (02 §5.1, D14): exists only while a queue
-    // is bound — without one there is nowhere a drop could land, so
-    // rows stay undraggable and every target refuses. Cheap and
-    // stateless, so it rebuilds per build like the command list.
-    final transferQueue = widget.transferQueue;
-    final dropDelegate = transferQueue == null
-        ? null
-        : PaneDropDelegate(
-            queue: transferQueue,
-            conflictPolicy: widget.conflictPolicy,
-          );
     // 06 §3.7's banner verb — one closure for both panes.
     void onReviewLocalEdits(String serverId) =>
         unawaited(_showLocalEditsReview(serverId));
@@ -1342,235 +1476,78 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // file.preview's enablement keys off the live surface state too
       // (an open Quick Look / visible panel keeps the verb live).
       ?preview,
+      // Save to Servers… retires once the store carries the endpoint.
+      ?sidebar,
     ]);
+
+    final platform = Theme.of(context).platform;
+    final mac = platform == TargetPlatform.macOS;
+    final chrome = PoltergeistChrome.of(context);
+    // D32 §3.2's last stage: below 600 dp a touch window takes the
+    // compact posture (10 §9). It draws edge to edge — its app bars and
+    // sheets take the system insets themselves — and its sidebar is
+    // Home, not a drawer.
+    final compact = compactPostureApplies(
+      width: MediaQuery.sizeOf(context).width,
+      platform: platform,
+    );
+    _compactPosture = compact;
 
     return Scaffold(
       key: _scaffoldKey,
-      // The stage-1/2 sidebar mount (02 §1's staged collapse): an
-      // overlay drawer `view.toggleSidebar` opens. At stage 0 the same
-      // tree mounts inline instead — the drawer stays attached so the
-      // stage boundary is the only difference.
-      drawer: sidebar == null
+      backgroundColor: chrome.paneBackground,
+      // The narrow-window sidebar mount (D32 §3.2): an overlay drawer
+      // `view.toggleSidebar` opens once the allocation cannot fit the
+      // sidebar inline. Wide windows mount the same tree inline instead.
+      drawer: sidebar == null || compact
           ? null
-          : Drawer(child: SafeArea(child: _buildSidebarView(sshImportCommand))),
-      body: SafeArea(
-        child: CommandChordScope(
-          commands: commands,
-          child: ListenableBuilder(
-            listenable: enablement,
-            builder: (context, child) => AppMenuHost(
-              commands: commands,
-              onRun: _runCommand,
-              child: child!,
+          : Drawer(
+              backgroundColor: chrome.sidebarBackground,
+              // macOS: clear the toolbar band the inline column's
+              // spacer clears, or the filter and first rows sit under it.
+              child: ReserveMacosToolbarBand(
+                child: SafeArea(child: _buildSidebarView(sshImportCommand)),
+              ),
             ),
-            child: Column(
-              children: [
-                ListenableBuilder(
-                  listenable: enablement,
-                  builder: (context, child) => _Toolbar(
-                    title: strings.appTitle,
-                    commands: commands,
-                    onRun: _runCommand,
-                  ),
-                ),
-                Divider(height: 1, color: colors.outlineVariant),
-                // D19's update banner (07 §3.10): mounts only while the
-                // controller reports a newer tag — dismiss is
-                // session-scoped, the opt-out lives in `app.settings`.
-                if (widget.updateCheck != null)
-                  ListenableBuilder(
-                    listenable: widget.updateCheck!,
-                    builder: (context, _) {
-                      final update = widget.updateCheck!.update;
-                      if (update == null) return const SizedBox.shrink();
-                      return UpdateBanner(
-                        info: update,
-                        onDismiss: widget.updateCheck!.dismiss,
-                      );
-                    },
-                  ),
-                Expanded(
-                  // `view.toggleSecondPane` and the Sync Browsing link
-                  // state ride the workspace listenable — a hide/show or
-                  // a suspension must re-lay-out the panes without a
-                  // parent rebuild.
-                  child: workspace == null || leftFocus == null
-                      ? const SizedBox.shrink()
-                      : ListenableBuilder(
-                          listenable: workspace,
-                          builder: (context, _) => Row(
-                            children: [
-                              // The stage-0 inline sidebar (02 §1/§4):
-                              // mounted at desktop width unless the user
-                              // hid the region — below the boundary the
-                              // Scaffold's drawer carries the same tree.
-                              if (sidebar != null &&
-                                  !workspace.sidebarHidden &&
-                                  MediaQuery.sizeOf(context).width >=
-                                      desktopStageBoundary) ...[
-                                SizedBox(
-                                  key: const ValueKey('sidebar.region'),
-                                  width: _sidebarWidth,
-                                  child: _buildSidebarView(sshImportCommand),
-                                ),
-                                VerticalDivider(
-                                  width: 1,
-                                  color: colors.outlineVariant,
-                                ),
-                              ],
-                              Expanded(
-                                child: Stack(
-                                  // `expand`: the shell fills the
-                                  // region and the Quick Look card is a
-                                  // Positioned overlay on top of it —
-                                  // 06 §5.1's in-window surface (the
-                                  // native panel cannot host Flutter
-                                  // content and modals over it are
-                                  // forbidden).
-                                  fit: StackFit.expand,
-                                  children: [
-                                    AdaptiveShell(
-                                  initialPaneRatio: widget.initialPaneRatio,
-                                  secondPaneIntent: workspace.secondPaneHidden
-                                      ? SecondPaneIntent.hidden
-                                      : SecondPaneIntent.shown,
-                                  onSecondPaneVisibilityChanged:
-                                      workspace.setSecondPaneLayoutShown,
-                                  onPaneRatioChanged: widget.onPaneRatioChanged,
-                                  onPaneRatioSaveError:
-                                      widget.onPaneRatioSaveError,
-                                  resizeLabel: strings.resizePanes,
-                                  formatRatio: (ratio) => strings
-                                      .paneRatioPercent((ratio * 100).round()),
-                                  primary: PaneTabsView(
-                                    tabs: workspace.left,
-                                    workspace: workspace,
-                                    focusNode: leftFocus,
-                                    preview: preview,
-                                    onSwapFocus: () =>
-                                        _focusPane(workspace.right),
-                                    onCancelRecovery: () => _cancelPaneRecovery(
-                                      workspace,
-                                      workspace.left.activeTabController,
-                                    ),
-                                    bookmarks: widget.bookmarks,
-                                    dropDelegate: dropDelegate,
-                                    checkoutSession: widget.checkoutSession,
-                                    onReviewLocalEdits: onReviewLocalEdits,
-                                    onSyncSaveAsFavorite:
-                                        _saveSyncAsFavorite,
-                                    onSyncEditRules: _editSyncRules,
-                                    onImportSshConfig:
-                                        sshImportCommand == null
-                                        ? null
-                                        : () => unawaited(
-                                            _runCommand(sshImportCommand),
-                                          ),
-                                  ),
-                                  secondary: rightFocus == null
-                                      ? const SizedBox.shrink()
-                                      : PaneTabsView(
-                                          tabs: workspace.right,
-                                          workspace: workspace,
-                                          focusNode: rightFocus,
-                                          preview: preview,
-                                          onSwapFocus: () =>
-                                              _focusPane(workspace.left),
-                                          onCancelRecovery: () =>
-                                              _cancelPaneRecovery(
-                                                workspace,
-                                                workspace
-                                                    .right
-                                                    .activeTabController,
-                                              ),
-                                          bookmarks: widget.bookmarks,
-                                          dropDelegate: dropDelegate,
-                                          checkoutSession:
-                                              widget.checkoutSession,
-                                          onReviewLocalEdits:
-                                              onReviewLocalEdits,
-                                          onSyncSaveAsFavorite:
-                                              _saveSyncAsFavorite,
-                                          onSyncEditRules:
-                                              _editSyncRules,
-                                          onImportSshConfig:
-                                              sshImportCommand == null
-                                              ? null
-                                              : () => unawaited(
-                                                  _runCommand(
-                                                    sshImportCommand,
-                                                  ),
-                                                ),
-                                        ),
-                                    ),
-                                    if (preview != null)
-                                      PreviewQuickLookOverlay(
-                                        session: preview,
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              // The docked preview rail (06 §5.2): the
-                              // window's rightmost region while
-                              // `view.togglePreview` shows it — Space
-                              // then routes to the panel and Quick Look
-                              // is suppressed on macOS (§5's split).
-                              if (preview != null &&
-                                  !workspace.previewPanelHidden)
-                                PreviewPanel(
-                                  session: preview,
-                                  pdfRenderer: pdfPreviewBuilder,
-                                  // Every launch verb routes onto the
-                                  // focused ENTRY — never the
-                                  // `preview-cache/` path (§5.3's
-                                  // open-boundary rule).
-                                  onOpen: (pane, entry) =>
-                                      unawaited(pane.openEntry(entry)),
-                                  onOpenWith: (context, pane, entry) =>
-                                      unawaited(
-                                        _chooseEditorFor(pane, entry),
-                                      ),
-                                  onOpenInEditor: (pane, entry) =>
-                                      unawaited(
-                                        pane.editInBuiltInEditor(entry),
-                                      ),
-                                  onClose: preview.closePanel,
-                                  onEscape: (event) => preview.escape()
-                                      ? KeyEventResult.handled
-                                      : KeyEventResult.ignored,
-                                ),
-                            ],
-                          ),
+      body: SafeArea(
+        left: !compact,
+        top: !compact,
+        right: !compact,
+        bottom: !compact,
+        child: ServerLabelScope(
+          resolve: _serverLabel,
+          child: CommandChordScope(
+            commands: commands,
+            child: ListenableBuilder(
+              listenable: enablement,
+              builder: (context, child) => AppMenuHost(
+                commands: commands,
+                onRun: _runCommand,
+                showMenuBar: false,
+                child: child!,
+              ),
+              child: workspace == null || leftFocus == null
+                  ? const SizedBox.shrink()
+                  : LayoutBuilder(
+                      builder: (context, constraints) => ListenableBuilder(
+                        listenable: workspace,
+                        builder: (context, _) => _buildWorkspaceLayout(
+                          context,
+                          constraints.maxWidth,
+                          mac: mac,
+                          workspace: workspace,
+                          leftFocus: leftFocus,
+                          rightFocus: rightFocus,
+                          sidebar: sidebar,
+                          preview: preview,
+                          commands: commands,
+                          enablement: enablement,
+                          dropDelegate: dropDelegate,
+                          onReviewLocalEdits: onReviewLocalEdits,
+                          sshImportCommand: sshImportCommand,
                         ),
-                ),
-                // The activity panel's persisted intent rides the
-                // workspace listenable (02 §1: user-shown, never
-                // auto-hidden) — unmounted entirely while hidden.
-                if (workspace != null)
-                  ListenableBuilder(
-                    listenable: workspace,
-                    builder: (context, _) {
-                      if (workspace.activityPanelHidden) {
-                        return const SizedBox.shrink();
-                      }
-                      return _ActivitySection(
-                        controller: _activity,
-                        height: _activityPanelHeight,
-                        splitterFocus: _activitySplitterFocus,
-                        onResize: _resizeActivityPanel,
-                        onResizeEnd: _commitActivityPanelHeight,
-                        onClose: () => workspace.setActivityPanelHidden(true),
-                        onReveal: _revealTransferDestination,
-                      );
-                    },
-                  ),
-                Divider(height: 1, color: colors.outlineVariant),
-                _StatusBar(
-                  label: strings.readyStatus,
-                  syncLink: workspace?.syncBrowsing,
-                  activity: _activity,
-                ),
-              ],
+                      ),
+                    ),
             ),
           ),
         ),
@@ -1578,43 +1555,632 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
   }
 
-  /// The activity splitter's drag/key resize: pixel deltas grow the
-  /// panel upward, clamped to 02 §1's bounds (floor 120, cap half the
-  /// window — MediaQuery height is the window's content box, the honest
-  /// ceiling available here).
-  void _resizeActivityPanel(double delta) {
-    final halfWindow = MediaQuery.sizeOf(context).height / 2;
-    // clamp() throws when lower > upper, so keep the ceiling at least
-    // the floor for windows shorter than 2 * minActivityPanelHeight.
-    final max = halfWindow < minActivityPanelHeight
-        ? minActivityPanelHeight
-        : halfWindow;
-    setState(() {
-      _activityPanelHeight = (_activityPanelHeight + delta).clamp(
-        minActivityPanelHeight,
-        max,
+  /// Whether the sidebar is inline in the current allocation (D32 §3.2)
+  /// — the last layout's answer, read by the resize clamps.
+  bool _sidebarInline = true;
+
+  /// Whether the window has room for the sidebar inline, hidden or not:
+  /// `view.toggleSidebar` reads it to choose between the inline intent
+  /// and the drawer. [_sidebarInline] is false while the user hides the
+  /// sidebar, so it would send the re-show to the drawer instead.
+  bool _sidebarFits = true;
+
+  /// The inspector's half of the same answer, read by the resize clamps.
+  bool _inspectorInline = true;
+
+  /// D32's window anatomy (10 §3): sidebar | header over (pane A | pane B
+  /// | inspector), with the staged collapse evaluated on the content
+  /// width — the inspector folds into an overlay first, then the sidebar
+  /// into the drawer; pane B's own auto-hide stays [AdaptiveShell]'s.
+  Widget _buildWorkspaceLayout(
+    BuildContext context,
+    double width, {
+    required bool mac,
+    required WorkspaceController workspace,
+    required FocusNode leftFocus,
+    required FocusNode? rightFocus,
+    required SidebarController? sidebar,
+    required PreviewSession? preview,
+    required List<RegisteredCommand> commands,
+    required Listenable enablement,
+    required PaneDropDelegate? dropDelegate,
+    required void Function(String serverId) onReviewLocalEdits,
+    required RegisteredCommand? sshImportCommand,
+  }) {
+    final strings = AppLocalizations.of(context);
+    final chrome = PoltergeistChrome.of(context);
+    final sidebarWidth = _sidebarWidth;
+    final inspectorWidth = _inspectorWidth;
+    final sidebarWanted = sidebar != null && !workspace.sidebarHidden;
+    _sidebarFits = width >= sidebarWidth + shellSplitterExtent + _paneRegionMin;
+    final sidebarInline = sidebarWanted && _sidebarFits;
+    _sidebarInline = sidebarInline;
+    final inspectorWanted = !workspace.inspectorHidden;
+    final usedBySidebar = sidebarInline
+        ? sidebarWidth + shellSplitterExtent
+        : 0.0;
+    final inspectorInline =
+        inspectorWanted &&
+        width >=
+            usedBySidebar +
+                inspectorWidth +
+                shellSplitterExtent +
+                _paneRegionMin;
+    _inspectorInline = inspectorInline;
+    final inspectorOverlay = inspectorWanted && !inspectorInline;
+
+    final inspector = InspectorView(
+      workspace: workspace,
+      activity: _activity,
+      alerts: _alerts,
+      alertActions: AlertActions(
+        showTransfers: () => workspace.showInspector(InspectorTab.transfers),
+        retryTask: (task) => _activity.retryTask(task.id),
+        resumeRestored: _activity.resumeRestoredQueue,
+        reviewHostKey: widget.engineSession == null
+            ? null
+            : (serverId) => unawaited(
+                widget.engineSession!.reviewBlockedHostKey(serverId),
+              ),
+        reviewLocalEdits: widget.checkoutSession == null
+            ? null
+            : onReviewLocalEdits,
+        openRelease: (info) => unawaited(launchUrl(info.releasesUrl)),
+      ),
+      preview: preview,
+      pdfRenderer: pdfPreviewBuilder,
+      // Every launch verb routes onto the focused ENTRY — never the
+      // `preview-cache/` path (06 §5.3's open-boundary rule).
+      onOpen: (pane, entry) => unawaited(pane.openEntry(entry)),
+      onOpenWith: (context, pane, entry) =>
+          unawaited(_chooseEditorFor(pane, entry)),
+      onOpenInEditor: (pane, entry) =>
+          unawaited(pane.editInBuiltInEditor(entry)),
+      onReveal: _revealTransferDestination,
+      onEscape: (event) => preview != null && preview.escape()
+          ? KeyEventResult.handled
+          : KeyEventResult.ignored,
+    );
+    if (_compactPosture) {
+      return _buildCompactLayout(
+        workspace: workspace,
+        inspector: inspector,
+        commands: commands,
+        sshImportCommand: sshImportCommand,
+        onReviewLocalEdits: onReviewLocalEdits,
       );
-    });
+    }
+
+    Widget paneTabs(PaneTabsController tabs, FocusNode focus, PaneTabsController other) =>
+        PaneTabsView(
+          tabs: tabs,
+          workspace: workspace,
+          focusNode: focus,
+          preview: preview,
+          onSwapFocus: () => _focusPane(other),
+          onCancelRecovery: () =>
+              _cancelPaneRecovery(workspace, tabs.activeTabController),
+          bookmarks: widget.bookmarks,
+          dropDelegate: dropDelegate,
+          checkoutSession: widget.checkoutSession,
+          onReviewLocalEdits: onReviewLocalEdits,
+          onSyncSaveAsFavorite: _saveSyncAsFavorite,
+          onSyncEditRules: _editSyncRules,
+          onImportSshConfig: sshImportCommand == null
+              ? null
+              : () => unawaited(_runCommand(sshImportCommand)),
+          commands: commands,
+          onRunCommand: _runCommand,
+        );
+
+    final panes = Stack(
+      fit: StackFit.expand,
+      children: [
+        AdaptiveShell(
+          initialPaneRatio: widget.initialPaneRatio,
+          secondPaneIntent: workspace.secondPaneHidden
+              ? SecondPaneIntent.hidden
+              : SecondPaneIntent.shown,
+          onSecondPaneVisibilityChanged: workspace.setSecondPaneLayoutShown,
+          onPaneRatioChanged: widget.onPaneRatioChanged,
+          onPaneRatioSaveError: widget.onPaneRatioSaveError,
+          resizeLabel: strings.resizePanes,
+          formatRatio: (ratio) =>
+              strings.paneRatioPercent((ratio * 100).round()),
+          primary: paneTabs(workspace.left, leftFocus, workspace.right),
+          secondary: rightFocus == null
+              ? const SizedBox.shrink()
+              : paneTabs(workspace.right, rightFocus, workspace.left),
+        ),
+        if (preview != null)
+          if (_resolvedQuickLook case final InAppQuickLook quickLook)
+            QuickLookOverlay(
+              controller: quickLook,
+              nameFor: preview.quickLookNameFor,
+              pdfRenderer: pdfPreviewBuilder,
+            ),
+        if (preview != null) PreviewQuickLookOverlay(session: preview),
+        if (inspectorOverlay)
+          PositionedDirectional(
+            key: const ValueKey('inspector.overlay'),
+            top: 0,
+            bottom: 0,
+            end: 0,
+            width: inspectorWidth,
+            child: Material(
+              elevation: 8,
+              color: chrome.inspectorBackground,
+              child: inspector,
+            ),
+          ),
+      ],
+    );
+
+    final header = ListenableBuilder(
+      listenable: Listenable.merge([enablement, _alerts]),
+      builder: (context, _) => HeaderToolbar(
+        commands: commands,
+        onRun: _runCommand,
+        nativeTitlebar: mac,
+        leadingInset: mac && !sidebarInline ? _macTrafficLightsInset : 0,
+        title: _HeaderTitle(workspace: workspace),
+        badges: {
+          kViewToggleInspectorCommandId: ToolbarBadge(
+            count: _alerts.attentionCount,
+            announcement: strings.alertCountSemantics(_alerts.attentionCount),
+          ),
+        },
+        statusExtras: {
+          kViewToggleActivityPanelCommandId: (context, button) =>
+              HeaderActivityButton(controller: _activity, child: button),
+        },
+        filterField: _HeaderFilterField(
+          workspace: workspace,
+          focusNode: _headerFilterFocus,
+        ),
+        menuButton: mac
+            ? null
+            : AppMainMenuButton(commands: commands, onRun: _runCommand),
+      ),
+    );
+
+    final main = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Linux/Windows keep the native titlebar above the header; macOS
+        // draws the header under the unified toolbar band, whose empty
+        // space the system already drags and zooms.
+        header,
+        Divider(height: 1, color: chrome.separator),
+        // D19's update banner lives in Alerts now (D32 §3); the pane
+        // row owns the rest of the column.
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: panes),
+              if (inspectorInline) ...[
+                ShellSplitter(
+                  key: const ValueKey('inspector.splitter'),
+                  focusNode: _inspectorSplitterFocus,
+                  label: strings.resizeInspector,
+                  value: strings.splitterWidthPx(inspectorWidth.round()),
+                  increasedValue: strings.splitterWidthPx(
+                    _clampInspector(
+                      inspectorWidth + shellSplitterKeyStep,
+                      width,
+                    ).round(),
+                  ),
+                  decreasedValue: strings.splitterWidthPx(
+                    _clampInspector(
+                      inspectorWidth - shellSplitterKeyStep,
+                      width,
+                    ).round(),
+                  ),
+                  grow: -1,
+                  onResizeStart: () => _inspectorDragWidth = null,
+                  onResize: (delta) => _resizeInspector(delta, width),
+                  onResizeEnd: _commitInspectorWidth,
+                  onReset: () {
+                    setState(() => _inspectorWidth = inspectorDefaultWidth);
+                    _commitInspectorWidth();
+                  },
+                ),
+                SizedBox(
+                  key: const ValueKey('inspector.region'),
+                  width: inspectorWidth,
+                  child: inspector,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (sidebarInline) ...[
+          SizedBox(
+            key: const ValueKey('sidebar.region'),
+            width: sidebarWidth,
+            child: ColoredBox(
+              color: chrome.sidebarBackground,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // macOS: the traffic lights sit over the sidebar's top
+                  // band (the full-size content view under the unified
+                  // toolbar, which drags natively) — Finder's layout.
+                  if (mac) SizedBox(height: chrome.headerHeight),
+                  Expanded(child: _buildSidebarView(sshImportCommand)),
+                ],
+              ),
+            ),
+          ),
+          ShellSplitter(
+            key: const ValueKey('sidebar.splitter'),
+            focusNode: _sidebarSplitterFocus,
+            nativeTitlebar: mac,
+            label: strings.resizeSidebar,
+            value: strings.splitterWidthPx(sidebarWidth.round()),
+            increasedValue: strings.splitterWidthPx(
+              _clampSidebar(sidebarWidth + shellSplitterKeyStep, width).round(),
+            ),
+            decreasedValue: strings.splitterWidthPx(
+              _clampSidebar(sidebarWidth - shellSplitterKeyStep, width).round(),
+            ),
+            onResizeStart: () => _sidebarDragWidth = null,
+            onResize: (delta) => _resizeSidebar(delta, width),
+            onResizeEnd: _commitSidebarWidth,
+            onReset: () {
+              setState(() => _sidebarWidth = sidebarDefaultWidth);
+              _commitSidebarWidth();
+            },
+          ),
+        ],
+        Expanded(child: main),
+      ],
+    );
   }
 
-  /// Persist once at the interaction boundary, not per drag pixel —
-  /// the same posture as the pane ratio's save.
-  void _commitActivityPanelHeight() {
-    final save = widget.onActivityPanelHeightChanged;
+  /// D32 §9's compact posture over the same workspace, registry, and
+  /// inspector configuration the wide layout renders — one truth, two
+  /// renderings.
+  Widget _buildCompactLayout({
+    required WorkspaceController workspace,
+    required InspectorView inspector,
+    required List<RegisteredCommand> commands,
+    required RegisteredCommand? sshImportCommand,
+    required void Function(String serverId) onReviewLocalEdits,
+  }) {
+    return CompactWorkspace(
+      key: _compactKey,
+      workspace: workspace,
+      commands: commands,
+      onRunCommand: _runCommand,
+      inspector: inspector,
+      home: _sidebar == null
+          ? null
+          : _buildSidebarView(
+              sshImportCommand,
+              presentation: SidebarPresentation.home,
+            ),
+      seams: CompactPaneSeams(
+        onCancelRecovery: (pane) =>
+            unawaited(_cancelPaneRecovery(workspace, pane)),
+        bookmarks: widget.bookmarks,
+        checkoutSession: widget.checkoutSession,
+        onReviewLocalEdits: onReviewLocalEdits,
+        onSyncSaveAsFavorite: _saveSyncAsFavorite,
+        onSyncEditRules: _editSyncRules,
+        onImportSshConfig: sshImportCommand == null
+            ? null
+            : () => unawaited(_runCommand(sshImportCommand)),
+        onAddToFavorites: _sidebar == null
+            ? null
+            : (pane) => unawaited(_addPaneToFavorites(pane)),
+      ),
+    );
+  }
+
+  /// The compact browser's "Add Current Folder to Favorites": the rail's
+  /// verb over the shown pane, confirmed in words because Home — where
+  /// the new row appears — is a screen away.
+  Future<void> _addPaneToFavorites(PaneController pane) async {
+    final sidebar = _sidebar;
+    final location = pane.location;
+    if (sidebar == null || location == null) return;
+    final result = await addLocationToFavorites(
+      context,
+      sidebar,
+      location: location,
+      remote: pane.remoteBookmark,
+    );
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    final message = switch (result.outcome) {
+      SidebarAddOutcome.favorite => l10n.compactAddedToFavorites(result.label),
+      SidebarAddOutcome.serverLocation => l10n.compactSavedToServers(
+        result.label,
+      ),
+      // Already a favorite, or failed: the shared verb has said so.
+      SidebarAddOutcome.alreadyFavorite || SidebarAddOutcome.failed => null,
+    };
+    if (message == null) return;
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// An open that lands a location from the compact Home pushes the
+  /// browser over it (D32 §9); inert on wide windows.
+  void _showCompactBrowser() {
+    if (_compactPosture) _compactKey.currentState?.showBrowser();
+  }
+
+  /// The unclamped width the current splitter interaction has reached
+  /// (10 §3.1), reset as each one starts. A pointer delivers a drag as
+  /// many small deltas: clamping each onto the displayed width would
+  /// throw the overshoot away, and the drag-past-minimum hide could
+  /// then only fire on one event larger than the overshoot.
+  double? _sidebarDragWidth;
+  double? _inspectorDragWidth;
+
+  /// Sidebar drag/key resize (10 §3.1): clamped to its bounds and to the
+  /// room the panes need; dragging well past the minimum hides it as a
+  /// user hide.
+  void _resizeSidebar(double delta, double windowWidth) {
+    final next = (_sidebarDragWidth ?? _sidebarWidth) + delta;
+    _sidebarDragWidth = next;
+    if (next < sidebarMinWidth - _collapseOvershoot) {
+      _sidebarDragWidth = null;
+      _workspace?.setSidebarHidden(true);
+      setState(() => _sidebarWidth = sidebarMinWidth);
+      return;
+    }
+    setState(() => _sidebarWidth = _clampSidebar(next, windowWidth));
+  }
+
+  void _resizeInspector(double delta, double windowWidth) {
+    final next = (_inspectorDragWidth ?? _inspectorWidth) + delta;
+    _inspectorDragWidth = next;
+    if (next < inspectorMinWidth - _collapseOvershoot) {
+      _inspectorDragWidth = null;
+      _workspace?.setInspectorHidden(true);
+      setState(() => _inspectorWidth = inspectorMinWidth);
+      return;
+    }
+    setState(() => _inspectorWidth = _clampInspector(next, windowWidth));
+  }
+
+  /// [width] held to the sidebar's bounds and its inline room.
+  double _clampSidebar(double width, double windowWidth) => width.clamp(
+    sidebarMinWidth,
+    _inlineRoom(
+      windowWidth,
+      otherRegion: _inspectorInline ? _inspectorWidth : null,
+    ).clamp(sidebarMinWidth, sidebarMaxWidth),
+  );
+
+  /// [width] held to the inspector's bounds and its inline room.
+  double _clampInspector(double width, double windowWidth) => width.clamp(
+    inspectorMinWidth,
+    _inlineRoom(
+      windowWidth,
+      otherRegion: _sidebarInline ? _sidebarWidth : null,
+    ).clamp(inspectorMinWidth, inspectorMaxWidth),
+  );
+
+  /// The widest a region can grow and stay inline (10 §3.2): the window
+  /// less the [otherRegion] still inline beside it, both splitters, and
+  /// the panes' floor. A drag past it would flip the region into the
+  /// drawer or overlay under the pointer and unmount its splitter before
+  /// the width could persist.
+  double _inlineRoom(double windowWidth, {required double? otherRegion}) =>
+      windowWidth -
+      (otherRegion == null ? 0 : otherRegion + shellSplitterExtent) -
+      shellSplitterExtent -
+      _paneRegionMin;
+
+  void _commitSidebarWidth() =>
+      _persist(widget.onSidebarWidthChanged, _sidebarWidth);
+
+  void _commitInspectorWidth() =>
+      _persist(widget.onInspectorWidthChanged, _inspectorWidth);
+
+  /// Persists a width once at the interaction boundary — never per drag
+  /// pixel — reporting (never throwing) a failed write.
+  void _persist(FutureOr<void> Function(double)? save, double value) {
     if (save == null) return;
-    final report = widget.onActivityPanelHeightSaveError;
     try {
-      final result = save(_activityPanelHeight);
+      final result = save(value);
       if (result is Future<void>) {
         unawaited(
           result.catchError((Object error, StackTrace stack) {
-            report?.call(error, stack);
+            ApplicationErrorReporter().report(error, stack);
           }),
         );
       }
     } on Object catch (error, stack) {
-      report?.call(error, stack);
+      ApplicationErrorReporter().report(error, stack);
     }
+  }
+
+  /// Binds the file verbs and the settled-task refresh to [queue].
+  /// Remote panes have no directory watch (03 §7.5), so a finished
+  /// transfer or delete would otherwise leave the destination listing
+  /// stale: any visible pane showing a settled task's destination folder
+  /// (or, for deletes, the deleted items' folder) refreshes.
+  void _bindFileOps(AppTransferQueue? queue) {
+    unawaited(_settledRefresh?.cancel());
+    _settledRefresh = null;
+    _fileOps = queue == null ? null : PaneFileOps(queue);
+    if (queue == null) return;
+    _settledRefresh = queue.events.listen((event) {
+      if (event is! TransferQueueTaskEvent) return;
+      if (event.state != TransferTaskState.completed &&
+          event.state != TransferTaskState.failed &&
+          event.state != TransferTaskState.cancelled) {
+        return;
+      }
+      final task = queue.tasks.where((t) => t.id == event.taskId).firstOrNull;
+      if (task == null) return;
+      _refreshPanesShowing(task);
+    });
+  }
+
+  void _refreshPanesShowing(TransferTask task) {
+    final workspace = _workspace;
+    if (workspace == null) return;
+    final touched = <(FsLocation, String)>{
+      (task.destination, task.destinationDir),
+      if (task.operation == TransferOperation.delete ||
+          task.operation == TransferOperation.move)
+        for (final root in task.rootPaths) (task.source, paneParentPath(root)),
+    };
+    for (final strip in [workspace.left, workspace.right]) {
+      final pane = strip.activeTab?.controller;
+      final location = pane?.location;
+      if (pane == null || location is! RemotePaneLocation) continue;
+      final endpoint = fsLocationForLocation(location);
+      if (touched.any((t) => t.$1 == endpoint && t.$2 == location.path)) {
+        pane.refresh();
+      }
+    }
+  }
+
+  /// A command's failure as a top toast (02 §10): typed filesystem
+  /// errors carry sanitized messages; anything else reports and shows
+  /// the generic line.
+  void _reportCommandFailure(Object error) {
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    final message = switch (error) {
+      RemoteFileException(:final message) => message,
+      TrashException(:final message) => message,
+      _ => l10n.paneErrorOther,
+    };
+    if (error is! RemoteFileException && error is! TrashException) {
+      ApplicationErrorReporter().report(error, StackTrace.current);
+    }
+    showTopToastIn(context, message: message);
+  }
+
+  /// The place a delete dialog names: the server's own name for a remote
+  /// pane, "This computer" for a local one.
+  String _paneLocationLabel(PaneController pane) {
+    final l10n = AppLocalizations.of(context);
+    final location = pane.location;
+    if (location is RemotePaneLocation) {
+      return _serverLabel(location.serverId) ??
+          pane.remoteBookmark?.label ??
+          location.serverId;
+    }
+    return l10n.activityTaskRouteLocal;
+  }
+
+  /// ⌘F (D32 §4): the header's filter field takes focus.
+  void _focusHeaderFilter() {
+    if (_compactPosture) {
+      // The compact browser's app-bar field is the filter there.
+      _compactKey.currentState?.openFilter();
+      return;
+    }
+    _headerFilterFocus.requestFocus();
+  }
+
+  /// The id → name resolver behind [ServerLabelScope]: favorites and
+  /// connection rows first, then the shared-account catalog.
+  String? _serverLabel(String serverId) {
+    for (final server in _connections?.servers ?? const <ConnectionServer>[]) {
+      if (server.serverId == serverId) return server.label;
+    }
+    for (final server
+        in widget.bookmarkBackup?.catalog?.servers ?? const <ServerConfig>[]) {
+      if (server.id == serverId) return server.label;
+    }
+    // A Quick Connect session is in neither list: its only record is
+    // the ad-hoc bookmark bound on the tab that opened it.
+    for (final pane in _openPanes()) {
+      final bookmark = pane.remoteBookmark;
+      if (bookmark != null && bookmark.id == serverId) return bookmark.label;
+    }
+    return null;
+  }
+
+  /// ⌘K's Connect dialog (D32 §4): Quick Connect over a fresh tab in the
+  /// active pane — the same seam the pane launcher uses.
+  Future<void> _openConnectDialog() async {
+    final workspace = _workspace;
+    if (workspace == null) return;
+    await showConnectDialog(
+      context,
+      servers: _connectChoices(),
+      onConnect: (bookmark, initialPath) {
+        final tab = workspace.activePane.newTab(
+          target: NewTabTarget.launcher,
+        );
+        unawaited(
+          tab.controller.connectRemote(bookmark, initialPath: initialPath),
+        );
+        _showCompactBrowser();
+      },
+    );
+  }
+
+  /// The Connect dialog's one-click servers (D32 §4): the SERVERS rows —
+  /// saved server locations and the shared-account catalog — used most
+  /// recently first, each opening a new tab exactly as the sidebar's
+  /// new-tab open does.
+  List<ConnectServerChoice> _connectChoices() {
+    String endpoint(String user, String host, int port) {
+      final address = port == 22 ? host : '$host:$port';
+      return user.isEmpty ? address : '$user@$address';
+    }
+
+    final choices = <ConnectServerChoice>[
+      for (final bookmark in _sidebar?.bookmarks ?? const <Bookmark>[])
+        if (bookmark.kind == BookmarkKind.remotePath)
+          ConnectServerChoice(
+            id: bookmark.id,
+            label: bookmark.label,
+            detail: switch (bookmark.server?.identity) {
+              final identity? => endpoint(
+                identity.username,
+                identity.host,
+                identity.port,
+              ),
+              null => bookmark.remotePath ?? '',
+            },
+            mark: ServerBadge.glyph(
+              tint: ServerTint(named: bookmark.color),
+              icon: bookmark.icon,
+              size: 18,
+            ),
+            open: () => _openFavorite(bookmark, SidebarOpenAction.newTab),
+          ),
+      for (final server
+          in widget.bookmarkBackup?.catalog?.servers ??
+              const <ServerConfig>[])
+        ConnectServerChoice(
+          id: server.id,
+          label: server.label,
+          detail: endpoint(server.username, server.host, server.port),
+          mark: ServerBadge(
+            tint: ServerTint.of(server),
+            mark: server.mark,
+            size: 18,
+          ),
+          open: () => _openCatalogServer(server, SidebarOpenAction.newTab),
+        ),
+    ];
+    return orderConnectChoices(choices, [
+      for (final recent
+          in widget.recentLocations?.entries ?? const <RecentLocation>[])
+        ?recent.serverId,
+    ]);
   }
 
   /// Reveal-in-pane (02 §6): opens the task's destination directory on
@@ -1626,6 +2192,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final workspace = _workspace;
     final pane = workspace?.activeTabController;
     if (pane == null) return;
+    _showCompactBrowser();
     switch (task.destination) {
       case LocalFsLocation():
         unawaited(pane.openLocalAt(task.destinationDir));
@@ -1667,6 +2234,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   void _focusPane(PaneTabsController pane) {
     final workspace = _workspace;
     if (workspace == null) return;
+    if (_compactPosture) {
+      // No listing takes focus there: the chords flip the shown pane.
+      workspace.setActivePane(pane);
+      return;
+    }
     final target =
         identical(pane, workspace.right) && !workspace.secondPaneShown
         ? workspace.left
@@ -2426,18 +2998,48 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// overlay drawer (stage 1/2): one tree, two mounts — a favorite open
   /// inside the drawer resolves the panes the same way an inline click
   /// does.
-  Widget _buildSidebarView(RegisteredCommand? sshImportCommand) {
+  Widget _buildSidebarView(
+    RegisteredCommand? sshImportCommand, {
+    SidebarPresentation presentation = SidebarPresentation.rail,
+  }) {
     final session = widget.engineSession;
+    final backup = widget.bookmarkBackup;
+    final queue = widget.transferQueue;
+    // The rail's Connect, Settings, and Sync-setup affordances run the
+    // registered commands (D21) — the same enablement and one-shot
+    // session rule as their menu rows; an unregistered one hides.
+    VoidCallback? runCommand(String id) {
+      for (final command in _commands) {
+        if (command.id == id) return () => unawaited(_runCommand(command));
+      }
+      return null;
+    }
+
     return SidebarView(
       controller: _sidebar!,
-      // D22's adoption offer in the empty-favorites state routes
-      // through the registered command: the same enablement and
-      // one-shot session rule apply as the menu row.
+      presentation: presentation,
+      // D22's adoption offer in the empty-servers state routes through
+      // the registered command: the same enablement and one-shot
+      // session rule apply as the menu row.
       onImportSshConfig: sshImportCommand == null
           ? null
           : () => unawaited(_runCommand(sshImportCommand)),
       connections: _connections,
       probes: _probes,
+      // D32 §5: the active pane marks the selection pill and feeds "Add
+      // Current Folder"; its tabs carry the Quick Connect sessions.
+      workspace: _workspace,
+      volumes: widget.localVolumes ?? SystemLocalVolumes.host,
+      // Stateless and cheap, like the panes' own delegate in build.
+      dropDelegate: queue == null
+          ? null
+          : PaneDropDelegate(
+              queue: queue,
+              conflictPolicy: widget.conflictPolicy,
+            ),
+      onQuickConnect: runCommand(kConnectQuickConnectCommandId),
+      onOpenSettings: runCommand(kAppSettingsCommandId),
+      onOpenSyncSettings: runCommand(kOpenSettingsBackupCommandId),
       onOpenFavorite: _workspace == null ? null : _openFavorite,
       onUpdateWorkspace: _workspace == null || widget.workspaces == null
           ? null
@@ -2447,30 +3049,31 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       onLocalEdits: widget.checkoutSession == null
           ? null
           : (bookmark) => unawaited(_showLocalEditsReview(bookmark.id)),
+      onDisconnect: session == null
+          ? null
+          : (server) => unawaited(_disconnectServer(server.serverId)),
       // The blocked-review affordance exists only where a composition
       // can start a connect: the session's engine raises the pool's
       // changed-key review at the attempt (D18).
-      onOpenConnection: session == null || _workspace == null
-          ? null
-          : (server) => unawaited(_openConnectionInOtherPane(server)),
-      onDisconnect: session == null
-          ? null
-          : (server) => unawaited(_disconnectServer(server)),
       onReviewBlocked: session == null
           ? null
           : (server) =>
                 unawaited(session.reviewBlockedHostKey(server.serverId)),
       // 04 §4.2's catalog surface: the service owns the pulled
       // serverConfig materialization and the round status; its
-      // notifications repaint the section (the catalog mutates in place,
-      // so the view needs the service's pulses, not the snapshot).
-      catalog: widget.bookmarkBackup?.catalog,
-      catalogListenable: widget.bookmarkBackup,
-      catalogSyncing: widget.bookmarkBackup?.syncing ?? false,
-      catalogSyncError: widget.bookmarkBackup?.lastSyncError,
-      onSyncNow: widget.bookmarkBackup == null
+      // notifications repaint the rail (the catalog mutates in place,
+      // so the view reads the status at build, never a stale copy).
+      catalog: backup?.catalog,
+      catalogListenable: backup,
+      syncStatus: backup == null
           ? null
-          : () => unawaited(_syncNow()),
+          : () => SidebarSyncStatus(
+              enrolled: backup.account != null,
+              syncing: backup.syncing,
+              lastSyncAt: backup.lastSyncAt,
+              error: backup.lastSyncError,
+            ),
+      onSyncNow: backup == null ? null : () => unawaited(_syncNow()),
       onOpenCatalogServer: _workspace == null ? null : _openCatalogServer,
       // 04 §4.2's management verbs: all four ride the editor seam, so
       // they gate together on it — a null delegate leaves the catalog
@@ -2638,6 +3241,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     switch (bookmark.kind) {
       case BookmarkKind.workspace:
         unawaited(_openWorkspaceFavorite(bookmark));
+        _showCompactBrowser();
         return;
       case BookmarkKind.savedSync:
         unawaited(
@@ -2662,6 +3266,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     }
     final strip = _favoriteTargetPane(workspace, bookmark, action);
     workspace.setActivePane(strip);
+    _showCompactBrowser();
     // Plain clicks replace the resolved pane's active tab — a launcher
     // pane grows one for the open; the new-tab action always grows one.
     final tab = action == SidebarOpenAction.newTab || strip.activeTab == null
@@ -2778,6 +3383,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           : active,
     );
     workspace.setActivePane(strip);
+    _showCompactBrowser();
     final tab = action == QuickOpenAction.newTab || strip.activeTab == null
         ? strip.newTab(target: NewTabTarget.launcher)
         : strip.activeTab!;
@@ -2806,9 +3412,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// ── Sync pair openings (05 §9) ───────────────────────────────────
   ///
   /// All three entry points — `sync.synchronizePanes` (⌥⌘Y), the
-  /// sidebar's savedSync row, and `sync.newSavedSync`'s post-save
-  /// open — land on the same path: build or decode the SyncPair, mint
-  /// a SyncPlanController bound to the shared environment and the
+  /// sidebar's savedSync row, and `sync.newSavedSync` — build or decode
+  /// the SyncPair and show it in the Sync sheet (D32 §7). The sheet's
+  /// Simulate/Synchronize land on the same path: mint a
+  /// SyncPlanController bound to the shared environment and the
   /// activity-panel task registry, and open its transient plan tab on
   /// the resolved pane.
 
@@ -2866,31 +3473,44 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         syncEndpointLabel(right, shortenRemotePath: true),
       );
 
-  /// `sync.synchronizePanes` (05 §9): the ad-hoc pair from both
-  /// panes' live locations — never persisted as a favorite, so its
-  /// state keys on the canonical pair id alone (§9's ad-hoc rule).
+  /// `sync.synchronizePanes` (05 §9, D32 §7): the ad-hoc pair from
+  /// both panes' live locations, shown in the Sync sheet first — the
+  /// FOCUSED pane is the source. Never persisted unless the sheet's
+  /// Save as Favorite runs, so its state keys on the canonical pair id
+  /// alone (§9's ad-hoc rule).
   Future<void> _synchronizePanes() async {
+    final pair = _paneSyncPair(name: null);
+    if (pair == null) return;
+    await _showSyncSheet(SyncSheetMode.adHoc, pair);
+  }
+
+  /// Both panes as a pair, direction pointing away from the focused
+  /// pane; null while either pane has no syncable location. [name]
+  /// null uses the ad-hoc "left ⇄ right" label.
+  SyncPair? _paneSyncPair({required String? name}) {
     final workspace = _workspace;
-    if (workspace == null) return;
+    if (workspace == null) return null;
     final left = _syncEndpointFor(workspace.left);
     final right = _syncEndpointFor(workspace.right);
-    if (left == null || right == null) return;
-    final l10n = AppLocalizations.of(context);
-    await _openSyncPlan(
-      SyncPair(
-        id: uuidV4(),
-        name: _syncPairLabel(l10n, left, right),
-        left: left,
-        right: right,
-        rules: const SyncRuleSet(),
+    if (left == null || right == null) return null;
+    final rightFocused = identical(workspace.activePane, workspace.right);
+    return SyncPair(
+      id: uuidV4(),
+      name: name ?? _syncPairLabel(AppLocalizations.of(context), left, right),
+      left: left,
+      right: right,
+      rules: SyncRuleSet(
+        direction: rightFocused
+            ? SyncDirection.rightToLeft
+            : SyncDirection.leftToRight,
       ),
     );
   }
 
-  /// The savedSync favorite's open (05 §9): decode the spec back into
-  /// its SyncPair — a spec-less row is a malformed favorite, reported
-  /// rather than silently ignored — and open its plan view on the
-  /// resolved pane.
+  /// The savedSync favorite's open (05 §9, D32 §7): decode the spec
+  /// back into its SyncPair — a spec-less row is a malformed favorite,
+  /// reported rather than silently ignored — and show it in the Sync
+  /// sheet, whose verbs open the plan view on the resolved pane.
   Future<void> _openSavedSyncFavorite(
     Bookmark bookmark,
     PaneTabsController strip,
@@ -2903,33 +3523,102 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       );
       return;
     }
-    await _openSyncPlan(pair, strip: strip);
+    await _showSyncSheet(SyncSheetMode.saved, pair, strip: strip);
   }
 
-  /// `sync.newSavedSync` (05 §9): the pair editor collects the
-  /// definition, the result persists as a savedSync bookmark, and
-  /// its plan view opens — the same surface the sidebar row lands on.
+  /// `sync.newSavedSync` (05 §9, D32 §7): the Sync sheet in its
+  /// new-favorite mode, prefilled from the panes when both are bound.
+  /// Every verb but Cancel persists the favorite first.
   Future<void> _newSavedSync() async {
+    if (widget.bookmarks == null) return;
+    await _showSyncSheet(SyncSheetMode.newSaved, _paneSyncPair(name: ''));
+  }
+
+  /// The Sync sheet's one entry (D32 §7): gathers what it renders (the
+  /// server choices for Advanced…, the stored pair state for the plan
+  /// sentence), then acts on the verb it closed with. The sheet never
+  /// scans — Simulate and Synchronize open the plan tab exactly as the
+  /// pre-D32 entries did, Synchronize with its auto-run intent.
+  Future<void> _showSyncSheet(
+    SyncSheetMode mode,
+    SyncPair? initial, {
+    PaneTabsController? strip,
+  }) async {
+    final environment = widget.syncEnvironment;
+    if (environment == null) return;
     final store = widget.bookmarks;
-    if (store == null) return;
-    final servers = await _syncServerChoices(store);
+    final servers = store == null
+        ? const <Bookmark>[]
+        : await _syncServerChoices(store);
+    final pairState = initial == null
+        ? null
+        : await _storedSyncPairState(environment, initial);
     if (!mounted) return;
-    final result = await showDialog<SyncPairEditorResult>(
-      context: context,
-      builder: (_) => SyncPairEditorDialog(servers: servers),
+    final result = await showSyncSetupSheet(
+      context,
+      mode: mode,
+      initial: initial,
+      pairState: pairState,
+      servers: servers,
+      endpointAvailable: environment.endpointAvailable,
+      rsyncEndpoints: (pair) =>
+          resolveRsyncEndpoints(pair, serverConfig: _serverConfigById),
+      onSaveFavorite: store == null ? null : _saveSyncPairFromSheet,
+      serverFor: (ref) => switch (ref.serverConfigId) {
+        final String id => _serverConfigById(id),
+        null => null,
+      },
     );
     if (result == null || !mounted) return;
+    if (mode == SyncSheetMode.newSaved) {
+      if (!await _saveSyncPairFromSheet(result.pair)) return;
+      if (result.action == SyncSheetAction.save || !mounted) return;
+    }
+    await _openSyncPlan(
+      result.pair,
+      caseOverrides: result.caseOverrides,
+      strip: strip,
+      intent: result.action == SyncSheetAction.synchronize
+          ? SyncPlanIntent.synchronize
+          : SyncPlanIntent.review,
+    );
+  }
+
+  /// The sheet's pre-scan read of the pair's stored state — a store
+  /// fault reports and leaves the sentence without the clock flags
+  /// rather than blocking the sheet.
+  Future<SyncPairState?> _storedSyncPairState(
+    SyncEnvironment environment,
+    SyncPair pair,
+  ) async {
     try {
-      await _persistSyncPair(result.pair);
+      return await loadStoredSyncPairState(environment.states, pair);
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      return null;
+    }
+  }
+
+  /// Persists a sheet pair as its savedSync favorite and confirms with
+  /// the saved toast; a store fault reports, surfaces the honest
+  /// notice, and answers false so the sheet stays unsaved.
+  Future<bool> _saveSyncPairFromSheet(SyncPair pair) async {
+    try {
+      await _persistSyncPair(pair);
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
       if (mounted) {
         _showSidebarNotice(AppLocalizations.of(context).sidebarActionFailed);
       }
-      return;
+      return false;
     }
-    if (!mounted) return;
-    await _openSyncPlan(result.pair, caseOverrides: result.caseOverrides);
+    if (mounted) {
+      showTopToastIn(
+        context,
+        message: AppLocalizations.of(context).syncSavedFavoriteToast(pair.name),
+      );
+    }
+    return true;
   }
 
   /// The plan view's Save as Favorite (05 §7): persists the open
@@ -3004,6 +3693,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       context: context,
       builder: (_) => SyncPairEditorDialog(
         initial: session.pair,
+        // The live session's answers seed the case fields — an
+        // unrelated save must not reset them to "auto".
+        initialCaseOverrides: SyncCaseOverrides(
+          left: session.pairState.caseSensitiveOverrideLeft,
+          right: session.pairState.caseSensitiveOverrideRight,
+        ),
         servers: servers,
         saveLabel: l10n.syncEditorSaveAndRescan,
       ),
@@ -3025,11 +3720,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
   /// Every sync open lands here: one SyncPlanController per tab on
   /// the resolved strip (default the active pane), deviceId resolved
-  /// once for the session's run-id prefixes.
+  /// once for the session's run-id prefixes. [intent] is the sheet's
+  /// verb — Synchronize auto-runs a creates-only plan (D32 §7).
   Future<void> _openSyncPlan(
     SyncPair pair, {
     SyncCaseOverrides? caseOverrides,
     PaneTabsController? strip,
+    SyncPlanIntent intent = SyncPlanIntent.review,
   }) async {
     final environment = widget.syncEnvironment;
     final syncTasks = widget.syncTasks;
@@ -3050,6 +3747,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         syncTasks: syncTasks,
         deviceId: deviceId,
         caseOverrides: caseOverrides,
+        intent: intent,
         // 05 §2.1's export seam: shared-mode `serverConfigId` refs
         // resolve through the pulled Séance catalog; embedded
         // identities resolve directly (rsync_endpoints.dart).
@@ -3060,6 +3758,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       ),
     );
     workspace.setActivePane(target);
+    _showCompactBrowser();
   }
 
   /// The workspace favorite's open (02 §3): the detail doc's exact
@@ -3160,50 +3859,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     return workspace.left;
   }
 
-  /// The Connections row's "Open in other pane" (02 §4): resolves the
-  /// row's bookmark and binds the pane opposite the active one — the
-  /// same unhide/stage-2 fallback rules as a favorite's modifier click.
-  Future<void> _openConnectionInOtherPane(ConnectionServer server) async {
-    final store = widget.bookmarks;
-    if (store == null) return;
+  /// The Connections row's Disconnect (02 §4), and Server ▸ Disconnect
+  /// for the active tab's server: drops the pool's reference for the
+  /// server through the pane lanes — the same seam a pane's recovery
+  /// banner cancels through.
+  Future<void> _disconnectServer(String serverId) async {
     try {
-      final bookmark = await store.byId(server.serverId);
-      if (!mounted) return;
-      // Re-resolve after the await: a session swap may have disposed the
-      // captured workspace while the store read was in flight (09 §3.1's
-      // recheck idiom — `mounted` alone does not cover it).
-      final workspace = _workspace;
-      if (workspace == null) return;
-      if (bookmark == null) {
-        // The row outlived its backing bookmark (deleted between render
-        // and tap) — a silent dead tap would read as a broken button.
-        ApplicationErrorReporter().report(
-          StateError('sidebar.connOpen: no bookmark for ${server.serverId}'),
-          StackTrace.current,
-        );
-        return;
-      }
-      final strip = _shownPane(
-        workspace,
-        identical(workspace.activePane, workspace.left)
-            ? workspace.right
-            : workspace.left,
-      );
-      workspace.setActivePane(strip);
-      final tab =
-          strip.activeTab ?? strip.newTab(target: NewTabTarget.launcher);
-      await tab.controller.connectRemote(bookmark);
-    } on Object catch (error, stackTrace) {
-      ApplicationErrorReporter().report(error, stackTrace);
-    }
-  }
-
-  /// The Connections row's Disconnect (02 §4): drops the pool's
-  /// reference for the server through the pane lanes — the same seam a
-  /// pane's recovery banner cancels through.
-  Future<void> _disconnectServer(ConnectionServer server) async {
-    try {
-      await widget.engineSession?.paneLanes.disconnectServer(server.serverId);
+      await widget.engineSession?.paneLanes.disconnectServer(serverId);
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
     }
@@ -3215,6 +3877,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// from it would never find the drawer, so the lookup goes through
   /// the key.
   void _toggleSidebarDrawer() {
+    if (_compactPosture) {
+      // The compact posture's sidebar is Home (D32 §9).
+      _compactKey.currentState?.showHome();
+      return;
+    }
     final scaffold = _scaffoldKey.currentState;
     if (scaffold == null || !scaffold.hasDrawer) return;
     if (scaffold.isDrawerOpen) {
@@ -3265,272 +3932,218 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }
 }
 
-class _Toolbar extends StatelessWidget {
-  const _Toolbar({
-    required this.title,
-    required this.commands,
-    required this.onRun,
-  });
+/// Leading room for the macOS traffic lights when the header reaches the
+/// window's leading edge (sidebar hidden or in the drawer).
+const _macTrafficLightsInset = 76.0;
 
-  final String title;
-  final List<RegisteredCommand> commands;
-  final Future<void> Function(RegisteredCommand command) onRun;
+/// How far past a region's minimum a drag must go before it hides the
+/// region (10 §3.1): a deliberate fling, never an accidental nudge.
+const _collapseOvershoot = 48.0;
 
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return SizedBox(
-      height: 44,
-      child: Padding(
-        padding: const EdgeInsetsDirectional.symmetric(horizontal: 12),
-        child: Row(
-          children: [
-            Icon(
-              Icons.drive_file_move_outline,
-              size: 20,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                title,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-            ),
-            const Spacer(),
-            for (final command in commands)
-              Flexible(
-                child: TextButton(
-                  key: ValueKey('command.${command.id}'),
-                  onPressed: command.enabled() ? () => onRun(command) : null,
-                  // Compact density: every registered command stays on
-                  // the strip, so a growing registry shares the width —
-                  // the label's Flexible ellipsis is what lets a button
-                  // shrink below its natural size instead of overflowing.
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: const Size(0, 36),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // The icon rides in a Flexible too: a growing
-                      // registry squeezes a button below icon width, and
-                      // a rigid 18px box would overflow its slot.
-                      Flexible(
-                        child: Icon(
-                          command.icon ?? Icons.bug_report_outlined,
-                          size: 18,
-                        ),
-                      ),
-                      // The gap rides inside the Flexible so a squeezed
-                      // button can collapse to the icon alone instead of
-                      // overflowing at icon + spacing width.
-                      Flexible(
-                        child: Padding(
-                          padding: const EdgeInsetsDirectional.only(start: 4),
-                          child: Text(
-                            command.label(l10n),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+/// The panes' floor the sidebar and inspector yield to (10 §3.2): two
+/// minimum panes and their splitter.
+const _paneRegionMin = 2 * minPaneWidth + paneSplitterExtent;
 
-/// The activity panel + its top splitter — one mounted unit gated on
-/// the workspace's persisted visibility intent.
-class _ActivitySection extends StatelessWidget {
-  const _ActivitySection({
-    required this.controller,
-    required this.height,
-    required this.splitterFocus,
-    required this.onResize,
-    required this.onResizeEnd,
-    required this.onClose,
-    required this.onReveal,
-  });
+/// Sidebar width bounds (10 §3.1).
+const sidebarDefaultWidth = 232.0;
+const sidebarMinWidth = 180.0;
+const sidebarMaxWidth = 360.0;
 
-  final ActivityPanelController controller;
-  final double height;
-  final FocusNode splitterFocus;
-  final ValueChanged<double> onResize;
-  final VoidCallback onResizeEnd;
-  final VoidCallback onClose;
-  final void Function(TransferTask task)? onReveal;
+/// The header's title block (10 §4): the active pane's location — the
+/// folder or server name with the server dot, and `user@host` under it
+/// for remotes only. The full path is a tooltip (remote:
+/// `user@host:path`), never a second line (10 §2).
+class _HeaderTitle extends StatelessWidget {
+  const _HeaderTitle({required this.workspace});
+
+  final WorkspaceController workspace;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ActivityHeightSplitter(
-          key: const ValueKey('activity.splitter'),
-          focusNode: splitterFocus,
-          label: l10n.resizeActivityPanel,
-          value: l10n.activityPanelHeightPx(height.round()),
-          increasedValue: l10n.activityPanelHeightPx(height.round() + 16),
-          decreasedValue: l10n.activityPanelHeightPx(height.round() - 16),
-          onResize: onResize,
-          onResizeEnd: onResizeEnd,
-        ),
-        SizedBox(
-          height: height,
-          child: ListenableBuilder(
-            listenable: controller,
-            builder: (context, _) => ActivityPanel(
-              key: const ValueKey('activity.panel'),
-              controller: controller,
-              onClose: onClose,
-              onReveal: onReveal,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatusBar extends StatelessWidget {
-  const _StatusBar({required this.label, this.syncLink, this.activity});
-
-  final String label;
-
-  /// The workspace's Sync Browsing link (02 §7): while enabled the
-  /// status bar carries the same chip the path bars do — the amber
-  /// link-broken variant while suspended.
-  final SyncBrowsingController? syncLink;
-
-  /// The transfer queue's mirror (02 §6/§1): a live task count + rate
-  /// chip, and the bandwidth-limit chip while either direction is
-  /// capped. The status bar is never the queue's only representation —
-  /// the panel's rows are — these chips are the always-on summary.
-  final ActivityPanelController? activity;
-
-  @override
-  Widget build(BuildContext context) {
-    final link = syncLink;
-    return SizedBox(
-      height: 24,
-      child: Padding(
-        padding: const EdgeInsetsDirectional.symmetric(horizontal: 10),
-        child: Row(
-          children: [
-            // Both children ride Flexible — the named-cause line can
-            // exceed a narrow status row's width, and an unbounded chip
-            // would overflow it the way the toolbar did.
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
-            ),
-            if (link != null)
-              Flexible(
-                child: ListenableBuilder(
-                  listenable: link,
-                  builder: (context, _) {
-                    if (!link.enabled) return const SizedBox.shrink();
-                    return Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: Padding(
-                        padding: const EdgeInsetsDirectional.only(start: 10),
-                        child: SyncBrowseChip(
-                          key: const ValueKey('statusbar.syncChip'),
-                          link: link,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            if (activity != null)
-              Flexible(
-                child: ListenableBuilder(
-                  listenable: activity!,
-                  builder: (context, _) =>
-                      _TransferChips(controller: activity!),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The status bar's transfer summary (02 §1/§6): a rate+count chip while
-/// any task is live, plus the bandwidth chip while a direction is
-/// capped. Both chips are summaries only — per-item truth stays on the
-/// panel's rows (D16).
-class _TransferChips extends StatelessWidget {
-  const _TransferChips({required this.controller});
-
-  final ActivityPanelController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final platform = Theme.of(context).platform;
-    final live = controller.tasks.where((task) => !task.isTerminal).length;
-    final down = controller.downloadLimit;
-    final up = controller.uploadLimit;
-    final rate = controller.aggregateRate;
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(start: 10),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    final theme = Theme.of(context);
+    final chrome = PoltergeistChrome.of(context);
+    final tab = workspace.activePane.activeTab;
+    final controller = tab?.controller;
+    final title = tab == null ? l10n.headerTitleEmpty : paneTabTitle(tab, l10n);
+    final location = controller?.location;
+    final bookmark = controller?.remoteBookmark;
+    final identity = bookmark?.server?.identity;
+    final subtitle = bookmark == null
+        ? null
+        : identity != null
+        ? '${identity.username}@${identity.host}'
+        : bookmark.label;
+    final path = switch (location) {
+      null => null,
+      final loc when identity != null =>
+        '${identity.username}@${identity.host}:${loc.path}',
+      final loc when bookmark != null => '${bookmark.label}:${loc.path}',
+      final loc => loc.path,
+    };
+    final block = Semantics(
+      header: true,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (live > 0)
-            Flexible(
-              child: Text(
-                key: const ValueKey('statusbar.transferChip'),
-                l10n.statusTransferChip(
-                  rate > 0
-                      ? formatTransferRate(rate, platform: platform)
-                      : paneUnevaluated,
-                  live,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall,
-              ),
-            ),
-          if (down != null || up != null)
-            Flexible(
-              child: Padding(
-                padding: EdgeInsetsDirectional.only(start: live > 0 ? 10 : 0),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
                 child: Text(
-                  key: const ValueKey('statusbar.limitChip'),
-                  l10n.statusLimitChip(
-                    down == null
-                        ? l10n.activityBandwidthUnlimited
-                        : formatTransferLimit(down, platform: platform),
-                    up == null
-                        ? l10n.activityBandwidthUnlimited
-                        : formatTransferLimit(up, platform: platform),
-                  ),
+                  title,
+                  key: const ValueKey('header.title'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall,
+                  style: theme.textTheme.titleSmall,
                 ),
+              ),
+              if (bookmark != null && controller != null) ...[
+                const SizedBox(width: 4),
+                PaneConnectionDot(controller: controller),
+              ],
+            ],
+          ),
+          if (subtitle != null)
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: chrome.secondaryText,
               ),
             ),
         ],
+      ),
+    );
+    return path == null ? block : Tooltip(message: path, child: block);
+  }
+}
+
+/// D32 §4's filter field: filters the active pane's listing as the user
+/// types (the pane's own strip no longer opens for ⌘F), shows `12 of
+/// 348` while a query is active, and Esc clears it back to the listing.
+class _HeaderFilterField extends StatefulWidget {
+  const _HeaderFilterField({required this.workspace, required this.focusNode});
+
+  final WorkspaceController workspace;
+  final FocusNode focusNode;
+
+  @override
+  State<_HeaderFilterField> createState() => _HeaderFilterFieldState();
+}
+
+class _HeaderFilterFieldState extends State<_HeaderFilterField> {
+  final _text = TextEditingController();
+  PaneController? _bound;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.workspace.addListener(_rebind);
+    _rebind();
+  }
+
+  @override
+  void didUpdateWidget(covariant _HeaderFilterField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.workspace, widget.workspace)) {
+      oldWidget.workspace.removeListener(_rebind);
+      widget.workspace.addListener(_rebind);
+      _rebind();
+    }
+  }
+
+  /// Follows the active pane's active tab: the field always shows the
+  /// query the focused listing is filtered by.
+  void _rebind() {
+    final next = widget.workspace.activeTabController;
+    if (identical(next, _bound)) {
+      _syncText();
+      return;
+    }
+    _bound?.removeListener(_syncText);
+    _bound = next;
+    _bound?.addListener(_syncText);
+    _syncText();
+  }
+
+  void _syncText() {
+    final query = _bound?.filterQuery ?? '';
+    if (_text.text != query) {
+      _text.value = TextEditingValue(
+        text: query,
+        selection: TextSelection.collapsed(offset: query.length),
+      );
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.workspace.removeListener(_rebind);
+    _bound?.removeListener(_syncText);
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final theme = Theme.of(context);
+    final chrome = PoltergeistChrome.of(context);
+    final pane = _bound;
+    final active = pane != null && pane.filterActive;
+    return SizedBox(
+      height: 28,
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () {
+            pane?.clearFilter();
+            _text.clear();
+            widget.focusNode.unfocus();
+          },
+        },
+        child: TextField(
+          key: const ValueKey('header.filter'),
+          controller: _text,
+          focusNode: widget.focusNode,
+          enabled: pane != null && pane.acceptsFilterQuery,
+          style: theme.textTheme.bodyMedium,
+          textAlignVertical: TextAlignVertical.center,
+          onChanged: (value) => pane?.setFilterQuery(value),
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: chrome.capsuleFill,
+            hintText: l10n.headerFilterHint,
+            contentPadding: const EdgeInsets.symmetric(vertical: 6),
+            prefixIcon: Icon(Icons.search, size: 16, color: chrome.secondaryText),
+            prefixIconConstraints: const BoxConstraints(minWidth: 28),
+            suffixIcon: active
+                ? Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 8),
+                    child: Center(
+                      widthFactor: 1,
+                      child: Text(
+                        l10n.paneFilterCount(
+                          pane.entries.length,
+                          pane.unfilteredCount,
+                        ),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: chrome.secondaryText,
+                        ),
+                      ),
+                    ),
+                  )
+                : null,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(7),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -5,12 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/preview_session.dart';
 import 'package:poltergeist_app/services/selection_state.dart';
+import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../support/preview_harness.dart';
 
 void main() {
-  group('panel verb (Space on non-macOS)', () {
+  group('panel fallback (no Quick Look surface)', () {
     test(
       'selection alone never downloads — Space opens the prompt card',
       () async {
@@ -49,7 +50,7 @@ void main() {
       expect(h.session.file, isNotNull);
     });
 
-    test('Space on a rendered card closes the panel', () async {
+    test('Space on a rendered card never hides the inspector', () async {
       final h = await PreviewHarness.create();
       await h.connectRemote([previewEntry('a.txt', size: 2)]);
       h.session.previewFocused();
@@ -60,8 +61,10 @@ void main() {
       await untilPhase(h.session, PreviewPhase.rendered);
 
       h.session.previewFocused();
-      expect(h.workspace.previewPanelHidden, isTrue);
-      expect(h.session.phase, PreviewPhase.idle);
+      await previewSettle();
+      expect(h.workspace.previewPanelHidden, isFalse);
+      expect(h.workspace.inspectorHidden, isFalse);
+      expect(h.session.phase, PreviewPhase.rendered);
     });
 
     test('Space during producing is a no-op (no duplicate task)', () async {
@@ -271,15 +274,19 @@ void main() {
       expect(h.session.entry?.name, 'two.txt');
 
       await h.producer.complete(0, utf8.encode('x'));
-      await previewSettle();
+      // The commit shells out to chmod, which stretches past a fixed
+      // settle under full-suite load: poll for the cache entry.
+      final key = previewCacheKey('srv-1', '/srv/home/one.txt', null, 2);
+      File? cached;
+      for (var i = 0; i < 400 && cached == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        cached = await h.cache.lookup(key);
+      }
+      expect(cached, isNotNull);
       // The new focus's prompt survived — the stale file landed in the
       // cache only (its key is listed, nothing re-rendered).
       expect(h.session.phase, PreviewPhase.prompt);
       expect(h.session.entry?.name, 'two.txt');
-      final cached = await h.cache.lookup(
-        previewCacheKey('srv-1', '/srv/home/one.txt', null, 2),
-      );
-      expect(cached, isNotNull);
     });
 
     test('Esc on producing cancels the task, keeping the panel', () async {
@@ -407,6 +414,195 @@ void main() {
     });
   });
 
+  // D32 (10 §3): the preview renders at the top of the inspector's Info
+  // tab, which is shown by default — a passive well that follows the
+  // selection. The groups above start from a user-hidden inspector.
+  group('Info tab well (D32 default)', () {
+    test('the selection evaluates on its own; it never downloads',
+        () async {
+      final h = await PreviewHarness.create(infoTabShown: true);
+      expect(h.workspace.previewPanelHidden, isFalse);
+      await h.connectRemote([previewEntry('notes.txt', size: 4)]);
+      await untilPhase(h.session, PreviewPhase.prompt);
+      expect(h.session.entry?.name, 'notes.txt');
+      expect(h.producer.specs, isEmpty);
+    });
+
+    test('Space on the prompt card downloads at the first press',
+        () async {
+      final h = await PreviewHarness.create(infoTabShown: true);
+      await h.connectRemote([previewEntry('notes.txt', size: 4)]);
+      await untilPhase(h.session, PreviewPhase.prompt);
+
+      expect(h.session.previewFocused(), isTrue);
+      await untilPhase(h.session, PreviewPhase.producing);
+      expect(h.producer.specs, hasLength(1));
+      await h.producer.complete(0, utf8.encode('hey\n'));
+      await untilPhase(h.session, PreviewPhase.rendered);
+      expect(h.session.kind, PreviewKind.text);
+    });
+
+    test('a local text file renders on selection alone', () async {
+      final h = await PreviewHarness.create(infoTabShown: true);
+      File('${h.tempDir.path}/local.txt').writeAsStringSync('body\n');
+      await h.connectLocal(h.tempDir, [
+        previewEntry('local.txt', size: 5, parent: h.tempDir.path),
+      ]);
+      await untilPhase(h.session, PreviewPhase.rendered);
+      expect(h.session.text, isNotNull);
+    });
+
+    test('Esc on the prompt or a rendered well falls through and keeps '
+        'the inspector', () async {
+      final h = await PreviewHarness.create(infoTabShown: true);
+      await h.connectRemote([previewEntry('notes.txt', size: 4)]);
+      await untilPhase(h.session, PreviewPhase.prompt);
+      expect(h.session.escape(), isFalse);
+      expect(h.session.phase, PreviewPhase.prompt);
+
+      h.session.previewFocused();
+      await untilPhase(h.session, PreviewPhase.producing);
+      await h.producer.complete(0, utf8.encode('hey\n'));
+      await untilPhase(h.session, PreviewPhase.rendered);
+      expect(h.session.escape(), isFalse);
+      expect(h.session.phase, PreviewPhase.rendered);
+      expect(h.workspace.inspectorHidden, isFalse);
+    });
+
+    test('another inspector tab parks the well; back on Info it '
+        'evaluates the current selection', () async {
+      final h = await PreviewHarness.create(infoTabShown: true);
+      h.workspace.selectInspectorTab(InspectorTab.transfers);
+      expect(h.workspace.previewPanelHidden, isTrue);
+      await h.connectRemote([previewEntry('notes.txt', size: 4)]);
+      await previewSettle();
+      expect(h.session.phase, PreviewPhase.idle);
+
+      // Back on Info, the well catches up with the unchanged selection.
+      h.workspace.selectInspectorTab(InspectorTab.info);
+      await untilPhase(h.session, PreviewPhase.prompt);
+      expect(h.session.phase, PreviewPhase.prompt);
+      expect(h.session.entry?.name, 'notes.txt');
+    });
+
+    test('a rendered well never returns showing a file the selection '
+        'left while it was hidden', () async {
+      final h = await PreviewHarness.create(infoTabShown: true);
+      File('${h.tempDir.path}/a.txt').writeAsStringSync('alpha\n');
+      File('${h.tempDir.path}/b.txt').writeAsStringSync('bravo\n');
+      await h.connectLocal(h.tempDir, [
+        previewEntry('a.txt', size: 6, parent: h.tempDir.path),
+        previewEntry('b.txt', size: 6, parent: h.tempDir.path),
+      ]);
+      await untilPhase(h.session, PreviewPhase.rendered);
+      expect(h.session.entry?.name, 'a.txt');
+
+      // Hiding parks the well; the cursor moves while it is hidden.
+      h.workspace.toggleInspector();
+      expect(h.session.phase, PreviewPhase.idle);
+      expect(h.session.text, isNull);
+      h.left.setCursorIndex(1);
+      await previewSettle();
+      expect(h.session.phase, PreviewPhase.idle);
+
+      // Re-showing (the inspector toggle, not a preview verb) renders
+      // the file the cursor is on now.
+      h.workspace.toggleInspector();
+      await untilPhase(h.session, PreviewPhase.rendered);
+      expect(h.session.entry?.name, 'b.txt');
+      expect(h.session.file?.path, endsWith('b.txt'));
+    });
+  });
+
+  group('Quick Look on every desktop (D32)', () {
+    for (final platform in [TargetPlatform.linux, TargetPlatform.windows]) {
+      test('${platform.name}: Space opens Quick Look and toggles it shut, '
+          'never hiding the inspector', () async {
+        final h = await PreviewHarness.create(
+          platform: platform,
+          quickLookAvailable: true,
+          infoTabShown: true,
+        );
+        File('${h.tempDir.path}/one.txt').writeAsStringSync('hi\n');
+        await h.connectLocal(h.tempDir, [
+          previewEntry('one.txt', size: 3, parent: h.tempDir.path),
+        ]);
+        // The Info tab's docked well renders on its own.
+        await untilPhase(h.session, PreviewPhase.rendered);
+
+        expect(h.session.previewFocused(), isTrue);
+        await untilTrue(() => h.session.quickLookActive);
+        expect(h.quickLook.shows.single.$1.single, endsWith('one.txt'));
+        expect(h.workspace.inspectorHidden, isFalse);
+        expect(h.workspace.previewPanelHidden, isFalse);
+        expect(h.session.phase, PreviewPhase.rendered);
+
+        h.session.previewFocused();
+        await untilTrue(() => !h.session.quickLookActive);
+        expect(h.quickLook.hideCalls, 1);
+        expect(h.workspace.inspectorHidden, isFalse);
+        expect(h.session.phase, PreviewPhase.rendered);
+      });
+
+      test('${platform.name}: the Info well keeps following the selection '
+          'while Quick Look is open', () async {
+        final h = await PreviewHarness.create(
+          platform: platform,
+          quickLookAvailable: true,
+          infoTabShown: true,
+        );
+        File('${h.tempDir.path}/a.txt').writeAsStringSync('alpha\n');
+        File('${h.tempDir.path}/b.txt').writeAsStringSync('bravo\n');
+        await h.connectLocal(h.tempDir, [
+          previewEntry('a.txt', size: 6, parent: h.tempDir.path),
+          previewEntry('b.txt', size: 6, parent: h.tempDir.path),
+        ]);
+        await untilPhase(h.session, PreviewPhase.rendered);
+        h.session.previewFocused();
+        await untilTrue(() => h.session.quickLookActive);
+
+        h.left.setCursorIndex(1);
+        await untilTrue(() => h.quickLook.updates.isNotEmpty);
+        expect(h.quickLook.updates.last.$1.single, endsWith('b.txt'));
+        await untilTrue(
+          () => h.session.file?.path.endsWith('b.txt') ?? false,
+        );
+        expect(h.session.entry?.name, 'b.txt');
+        expect(h.session.text?.text, 'bravo\n');
+      });
+
+      test('${platform.name}: Esc closes Quick Look', () async {
+        final h = await PreviewHarness.create(
+          platform: platform,
+          quickLookAvailable: true,
+        );
+        await h.connectLocal(h.tempDir, [
+          previewEntry('one.txt', size: 2, parent: h.tempDir.path),
+        ]);
+        h.session.previewFocused();
+        await untilTrue(() => h.session.quickLookActive);
+
+        expect(h.session.escape(), isTrue);
+        expect(h.session.quickLookActive, isFalse);
+        expect(h.quickLook.hideCalls, 1);
+        // The next Esc belongs to the lower tiers again.
+        expect(h.session.escape(), isFalse);
+      });
+    }
+
+    test('touch platforms keep the Info tab as Space\'s surface', () async {
+      final h = await PreviewHarness.create(
+        platform: TargetPlatform.android,
+        quickLookAvailable: true,
+      );
+      await h.connectRemote([previewEntry('a.txt', size: 2)]);
+      expect(h.session.previewFocused(), isTrue);
+      await untilPhase(h.session, PreviewPhase.prompt);
+      expect(h.workspace.previewPanelHidden, isFalse);
+      expect(h.quickLook.shows, isEmpty);
+    });
+  });
+
   group('Quick Look (macOS platform)', () {
     test('unavailable channel falls back to the panel', () async {
       final h = await PreviewHarness.create(
@@ -460,17 +656,26 @@ void main() {
       expect(h.session.quickLookCard, QuickLookCardKind.none);
     });
 
-    test('the docked panel suppresses the Quick Look leg', () async {
+    test('Space goes to Quick Look even while the Info tab shows the '
+        'preview well (D32)', () async {
       final h = await PreviewHarness.create(
         platform: TargetPlatform.macOS,
         quickLookAvailable: true,
+        infoTabShown: true,
       );
       await h.connectRemote([previewEntry('a.txt', size: 2)]);
-      h.session.togglePanel();
       await untilPhase(h.session, PreviewPhase.prompt);
       h.session.previewFocused();
-      await untilPhase(h.session, PreviewPhase.producing);
-      expect(h.quickLook.shows, isEmpty);
+      // The Quick Look leg answers — its producing card, not the Info
+      // tab's prompt-card download.
+      await untilTrue(
+        () => h.session.quickLookCard == QuickLookCardKind.producing,
+      );
+      await untilTrue(() => h.producer.specs.isNotEmpty);
+      await h.producer.complete(0, utf8.encode('hi'));
+      await untilTrue(() => h.quickLook.shows.isNotEmpty);
+      expect(h.session.quickLookActive, isTrue);
+      expect(h.workspace.previewPanelHidden, isFalse);
     });
 
     test('the native close edge clears Quick Look state', () async {

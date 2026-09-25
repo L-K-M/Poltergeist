@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
+import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/services/session_state.dart';
 import 'package:poltergeist_app/services/settings_store.dart';
 import 'package:poltergeist_app/services/view_preferences.dart';
@@ -20,6 +21,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
 import '../../support/fake_bookmark_store.dart';
+import '../../support/shell_menus.dart';
 
 /// Real-font captures of the workspace surface (02 §3, M5): the
 /// Commands menu's "Workspaces" submenu listing the saved workspaces in
@@ -222,13 +224,13 @@ void main() {
       file.writeAsBytesSync(bytes);
     }
 
-    final l10n = AppLocalizations.of(tester.element(find.byType(MenuBar)));
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(WorkspaceShell)),
+    );
 
-    // Open the Commands menu, then expand the Workspaces submenu row.
-    expect(find.byType(MenuBar), findsOneWidget);
-    await tester.tap(find.text(l10n.menuCommands));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    // Open the Server menu from the header ☰ (D32), then expand the
+    // Workspaces submenu row.
+    await openShellMenu(tester, AppMenuId.server);
     expect(find.text('Save Workspace…'), findsWidgets);
 
     await tester.tap(find.text(l10n.menuWorkspaces));

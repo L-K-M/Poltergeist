@@ -124,11 +124,11 @@ abstract class AppLocalizations {
   /// **'Go'**
   String get menuGo;
 
-  /// Title of the Commands application menu (02 §9 menu table).
+  /// Title of the Server application menu (D32's rename of 02 §9's Commands menu: connect, sync, workspaces, transfers).
   ///
   /// In en, this message translates to:
-  /// **'Commands'**
-  String get menuCommands;
+  /// **'Server'**
+  String get menuServer;
 
   /// Title of the Window application menu.
   ///
@@ -1124,10 +1124,10 @@ abstract class AppLocalizations {
   /// **'Edit Path'**
   String get goEditPathLabel;
 
-  /// Command label: navigate to the parent folder.
+  /// Command label: navigate to the parent folder (go.enclosing; 10 §8's Go menu names it Enclosing Folder, Finder's term).
   ///
   /// In en, this message translates to:
-  /// **'Parent Folder'**
+  /// **'Enclosing Folder'**
   String get goEnclosingLabel;
 
   /// Command label: navigate to the next location in the tab's history (go.forward, 02 §2.1).
@@ -1501,12 +1501,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Only sftp:// addresses are supported here.'**
   String get quickConnectUnsupportedSchemeError;
-
-  /// Title of the post-connect bar offering to keep the live adhoc session as a favorite (02 §2.7).
-  ///
-  /// In en, this message translates to:
-  /// **'Save as favorite…'**
-  String get saveFavoriteTitle;
 
   /// Label of the favorite-name field in the save bar (02 §2.7).
   ///
@@ -1934,10 +1928,10 @@ abstract class AppLocalizations {
   /// **'No Saved Workspaces'**
   String get workspaceMenuEmpty;
 
-  /// Menu label for view.toggleActivityPanel (02 §9's View table: Show/Hide Activity).
+  /// Menu label for view.toggleActivityPanel, which shows or hides the inspector's Transfers tab (10 §8's View menu: Info, Transfers, Alerts). Also the header activity button's tooltip.
   ///
   /// In en, this message translates to:
-  /// **'Show/Hide Activity'**
+  /// **'Transfers'**
   String get viewToggleActivityPanelLabel;
 
   /// Commands-menu label for queue.togglePause (02 §9's Commands table names it verbatim).
@@ -2437,10 +2431,10 @@ abstract class AppLocalizations {
   /// **'Settings'**
   String get settingsTitle;
 
-  /// Menu command opening Settings at the Bookmark backup section (D21).
+  /// Menu command opening Settings at the Bookmark backup section (D21). 10 §8's Server menu wording; 10 §10 says Sync in both sibling apps.
   ///
   /// In en, this message translates to:
-  /// **'Back up bookmarks…'**
+  /// **'Back up and sync…'**
   String get settingsBackupCommand;
 
   /// 02 §9's app.settings menu command — opens the Settings surface.
@@ -2466,24 +2460,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Checks GitHub on launch and only links to the release page — it never downloads anything.'**
   String get updateCheckEnabledSubtitle;
-
-  /// Dismissible banner shown when GitHub's latest release tag is newer than the running version (D19).
-  ///
-  /// In en, this message translates to:
-  /// **'Poltergeist {version} is available.'**
-  String updateBannerText(String version);
-
-  /// Update banner button opening the GitHub releases page in the OS browser (a link, never a download).
-  ///
-  /// In en, this message translates to:
-  /// **'View release'**
-  String get updateViewRelease;
-
-  /// Tooltip for the update banner's close affordance (session dismiss; the next launch re-checks).
-  ///
-  /// In en, this message translates to:
-  /// **'Dismiss'**
-  String get updateDismissTooltip;
 
   /// 04 §4.3's verbatim section title.
   ///
@@ -3190,7 +3166,7 @@ abstract class AppLocalizations {
   /// 06 §3.7's persistent pane banner while a bound server's managed checkouts hold dirty or missing local edits — the resume offer a relaunch owes the user.
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =1{1 file has local edits from a previous session.} other{{count} files have local edits from a previous session.}}'**
+  /// **'{count, plural, =1{1 file has local edits that aren\'t on the server yet.} other{{count} files have local edits that aren\'t on the server yet.}}'**
   String checkoutLocalEditsBanner(int count);
 
   /// The local-edits banner's action — opens the §3.7 review dialog.
@@ -3439,10 +3415,10 @@ abstract class AppLocalizations {
   /// **'Preview'**
   String get filePreviewLabelNeutral;
 
-  /// Command label: hide or show the docked preview rail (view.togglePreview, 02 §8.3/§9, 06 §5.2). While it shows on macOS, Space owns the panel and Quick Look is suppressed.
+  /// Command label for view.togglePreview, which shows or hides the inspector's Info tab, where the preview renders (10 §8's View menu: Info, Transfers, Alerts; D32 merged 06 §5.2's preview rail into Info).
   ///
   /// In en, this message translates to:
-  /// **'Show/Hide Preview'**
+  /// **'Info'**
   String get viewTogglePreviewLabel;
 
   /// Accessibility label of the docked preview rail (06 §5.2).
@@ -4458,10 +4434,10 @@ abstract class AppLocalizations {
   /// **'{left} ⇄ {right}'**
   String syncPairLabel(String left, String right);
 
-  /// Command label: build an ad-hoc pair from the two panes and open its plan view (05 §7, sync.synchronizePanes, ⌥⌘Y).
+  /// Command label: build an ad-hoc pair from the two panes and open the Sync sheet (05 §7, 10 §7/§8, sync.synchronizePanes, ⌥⌘Y). The ellipsis says a sheet opens before anything runs.
   ///
   /// In en, this message translates to:
-  /// **'Synchronize Panes'**
+  /// **'Synchronize…'**
   String get syncSynchronizePanes;
 
   /// Plan-view verb: re-run the scan and diff (05 §7).
@@ -5405,6 +5381,1690 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Connection test failed'**
   String get connectionTestFailed;
+
+  /// D32 §8: tooltip of the header's ☰ button that holds the whole menu tree on Windows and Linux.
+  ///
+  /// In en, this message translates to:
+  /// **'Main menu'**
+  String get mainMenuTooltip;
+
+  /// D32 §4: tooltip of the header's » overflow button on narrow windows.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get toolbarMoreTooltip;
+
+  /// D32 §3: accessibility label of the right inspector column.
+  ///
+  /// In en, this message translates to:
+  /// **'Inspector'**
+  String get inspectorLabel;
+
+  /// D32 §3: the inspector's Info tab (the focused item's preview and facts).
+  ///
+  /// In en, this message translates to:
+  /// **'Info'**
+  String get inspectorTabInfo;
+
+  /// D32 §3: the inspector's Transfers tab (the transfer queue's rows).
+  ///
+  /// In en, this message translates to:
+  /// **'Transfers'**
+  String get inspectorTabTransfers;
+
+  /// D32 §3: the inspector's Alerts tab (things that need the user).
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts'**
+  String get inspectorTabAlerts;
+
+  /// D32 §3: the Alerts tab's empty state.
+  ///
+  /// In en, this message translates to:
+  /// **'All clear'**
+  String get alertsEmpty;
+
+  /// D32 alert row: a transfer task failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t transfer “{name}”'**
+  String alertTransferFailed(String name);
+
+  /// D32 alert row: parked transfer conflicts (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 conflict needs a decision} other{{count} conflicts need a decision}}'**
+  String alertConflictsPending(int count);
+
+  /// D32 alert row: journaled work restored behind the queue pause.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 transfer from last session is paused} other{{count} transfers from last session are paused}}'**
+  String alertRestoredQueue(int count);
+
+  /// D32 alert row: a server is blocked on a changed host key (D18).
+  ///
+  /// In en, this message translates to:
+  /// **'The host key for {server} changed'**
+  String alertHostKeyChanged(String server);
+
+  /// D32 alert row: a server's connection failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t connect to {server}'**
+  String alertConnectionFailed(String server);
+
+  /// D32 alert row: managed checkouts with un-uploaded edits (06 §3.7).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 local edit on {server} isn\'t uploaded} other{{count} local edits on {server} aren\'t uploaded}}'**
+  String alertLocalEdits(int count, String server);
+
+  /// D32 alert row: a newer release exists (D19).
+  ///
+  /// In en, this message translates to:
+  /// **'Poltergeist {version} is available'**
+  String alertUpdateAvailable(String version);
+
+  /// Alert row action: retry the failed transfer.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get alertActionRetry;
+
+  /// Alert row action: show the Transfers tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Show'**
+  String get alertActionShow;
+
+  /// Alert row action: go to the pending conflicts.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolve…'**
+  String get alertActionResolve;
+
+  /// Alert row action: open the review surface (host key, local edits).
+  ///
+  /// In en, this message translates to:
+  /// **'Review…'**
+  String get alertActionReview;
+
+  /// Alert row action: open the release page in the browser.
+  ///
+  /// In en, this message translates to:
+  /// **'View Release'**
+  String get alertActionViewRelease;
+
+  /// Tooltip of an alert row's dismiss button.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get alertActionDismiss;
+
+  /// D32: view.toggleInspector's label while the inspector is hidden.
+  ///
+  /// In en, this message translates to:
+  /// **'Show Inspector'**
+  String get viewShowInspectorLabel;
+
+  /// D32: view.toggleInspector's label while the inspector is shown.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide Inspector'**
+  String get viewHideInspectorLabel;
+
+  /// D32: View menu item that shows the inspector's Alerts tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts'**
+  String get viewShowAlertsLabel;
+
+  /// D32 §4: connect.quickConnect (⌘K) — Server menu item and header button tooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect…'**
+  String get connectQuickConnectLabel;
+
+  /// D32 §4: the header's labelled Connect button.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect'**
+  String get connectShortLabel;
+
+  /// Title of the Connect dialog (⌘K).
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to Server'**
+  String get connectDialogTitle;
+
+  /// D32 §4: the header's labelled Sync button.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync'**
+  String get syncShortLabel;
+
+  /// D32 §4: selection.transferToOtherPane (F5).
+  ///
+  /// In en, this message translates to:
+  /// **'Copy to Other Pane'**
+  String get selectionCopyToOtherPaneLabel;
+
+  /// D32: selection.moveToOtherPane (F6).
+  ///
+  /// In en, this message translates to:
+  /// **'Move to Other Pane'**
+  String get selectionMoveToOtherPaneLabel;
+
+  /// Disabled reason for Copy/Move to Other Pane.
+  ///
+  /// In en, this message translates to:
+  /// **'Select items, and open a folder in the other pane'**
+  String get commandDisabledNeedsTwoPanes;
+
+  /// Accessibility label of the sidebar splitter.
+  ///
+  /// In en, this message translates to:
+  /// **'Resize sidebar'**
+  String get resizeSidebar;
+
+  /// Accessibility label of the inspector splitter.
+  ///
+  /// In en, this message translates to:
+  /// **'Resize inspector'**
+  String get resizeInspector;
+
+  /// A region splitter's current width in whole pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'{value} pixels'**
+  String splitterWidthPx(int value);
+
+  /// Placeholder of the header's filter field (filters the active pane).
+  ///
+  /// In en, this message translates to:
+  /// **'Filter'**
+  String get headerFilterHint;
+
+  /// Header title while the active pane shows the launcher.
+  ///
+  /// In en, this message translates to:
+  /// **'No location'**
+  String get headerTitleEmpty;
+
+  /// D32 §11: file.reveal on macOS — reveals the local item in Finder.
+  ///
+  /// In en, this message translates to:
+  /// **'Show in Finder'**
+  String get fileRevealMacLabel;
+
+  /// D32 §11: file.reveal on Linux — reveals the local item in the desktop file manager.
+  ///
+  /// In en, this message translates to:
+  /// **'Show in File Manager'**
+  String get fileRevealLinuxLabel;
+
+  /// D32 §11: file.reveal on Windows — reveals the local item in File Explorer.
+  ///
+  /// In en, this message translates to:
+  /// **'Show in Explorer'**
+  String get fileRevealWindowsLabel;
+
+  /// Disabled reason for Show in Finder/File Manager: only local items can be revealed.
+  ///
+  /// In en, this message translates to:
+  /// **'Select a local item'**
+  String get commandDisabledRevealLocalOnly;
+
+  /// D32 §8 Help menu: the sheet listing every command's shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard Shortcuts'**
+  String get helpKeyboardShortcutsLabel;
+
+  /// D32 §8 Help menu: opens the releases page in the browser.
+  ///
+  /// In en, this message translates to:
+  /// **'Release Notes'**
+  String get helpReleaseNotesLabel;
+
+  /// D32 §8 Help menu: opens the issue tracker in the browser.
+  ///
+  /// In en, this message translates to:
+  /// **'Report an Issue'**
+  String get helpReportIssueLabel;
+
+  /// Keyboard Shortcuts sheet: group for commands that live in no menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Other'**
+  String get helpShortcutsOtherGroup;
+
+  /// Default name of a folder created by New Folder (file.newFolder); numbered like 'untitled folder (2)' when the name is taken. The inline rename opens on it right away.
+  ///
+  /// In en, this message translates to:
+  /// **'untitled folder'**
+  String get paneNewFolderName;
+
+  /// Default name of an empty file created by New File (file.newFile); numbered like 'untitled file (2)' when the name is taken. The inline rename opens on it right away.
+  ///
+  /// In en, this message translates to:
+  /// **'untitled file'**
+  String get paneNewFileName;
+
+  /// Error when New Folder / New File finds its default name and every numbered variant up to the limit already taken.
+  ///
+  /// In en, this message translates to:
+  /// **'No free name is left for \"{name}\" in this folder.'**
+  String paneCreateNamesExhausted(String name);
+
+  /// Failed transfer, checkout, or sync row: the bookmark names a shared (synced) server that this device's pulled server list does not contain, so there is nothing to connect to.
+  ///
+  /// In en, this message translates to:
+  /// **'The shared server \"{server}\" is not in the synced server list on this device.'**
+  String activityTaskServerNotInCatalog(String server);
+
+  /// file.newFolder (⇧⌘N / F7): creates an untitled folder and opens its rename.
+  ///
+  /// In en, this message translates to:
+  /// **'New Folder'**
+  String get fileNewFolderLabel;
+
+  /// file.newFile (⌥⌘N): creates an empty untitled file and opens its rename.
+  ///
+  /// In en, this message translates to:
+  /// **'New File'**
+  String get fileNewFileLabel;
+
+  /// file.duplicate (⌘D): a keep-both copy beside the selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get fileDuplicateLabel;
+
+  /// file.delete on local items (macOS/Linux).
+  ///
+  /// In en, this message translates to:
+  /// **'Move to Trash'**
+  String get fileMoveToTrashLabel;
+
+  /// file.delete on local items (Windows).
+  ///
+  /// In en, this message translates to:
+  /// **'Move to Recycle Bin'**
+  String get fileMoveToRecycleBinLabel;
+
+  /// file.delete on a remote pane: remote deletes confirm first (D15).
+  ///
+  /// In en, this message translates to:
+  /// **'Delete…'**
+  String get fileDeleteRemoteLabel;
+
+  /// file.deletePermanently (⌥⌘⌫ / Shift+Delete): always confirms.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Immediately…'**
+  String get fileDeletePermanentlyLabel;
+
+  /// Delete dialog while the quantifying walk runs (cancellable).
+  ///
+  /// In en, this message translates to:
+  /// **'Counting items…'**
+  String get deleteDialogCounting;
+
+  /// Delete dialog when preparing the delete failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t prepare the delete: {error}'**
+  String deleteDialogPrepareFailed(String error);
+
+  /// 02 §10 permanent delete headline with the walk's count and size.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Delete 1 item ({size}) from {location}?} other{Delete {count} items ({size}) from {location}?}}'**
+  String deleteDialogDeleteCount(int count, String size, String location);
+
+  /// 02 §10 permanent delete headline naming up to three items.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete “{names}” from {location}?'**
+  String deleteDialogDeleteNames(String names, String location);
+
+  /// 02 §10 permanent delete headline when the counting walk gave up.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete the selected items from {location}?'**
+  String deleteDialogDeleteUnquantified(String location);
+
+  /// 02 §10 server-trash headline.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Move 1 item ({size}) to .poltergeist-trash/ on {location}?} other{Move {count} items ({size}) to .poltergeist-trash/ on {location}?}}'**
+  String deleteDialogMoveCount(int count, String size, String location);
+
+  /// 02 §10 server-trash headline naming up to three items.
+  ///
+  /// In en, this message translates to:
+  /// **'Move “{names}” to .poltergeist-trash/ on {location}?'**
+  String deleteDialogMoveNames(String names, String location);
+
+  /// 02 §10 server-trash headline when the counting walk gave up.
+  ///
+  /// In en, this message translates to:
+  /// **'Move the selected items to .poltergeist-trash/ on {location}?'**
+  String deleteDialogMoveUnquantified(String location);
+
+  /// 02 §10 permanent delete warning line.
+  ///
+  /// In en, this message translates to:
+  /// **'This cannot be undone.'**
+  String get deleteDialogIrreversible;
+
+  /// 02 §10 server-trash warning line.
+  ///
+  /// In en, this message translates to:
+  /// **'Items are moved to .poltergeist-trash/ on the server.'**
+  String get deleteDialogMoveWarning;
+
+  /// D15's one-time trash-unavailable notice in the delete dialog; count is the number of selected items.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{The Trash isn\'t available here, so this item will be deleted permanently.} other{The Trash isn\'t available here, so these items will be deleted permanently.}}'**
+  String deleteDialogTrashUnavailable(int count);
+
+  /// 02 §13 flagged-descendant disclosure (exact count).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Includes 1 item with an undecodable name.} other{Includes {count} items with an undecodable name.}}'**
+  String deleteDialogFlaggedExact(int count);
+
+  /// 02 §13 flagged-descendant disclosure when the walk did not finish.
+  ///
+  /// In en, this message translates to:
+  /// **'May include items with undecodable names.'**
+  String get deleteDialogFlaggedMaybe;
+
+  /// 02 §10 per-server trash option (pre-checked when the server opts in).
+  ///
+  /// In en, this message translates to:
+  /// **'Move to .poltergeist-trash/ instead'**
+  String get deleteDialogServerTrashCheckbox;
+
+  /// 02 §10 helper under the server-trash checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Trashed files stay on the server, readable by anything that can read the folder, until you purge them.'**
+  String get deleteDialogServerTrashHelper;
+
+  /// Delete dialog's destructive confirm button.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Delete} other{Delete {count} Items}}'**
+  String deleteDialogConfirmDelete(int count);
+
+  /// Delete dialog's confirm button while the server-trash move is on.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Move to Trash} other{Move {count} Items}}'**
+  String deleteDialogConfirmMove(int count);
+
+  /// A header toolbar button's tooltip: its label, then its first keyboard shortcut ("New Folder  ⇧⌘N").
+  ///
+  /// In en, this message translates to:
+  /// **'{label}  {shortcut}'**
+  String toolbarTooltipWithShortcut(String label, String shortcut);
+
+  /// The number on a count badge (the inspector toggle's alert count, the Transfers tab's live tasks).
+  ///
+  /// In en, this message translates to:
+  /// **'{count}'**
+  String badgeCount(int count);
+
+  /// A count badge's text once the count passes 99.
+  ///
+  /// In en, this message translates to:
+  /// **'99+'**
+  String get badgeCountOverflow;
+
+  /// Sync sheet plan sentence (D32 §7): a one-way pair's opening clause.
+  ///
+  /// In en, this message translates to:
+  /// **'Your {destinationKind, select, remote{remote} other{local}} folder “{destination}” will be updated from your {sourceKind, select, remote{remote} other{local}} folder “{source}”.'**
+  String syncPolicyOneWay(
+    String destinationKind,
+    String destination,
+    String sourceKind,
+    String source,
+  );
+
+  /// Plan sentence: one-way replacement under the size-and-date comparison. The engine replaces on ANY difference, so the copy never says only older files are replaced.
+  ///
+  /// In en, this message translates to:
+  /// **'Files that differ in size or modification date will be replaced with the version from “{source}”, even when the copy in “{destination}” is newer.'**
+  String syncPolicyReplaceSizeDate(String source, String destination);
+
+  /// Plan sentence: one-way replacement under the size-only comparison.
+  ///
+  /// In en, this message translates to:
+  /// **'Files that differ in size will be replaced with the version from “{source}”. Files of the same size are left alone, even when their dates differ.'**
+  String syncPolicyReplaceSize(String source);
+
+  /// Plan sentence: one-way replacement under the checksum comparison.
+  ///
+  /// In en, this message translates to:
+  /// **'Files whose size or contents differ will be replaced with the version from “{source}”. Contents are compared by checksum, which reads every file of matching size on both sides.'**
+  String syncPolicyReplaceChecksum(String source);
+
+  /// Plan sentence: the engine's automatic size-only fallback after a side refused to keep modification dates.
+  ///
+  /// In en, this message translates to:
+  /// **'Modification dates proved unreliable for this pair, so only sizes are compared.'**
+  String get syncPolicySizeOnlyFallback;
+
+  /// Plan sentence: overwrite backups go to the in-root sync trash folder of the destination.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous versions of replaced files are kept in {trash} inside “{destination}”.'**
+  String syncPolicyBackupsInRoot(String trash, String destination);
+
+  /// Plan sentence: overwrite backups go to a configured out-of-root trash path.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous versions of replaced files are kept in {trashPath}.'**
+  String syncPolicyBackupsAt(String trashPath);
+
+  /// Plan sentence: overwrite backups are turned off (a destructive clause).
+  ///
+  /// In en, this message translates to:
+  /// **'Replaced files are overwritten without a backup.'**
+  String get syncPolicyBackupsNone;
+
+  /// Plan sentence: Mirror deletions into the sync trash (a destructive clause).
+  ///
+  /// In en, this message translates to:
+  /// **'Files in “{destination}” that aren’t in “{source}” will be deleted (moved to {trash}).'**
+  String syncPolicyDeleteTrash(String destination, String source, String trash);
+
+  /// Plan sentence: Mirror deletions without a trash (a destructive clause).
+  ///
+  /// In en, this message translates to:
+  /// **'Files in “{destination}” that aren’t in “{source}” will be deleted permanently.'**
+  String syncPolicyDeletePermanent(String destination, String source);
+
+  /// Plan sentence: the no-deletion assurance.
+  ///
+  /// In en, this message translates to:
+  /// **'No files will be deleted.'**
+  String get syncPolicyNoDeletes;
+
+  /// Plan sentence: an Additive (both ways) pair's opening clause.
+  ///
+  /// In en, this message translates to:
+  /// **'Your {leftKind, select, remote{remote} other{local}} folder “{left}” and your {rightKind, select, remote{remote} other{local}} folder “{right}” will each receive the files only the other one has.'**
+  String syncPolicyBothWays(
+    String leftKind,
+    String left,
+    String rightKind,
+    String right,
+  );
+
+  /// Plan sentence (both ways): what makes two copies differ under size-and-date.
+  ///
+  /// In en, this message translates to:
+  /// **'Files count as different when their size or modification date differs.'**
+  String get syncPolicyDifferSizeDate;
+
+  /// Plan sentence (both ways): what makes two copies differ under size-only.
+  ///
+  /// In en, this message translates to:
+  /// **'Files count as different only when their size differs.'**
+  String get syncPolicyDifferSize;
+
+  /// Plan sentence (both ways): what makes two copies differ under checksum.
+  ///
+  /// In en, this message translates to:
+  /// **'Files count as different when their size or checksum differs.'**
+  String get syncPolicyDifferChecksum;
+
+  /// Plan sentence (both ways): differing files become conflicts.
+  ///
+  /// In en, this message translates to:
+  /// **'Files that differ are held as conflicts for you to decide; nothing is replaced automatically.'**
+  String get syncPolicyConflictAsk;
+
+  /// Plan sentence (both ways): the newer-wins conflict default.
+  ///
+  /// In en, this message translates to:
+  /// **'When a file differs, the newer copy replaces the older one.'**
+  String get syncPolicyConflictNewer;
+
+  /// Plan sentence (both ways): a keep-this-side conflict default.
+  ///
+  /// In en, this message translates to:
+  /// **'When a file differs, the version from “{winner}” replaces the other copy.'**
+  String syncPolicyConflictKeep(String winner);
+
+  /// Plan sentence (both ways): the skip conflict default.
+  ///
+  /// In en, this message translates to:
+  /// **'Files that differ are left alone.'**
+  String get syncPolicyConflictSkip;
+
+  /// Plan sentence (both ways): overwrite backups land in the trash of whichever side is written.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous versions of replaced files are kept in each side’s sync trash.'**
+  String get syncPolicyBackupsEachSide;
+
+  /// Plan sentence: include-hidden is off.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden files are left out.'**
+  String get syncPolicyHiddenSkipped;
+
+  /// Plan sentence: the pair skips items matching its exclude rules.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Items matching 1 rule are left out.} other{Items matching {count} rules are left out.}}'**
+  String syncPolicyRulesSkipped(int count);
+
+  /// Title of the sync options sheet (D32 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Sync Files'**
+  String get syncSheetTitle;
+
+  /// Title of the sync sheet when it creates a saved sync favorite.
+  ///
+  /// In en, this message translates to:
+  /// **'New Saved Sync'**
+  String get syncSheetNewSavedTitle;
+
+  /// Endpoint tile caption for a local folder.
+  ///
+  /// In en, this message translates to:
+  /// **'This computer'**
+  String get syncSheetThisComputer;
+
+  /// Endpoint tile caption for a server whose name is unknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Server'**
+  String get syncSheetServerFallback;
+
+  /// Endpoint tile label when a side has no folder yet; opens the full pair editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose Folders…'**
+  String get syncSheetChooseFolders;
+
+  /// Tooltip and accessibility label of the direction toggle between the endpoint tiles.
+  ///
+  /// In en, this message translates to:
+  /// **'From {source} to {destination}. Click to reverse.'**
+  String syncSheetDirectionTooltip(String source, String destination);
+
+  /// Tooltip of the direction toggle while the pair syncs both ways.
+  ///
+  /// In en, this message translates to:
+  /// **'Both ways. Click to sync one way.'**
+  String get syncSheetBothWaysTooltip;
+
+  /// The comparison row. {choice} marks where the comparison dropdown sits; the text around it renders on either side.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the {choice} to determine if a file has changed'**
+  String syncSheetCompareSentence(String choice);
+
+  /// Comparison dropdown choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Size and Modification Date'**
+  String get syncSheetCompareSizeDate;
+
+  /// Comparison dropdown choice.
+  ///
+  /// In en, this message translates to:
+  /// **'File Size'**
+  String get syncSheetCompareSize;
+
+  /// Comparison dropdown choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Checksum'**
+  String get syncSheetCompareChecksum;
+
+  /// Checkbox: delete destination files the source does not have (Mirror).
+  ///
+  /// In en, this message translates to:
+  /// **'Delete orphaned destination files'**
+  String get syncSheetDeleteOrphans;
+
+  /// Caption under the disabled delete checkbox in Additive mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Not available when syncing both ways'**
+  String get syncSheetDeleteOrphansBothWays;
+
+  /// Radio under the delete checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to trash (recommended)'**
+  String get syncSheetDeleteToTrash;
+
+  /// Radio under the delete checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete permanently'**
+  String get syncSheetDeletePermanently;
+
+  /// Checkbox in the sync sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Include hidden files'**
+  String get syncSheetIncludeHidden;
+
+  /// Checkbox in the sync sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip items matching rules'**
+  String get syncSheetSkipRules;
+
+  /// Button showing how many exclude rules the pair has.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No rules} =1{1 rule} other{{count} rules}}'**
+  String syncSheetRuleCount(int count);
+
+  /// Opens the exclude-rules editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Rules…'**
+  String get syncSheetEditRules;
+
+  /// The time-tolerance row of the sync sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'{seconds, plural, =1{Modification date tolerance: 1 second} other{Modification date tolerance: {seconds} seconds}}'**
+  String syncSheetTolerance(int seconds);
+
+  /// Appended to the tolerance row when 1-hour shifts are accepted.
+  ///
+  /// In en, this message translates to:
+  /// **'ignoring exact 1-hour differences'**
+  String get syncSheetToleranceHourShift;
+
+  /// Appended to the tolerance row for accepted shifts other than one hour (set in older builds or the advanced editor).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{plus 1 custom time shift} other{plus {count} custom time shifts}}'**
+  String syncSheetToleranceOtherShifts(int count);
+
+  /// The tolerance row while the comparison ignores dates.
+  ///
+  /// In en, this message translates to:
+  /// **'Modification dates aren’t compared'**
+  String get syncSheetToleranceUnused;
+
+  /// Opens the time-tolerance dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Time Offset…'**
+  String get syncSheetTimeOffset;
+
+  /// Lead-in above the plain-language plan sentence.
+  ///
+  /// In en, this message translates to:
+  /// **'Here’s the plan:'**
+  String get syncSheetPlanLead;
+
+  /// Tooltip of the sheet’s ⋯ menu button.
+  ///
+  /// In en, this message translates to:
+  /// **'More options'**
+  String get syncSheetMore;
+
+  /// ⋯ menu item that makes the pair copy missing files in both directions.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync Both Ways (Additive)'**
+  String get syncSheetBothWays;
+
+  /// ⋯ menu item opening the full pair editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced…'**
+  String get syncSheetAdvanced;
+
+  /// Sheet button: scan and open the review without changing anything.
+  ///
+  /// In en, this message translates to:
+  /// **'Simulate'**
+  String get syncSheetSimulate;
+
+  /// Sheet button (default): scan, then run when nothing is replaced, deleted, or in conflict.
+  ///
+  /// In en, this message translates to:
+  /// **'Synchronize'**
+  String get syncSheetSynchronize;
+
+  /// Tooltip of the Simulate button.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan both sides and review the plan. Nothing changes until you run it.'**
+  String get syncSheetSimulateTooltip;
+
+  /// Tooltip of the Synchronize button.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan, then copy straight away when nothing would be replaced, deleted, or in conflict. Otherwise you review the plan first.'**
+  String get syncSheetSynchronizeTooltip;
+
+  /// Title of the name dialog that saves a sync pair to the sidebar.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as Favorite'**
+  String get syncFavoriteNameTitle;
+
+  /// Title of the exclude-rules editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip Rules'**
+  String get syncRulesTitle;
+
+  /// Help text of the exclude-rules field.
+  ///
+  /// In en, this message translates to:
+  /// **'One pattern per line, gitignore style: *.log, build/, /private.txt, !keep.log'**
+  String get syncRulesHint;
+
+  /// Heading of the read-only list of built-in exclude patterns.
+  ///
+  /// In en, this message translates to:
+  /// **'Always skipped'**
+  String get syncRulesDefaultsTitle;
+
+  /// Confirms the rules or time-offset dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get syncRulesDone;
+
+  /// Title of the time-tolerance dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Time Offset'**
+  String get syncTimeOffsetTitle;
+
+  /// Field label: dates this close count as equal.
+  ///
+  /// In en, this message translates to:
+  /// **'Tolerance in seconds'**
+  String get syncTimeOffsetToleranceLabel;
+
+  /// Help text under the tolerance field.
+  ///
+  /// In en, this message translates to:
+  /// **'Modification dates this close together count as the same.'**
+  String get syncTimeOffsetToleranceHelp;
+
+  /// Checkbox in the time-offset dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Ignore exact 1-hour differences'**
+  String get syncTimeOffsetHourShift;
+
+  /// Help text under the 1-hour checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'For drives that store local time, such as FAT, across a daylight saving change.'**
+  String get syncTimeOffsetHourShiftHelp;
+
+  /// Banner on the review tab when Synchronize stopped before running. {reasons} is a comma-joined list of the fragments below.
+  ///
+  /// In en, this message translates to:
+  /// **'This plan {reasons} — review before running.'**
+  String syncHoldBanner(String reasons);
+
+  /// Hold-banner fragment.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{deletes 1 file} other{deletes {count} files}}'**
+  String syncHoldDeletes(int count);
+
+  /// Hold-banner fragment.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{removes 1 empty folder} other{removes {count} empty folders}}'**
+  String syncHoldEmptyFolders(int count);
+
+  /// Hold-banner fragment.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{replaces 1 file} other{replaces {count} files}}'**
+  String syncHoldReplaces(int count);
+
+  /// Hold-banner fragment.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{has 1 conflict} other{has {count} conflicts}}'**
+  String syncHoldConflicts(int count);
+
+  /// Plan review section: new files and folders.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get syncSectionCopy;
+
+  /// Plan review section: files that replace an existing copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Update'**
+  String get syncSectionUpdate;
+
+  /// Plan review section: removals.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get syncSectionDelete;
+
+  /// Plan review section: rows that need a decision.
+  ///
+  /// In en, this message translates to:
+  /// **'Conflicts'**
+  String get syncSectionConflicts;
+
+  /// Plan review section: rows that will not change.
+  ///
+  /// In en, this message translates to:
+  /// **'Skipped'**
+  String get syncSectionSkipped;
+
+  /// Accessibility label of a plan review section header.
+  ///
+  /// In en, this message translates to:
+  /// **'{section}, {count, plural, =1{1 item} other{{count} items}}'**
+  String syncSectionSemantics(String section, int count);
+
+  /// Plan review column header.
+  ///
+  /// In en, this message translates to:
+  /// **'Path'**
+  String get syncColumnPath;
+
+  /// Plan review column header.
+  ///
+  /// In en, this message translates to:
+  /// **'Reason'**
+  String get syncColumnReason;
+
+  /// Accessibility label of a plan review row.
+  ///
+  /// In en, this message translates to:
+  /// **'{path}: {action}, {reason}'**
+  String syncRowSemantics(String path, String action, String reason);
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'copy to “{side}”'**
+  String syncRowActionCopy(String side);
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'replace in “{side}”'**
+  String syncRowActionUpdate(String side);
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'create folder in “{side}”'**
+  String syncRowActionMakeDir(String side);
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'delete from “{side}”'**
+  String syncRowActionDelete(String side);
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'conflict'**
+  String get syncRowActionConflict;
+
+  /// Row accessibility action.
+  ///
+  /// In en, this message translates to:
+  /// **'skip'**
+  String get syncRowActionSkip;
+
+  /// Tooltip of a plan review row checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Space includes or skips this row'**
+  String get syncRowToggleHint;
+
+  /// Joins the quoted item names inside the delete headline (“a.txt”, “b.txt”): closes one quote, separates, opens the next. Use your locale's quotation marks, matching deleteDialogDeleteNames.
+  ///
+  /// In en, this message translates to:
+  /// **'”, “'**
+  String get deleteDialogNameSeparator;
+
+  /// Listing column header: the item name column (click to sort).
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get paneColumnName;
+
+  /// Listing column header: the size column (click to sort).
+  ///
+  /// In en, this message translates to:
+  /// **'Size'**
+  String get paneColumnSize;
+
+  /// Listing column header: the modification date column (click to sort).
+  ///
+  /// In en, this message translates to:
+  /// **'Date Modified'**
+  String get paneColumnModified;
+
+  /// Accessibility value of the column header the listing is sorted by, ascending.
+  ///
+  /// In en, this message translates to:
+  /// **'Sorted ascending'**
+  String get paneColumnSortedAscending;
+
+  /// Accessibility value of the column header the listing is sorted by, descending.
+  ///
+  /// In en, this message translates to:
+  /// **'Sorted descending'**
+  String get paneColumnSortedDescending;
+
+  /// Accessibility hint of a listing column header.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort by this column'**
+  String get paneColumnSortHint;
+
+  /// Location header's second line while rows are selected.
+  ///
+  /// In en, this message translates to:
+  /// **'{selected} of {total} selected'**
+  String paneSelectionSummary(int selected, int total);
+
+  /// Location header's selection line with the selected files' total size, e.g. '3 of 329 selected · 42.1 MB'.
+  ///
+  /// In en, this message translates to:
+  /// **'{summary} · {size}'**
+  String paneSelectionSummaryWithSize(String summary, String size);
+
+  /// Tooltip of the location header's menu button listing the enclosing folders.
+  ///
+  /// In en, this message translates to:
+  /// **'Enclosing folders'**
+  String get paneAncestorMenuTooltip;
+
+  /// View menu toggle: show or hide dotfiles in the active tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Show Hidden Files'**
+  String get viewToggleHiddenLabel;
+
+  /// Copies the selected items' full paths (or the folder's) to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy Path'**
+  String get selectionCopyPathLabel;
+
+  /// Tab context menu: closes every other tab in this pane.
+  ///
+  /// In en, this message translates to:
+  /// **'Close Other Tabs'**
+  String get tabCloseOthersLabel;
+
+  /// Tab context menu: opens a new tab at this tab's location.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate Tab'**
+  String get tabDuplicateLabel;
+
+  /// Tab context menu: moves the tab to the other pane's tab strip.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to Other Pane'**
+  String get tabMoveToOtherPaneLabel;
+
+  /// Tab context menu: copies the tab's folder path to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy Path'**
+  String get tabCopyPathLabel;
+
+  /// Helper under the prefilled Quick Connect field: what to type after the user name.
+  ///
+  /// In en, this message translates to:
+  /// **'host[:port]'**
+  String get quickConnectAddressHostHint;
+
+  /// View menu submenu: sort the listing by Name, Size, or Date Modified.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort By'**
+  String get viewSortByLabel;
+
+  /// Sidebar section header over the local volumes (D32 §5). Rendered in caps.
+  ///
+  /// In en, this message translates to:
+  /// **'Devices'**
+  String get sidebarDevicesSection;
+
+  /// Sidebar section header over the local-folder, workspace, and saved-sync bookmarks (D32 §5). Rendered in caps.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get sidebarFavoritesSection;
+
+  /// Sidebar section header over saved servers, shared-account servers, and live Quick Connect sessions (D32 §5). Rendered in caps.
+  ///
+  /// In en, this message translates to:
+  /// **'Servers'**
+  String get sidebarServersSection;
+
+  /// Tooltip of a collapsed sidebar section's chevron.
+  ///
+  /// In en, this message translates to:
+  /// **'Show'**
+  String get sidebarShowSection;
+
+  /// Tooltip of an expanded sidebar section's chevron.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide'**
+  String get sidebarHideSection;
+
+  /// Placeholder of the sidebar's filter field; it filters every section.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter'**
+  String get sidebarFilterHint;
+
+  /// Shown in the sidebar when the filter matches no row in any section.
+  ///
+  /// In en, this message translates to:
+  /// **'No matches'**
+  String get sidebarNoMatches;
+
+  /// Tooltip of the sidebar bottom bar's + menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get sidebarAddMenu;
+
+  /// Tooltip of the sidebar bottom bar's gear (opens Settings).
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get sidebarSettings;
+
+  /// Sidebar + menu: opens the server editor for a new shared-account server.
+  ///
+  /// In en, this message translates to:
+  /// **'New Server…'**
+  String get sidebarAddNewServer;
+
+  /// Sidebar + menu: opens Connect (⌘K).
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Connect…'**
+  String get sidebarAddQuickConnect;
+
+  /// Sidebar + menu: saves the active pane's folder. Local folders land in Favorites, remote ones in Servers.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Current Folder to Favorites'**
+  String get sidebarAddCurrentFolder;
+
+  /// Tooltip of the Favorites section header's + button.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Current Folder'**
+  String get sidebarFavoritesAdd;
+
+  /// Tooltip of the Servers section header's + button when the server editor is available.
+  ///
+  /// In en, this message translates to:
+  /// **'New Server'**
+  String get sidebarServersAddNew;
+
+  /// Tooltip of the Servers section header's + button when only Quick Connect is available.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Connect'**
+  String get sidebarServersAddConnect;
+
+  /// Sidebar sync chip while this device is not enrolled in Sync; clicking opens the Sync settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync off'**
+  String get sidebarSyncOff;
+
+  /// Tooltip of the sidebar sync chip while Sync is off.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up Sync'**
+  String get sidebarSyncOffTooltip;
+
+  /// Sidebar sync chip after a failed round; clicking retries.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync failed'**
+  String get sidebarSyncFailedChip;
+
+  /// Sidebar sync chip while enrolled but before the first completed round.
+  ///
+  /// In en, this message translates to:
+  /// **'Not synced yet'**
+  String get sidebarSyncNever;
+
+  /// Sidebar sync chip within a minute of the last completed round.
+  ///
+  /// In en, this message translates to:
+  /// **'Synced · just now'**
+  String get sidebarSyncedJustNow;
+
+  /// Sidebar sync chip: minutes since the last completed round.
+  ///
+  /// In en, this message translates to:
+  /// **'Synced · {minutes} min'**
+  String sidebarSyncedMinutes(int minutes);
+
+  /// Sidebar sync chip: hours since the last completed round.
+  ///
+  /// In en, this message translates to:
+  /// **'Synced · {hours} h'**
+  String sidebarSyncedHours(int hours);
+
+  /// Sidebar sync chip: days since the last completed round.
+  ///
+  /// In en, this message translates to:
+  /// **'Synced · {days} d'**
+  String sidebarSyncedDays(int days);
+
+  /// Trailing text of a server row shown in more than one tab: the number of tabs.
+  ///
+  /// In en, this message translates to:
+  /// **'×{count}'**
+  String sidebarTabCount(int count);
+
+  /// Empty-Favorites offer: one click adds whichever of the three folders exist. Favorites sync, so they are never added silently.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Desktop, Documents, and Downloads'**
+  String get sidebarFavoritesAddStandard;
+
+  /// Empty-Favorites hint when none of the standard folders exist to offer.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag folders here to keep them close.'**
+  String get sidebarFavoritesEmpty;
+
+  /// Empty-Servers hint.
+  ///
+  /// In en, this message translates to:
+  /// **'No servers yet. Connect to one, then save it here.'**
+  String get sidebarServersEmpty;
+
+  /// Placeholder row inside a group created with New Group… that has no members yet.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag favorites here'**
+  String get sidebarGroupEmpty;
+
+  /// Device row menu verb: saves the volume's folder as a favorite.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to Favorites'**
+  String get sidebarAddToFavorites;
+
+  /// Device row verb (menu and hover glyph) for removable volumes.
+  ///
+  /// In en, this message translates to:
+  /// **'Eject'**
+  String get sidebarEject;
+
+  /// Menu verb on an unsaved Quick Connect session in the sidebar: saves it as a server.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to Servers…'**
+  String get sidebarSaveToServers;
+
+  /// Title of the name dialog that saves a Quick Connect session.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to Servers'**
+  String get sidebarSaveToServersTitle;
+
+  /// Announced after a live Quick Connect session's name in the sidebar (the row is shown in italics).
+  ///
+  /// In en, this message translates to:
+  /// **'not saved'**
+  String get sidebarUnsavedSession;
+
+  /// Title of the rename dialog for a saved server row.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename Server'**
+  String get sidebarRenameServerTitle;
+
+  /// Title of the confirmation before removing a saved server row.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove Server'**
+  String get sidebarDeleteServerTitle;
+
+  /// Command label: shows and focuses the sidebar's filter field (view.filterSidebar, ⌥⌘F / Ctrl+Alt+F).
+  ///
+  /// In en, this message translates to:
+  /// **'Filter Sidebar'**
+  String get viewFilterSidebarLabel;
+
+  /// Shown when the OS refuses to eject a volume.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t eject “{name}”. Close anything using it and try again.'**
+  String sidebarEjectFailed(String name);
+
+  /// Shown when Add Current Folder names a folder a favorite already holds.
+  ///
+  /// In en, this message translates to:
+  /// **'“{label}” is already in Favorites.'**
+  String sidebarAlreadyFavorite(String label);
+
+  /// Body of the confirmation before removing a saved server row.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove “{label}” from Servers? This cannot be undone.'**
+  String sidebarDeleteServerBody(String label);
+
+  /// Announced after a device's name: its free space.
+  ///
+  /// In en, this message translates to:
+  /// **'{size} available'**
+  String sidebarFreeSpaceSemantics(String size);
+
+  /// D32 §9: hint of the search bar at the top of the compact Home screen (the full-screen sidebar).
+  ///
+  /// In en, this message translates to:
+  /// **'Search servers and folders'**
+  String get compactHomeSearchHint;
+
+  /// D32 §9: tooltip of the ⋮ overflow on the compact app bars; opens the command menus as a sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'More options'**
+  String get compactMoreOptions;
+
+  /// D32 §9: the pane switcher's short name for pane A (the left pane on wide windows).
+  ///
+  /// In en, this message translates to:
+  /// **'A'**
+  String get compactPaneLetterA;
+
+  /// D32 §9: the pane switcher's short name for pane B (the right pane on wide windows).
+  ///
+  /// In en, this message translates to:
+  /// **'B'**
+  String get compactPaneLetterB;
+
+  /// D32 §9: tooltip and announced action of the app bar's A · B pane switcher, e.g. 'Switch to Pane B'.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to {pane}'**
+  String compactPaneSwitchTooltip(String pane);
+
+  /// D32 §9: announced state of the A · B pane switcher, e.g. 'Pane A is showing'.
+  ///
+  /// In en, this message translates to:
+  /// **'{shown} is showing'**
+  String compactPaneSwitcherSemantics(String shown);
+
+  /// D32 §9: tooltip of the compact browser's search action, which filters the listing as you type.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter this folder'**
+  String get compactFilterOpen;
+
+  /// D32 §9: tooltip of the button that closes the compact browser's filter field and clears the filter.
+  ///
+  /// In en, this message translates to:
+  /// **'Close filter'**
+  String get compactFilterClose;
+
+  /// D32 §9: second line of a compact listing row, e.g. '4.2 KB · Today 10:24'.
+  ///
+  /// In en, this message translates to:
+  /// **'{size} · {date}'**
+  String compactRowDetails(String size, String date);
+
+  /// D32 §9: the size slot of a folder row's second line (a folder's listed size is not its contents).
+  ///
+  /// In en, this message translates to:
+  /// **'Folder'**
+  String get compactRowFolder;
+
+  /// D32 §9: the size slot of a symbolic link row's second line.
+  ///
+  /// In en, this message translates to:
+  /// **'Link'**
+  String get compactRowLink;
+
+  /// D32 §9: tooltip of a compact row's trailing ⋮, which opens the item's action sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Actions for {name}'**
+  String compactRowActions(String name);
+
+  /// D32 §9: the contextual app bar's title while items are selected, e.g. '3 selected'. The selected files' size is appended through paneSelectionSummaryWithSize.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 selected} other{{count} selected}}'**
+  String compactSelectionCount(int count);
+
+  /// D32 §9: tooltip of the ✕ that leaves selection mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear selection'**
+  String get compactSelectionClear;
+
+  /// D32 §9: selection bar label of Copy to Other Pane, naming the other pane's letter, e.g. 'Copy to B'.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy to {pane}'**
+  String compactActionCopyTo(String pane);
+
+  /// D32 §9: selection bar label of Move to Other Pane, naming the other pane's letter, e.g. 'Move to B'.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to {pane}'**
+  String compactActionMoveTo(String pane);
+
+  /// D32 §9: selection bar label of the delete verb (Move to Trash locally, Delete on a server).
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get compactActionDelete;
+
+  /// D32 §9: selection bar item that opens the remaining selection verbs as a sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get compactActionMore;
+
+  /// D32 §9: the floating progress pill shown while transfers run.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 transfer} other{{count} transfers}}'**
+  String compactTransfersPill(int count);
+
+  /// D32 §9: the progress pill with the queue's overall progress, e.g. '2 transfers · 45%'.
+  ///
+  /// In en, this message translates to:
+  /// **'{transfers} · {percent}%'**
+  String compactTransfersPillProgress(String transfers, int percent);
+
+  /// D32 §9: announced action of the progress pill; opens the inspector sheet on Transfers.
+  ///
+  /// In en, this message translates to:
+  /// **'Show transfers'**
+  String get compactTransfersPillTooltip;
+
+  /// D32 §9: announced action of the inspector sheet's drag handle.
+  ///
+  /// In en, this message translates to:
+  /// **'Close inspector'**
+  String get compactSheetClose;
+
+  /// D32 §9: dismisses the compact rename dialog without renaming.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get compactCancel;
+
+  /// D32 §9: announced name of the compact browser's horizontally scrolling breadcrumb chips.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder path'**
+  String get compactBreadcrumbsLabel;
+
+  /// D32 §9: hint above Quick Connect when the shown pane has no tab open.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to a server here, or go back to Home to pick a location.'**
+  String get compactLauncherHint;
+
+  /// D32 §9: title of the compact posture's path dialog (Go to Folder and Edit Path).
+  ///
+  /// In en, this message translates to:
+  /// **'Go to folder'**
+  String get compactGoToFolderTitle;
+
+  /// D32 §9: the path dialog's confirm button; navigates to the typed path.
+  ///
+  /// In en, this message translates to:
+  /// **'Go'**
+  String get compactGo;
+
+  /// D32 §9: confirms the compact Quick Select strip, keeping the matched selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get compactDone;
+
+  /// DEVICES row on platforms that list no volumes (Android, iOS): opens the app's own files on this device.
+  ///
+  /// In en, this message translates to:
+  /// **'This device'**
+  String get sidebarThisDevice;
+
+  /// Screen-reader name of the in-app Quick Look overlay Space opens on Linux and Windows (D32, 06 §5.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Look'**
+  String get quickLookOverlayLabel;
+
+  /// Tooltip of the Quick Look overlay's close button; Space and Esc close it too.
+  ///
+  /// In en, this message translates to:
+  /// **'Close Quick Look'**
+  String get quickLookClose;
+
+  /// The Quick Look overlay's place in a multi-item selection, e.g. '2 of 5'.
+  ///
+  /// In en, this message translates to:
+  /// **'{index} of {count}'**
+  String quickLookPosition(int index, int count);
+
+  /// Shown under the name in the Quick Look overlay for folders and file kinds it cannot render.
+  ///
+  /// In en, this message translates to:
+  /// **'No preview for this kind of item.'**
+  String get quickLookNoPreview;
+
+  /// The pane's slim banner after a Quick Connect: the live session is not a saved server yet. The endpoint is user@host with any non-default port.
+  ///
+  /// In en, this message translates to:
+  /// **'Not saved · {endpoint}'**
+  String paneUnsavedSession(String endpoint);
+
+  /// Tooltip of the Not saved banner's close button; hides the banner for this tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get paneUnsavedDismiss;
+
+  /// Section label over the saved servers the Connect dialog (⌘K) offers as one-click rows above Quick Connect (D32 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Servers'**
+  String get connectDialogServers;
+
+  /// Tooltip of a sidebar row's visible ⋮ button, which opens the row's verbs (the shared sidebar kit's showMenuButton; Séance uses the same words).
+  ///
+  /// In en, this message translates to:
+  /// **'More actions'**
+  String get sidebarRowMenu;
+
+  /// D32 §9: second line of the compact Home's "This device" row. The local pane on a phone is the app's own storage, not the whole device.
+  ///
+  /// In en, this message translates to:
+  /// **'App storage'**
+  String get compactHomeThisDeviceSubtitle;
+
+  /// D32 §9: second line of a DEVICES row on the compact Home, e.g. '23 GB free'.
+  ///
+  /// In en, this message translates to:
+  /// **'{size} free'**
+  String compactHomeFreeSpace(String size);
+
+  /// D32 §9: a remote location on a compact Home row's second line: the server's name, then the folder, e.g. 'demo · /srv/www'.
+  ///
+  /// In en, this message translates to:
+  /// **'{server} · {path}'**
+  String compactHomeRemoteLocation(String server, String path);
+
+  /// D32 §9: second line of a saved-sync favorite on the compact Home: its source and destination, e.g. '~/site → demo · /srv/www'.
+  ///
+  /// In en, this message translates to:
+  /// **'{source} → {destination}'**
+  String compactHomeSyncRoute(String source, String destination);
+
+  /// D32 §9: second line of a server row on the compact Home while its state needs words: the state first, then user@host, e.g. 'Connecting… · deploy@example.com'.
+  ///
+  /// In en, this message translates to:
+  /// **'{state} · {endpoint}'**
+  String compactHomeServerState(String state, String endpoint);
+
+  /// D32 §9: announced on a compact Home server row shown in several tabs (the row's visible ×N).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 tab open} other{{count} tabs open}}'**
+  String compactHomeTabsOpen(int count);
+
+  /// D32 §9: title of the compact Home's empty SERVERS state, above the Quick Connect and Import from ssh config buttons.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to a server'**
+  String get compactHomeServersEmptyTitle;
+
+  /// D32 §9: body of the compact Home's empty SERVERS state.
+  ///
+  /// In en, this message translates to:
+  /// **'Servers you save appear here, with their status.'**
+  String get compactHomeServersEmptyBody;
+
+  /// D32 §9: title of the compact Home's empty FAVORITES state.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep folders close'**
+  String get compactHomeFavoritesEmptyTitle;
+
+  /// D32 §9: body of the compact Home's empty FAVORITES state: how a folder becomes a favorite on a phone (the browser's ⋮ menu offers the verb).
+  ///
+  /// In en, this message translates to:
+  /// **'Open a folder, then choose Add Current Folder to Favorites from its menu.'**
+  String get compactHomeFavoritesEmptyBody;
+
+  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a local folder (Home, where the row appears, is a screen away).
+  ///
+  /// In en, this message translates to:
+  /// **'Added “{label}” to Favorites.'**
+  String compactAddedToFavorites(String label);
+
+  /// D32 §9: confirmation after the compact browser's ⋮ ▸ Add Current Folder to Favorites saved a remote folder, which lands under Servers.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved “{label}” to Servers.'**
+  String compactSavedToServers(String label);
+
+  /// Command label: browse the tab's home, the user's home folder locally or the login folder on a server (go.home, ⇧⌘H, 02 §8.3, 10 §8's Go menu).
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get goHomeLabel;
+
+  /// View menu command on Windows and Linux while the window is not full screen (10 §8). macOS shows AppKit's own item instead.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter Full Screen'**
+  String get viewEnterFullScreenLabel;
+
+  /// The same View menu command's label while the window is full screen (Windows and Linux, 10 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Exit Full Screen'**
+  String get viewExitFullScreenLabel;
+
+  /// Disabled-command reason for Server ▸ Disconnect (connect.disconnect): the active tab shows no live server connection.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires a tab connected to a server'**
+  String get commandDisabledNotConnected;
+
+  /// Disabled-command reason for Server ▸ Save to Servers… (connect.saveToServers): the active tab is not browsing a Quick Connect session that is not saved yet.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires an unsaved Quick Connect session'**
+  String get commandDisabledNoQuickConnect;
+
+  /// Screen-reader announcement when ↑/↓ in the Connect dialog's (⌘K) address field highlight a saved server row: focus stays in the field, so this says which server Return now opens. {detail} is the row's user@host.
+  ///
+  /// In en, this message translates to:
+  /// **'{server}, {detail}. Press Return to open it.'**
+  String connectDialogHighlightAnnouncement(String server, String detail);
+
+  /// Screen-reader announcement when ↑/↓ in the Connect dialog's address field move the highlight past the saved server rows, so Return submits the typed address again.
+  ///
+  /// In en, this message translates to:
+  /// **'No server highlighted. Press Return to connect to the address.'**
+  String get connectDialogHighlightCleared;
+
+  /// D32 §3: what a screen reader hears for the alert count badged on the inspector toggle and the Alerts tab (the painted badge shows only the number).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 alert} other{{count} alerts}}'**
+  String alertCountSemantics(int count);
+
+  /// D32 §3: what a screen reader hears for the count badged on the inspector's Transfers tab: queued, running, and paused transfers.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 unfinished transfer} other{{count} unfinished transfers}}'**
+  String transferCountSemantics(int count);
+
+  /// D32 §11: toast when file.reveal (Show in Finder / File Manager / Explorer) could not start any file manager for the local item; a failed reveal is never silent.
+  ///
+  /// In en, this message translates to:
+  /// **'“{name}” could not be shown in the file manager.'**
+  String fileRevealFailed(String name);
+
+  /// 10 §8: the macOS application menu's manual update check (D19's link-only checker, run on demand even when the launch check is turned off).
+  ///
+  /// In en, this message translates to:
+  /// **'Check for Updates…'**
+  String get appCheckForUpdatesLabel;
+
+  /// Toast after Check for Updates… found no newer release. The checker cannot tell “up to date” from “could not reach GitHub”, so the copy claims neither.
+  ///
+  /// In en, this message translates to:
+  /// **'No newer version was found. If you’re offline, try again later.'**
+  String get appUpdateNoneFound;
+
+  /// 10 §8: the Linux/Windows File menu's Quit row, which closes the window through the same quit guard as the titlebar's close button.
+  ///
+  /// In en, this message translates to:
+  /// **'Quit'**
+  String get appQuitLabel;
 }
 
 class _AppLocalizationsDelegate

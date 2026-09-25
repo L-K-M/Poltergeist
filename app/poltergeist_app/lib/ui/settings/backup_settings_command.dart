@@ -27,9 +27,9 @@ RegisteredCommand buildOpenSettingsBackupCommand({
     run: (context) =>
         showBackupSettingsDialog(context, service: service, gate: gate),
     menuPlacement: const CommandMenuPlacement(
-      menu: AppMenuId.file,
-      order: 160,
-      group: 3,
+      menu: AppMenuId.server,
+      order: 45,
+      group: 2,
     ),
   );
 }

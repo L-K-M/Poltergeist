@@ -591,7 +591,6 @@ class SyntaxLanguages {
       'import',
       'charset',
       'namespace',
-      'font-face',
       'page',
       'important',
       'inherit',
@@ -675,8 +674,13 @@ class SyntaxLanguages {
     strings: const ["'", '"'],
   );
 
-  /// Perl: `#` comments start anywhere; POD (`=pod`…`=cut`) is omitted
-  /// for the same BOL-anchored reason as ruby's `=begin` (06 §7).
+  /// Perl: a `#` counts as a comment only at a line start or after
+  /// whitespace, as for ruby — glued to a sigil or a delimiter it is
+  /// syntax (`$#list`, `s#a#b#`, `qw#a b#`, `s/#.*//`), and without the
+  /// boundary each greyed out the rest of its line. The cost is that a
+  /// comment glued to code (`1;# note`) renders as code. POD
+  /// (`=pod`…`=cut`) is omitted for the same BOL-anchored reason as
+  /// ruby's `=begin` (06 §7). Kept identical to Séance's rule.
   static final perl = SyntaxLanguage(
     id: 'perl',
     keywords: const {
@@ -745,6 +749,7 @@ class SyntaxLanguages {
       'cmp',
     },
     lineComments: const ['#'],
+    lineCommentNeedsBoundary: true,
     strings: const ["'", '"'],
   );
 

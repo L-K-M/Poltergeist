@@ -41,9 +41,12 @@ RegisteredCommand buildQuickOpenCommand({required void Function() open}) {
               shift: true,
             ),
           ],
-    // 02 §9's File menu: between the tab block (New/Reopen/Close at
-    // 10–30) and the file verbs (60+).
-    menuPlacement: const CommandMenuPlacement(menu: AppMenuId.file, order: 40),
+    // 10 §8's Go menu ends with Quick Open… in its own section.
+    menuPlacement: const CommandMenuPlacement(
+      menu: AppMenuId.go,
+      order: 90,
+      group: 3,
+    ),
     run: (_) async => open(),
   );
 }

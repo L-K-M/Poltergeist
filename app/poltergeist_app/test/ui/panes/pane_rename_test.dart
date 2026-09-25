@@ -126,12 +126,115 @@ void main() {
       expect(left.renameTarget!.name, 'report.txt');
       final field = tester.widget<TextField>(find.byKey(fieldKey));
       expect(field.controller!.text, 'report.txt');
-      // The stem is selected, the extension survives the first key.
+      // The stem is selected, the extension survives the first key; the
+      // caret end sits at the start so a long name shows its beginning.
       expect(
         field.controller!.selection,
-        const TextSelection(baseOffset: 0, extentOffset: 6),
+        const TextSelection(baseOffset: 6, extentOffset: 0),
       );
       expect(field.focusNode!.hasFocus, isTrue);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('the editor replaces the label in place: at its x, sized '
+      'to the name, centered in the row', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    try {
+      localChannel();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+      // The label x every row shares, read before the edit.
+      final labelX = tester.getTopLeft(find.text('notes.md')).dx;
+      final notesRow = tester.getRect(
+        find
+            .ancestor(of: find.text('notes.md'), matching: find.byType(Listener))
+            .first,
+      );
+
+      left.setCursorIndex(2); // report.txt, the row under notes.md
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.f2);
+      await tester.pumpAndSettle();
+
+      // The row's own label is gone while the editor shows its name.
+      expect(
+        find.descendant(
+          of: find.byType(ListView),
+          matching: find.text('report.txt'),
+        ),
+        findsNothing,
+      );
+      final editable = find.descendant(
+        of: find.byKey(fieldKey),
+        matching: find.byType(EditableText),
+      );
+      expect(tester.getRect(editable).left, closeTo(labelX, 1));
+
+      // Sized to the name plus a little slack — not the whole column —
+      // so nothing scrolls the name's start out of view.
+      const boxKey = ValueKey('pane.left.rename.box');
+      final box = tester.getRect(find.byKey(boxKey));
+      final painter = TextPainter(
+        text: TextSpan(
+          text: 'report.txt',
+          style: tester.widget<EditableText>(editable).style,
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      expect(box.width, greaterThan(painter.width));
+      expect(box.width, lessThan(painter.width + 48));
+      painter.dispose();
+      expect(
+        tester.state<EditableTextState>(editable).renderEditable.offset.pixels,
+        0,
+      );
+
+      // Vertically centered in its 22 px row (the row below notes.md),
+      // and the text centered in the box — nothing hangs out below it.
+      expect(box.center.dy, closeTo(notesRow.center.dy + notesRow.height, 1));
+      expect(box.height, lessThanOrEqualTo(notesRow.height));
+      final text = tester.getRect(editable);
+      expect(text.center.dy, closeTo(box.center.dy, 1));
+      expect(text.bottom, lessThanOrEqualTo(box.bottom));
+
+      // It grows as the name grows.
+      await tester.enterText(find.byKey(fieldKey), 'a-much-longer-name.txt');
+      await tester.pump();
+      expect(tester.getRect(find.byKey(boxKey)).width, greaterThan(box.width));
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('on touch the editor centers in the 48 dp row', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      localChannel();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      final notesRow = tester.getRect(
+        find
+            .ancestor(
+              of: find.text('notes.md'),
+              matching: find.byType(GestureDetector),
+            )
+            .first,
+      );
+      expect(notesRow.height, 48);
+
+      left.setCursorIndex(2); // report.txt, the row under notes.md
+      left.startRename();
+      await tester.pumpAndSettle();
+
+      final box = tester.getRect(
+        find.byKey(const ValueKey('pane.left.rename.box')),
+      );
+      expect(box.center.dy, closeTo(notesRow.center.dy + 48, 1));
+      expect(box.height, lessThan(48));
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }

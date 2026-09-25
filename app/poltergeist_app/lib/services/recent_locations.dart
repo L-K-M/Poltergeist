@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import 'bookmark_landing_path.dart';
 import 'pane_location.dart';
 import 'settings_store.dart';
 
@@ -46,7 +47,8 @@ final class RecentLocation {
     'label': label,
     'path': path,
     if (serverId != null) 'serverId': serverId,
-    if (remoteBookmark != null) 'bookmark': remoteBookmark!.toJson(),
+    if (remoteBookmark != null)
+      'bookmark': withRemoteLandingPath(remoteBookmark!.toJson()),
   };
 
   /// Tolerant decode: a malformed entry reports through the caller's
@@ -68,7 +70,7 @@ final class RecentLocation {
     final bookmarkJson = json['bookmark'];
     final bookmark = bookmarkJson is Map
         ? Bookmark.fromJson(
-            bookmarkJson.cast<String, dynamic>(),
+            withRemoteLandingPath(bookmarkJson.cast<String, dynamic>()),
             recordId: 'bookmark:$serverId',
           )
         : null;

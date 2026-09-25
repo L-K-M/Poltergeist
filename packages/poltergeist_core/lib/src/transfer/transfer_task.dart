@@ -96,6 +96,10 @@ class ResolvedConflictPolicy {
 /// A transfer endpoint. Sealed rather than a `{kind, serverId?}` pair so the
 /// invalid states (`server` without an id, `local` carrying one) are
 /// unrepresentable instead of defended at every consumer (03 §4.1).
+///
+/// Endpoints compare by value: a task's endpoint is built by the enqueue
+/// path or decoded from the journal, never shared with the pane or the
+/// session asking "is this my folder?", so identity would never match.
 sealed class FsLocation {
   const FsLocation();
 }
@@ -103,6 +107,12 @@ sealed class FsLocation {
 /// The local filesystem — the `LocalFileSystem` half of the one VFS (D3).
 final class LocalFsLocation extends FsLocation {
   const LocalFsLocation();
+
+  @override
+  bool operator ==(Object other) => other is LocalFsLocation;
+
+  @override
+  int get hashCode => (LocalFsLocation).hashCode;
 }
 
 /// A remote endpoint identified by its bookmark-derived server id (03 §3.5).
@@ -110,6 +120,13 @@ final class ServerFsLocation extends FsLocation {
   final String serverId;
 
   const ServerFsLocation(this.serverId);
+
+  @override
+  bool operator ==(Object other) =>
+      other is ServerFsLocation && other.serverId == serverId;
+
+  @override
+  int get hashCode => Object.hash(ServerFsLocation, serverId);
 }
 
 /// The shared read-only view of a destination entry (03 §4.1): the shape

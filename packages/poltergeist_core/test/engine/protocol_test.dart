@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
-const _expectedProtocolVersion = 12;
+const _expectedProtocolVersion = 13;
 const _probeStatuses = {
   'reachable': ProbeStatus.online,
   'refused': ProbeStatus.offline,
@@ -506,6 +507,238 @@ void main() {
           incidents: [_incident, _otherIncident],
         ),
       );
+    },
+  );
+
+  test(
+    'v13 bridge messages round-trip through a spawned isolate',
+    () async {
+      final messages = ReceivePort();
+      final incoming = StreamIterator<dynamic>(messages);
+      final isolate = await Isolate.spawn(_echo, messages.sendPort);
+      addTearDown(() async {
+        isolate.kill(priority: Isolate.immediate);
+        messages.close();
+        await incoming.cancel();
+      });
+      expect(await incoming.moveNext(), isTrue);
+      final engine = incoming.current as SendPort;
+
+      Future<T> echo<T>(Object message) async {
+        engine.send(message);
+        expect(await incoming.moveNext(), isTrue);
+        final returned = incoming.current;
+        expect(returned, isA<T>());
+        if (returned is EngineEvent) {
+          expect(returned.protocolVersion, _expectedProtocolVersion);
+        }
+        return returned as T;
+      }
+
+      final lease = await echo<LeaseTransferChannelRequest>(
+        LeaseTransferChannelRequest(
+          requestId: 1,
+          serverId: 'srv-1',
+          config: _config,
+        ),
+      );
+      expect(lease.serverId, 'srv-1');
+      expect(lease.config?.host, _config.host);
+      expect(lease.config?.authMethod, _config.authMethod);
+      expect(
+        (await echo<ReleaseTransferLeaseRequest>(
+          const ReleaseTransferLeaseRequest(requestId: 2, leaseId: 7),
+        )).leaseId,
+        7,
+      );
+
+      final when = DateTime.utc(2024, 5, 6, 7, 8, 9);
+      final ops = <VfsOp>[
+        const VfsCanonicalize('.'),
+        const VfsListDirectory('/srv'),
+        const VfsStat('/srv/a', followLinks: false),
+        const VfsSetMode('/srv/a', 0x1ED),
+        VfsSetTimes('/srv/a', modifiedAt: when),
+        const VfsSetOwner('/srv/a', uid: 1, gid: 2),
+        const VfsReadSymbolicLink('/srv/l'),
+        const VfsCreateSymbolicLink('/srv/l', '/srv/a'),
+        const VfsCreateDirectory('/srv/d'),
+        const VfsRename('/srv/a', '/srv/b', overwrite: true),
+        const VfsDelete(_entry),
+        const VfsCreateEmptyFile('/srv/e'),
+        const VfsContentDigest('/srv/a'),
+      ];
+      for (final (index, op) in ops.indexed) {
+        final target = index.isEven
+            ? const LeaseTarget(3) as VfsTarget
+            : const ChannelTarget(4);
+        final got = await echo<VfsOpRequest>(
+          VfsOpRequest(requestId: 10 + index, target: target, op: op),
+        );
+        expect(got.op.runtimeType, op.runtimeType);
+        expect(got.op.operation, op.operation);
+        expect(got.target.runtimeType, target.runtimeType);
+        switch ((got.op, op)) {
+          case (final VfsSetTimes a, final VfsSetTimes b):
+            expect(a.modifiedAt, b.modifiedAt);
+            expect(a.accessedAt, b.accessedAt);
+          case (final VfsRename a, final VfsRename b):
+            expect(a.newPath, b.newPath);
+            expect(a.overwrite, b.overwrite);
+          case (final VfsDelete a, final VfsDelete b):
+            expect(a.entry.path, b.entry.path);
+          case (final VfsSetOwner a, final VfsSetOwner b):
+            expect((a.uid, a.gid), (b.uid, b.gid));
+          case _:
+            break;
+        }
+      }
+
+      final download = await echo<DownloadStreamRequest>(
+        const DownloadStreamRequest(
+          requestId: 30,
+          leaseId: 3,
+          path: '/srv/a',
+          computeHash: true,
+          windowBytes: 4096,
+        ),
+      );
+      expect((download.path, download.computeHash, download.windowBytes), (
+        '/srv/a',
+        true,
+        4096,
+      ));
+      final upload = await echo<UploadStreamRequest>(
+        const UploadStreamRequest(
+          requestId: 31,
+          leaseId: 3,
+          path: '/srv/u',
+          length: 9,
+          overwrite: true,
+          preserveMode: 0x1A4,
+          expectedTarget: _entry,
+          computeHash: false,
+          windowBytes: 8192,
+        ),
+      );
+      expect(upload.expectedTarget?.path, _entry.path);
+      expect((upload.length, upload.preserveMode), (9, 0x1A4));
+
+      final chunk = await echo<UploadChunkRequest>(
+        UploadChunkRequest(
+          requestId: 32,
+          streamId: 31,
+          bytes: TransferableTypedData.fromList([
+            Uint8List.fromList([1, 2, 3]),
+          ]),
+        ),
+      );
+      expect(chunk.bytes.materialize().asUint8List(), [1, 2, 3]);
+      final abort = await echo<UploadAbortRequest>(
+        const UploadAbortRequest(
+          requestId: 33,
+          streamId: 31,
+          error: EngineError(
+            kind: RemoteFileErrorKind.other,
+            operation: 'upload',
+            message: 'source failed',
+          ),
+        ),
+      );
+      expect(abort.error.message, 'source failed');
+      for (final message in <EngineRequest>[
+        const StreamCreditRequest(requestId: 34, streamId: 30, bytes: 99),
+        const UploadEndRequest(requestId: 35, streamId: 31),
+        const CancelVfsStreamRequest(requestId: 36, streamId: 30),
+        const LocalTrashAvailableRequest(requestId: 37),
+        const LocalTrashRequest(requestId: 38, path: '/tmp/x'),
+      ]) {
+        final got = await echo<EngineRequest>(message);
+        expect(got.runtimeType, message.runtimeType);
+        expect(got.requestId, message.requestId);
+      }
+
+      final bytes = await echo<DownloadChunkEvent>(
+        DownloadChunkEvent(
+          streamId: 30,
+          bytes: TransferableTypedData.fromList([
+            Uint8List.fromList([9, 8]),
+          ]),
+          length: 2,
+          transferred: 2,
+          total: 10,
+        ),
+      );
+      expect(bytes.bytes.materialize().asUint8List(), [9, 8]);
+      expect((bytes.length, bytes.transferred, bytes.total), (2, 2, 10));
+      expect(
+        (await echo<UploadReadyEvent>(
+          const UploadReadyEvent(streamId: 31),
+        )).streamId,
+        31,
+      );
+      final progress = await echo<UploadProgressEvent>(
+        const UploadProgressEvent(
+          streamId: 31,
+          consumed: 5,
+          committed: 4,
+          total: 9,
+        ),
+      );
+      expect((progress.consumed, progress.committed, progress.total), (
+        5,
+        4,
+        9,
+      ));
+
+      Future<EngineResult> result(EngineResult value) async =>
+          (await echo<ResponseEvent>(
+            ResponseEvent(requestId: 40, result: value),
+          )).result;
+      expect(
+        (await result(const TransferLeaseGranted(leaseId: 3))
+                as TransferLeaseGranted)
+            .leaseId,
+        3,
+      );
+      expect(
+        (await result(const VfsEntryResult(entry: _entry)) as VfsEntryResult)
+            .entry
+            .size,
+        _entry.size,
+      );
+      expect(
+        (await result(const VfsStringResult(value: '/home'))
+                as VfsStringResult)
+            .value,
+        '/home',
+      );
+      expect(
+        (await result(const TrashAvailability(available: true))
+                as TrashAvailability)
+            .available,
+        isTrue,
+      );
+      expect(
+        (await result(const TrashMoved(trashedPath: '/t')) as TrashMoved)
+            .trashedPath,
+        '/t',
+      );
+      final trashError =
+          await result(
+                const EngineTrashError(
+                  kind: TrashErrorKind.unavailable,
+                  path: '/p',
+                  message: 'no trash',
+                ),
+              )
+              as EngineTrashError;
+      final exception = trashError.toException();
+      expect((exception.kind, exception.path, exception.message), (
+        TrashErrorKind.unavailable,
+        '/p',
+        'no trash',
+      ));
     },
   );
 

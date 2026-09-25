@@ -129,7 +129,7 @@ void main() {
       final save = byId('workspace.save');
       expect(save.label(l10n), 'Save Workspace…');
       expect(save.enabled(), isTrue);
-      expect(save.menuPlacement?.menu, AppMenuId.commands);
+      expect(save.menuPlacement?.menu, AppMenuId.server);
       expect(save.menuPlacement?.order, 50);
       expect(save.menuPlacement?.submenu, isNull);
     });
@@ -145,7 +145,7 @@ void main() {
         platform: TargetPlatform.linux,
       );
       final commandsMenu = menus.singleWhere(
-        (menu) => menu.id == AppMenuId.commands,
+        (menu) => menu.id == AppMenuId.server,
       );
       final rows = commandsMenu.groups.expand((group) => group).toList();
       final submenu = rows.whereType<AppMenuSubmenuRow>().single;
@@ -177,7 +177,7 @@ void main() {
         platform: TargetPlatform.linux,
       );
       final submenu = menus
-          .singleWhere((menu) => menu.id == AppMenuId.commands)
+          .singleWhere((menu) => menu.id == AppMenuId.server)
           .groups
           .expand((group) => group)
           .whereType<AppMenuSubmenuRow>()

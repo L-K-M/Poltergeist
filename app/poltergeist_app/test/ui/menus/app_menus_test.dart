@@ -12,6 +12,7 @@ import 'package:poltergeist_app/services/ssh_config_import_setup.dart';
 import 'package:poltergeist_app/services/uuid.dart';
 import 'package:poltergeist_app/ui/menus/app_menu_host.dart';
 import 'package:poltergeist_app/ui/menus/app_menus.dart';
+import 'package:poltergeist_app/ui/menus/menu_shortcut_hint.dart';
 import 'package:poltergeist_app/ui/panes/pane_commands.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -217,6 +218,53 @@ void main() {
         everyElement(isA<AppMenuCommandRow>()),
       );
     });
+
+    test('appMenuOnMac rows join the macOS application menu and keep '
+        'their own menu elsewhere (D32 §8)', () {
+      final commands = [
+        _command(
+          'a.settings',
+          placement: const CommandMenuPlacement(
+            menu: AppMenuId.file,
+            order: 90,
+            appMenuOnMac: true,
+          ),
+        ),
+        _command(
+          'a.open',
+          placement: const CommandMenuPlacement(
+            menu: AppMenuId.file,
+            order: 10,
+          ),
+        ),
+      ];
+
+      final mac = buildAppMenus(
+        commands: commands,
+        l10n: l10n,
+        platform: TargetPlatform.macOS,
+      );
+      final app = mac.first;
+      expect(app.id, AppMenuId.app);
+      // About leads; the command sits right under it, ahead of Services.
+      expect(
+        (app.groups.first.single as AppMenuProvidedRow).type,
+        PlatformProvidedMenuItemType.about,
+      );
+      expect(_commandIds(app), ['a.settings']);
+      expect(
+        _commandIds(mac.firstWhere((m) => m.id == AppMenuId.file)),
+        ['a.open'],
+      );
+
+      final linux = buildAppMenus(
+        commands: commands,
+        l10n: l10n,
+        platform: TargetPlatform.linux,
+      );
+      expect(linux.map((m) => m.id), [AppMenuId.file]);
+      expect(_commandIds(linux.single), ['a.open', 'a.settings']);
+    });
   });
 
   group('MenuBar branch (Windows/Linux)', () {
@@ -356,7 +404,9 @@ void main() {
       );
       // Single source: the hint IS the registered activator, never a
       // duplicated chord spelling.
-      expect(item.shortcut, same(chord));
+      expect(item.trailingIcon, isA<MenuShortcutHint>());
+      expect((item.trailingIcon! as MenuShortcutHint).activator, same(chord));
+      expect(find.text('Ctrl+R'), findsOneWidget);
     });
 
     testWidgets('renders shared submenu rows as nested submenus', (
@@ -392,6 +442,104 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('x.byName'), findsOneWidget);
       expect(find.text('x.bySize'), findsOneWidget);
+    });
+  });
+
+  group('AppMainMenuButton (D32 Windows/Linux)', () {
+    testWidgets('showMenuBar: false renders no strip; the ☰ button opens '
+        'the same tree with keyed, runnable rows', (tester) async {
+      var checked = false;
+      final ran = <String>[];
+      final commands = [
+        _command(
+          'x.open',
+          placement: const CommandMenuPlacement(
+            menu: AppMenuId.file,
+            order: 10,
+          ),
+          onRun: () => ran.add('x.open'),
+        ),
+        _command(
+          'x.off',
+          placement: const CommandMenuPlacement(
+            menu: AppMenuId.file,
+            order: 20,
+          ),
+          enabled: () => false,
+        ),
+        RegisteredCommand(
+          id: 'x.toggle',
+          scope: CommandScope.app,
+          label: (l10n) => 'x.toggle',
+          checked: () => checked,
+          menuPlacement: const CommandMenuPlacement(
+            menu: AppMenuId.view,
+            order: 10,
+          ),
+          run: (_) async => checked = !checked,
+        ),
+      ];
+      Future<void> onRun(RegisteredCommand command) => command.run(
+        tester.element(find.byType(Scaffold)),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.linux),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AppMenuHost(
+              commands: commands,
+              onRun: onRun,
+              showMenuBar: false,
+              child: Align(
+                alignment: Alignment.topRight,
+                child: AppMainMenuButton(commands: commands, onRun: onRun),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(MenuBar), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('menu.main')));
+      await tester.pumpAndSettle();
+      // One submenu per populated menu, keyed by the menu id.
+      expect(find.byKey(const ValueKey('menu.file')), findsOneWidget);
+      expect(find.byKey(const ValueKey('menu.view')), findsOneWidget);
+      expect(find.byKey(const ValueKey('menu.edit')), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('menu.file')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<MenuItemButton>(
+              find.byKey(const ValueKey('menu.item.x.off')),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.byKey(const ValueKey('menu.item.x.open')));
+      await tester.pumpAndSettle();
+      expect(ran, ['x.open']);
+
+      // A checkable row renders a checkbox item and carries its key
+      // exactly once (CheckboxMenuButton alone would forward it to the
+      // MenuItemButton it builds).
+      await tester.tap(find.byKey(const ValueKey('menu.main')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('menu.view')));
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(const ValueKey('menu.item.x.toggle'));
+      expect(toggle, findsOneWidget);
+      expect(
+        find.descendant(of: toggle, matching: find.byType(Checkbox)),
+        findsOneWidget,
+      );
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(checked, isTrue);
     });
   });
 
@@ -432,12 +580,14 @@ void main() {
         find.byType(PlatformMenuBar),
       );
       // The delegate received the push itself, not just the widget's
-      // configuration: app chrome first, then Go, then Window.
+      // configuration: app chrome first, then View (always present on
+      // macOS for its provided Enter Full Screen row, D32 §8), then Go,
+      // then Window.
       final pushed =
           WidgetsBinding.instance.platformMenuDelegate
               as _RecordingMenuDelegate;
       final titles = pushed.menus.map((m) => (m as PlatformMenu).label);
-      expect(titles, ['Poltergeist', 'Go', 'Window']);
+      expect(titles, ['Poltergeist', 'View', 'Go', 'Window']);
 
       final goMenu = _menuNamed(bar, 'Go');
       final item = _leavesOf(goMenu).single;
@@ -497,8 +647,14 @@ void main() {
       final view = pushed.menus
           .whereType<PlatformMenu>()
           .singleWhere((m) => m.label == 'View');
-      final nested = _leavesOf(view).single as PlatformMenu;
+      final leaves = _leavesOf(view);
+      final nested = leaves.whereType<PlatformMenu>().single;
       expect(nested.label, 'Sort By');
+      // macOS View ends with the provided Enter Full Screen item.
+      expect(
+        (leaves.last as PlatformProvidedMenuItem).type,
+        PlatformProvidedMenuItemType.toggleFullScreen,
+      );
       expect(
         _leavesOf(nested).map((item) => item.label),
         ['x.byName', 'x.bySize'],
@@ -663,6 +819,67 @@ void main() {
       item.onSelected!();
       await tester.pump();
       expect(ran, isTrue);
+    });
+  });
+
+  group('the delete family on the macOS menu', () {
+    testWidgets('its key equivalent acts only from a pane listing; a click '
+        'on the item runs it', (tester) async {
+      _useRecordingMenuDelegate();
+      var runs = 0;
+      final rowNode = FocusNode();
+      addTearDown(rowNode.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.macOS),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AppMenuHost(
+              commands: [
+                RegisteredCommand(
+                  id: 'file.delete',
+                  scope: CommandScope.selection,
+                  label: (l10n) => 'file.delete',
+                  activators: (_) => const [
+                    SingleActivator(LogicalKeyboardKey.backspace, meta: true),
+                  ],
+                  menuPlacement: const CommandMenuPlacement(
+                    menu: AppMenuId.file,
+                    order: 10,
+                  ),
+                  run: (_) async {},
+                ),
+              ],
+              onRun: (_) async => runs++,
+              // A sidebar row, say: focusable, not a pane listing.
+              child: Focus(focusNode: rowNode, child: const SizedBox()),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final bar = tester.widget<PlatformMenuBar>(
+        find.byType(PlatformMenuBar),
+      );
+      final item = _leavesOf(_menuNamed(bar, 'File')).single;
+      rowNode.requestFocus();
+      await tester.pump();
+
+      // Nothing in the window took ⌘⌫, so AppKit handed it to the menu:
+      // the key is still down, and it must not trash the selection.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.backspace);
+      item.onSelected!();
+      await tester.pump();
+      expect(runs, 0);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.backspace);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+
+      // Chosen from the menu with the pointer, it is the user's call.
+      item.onSelected!();
+      await tester.pump();
+      expect(runs, 1);
     });
   });
 

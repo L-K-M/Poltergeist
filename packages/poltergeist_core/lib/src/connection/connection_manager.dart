@@ -211,6 +211,7 @@ class PooledConnectionManager implements ConnectionManager {
   final KeyboardInteractiveResponder? _onKeyboardInteractive;
   final PoolPolicy _policy;
   final SshTransportOpener _openTransport;
+  final SshHostKeyPreflight? _hostKeyPreflight;
   final Prober _prober;
   final Random _reconnectRandom;
   final IncidentStore? _incidentStore;
@@ -256,6 +257,11 @@ class PooledConnectionManager implements ConnectionManager {
   /// them: writes and deletes are best-effort, so the wiring slice can
   /// surface a local notice (like vault-save failures) without the pool
   /// changing behavior. The observer must not throw.
+  ///
+  /// [hostKeyPreflight] verifies an unpinned endpoint's host key before
+  /// the first connect resolves credentials, so the trust prompt comes
+  /// before any password prompt (02 §10). Null skips it — the host key is
+  /// then verified inside the authenticated connect, after resolution.
   PooledConnectionManager({
     required this._resolveServer,
     required this._resolveCredentials,
@@ -264,6 +270,7 @@ class PooledConnectionManager implements ConnectionManager {
     this._onKeyboardInteractive,
     this._policy = const PoolPolicy(),
     this._openTransport = openDartSshTransport,
+    this._hostKeyPreflight,
     this._prober = const TcpBannerProber(),
     Random? reconnectRandom,
     this._incidentStore,
@@ -1009,6 +1016,16 @@ class PooledConnectionManager implements ConnectionManager {
       // only metadata. Never open with a secret returned to a retired pool.
       final trustEpoch = pool._trustEpoch;
       final observation = _TrustObservation();
+      // Trust before secrets (02 §10): an endpoint with no pin gets its
+      // first-use prompt on a short unauthenticated connection before the
+      // resolver may prompt for a password. A pinned endpoint skips it —
+      // its key is trusted or a changed-key incident either way, and the
+      // authenticated connect below re-checks it.
+      await _preflightHostKey(pool, reference.config, observation);
+      if (!_isCurrentTrustEpoch(pool, trustEpoch) || pool.references.isEmpty) {
+        _throwIfBlocked(pool);
+        throw _disconnectedAcquisition();
+      }
       final resolved = await _resolveCredentials(reference.config, resolution);
       // The resolution finished — retire its scope now, not at the end of
       // the whole connect: a last-reference disconnect during the transport
@@ -1093,6 +1110,22 @@ class PooledConnectionManager implements ConnectionManager {
     } finally {
       if (identical(pool._resolution, resolution)) pool._resolution = null;
     }
+  }
+
+  Future<void> _preflightHostKey(
+    _EndpointPool pool,
+    ServerConfig config,
+    _TrustObservation observation,
+  ) async {
+    final preflight = _hostKeyPreflight;
+    if (preflight == null || pool.blocked) return;
+    if (await _tofu.store.get(config.host, config.port) != null) return;
+    await preflight(
+      config: config,
+      tofu: _observingTofu(observation),
+      onHostKey: _hostKeyPrompterFor(pool, ConnectPrompting.enabled),
+      log: _forwardingLogFor(pool),
+    );
   }
 
   // ── Growth (rules 2–4) ─────────────────────────────────────────────────

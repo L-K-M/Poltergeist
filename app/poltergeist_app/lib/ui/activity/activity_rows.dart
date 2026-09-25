@@ -7,6 +7,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/activity_panel_controller.dart';
 import '../panes/pane_format.dart';
+import '../server_label_scope.dart';
 import 'activity_format.dart';
 import 'conflict_widgets.dart';
 
@@ -225,6 +226,7 @@ class _TaskRow extends StatelessWidget {
                       formatTransferRoute(
                         task,
                         localLabel: l10n.activityTaskRouteLocal,
+                        serverLabel: ServerLabelScope.maybeOf(context),
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -277,18 +279,8 @@ class _TaskRow extends StatelessWidget {
     };
   }
 
-  static String _taskTitle(TransferTask task, AppLocalizations l10n) {
-    if (task.rootPaths.length == 1) {
-      return pathBasename(task.rootPaths.first);
-    }
-    if (task.operation == TransferOperation.delete) {
-      return l10n.activityTaskTitleDelete(task.rootPaths.length);
-    }
-    return l10n.activityTaskTitleMulti(
-      task.rootPaths.length,
-      pathBasename(task.destinationDir),
-    );
-  }
+  static String _taskTitle(TransferTask task, AppLocalizations l10n) =>
+      transferTaskTitle(task, l10n);
 
   static String _taskStateLabel(TransferTask task, AppLocalizations l10n) =>
       switch (task.state) {

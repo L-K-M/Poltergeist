@@ -3,7 +3,6 @@ import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:macos_window_utils/widgets/titlebar_safe_area.dart';
 import 'package:poltergeist_core/poltergeist_core.dart'
     show
         BookmarkStore,
@@ -35,7 +34,9 @@ import 'services/update_check_controller.dart';
 import 'services/workspace_library.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
+import 'ui/inspector/inspector_view.dart' show inspectorDefaultWidth;
 import 'ui/server_editor.dart' show ServerEditorDelegate;
+import 'ui/shell/macos_toolbar_band.dart';
 import 'ui/workspace_shell.dart';
 
 class PoltergeistApp extends StatefulWidget {
@@ -65,9 +66,10 @@ class PoltergeistApp extends StatefulWidget {
     this.editorRegistry,
     this.quitGuard,
     this.conflictPolicy,
-    this.initialActivityPanelHeight = 200,
-    this.onActivityPanelHeightChanged,
-    this.onActivityPanelHeightSaveError,
+    this.initialSidebarWidth,
+    this.onSidebarWidthChanged,
+    this.initialInspectorWidth,
+    this.onInspectorWidthChanged,
     this.initialDownloadLimit,
     this.initialUploadLimit,
     this.onDownloadLimitChanged,
@@ -192,9 +194,11 @@ class PoltergeistApp extends StatefulWidget {
   final ConflictPolicy? conflictPolicy;
 
   /// The activity panel's persisted pixel height (02 §1).
-  final double initialActivityPanelHeight;
-  final PaneRatioSaver? onActivityPanelHeightChanged;
-  final void Function(Object, StackTrace)? onActivityPanelHeightSaveError;
+  /// D32's persisted region widths (10 §3.1); null boots the defaults.
+  final double? initialSidebarWidth;
+  final FutureOr<void> Function(double width)? onSidebarWidthChanged;
+  final double? initialInspectorWidth;
+  final FutureOr<void> Function(double width)? onInspectorWidthChanged;
 
   /// The persisted throttle limits seeded onto the queue's limiters.
   final int? initialDownloadLimit;
@@ -410,7 +414,15 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.supportedLocales,
-      home: TitlebarSafeArea(child: _buildWorkspace()),
+      // macOS: every route, dialog, and root-overlay toast keeps its
+      // controls below the unified toolbar band, which claims clicks
+      // for window drag...
+      builder: (context, child) => ReserveMacosToolbarBand(child: child!),
+      // ...except the shell, which draws under the transparent titlebar
+      // (the full-size content view), passes its header controls
+      // through, and insets itself for the traffic lights, leaving no
+      // blank titlebar band above the header (D32).
+      home: ClaimMacosToolbarBand(child: _buildWorkspace()),
     );
   }
 
@@ -442,10 +454,11 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       editorRegistry: widget.editorRegistry,
       quitGuard: widget.quitGuard,
       conflictPolicy: widget.conflictPolicy,
-      initialActivityPanelHeight: widget.initialActivityPanelHeight,
-      onActivityPanelHeightChanged: widget.onActivityPanelHeightChanged,
-      onActivityPanelHeightSaveError:
-          widget.onActivityPanelHeightSaveError,
+      initialSidebarWidth: widget.initialSidebarWidth ?? sidebarDefaultWidth,
+      onSidebarWidthChanged: widget.onSidebarWidthChanged,
+      initialInspectorWidth:
+          widget.initialInspectorWidth ?? inspectorDefaultWidth,
+      onInspectorWidthChanged: widget.onInspectorWidthChanged,
       initialDownloadLimit: widget.initialDownloadLimit,
       initialUploadLimit: widget.initialUploadLimit,
       onDownloadLimitChanged: widget.onDownloadLimitChanged,
