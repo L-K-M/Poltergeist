@@ -8899,6 +8899,22 @@ root (including the macOS menu bar), the window commands, the runner
 source contract, the multi-window session document, the lifecycle's
 close hook, and OS drops refused in an extra window.
 
+## Backup acknowledgement safety (2026-09-26)
+
+Backup replies now settle the exact record sent, inside the persistent store's
+mutation queue. Editing or deleting a bookmark while its previous revision is
+being pushed keeps the replacement dirty, including edits sharing a timestamp.
+A rejected old push cannot restore a displaced winner over the replacement.
+Unrequested and duplicate reply IDs cannot settle other operations.
+
+Three coordinator regressions failed before the fix. Coverage also checks
+reopening and backing up the preserved newer edit, plus a replacement queued
+immediately before settlement. Existing LWW conflict policy and the shared
+Séance wire format are unchanged; equal-version LWW conflicts remain a separate
+revision-policy concern. Séance's core by-ID acknowledgement API needs its own
+compatible upstream extension; this change uses Poltergeist's existing store
+extension without copying shared transport code.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
