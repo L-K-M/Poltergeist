@@ -1619,6 +1619,61 @@ void main() {
     expect(listing.controller!.position.pixels, 0);
   });
 
+  // P4-02: the climb lands on the folder the user came from, scrolled
+  // into view, not on the parent's top with the row 80 folders down.
+  testWidgets('going up reveals the folder the user came from', (
+    tester,
+  ) async {
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('notes.txt')];
+    channel.listings['/home'] = [
+      for (var i = 0; i < 160; i++)
+        RemoteFileEntry(
+          path: '/home/a${i.toString().padLeft(3, '0')}',
+          name: 'a${i.toString().padLeft(3, '0')}',
+          type: RemoteFileType.directory,
+        ),
+      const RemoteFileEntry(
+        path: '/home/tester',
+        name: 'tester',
+        type: RemoteFileType.directory,
+      ),
+      for (var i = 0; i < 160; i++)
+        RemoteFileEntry(
+          path: '/home/z${i.toString().padLeft(3, '0')}',
+          name: 'z${i.toString().padLeft(3, '0')}',
+          type: RemoteFileType.directory,
+        ),
+    ];
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await pumpShell(tester);
+    leftNode.requestFocus();
+    await tester.pump();
+
+    // Backspace is Enclosing Folder on Linux.
+    await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+    await tester.pumpAndSettle();
+    expect(left.location?.path, '/home');
+    expect(left.cursorIndex, isNotNull);
+    expect(left.entries[left.cursorIndex!].name, 'tester');
+
+    final row = find.text('tester');
+    expect(row, findsOneWidget);
+    final viewport = tester.getRect(
+      find.ancestor(of: row, matching: find.byType(Scrollable)).first,
+    );
+    final rect = tester.getRect(row);
+    // Centred: the folders on both sides of it are in view too.
+    expect(rect.top, greaterThan(viewport.top + viewport.height / 4));
+    expect(rect.bottom, lessThan(viewport.bottom - viewport.height / 4));
+
+    // Down goes to the next sibling, not back to the top.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    expect(left.entries[left.cursorIndex!].name, 'z000');
+  }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
   testWidgets('the active pane selects in the accent; the inactive one '
       'in neutral grey', (tester) async {
     localChannelWithEntries();

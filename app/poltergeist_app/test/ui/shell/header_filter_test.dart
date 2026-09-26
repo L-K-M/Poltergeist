@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
+import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/ui/panes/pane_commands.dart';
 import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -187,6 +188,166 @@ void main() {
     expect(find.text('alpha.txt'), findsOneWidget);
     expect(find.text('beta.txt'), findsNothing);
     expect(FocusManager.instance.primaryFocus?.debugLabel, 'header.filter');
+  });
+
+  // P4-01: every way out of the field lands on the listing it filters,
+  // so the arrows, Space, and Enter act on the results at once instead
+  // of reaching a bare route scope.
+  group('leaving the field hands focus back to the listing', () {
+    // Desktop rows: the listing takes keyboard focus there.
+    final linux = TargetPlatformVariant.only(TargetPlatform.linux);
+
+    PaneController activePane(WidgetTester tester) => tester
+        .widget<PaneTabsView>(find.byType(PaneTabsView).first)
+        .workspace
+        .activeTabController!;
+
+    String? primaryFocus() => FocusManager.instance.primaryFocus?.debugLabel;
+
+    Future<void> typeQuery(WidgetTester tester, String query) async {
+      await runShellCommand(tester, kPaneFocusLeftCommandId);
+      await tester.tap(field);
+      await tester.pumpAndSettle();
+      tester.testTextInput.enterText(query);
+      await tester.pumpAndSettle();
+      expect(primaryFocus(), 'header.filter');
+    }
+
+    testWidgets('Esc clears the query and the arrows move the cursor', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await typeQuery(tester, 'beta');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      final pane = activePane(tester);
+      expect(pane.filterQuery, isEmpty);
+      expect(primaryFocus(), 'pane.left.listing');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(pane.cursorIndex, 0);
+    }, variant: linux);
+
+    testWidgets('Enter keeps the query and selects the first match', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      // Both rows contain an "a": the filter keeps the whole listing.
+      await typeQuery(tester, 'a');
+
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      final pane = activePane(tester);
+      expect(pane.filterQuery, 'a');
+      expect(primaryFocus(), 'pane.left.listing');
+      // Enter-then-Space previews the first match.
+      expect(pane.cursorIndex, 0);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(pane.entries[pane.cursorIndex!].name, 'beta.txt');
+    }, variant: linux);
+
+    testWidgets('Enter keeps a cursor the query left standing', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await runShellCommand(tester, kPaneFocusLeftCommandId);
+      final pane = activePane(tester);
+      pane.setCursorIndex(1);
+      await typeQuery(tester, 'a');
+
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(primaryFocus(), 'pane.left.listing');
+      expect(pane.entries[pane.cursorIndex!].name, 'beta.txt');
+    }, variant: linux);
+
+    testWidgets('Down steps into the first row of the results', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await runShellCommand(tester, kPaneFocusLeftCommandId);
+      final pane = activePane(tester);
+      pane.setCursorIndex(1);
+      await typeQuery(tester, 'a');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      expect(primaryFocus(), 'pane.left.listing');
+      expect(pane.filterQuery, 'a');
+      expect(pane.cursorIndex, 0);
+
+      // The next Down is the listing's own.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(pane.cursorIndex, 1);
+    }, variant: linux);
+
+    testWidgets('an open composition keeps Down and Esc in the field', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await typeQuery(tester, 'a');
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: 'ab',
+          selection: TextSelection.collapsed(offset: 2),
+          composing: TextRange(start: 1, end: 2),
+        ),
+      );
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      expect(primaryFocus(), 'header.filter');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(primaryFocus(), 'header.filter');
+    }, variant: linux);
+
+    testWidgets('the cursor a cleared query leaves is scrolled into view', (
+      tester,
+    ) async {
+      engine.localChannels[0] = session_test.FakeAppBrowseChannel(
+        homePath: '/home/tester',
+      )..listings['/home/tester'] = [
+          for (var i = 0; i < 200; i++)
+            _entry('file${i.toString().padLeft(3, '0')}.txt'),
+        ];
+      await pumpApp(tester);
+      await typeQuery(tester, 'file150');
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      final pane = activePane(tester);
+      expect(pane.entries[pane.cursorIndex!].name, 'file150.txt');
+
+      // Back to the field, then Esc: the whole listing returns with the
+      // cursor 150 rows down — the listing follows it there.
+      await tester.tap(field);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(pane.filterQuery, isEmpty);
+      expect(pane.entries[pane.cursorIndex!].name, 'file150.txt');
+      // The Info tab names the cursor row too; the listing's is the one.
+      final row = find.descendant(
+        of: find.byType(PaneTabsView).first,
+        matching: find.text('file150.txt'),
+      );
+      expect(row, findsOneWidget);
+      final viewport = tester.getRect(
+        find
+            .ancestor(of: row, matching: find.byType(Scrollable))
+            .first,
+      );
+      final rect = tester.getRect(row);
+      expect(rect.top, greaterThanOrEqualTo(viewport.top));
+      expect(rect.bottom, lessThanOrEqualTo(viewport.bottom));
+    }, variant: linux);
   });
 
   testWidgets('Ctrl+F (view.filter) focuses the header field', (

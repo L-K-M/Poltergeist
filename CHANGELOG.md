@@ -204,6 +204,12 @@
   deleted while you leave the choice open or keep the folder, no longer
   count twice toward the deletion limits, and no longer show "changed
   since preview" after the replace.
+- **Keyboard browsing keeps your place.** Esc, Enter or ↓ in the
+  header filter now return you to the listing, so the arrow keys, Space
+  and Enter work on the results straight away (Enter selects the first
+  match, ↓ the first row). Going up a folder selects the folder you came
+  from and scrolls it into view, and Back and Forward select the item
+  you last had selected there, as Finder and ForkLift do.
 - Pre-1.0 history lives in the commit log and the GitHub pre-releases
   (v0.1.0, v0.2.0).
 

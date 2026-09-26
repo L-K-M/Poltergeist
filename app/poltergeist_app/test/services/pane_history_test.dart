@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
+import 'package:poltergeist_app/services/pane_location.dart';
 import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -381,5 +383,189 @@ void main() {
     expect(bound.location?.path, '/home/tester');
     // No stray listing issued for the disabled traversal.
     expect(channel.listCalls, ['/home/tester']);
+  });
+
+  // P4-02: returning to a folder puts the user back where they were —
+  // the folder they climbed out of, or the row they left selected —
+  // instead of an unselected listing at its top (Finder, ForkLift,
+  // Transmit).
+  group('returning to a folder re-selects where the user was', () {
+    setUp(() => debugDefaultTargetPlatformOverride = TargetPlatform.linux);
+    tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    RemoteFileEntry folder(String path) => RemoteFileEntry(
+      path: path,
+      name: paneLastSegment(path),
+      type: RemoteFileType.directory,
+    );
+
+    RemoteFileEntry file(String path) => RemoteFileEntry(
+      path: path,
+      name: paneLastSegment(path),
+      type: RemoteFileType.file,
+    );
+
+    /// A pane standing in /home/tester, whose parent lists 80 folders
+    /// ahead of it.
+    Future<(PaneController, base.FakePaneChannel)> homePane() async {
+      final lanes = base.FakePaneLanes();
+      final channel = base.FakePaneChannel('/home/tester')
+        ..listings['/home'] = [
+          for (var i = 0; i < 80; i++)
+            folder('/home/a${i.toString().padLeft(2, '0')}'),
+          folder('/home/tester'),
+        ]
+        ..listings['/home/tester'] = [
+          folder('/home/tester/docs'),
+          folder('/home/tester/src'),
+          file('/home/tester/notes.txt'),
+        ]
+        ..listings['/home/tester/docs'] = [file('/home/tester/docs/a.txt')]
+        ..listings['/home/tester/src'] = [
+          file('/home/tester/src/main.dart'),
+          file('/home/tester/src/util.dart'),
+        ];
+      lanes.nextLocalChannel = channel;
+      final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+      addTearDown(controller.dispose);
+      await controller.openLocalHome();
+      await settle();
+      return (controller, channel);
+    }
+
+    String? cursorPath(PaneController controller) {
+      final cursor = controller.cursorIndex;
+      return cursor == null ? null : controller.entries[cursor].path;
+    }
+
+    int indexOf(PaneController controller, String path) =>
+        controller.entries.indexWhere((entry) => entry.path == path);
+
+    test('go.up selects the folder it came from', () async {
+      final (controller, _) = await homePane();
+
+      controller.goUp();
+      await settle();
+      expect(controller.location?.path, '/home');
+      expect(cursorPath(controller), '/home/tester');
+      expect(controller.selectedEntries.map((entry) => entry.path), [
+        '/home/tester',
+      ]);
+    });
+
+    test('Back re-selects the row the user left; Forward the one it came '
+        'back from', () async {
+      final (controller, _) = await homePane();
+      controller.setCursorIndex(indexOf(controller, '/home/tester/src'));
+      await controller.openEntry(controller.entries[controller.cursorIndex!]);
+      await settle();
+      expect(controller.location?.path, '/home/tester/src');
+      controller.setCursorIndex(1);
+
+      controller.goBack();
+      await settle();
+      expect(cursorPath(controller), '/home/tester/src');
+
+      controller.goForward();
+      await settle();
+      expect(cursorPath(controller), '/home/tester/src/util.dart');
+    });
+
+    test('Back remembers the row even when it is not the way back', () async {
+      final (controller, _) = await homePane();
+      controller.setCursorIndex(indexOf(controller, '/home/tester/notes.txt'));
+      controller.navigate('/home/tester/docs');
+      await settle();
+
+      controller.goBack();
+      await settle();
+      expect(cursorPath(controller), '/home/tester/notes.txt');
+    });
+
+    test('Back to an ancestor with nothing remembered selects the child '
+        'on the way', () async {
+      final (controller, _) = await homePane();
+      // A typed path: nothing was selected when the user left.
+      controller.navigate('/home/tester/docs');
+      await settle();
+
+      controller.goBack();
+      await settle();
+      expect(cursorPath(controller), '/home/tester/docs');
+    });
+
+    test('the re-select is spent on the listing it arrived with', () async {
+      final (controller, _) = await homePane();
+      controller.goUp();
+      await settle();
+      expect(cursorPath(controller), '/home/tester');
+
+      // The user clears it; a refresh must not bring it back.
+      controller.clearSelection();
+      controller.refresh();
+      await settle();
+      expect(controller.cursorIndex, isNull);
+
+      // And a row the user picks survives the next re-list.
+      controller.setCursorIndex(3);
+      controller.refresh();
+      await settle();
+      expect(controller.cursorIndex, 3);
+    });
+
+    test('a re-list issued while the parent is loading keeps the re-select',
+        () async {
+      final (controller, channel) = await homePane();
+      final held = Completer<void>();
+      channel.holdNext = held;
+      controller.goUp();
+      await settle();
+      expect(controller.loading, isTrue);
+
+      // A refresh (or a watch re-list) of the same folder supersedes the
+      // held answer before anything was accepted.
+      controller.refresh();
+      await settle();
+      expect(cursorPath(controller), '/home/tester');
+      held.complete();
+      await settle();
+      expect(cursorPath(controller), '/home/tester');
+    });
+
+    test('an Esc-cancelled climb leaves no re-select pending',
+        () async {
+      final (controller, channel) = await homePane();
+      controller.navigate('/home/tester/docs');
+      await settle();
+      final held = Completer<void>();
+      channel.holdNext = held;
+      controller.goUp();
+      await settle();
+      expect(controller.location?.path, '/home/tester');
+
+      // Esc before the parent answered: the pane stays in docs.
+      controller.cancelNavigation();
+      held.complete();
+      await settle();
+      expect(controller.location?.path, '/home/tester/docs');
+      // A leaked re-select would ride the next same-folder re-list; a
+      // docs listing holding a row by that path makes one observable.
+      channel.listings['/home/tester/docs'] = [
+        folder('/home/tester/docs'),
+      ];
+      controller.refresh();
+      await settle();
+      expect(controller.cursorIndex, isNull);
+    });
+
+    test('touch platforms select nothing the user did not pick', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final (controller, _) = await homePane();
+
+      controller.goUp();
+      await settle();
+      expect(controller.location?.path, '/home');
+      expect(controller.cursorIndex, isNull);
+    });
   });
 }

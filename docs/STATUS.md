@@ -9204,6 +9204,26 @@ rows) and a `scanned plans` group in `executor_test.dart` that scans
 real trees, diffs and runs them. All but the source-side guard failed
 before the fix. `dart test packages/poltergeist_sync` passes.
 
+## Keyboard focus and place after filtering and going up (2026-09-26)
+
+Review findings P4-01 and P4-02. Esc or Enter in the header filter
+field left focus on the route's scope, so the arrow keys did nothing
+until a click; the field now hands focus to the active pane's listing
+on Esc, Enter (selecting the first match when no row holds the cursor)
+and ↓ (selecting the first row), and scrolls the cursor into view. An
+open input-method composition keeps ↓ and Esc. Going up (⌘↑, Backspace)
+and Back scrolled the parent to its top with nothing selected; the
+accepted parent listing now re-selects the folder the pane came from,
+and each trail stop remembers its cursor row for Back/Forward (falling
+back to the child on the way to an ancestor). The row is centred when
+the listing lands. The re-select is spent by the first accepted
+listing, survives a same-folder re-list issued mid-load, and drops with
+Esc-cancel. Desktop only: touch never gains an unpicked selection (D32
+§9). Exact scroll offsets are not restored. Tests: the leaving-the-field
+group in `header_filter_test.dart`, the re-select group in
+`pane_history_test.dart`, and `pane_view_test.dart`'s "going up reveals
+the folder the user came from".
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
