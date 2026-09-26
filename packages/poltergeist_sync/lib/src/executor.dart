@@ -1387,6 +1387,7 @@ final class _RunSession {
         overwrite: false,
       );
       try {
+        cancellation?.throwIfCancelled();
         if (isLocal) {
           // A completed upload is still only in the OS cache. Apply
           // the same barrier as a local queue move before unlinking

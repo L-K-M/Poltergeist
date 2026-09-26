@@ -1177,7 +1177,8 @@ class TransferJournalIo {
 
   /// Flushes a committed local copy before its original can be removed.
   /// File contents precede the parent directory's rename metadata. The
-  /// directory barrier has [fsyncDirectory]'s platform limitations.
+  /// [fsyncDirectory] barrier absorbs [FileSystemException]. If that
+  /// barrier fails or is unsupported, only file data is guaranteed flushed.
   Future<void> flushLocalFile(String path) async {
     final file = File(path);
     await fsyncFile(file);

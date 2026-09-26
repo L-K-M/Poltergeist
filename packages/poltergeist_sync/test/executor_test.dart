@@ -132,6 +132,34 @@ final class _SetstatDenyingFs extends LocalFileSystem {
 /// local fallback trigger).
 final class _ExdevTrashFs extends LocalFileSystem {
   final List<String> operations = [];
+  void Function()? onUploadCompleted;
+
+  @override
+  Future<RemoteFileEntry> upload(
+    String path,
+    Stream<List<int>> content, {
+    int? length,
+    bool overwrite = false,
+    int? preserveMode,
+    RemoteFileEntry? expectedTarget,
+    RemoteTransferProgress? onProgress,
+    RemoteTransferCancellation? cancellation,
+    bool computeHash = true,
+  }) async {
+    final uploaded = await super.upload(
+      path,
+      content,
+      length: length,
+      overwrite: overwrite,
+      preserveMode: preserveMode,
+      expectedTarget: expectedTarget,
+      onProgress: onProgress,
+      cancellation: cancellation,
+      computeHash: computeHash,
+    );
+    onUploadCompleted?.call();
+    return uploaded;
+  }
 
   @override
   Future<void> rename(
@@ -1000,6 +1028,48 @@ void main() {
         'flush:${line.trashLocation}',
         'delete:${remoteJoin(rightRoot.path, 'orphan.txt')}',
       ]);
+    });
+
+    test('cancellation after a trash copy skips the local flush', () async {
+      final cancellation = RemoteTransferCancellation();
+      final trashFs = _ExdevTrashFs()
+        ..onUploadCompleted = cancellation.cancel;
+      var flushReached = false;
+      final exdev = SyncExecutor(
+        leftFileSystem: leftFs,
+        rightFileSystem: trashFs,
+        leftRoot: leftRoot.path,
+        rightRoot: rightRoot.path,
+        syncRunsDirectory: runsDir.path,
+        deviceId: deviceId,
+        flushLocalDestination: (_) async => flushReached = true,
+      );
+      await writeFile(rightRoot, 'orphan.txt', 'original-content');
+      final plan = makePlan([
+        item(
+          'orphan.txt',
+          right: await snapOf(rightRoot, 'orphan.txt'),
+          suggested: SyncActionType.deleteRight,
+          reason: SyncReason.onlyOnRight,
+        ),
+      ], mirrorRules());
+
+      final run = await exdev.run(
+        plan,
+        pairId: pairId,
+        deleteConfirmationAcknowledged: true,
+        cancellation: cancellation,
+      );
+
+      expect(flushReached, isFalse);
+      expect(plan.items.single.status, SyncItemStatus.failed);
+      expect(run.cancelled, isTrue);
+      expect(
+        await File('${rightRoot.path}/orphan.txt').readAsString(),
+        'original-content',
+      );
+      expect(trashedFile(rightRoot, run.runId, 'orphan.txt'), isNull);
+      expect(run.journal.hasUnpurgedTrash, isFalse);
     });
 
     for (final cancelDuringFlush in [false, true]) {

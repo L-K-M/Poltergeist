@@ -43,6 +43,8 @@ void main() {
   });
 
   test('a reported directory flush failure propagates', () async {
+    // The production directory barrier absorbs FileSystemException.
+    // This fake reports StateError to exercise errors that do escape it.
     final io = _RecordingIo()..failingOperation = 'directory';
 
     await expectLater(io.flushLocalFile('copy.txt'), throwsStateError);

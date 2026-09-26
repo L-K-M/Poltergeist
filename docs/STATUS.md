@@ -48,13 +48,13 @@ the D8 gate re-measurement under the bridge is its recorded residual.
 When a local trash rename crosses filesystems, sync now flushes the copied
 backup before deleting its original. It uses the same file-then-parent
 barrier as queue moves through `TransferJournalIo.flushLocalFile`. A reported
-flush error or cancellation during that barrier leaves the original intact;
-the uncommitted trash copy is cleaned up through the existing failure path.
+flush error or cancellation before or during that barrier leaves the original
+intact; the uncommitted trash copy is cleaned up through the existing failure path.
 Same-filesystem renames and remote trash copies keep their existing paths.
 
 Validation: the missing-flush ordering and injected flush-failure regressions
 failed before the fix. The full sync suite, existing local move tests and
-shared barrier tests pass afterward (254 tests, three unconfigured SSH
+shared barrier tests pass afterward (255 tests, three unconfigured SSH
 fixture skips); analysis of both core and sync is clean. Native power-loss
 behavior was not tested. The existing directory
 flush helper absorbs `FileSystemException`, including unsupported directory
