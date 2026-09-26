@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import 'package:macos_window_utils/widgets/macos_toolbar_passthrough.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/registered_command.dart';
@@ -10,6 +9,7 @@ import '../../services/shortcut_format.dart';
 import '../../theme/app_theme.dart';
 import 'command_icon.dart';
 import 'corner_count_badge.dart';
+import 'window_toolbar_passthrough.dart';
 
 /// How far the header has shed detail (10 §4's overflow order): the
 /// filter field narrows, the primary buttons drop their labels, then the
@@ -68,7 +68,7 @@ class HeaderToolbar extends StatelessWidget {
 
   /// macOS: the header sits under the native unified toolbar band, which
   /// claims clicks for window drag/zoom — every interactive control is
-  /// wrapped in a [MacosToolbarPassthrough] so its clicks reach Flutter,
+  /// wrapped in a [WindowToolbarPassthrough] so its clicks reach Flutter,
   /// while empty header space keeps the native titlebar behavior.
   final bool nativeTitlebar;
 
@@ -113,7 +113,7 @@ class HeaderToolbar extends StatelessWidget {
     ];
 
     Widget pass(Widget child) =>
-        nativeTitlebar ? MacosToolbarPassthrough(child: child) : child;
+        nativeTitlebar ? WindowToolbarPassthrough(child: child) : child;
 
     final header = Container(
       height: chrome.headerHeight,
@@ -195,7 +195,7 @@ class HeaderToolbar extends StatelessWidget {
       ),
     );
     return nativeTitlebar
-        ? MacosToolbarPassthroughScope(child: header)
+        ? WindowToolbarPassthroughScope(child: header)
         : header;
   }
 

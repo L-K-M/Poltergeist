@@ -164,6 +164,19 @@ void main() {
         allowedOperations: {DragOutOffer.copy},
       ),
     );
+    // An extra workspace window's drag names its view (00 D39).
+    await DragOutRouter(backend)
+        .forView(2)
+        .startDrag(
+          const DragOutRequest(
+            sessionId: 'dragout-1',
+            items: [
+              LocalDragOutItem(path: '/tmp/b', name: 'b', isDirectory: false),
+            ],
+            position: Offset(-4, 10),
+            allowedOperations: {DragOutOffer.copy},
+          ),
+        );
     backend
       ..reportProgress(
         sessionId: 'dragout-1',
@@ -222,14 +235,21 @@ void main() {
       // the frame from the event AppKit is handed instead.
       const unreadOnMac = {'image', 'imageSize'};
       const required = {'sessionId', 'items', 'position'};
+      // Only an extra workspace window's drag names its view; the main
+      // window's is the default.
+      const windowOnly = {'viewId'};
 
       final starts = [
         for (final call in await sentByDart())
           if (call.method == 'startDrag') call.arguments as Map,
       ];
-      expect(starts, hasLength(3));
+      expect(starts, hasLength(4));
+      expect(starts.last['viewId'], 2);
       for (final arguments in starts) {
-        expect(arguments.keys.toSet(), {...reads.keys, ...unreadOnMac});
+        expect(arguments.keys.toSet().union(windowOnly), {
+          ...reads.keys,
+          ...unreadOnMac,
+        });
         reads.forEach((key, cast) {
           final value = arguments[key];
           if (value == null && !required.contains(key)) return;
