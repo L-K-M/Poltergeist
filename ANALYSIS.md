@@ -1,7 +1,8 @@
 # Poltergeist: engineering and product backlog
 
 Consolidated 2026-09-26 from reviewed source at `913ca3da` and the sibling
-review. The complete evidence, reproduction steps, scope limits and original
+review, with current-main window integrations and theme defaults at `407343eb`
+reconciled before handoff. The complete evidence, reproduction steps, scope limits and original
 ideas are preserved in [tmp.md](tmp.md). Séance's `ANALYSIS.md` owns upstream
 SSH/protocol/server work; this document owns Poltergeist integration and product
 work. [STATUS](docs/STATUS.md) remains the implementation record and the
@@ -221,15 +222,23 @@ failures; add canonical containment without rejecting valid cross-device work.
 
 ### P1: Accessible and usable extra workspace windows — UI-05 / PG-REV-008
 
-macOS extra views deliberately emit no semantics because the embedder otherwise
-overwrites the main tree. Reproduce against the pinned engine, fix view-aware
-routing or adopt a proven upstream version, then remove the workaround. Provide
-an accessible main-window alternative while it exists. Keep native SDK-upgrade
-tests for private macOS/Windows embedder APIs.
+Current main removed the silent-semantics wrapper. Native updates route by view
+ID and actions by node ownership. Per-window external drop-in/out, the macOS
+unified toolbar and Quick Look ownership are also implemented. Preserve them;
+do not reimplement the original review's missing-integration list.
 
-Gate: native VoiceOver in two windows, close/hide/reopen, unique titles and
-correct focus. Separately complete secondary-window drop-in/out, Quick Look,
-toolbar, Windows taskbar progress and remembered geometry. CI builds are not QA.
+Remaining slices: route extra-window root-node `0` actions without main-root
+ambiguity; show Windows taskbar progress when the main window is hidden; persist
+each window's geometry; coordinate own-window drags (local items currently copy
+through the OS drop path, remote promised items do nothing); seed new windows
+from restored dimensions rather than maximized/full-screen dimensions; update
+menu labels after external full-screen changes; provide distinct window titles.
+
+Gate: native VoiceOver enumeration and activation in two windows, close/hide/
+reopen of focused windows, toolbar clicks, Finder promises, Quick Look ownership
+and private-embedder SDK upgrades. Current STATUS records Linux Xvfb/openbox
+drop-in/out verification; macOS and Windows were compiled but not exercised
+natively there. Source routing tests and CI builds are not native QA.
 
 ### P1 feature: Android file access and background transfers — UI-07
 
@@ -275,8 +284,11 @@ no global clamp of the user's font scale.
 
 ### P2: Theme editing, endpoint identity and useful inspectors — UI-11/13
 
-Themes already ship. Add resolved contrast diagnostics and a legible keyboard
-reset/undo for an unreadable live palette. Verify theme copy/paste with Séance,
+Themes already ship; new-device/reset default is now Vapor. Usable partial themes
+still fill gaps from Poltergeist/Automatic. Preserve saved choices and this
+distinction. Add resolved contrast diagnostics, recoverable preview/undo and
+reliable keyboard discovery of the existing Reset for an unreadable live palette.
+Verify theme copy/paste with Séance,
 unknown terminal fields, partial malformed values, selections and status shapes.
 Make the empty/multi-selection inspector summarize selection, destination and
 next action from existing data, without remote I/O merely from painting.
@@ -291,6 +303,77 @@ discoverable without widening every row. Gate: long labels, identical hosts with
 different users/ports, keyboard access and an explicit reveal affordance.
 
 ## Performance and engineering
+
+### P2 CI maintenance: Keep incremental review inside the PR
+
+The pinned review action compares the last reviewed head with the new head and
+retains every changed file. After merging main, its hybrid mode can review
+unrelated inherited changes. Its full mode uses the actual current PR diff.
+This behavior was verified in both source and the executed bundle at
+[`8e718ac`](https://github.com/L-K-M/zai-code-review/blob/8e718ac45f13c5ae0e57b19a00afd54d42e5b8f7/src/index.js#L937-L1015).
+
+Fix the shared action upstream, then update both sibling pins: constrain review
+to current PR changes, or deliberately fall back to full PR review when the
+comparison base changes. Gate: main merges adding unrelated files and unrelated
+hunks within a PR-touched file, renames/deletions, previous-head removal, and
+retained rotating coverage. Measure requests/runtime before and after.
+
+Until fixed, use a full review after integrating main. Mode labels come from
+the triggering event payload; adding a label and rerunning an old event does
+not refresh that payload. A ready-for-review event can request the correctly
+scoped review without another code commit or repeating CI. Restore the PR to
+ready and remove any temporary mode label afterward.
+
+### P1 CI maintenance: Restore a valid D12 baseline
+
+The refreshed #211 check at `cd382560` passed its measured P3/P5/P7 budgets
+(4310.888 ms < 5500 ms; 4650.908 ms < 6000 ms; 2350.495 entries/s >= 1000), but
+failed the shared stale-baseline gate: `tier-b/cpu` drift persisted for at least
+seven consecutive main runs. A PR's tier-A measurements cannot clear or justify
+replacing main's tier-B baseline.
+
+Follow the [dedicated refresh procedure](test/benchmarks/README.md): distinguish
+mixed CPU assignments from a fleet migration, collect at least three main-run
+tier-B artifacts, pool only matching complete fingerprints and scenario configs,
+and compute medians/counts from real successful observations. Preserve the
+documented exception for newly landed scenarios with fewer runs. Do not fabricate
+missing scenarios or change budgets, enforcement, landing flags or cached state
+to make this feature PR green. A truly clean main tier-B run may also clear the
+streak naturally; rerun the affected PR only after valid state recovery.
+
+Gate: baseline contract tests and analysis, checker validation against real
+artifacts, and a separate measured baseline PR if recalibration is needed.
+Until resolved, disclose the shared maintenance failure as a CI blocker.
+
+### P1 performance: Investigate the current-main P4 tab-switch regression
+
+The documentation-only main commit `0dd681d7` reproduced a P4 median of
+86.267 ms, then 78.331 ms on the automatic retry, against a 40.004 ms baseline.
+These are +115.6% and +95.8%; the enforced +25% ceiling is 50.005 ms. The
+controlled/runtime axes, CPU and scenario config matched, otherwise the checker
+would have skipped comparison. Unrecorded load and graphics conditions still
+need control in reproduction. P1/P2 and tier A passed; unlanded P6 emitted error
+rows and supplies no passing P6 evidence. See the
+[measured run](https://github.com/L-K-M/Poltergeist/actions/runs/36242878558/job/108407478002).
+This main source excludes #211's backup changes; the failure also prevents a
+clean-run reset of the historical CPU-drift streak. Do not simply rebaseline it.
+
+P4 measures from issuing `activateTab()` to `rasterFinish` of the first frame
+whose build starts at or after the issue time. Five preloaded tabs share a
+10,000-empty-file local listing; the harness warms every tab before recording
+five target activations. Start at
+`app/poltergeist_app/integration_test/perf/p4_tab_switch_test.dart`, its
+`bench_harness.dart`, `scripts/bench-tier-b.sh` and the production
+`PaneTabsController`/`PaneTabsView` activation path.
+
+Next: reproduce in the pinned Linux profile harness, retain per-repetition
+artifacts and phase timings, compare known-good and current source on the same
+fingerprint/config, then bisect without attributing the slowdown from commit
+titles. Isolate avoidable model/build/layout/raster work before changing code.
+Gate: repeated medians at or below the real enforced ceiling, unchanged fixture
+scope/fingerprint, surrounding tab/lifecycle correctness tests, and no reduced
+benchmark workload or relaxed threshold. Native interactive frame pacing needs
+separate confirmation.
 
 ### P2: Benchmark the shipped bridge and large editor — PGE-08 / PG-REV-009 / UI-10
 
@@ -356,8 +439,10 @@ errors were reported during shutdown). Many failures rejected the Mac
 temp alias `/var`; a controller teardown assertion also occurred. This is not
 a green full-suite claim. Focused implementation checks are separate below.
 
-All nine baseline sidebar capture tests passed, producing ten PNGs, with Arial/Courier substituted
-through the fixtures' font aliases. Light/dark, narrow and phone/sidebar renders
+All nine baseline sidebar capture tests passed, producing ten PNGs, with
+Arial/Courier substituted through the fixtures' font aliases. The stock fixture
+explicitly selects Poltergeist/Automatic, so these are not renders of the newer
+Vapor default. Light/dark, narrow and phone/sidebar renders
 look coherent without obvious overlapping rows. They do not prove native
 accessibility, complete screen layout, IME behavior or release typography.
 No local power-loss, physical mobile, Windows/Linux native-interaction or
@@ -375,14 +460,14 @@ not certify later commits or native behavior.
 |---|---|---|
 | #209 | `70d30e3c` | 19 checks passed; two dispatch-only M0 checks skipped. Two completed distinct-revision assessments, no agreed important findings. |
 | #210 | `90f73b59` | 16 checks passed, including all five client builds; five integration/benchmark checks skipped by change filters. Two completed distinct-revision assessments, no agreed important findings. |
-| #211 | `65cce109` | 19 checks passed, including SSH/server integration, benchmarks and all five client builds; two dispatch-only M0 checks skipped. Two completed distinct-revision assessments, no agreed important findings. |
+| #211 | `cd382560` | 18 checks passed, including full review, all five client builds and package/app/integration checks; two dispatch-only M0 checks skipped. D12's measured scenarios passed but its shared stale-baseline gate failed. One superseded overbroad review was cancelled and is excluded. Two clean implementation assessments plus a completed full assessment after main integration; no agreed important findings. The PR remains open and CI-blocked. |
 | #213 | `7ddeff0a` | 19 checks passed, including SSH/server integration, benchmarks and all five client builds; two dispatch-only M0 checks skipped. Two completed distinct-revision assessments, no agreed important findings. |
 
 | PR | Branch | Local evidence |
 |---|---|---|
 | #209 | `codex/preserve-sync-backup-recovery` | Failed/cancelled replacement regressions failed before repair; executor/journal and full sync suites pass, with real SSH fixtures skipped locally. Legacy journal compatibility is covered. |
 | #210 | `codex/guard-delete-dialog-lifetime` | Six failing lifetime regressions repaired; 22 focused dialog/command tests and full Flutter analysis pass. Added the preparation-error dismissal case during review. |
-| #211 | `codex/preserve-backup-edit-revisions` | Three races failed before repair; 110 core sync tests and latest core analysis pass. The unchanged implementation passed 53 app backup/settings tests and app analysis. A deduplication mutation makes the new duplicate-result regression fail. |
+| #211 | `codex/preserve-backup-edit-revisions` | Three races failed before repair. After integrating current main, 110 core sync and 48 app backup/settings tests plus both analyzers pass. The unchanged implementation previously passed 53 app checks. A deduplication mutation makes the new duplicate-result regression fail. |
 | #213 | `codex/flush-sync-trash-copies` | File-flush failure, operation-order and cancel-before-flush regressions failed before repair; 255 affected tests pass, three real-SSH fixtures skip, core/sync analysis clean. Unit barriers are not power-loss evidence. |
 
 Review decisions to retain: #209's unknown-size recovery representation needs a
@@ -396,7 +481,17 @@ repurpose decryption-corruption warnings for protocol anomalies.
 two assessments on distinct revisions without agreed important findings. #209
 also reached two such assessments. #211's second assessment on `65cce109` found
 zero actionable suggestions, completing two distinct-revision assessments with
-no agreed important findings. #213's review prompted the cancel-before-flush
+no agreed important findings. A later main merge required retaining both
+adjacent STATUS entries; all four PR source/test files remained byte-identical.
+Its hybrid review was cancelled after verifying the inherited-main scope issue
+above, then a full-current-PR assessment completed at `cd382560` with no important
+findings. The repeated fake-store suggestion was deferred: its helpers mutate
+synchronously and already clear displaced winners. Removing the inherited
+`markSynced` contract requires a compatible upstream API migration, not just
+deleting a method from this implementing interface. The current CI blocker and
+main's independently reproduced P4 failure are recorded above.
+
+#213's review prompted the cancel-before-flush
 regression and a clarification that directory-flush failures may be absorbed by
 the existing shared helper; that durability limit remains an active task above.
 Its second distinct-revision assessment found no agreed important issues;
