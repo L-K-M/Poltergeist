@@ -31,13 +31,14 @@ omit left/right Command bits. This prevents Easydict's simulated Copy after
 Shift-click from entering file-pane type-ahead as a plain c. Physical
 left/right Command events retain identity, and normalized events preserve
 Flutter's key-equivalent marker for native shortcut routing. The same
-correction is being ported to Séance.
+correction is proposed in [Séance #144](https://github.com/L-K-M/Seance/pull/144).
 
 The native regression fails with stock Flutter at the missing-Command
-assertion and passes with the app controller. Six groups cover the real
+assertion and passes with the app controller. Seven groups cover the real
 keyboard manager/responders, physical modifier sides, repeats, metadata,
 marker preservation, the observed Shift/Copy/release sequence, and controller
-replacement on one engine. The 29 pane-selection/type-ahead widget tests
+replacement on one engine, and unhandled-event redispatch identity. The 29
+pane-selection/type-ahead widget tests
 pass, analysis is clean, and the macOS release build succeeds with Flutter
 3.47.3; CI exercises its 3.47.2 pin. The fixture starts no Dart application
 and posts no system input. Live Easydict, text-field/menu, and extra-window

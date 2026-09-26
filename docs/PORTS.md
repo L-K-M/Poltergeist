@@ -1353,8 +1353,8 @@ and Séance's root Unlicense.
   without either side. Existing physical events retain identity, and cloned
   events retain Flutter's key-equivalent marker. The native keyboard fixture
   exercises this boundary against the real bundled responders. The same
-  correction is being ported to Séance; its accessibility lifecycle remains
-  unchanged.
+  correction is proposed in [Séance #144](https://github.com/L-K-M/Seance/pull/144);
+  its accessibility lifecycle remains unchanged.
 
 ## Settings window runners (D36)
 

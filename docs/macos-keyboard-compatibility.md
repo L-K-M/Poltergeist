@@ -31,15 +31,22 @@ layer and the marker selectors on every Flutter upgrade.
 ## Native regression
 
 Run `FLUTTER_ROOT=/path/to/flutter bash scripts/test-macos-keyboard.sh` on
-macOS after caching the macOS release engine. CI runs it after the macOS
-client build. `--stock-engine` bypasses the app controller and should fail
-the aggregate-only Command+C assertion on the affected Flutter version.
+macOS after caching the macOS release engine. CI and release workflows run
+it after the macOS client build. `--stock-engine` bypasses the app controller
+and should fail the aggregate-only Command+C assertion on the affected
+Flutter version.
 
 The fixture exercises the real Flutter controller, keyboard manager, and
 native responders. Its framework replies are captured in the test process.
 It does not start the Dart application, open a window, or post input to the
 system. This boundary cannot be reproduced by widget tests that start with
 an already-translated Dart key event.
+
+The unhandled-event case lets both native responders decline the shortcut
+and checks the real keyboard manager's text-context and next-responder
+handoffs. It verifies exact-event redispatch identity and one delivery per
+key-down/up. The final responder is a test sink, so this does not exercise
+an actual native menu or input method.
 
 For release smoke testing, enable Easydict's affected selection behavior,
 select a file, and Shift-click another. The range must remain selected and
