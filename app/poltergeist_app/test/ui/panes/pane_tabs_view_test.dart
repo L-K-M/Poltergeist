@@ -376,9 +376,8 @@ void main() {
       await tab.controller.openLocalAt(path);
     }
 
-    testWidgets('only the ACTIVE pane carries the 2 px accent line', (
-      tester,
-    ) async {
+    testWidgets('only the ACTIVE pane carries the 2 px accent line, above '
+        'its tabs', (tester) async {
       await openLocalTab(leftStrip, '/home/a');
       await openLocalTab(rightStrip, '/home/b');
       await pumpBoth(tester);
@@ -388,27 +387,54 @@ void main() {
       );
       Container line(String key) =>
           tester.widget<Container>(find.byKey(ValueKey(key)));
+      Rect rect(String key) => tester.getRect(find.byKey(ValueKey(key)));
+      // The chips' scroll area spans the strip's full height, so its
+      // rect is the strip's vertical extent. Chips share their ValueKey
+      // with the tab's PaneView — scope the finder to the scrollable.
+      Rect strip(PaneTabsController tabs) => tester.getRect(
+        find.ancestor(
+          of: find.descendant(
+            of: find.byType(SingleChildScrollView),
+            matching: find.byKey(ValueKey(tabs.tabs.single.id)),
+          ),
+          matching: find.byType(SingleChildScrollView),
+        ),
+      );
+
+      // Along the TOP edge of the active strip, not under the chips.
+      void expectMarkerOn(
+        PaneTabsController active,
+        PaneTabsController other,
+      ) {
+        final marker = rect('${active.paneId}.activeIndicator');
+        expect(marker.height, 2);
+        expect(marker.top, strip(active).top);
+        expect(
+          line('${active.paneId}.activeIndicator').color,
+          chrome.activePaneIndicator,
+        );
+        expect(
+          find.byKey(ValueKey('${other.paneId}.activeIndicator')),
+          findsNothing,
+        );
+        // Both strips keep the 1 px separator along their bottom edge.
+        for (final tabs in [active, other]) {
+          final separator = rect('${tabs.paneId}.stripSeparator');
+          expect(separator.height, 1);
+          expect(separator.bottom, strip(tabs).bottom);
+          expect(
+            line('${tabs.paneId}.stripSeparator').color,
+            chrome.separator,
+          );
+        }
+      }
+
       expect(workspace.activePane, leftStrip);
-      expect(find.byKey(const ValueKey('pane.left.activeIndicator')),
-          findsOneWidget);
-      expect(find.byKey(const ValueKey('pane.right.inactiveSeparator')),
-          findsOneWidget);
-      expect(
-        tester.getSize(find.byKey(const ValueKey('pane.left.activeIndicator')))
-            .height,
-        2,
-      );
-      expect(
-        line('pane.left.activeIndicator').color,
-        chrome.activePaneIndicator,
-      );
+      expectMarkerOn(leftStrip, rightStrip);
 
       workspace.setActivePane(rightStrip);
       await tester.pump();
-      expect(find.byKey(const ValueKey('pane.right.activeIndicator')),
-          findsOneWidget);
-      expect(find.byKey(const ValueKey('pane.left.inactiveSeparator')),
-          findsOneWidget);
+      expectMarkerOn(rightStrip, leftStrip);
     });
 
     testWidgets('the ✕ shows on the active tab and on hover only', (

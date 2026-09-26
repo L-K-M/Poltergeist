@@ -28,7 +28,8 @@ void main() {
     MaterialApp app() => tester.widget<MaterialApp>(find.byType(MaterialApp));
     final before = app();
     final shell = tester.state(find.byType(WorkspaceShell));
-    expect(before.themeMode, ThemeMode.system);
+    // A new device starts in Vapor.
+    expect(before.theme?.colorScheme.surface, ThemePresets.vapor.surface);
 
     // Something else the app listens to changes: no re-theme.
     await updates.setEnabled(false);
@@ -60,14 +61,10 @@ void main() {
     await tester.pumpWidget(const PoltergeistApp());
 
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
-    expect(app.themeMode, ThemeMode.system);
-    expect(
-      app.theme?.colorScheme,
-      buildPoltergeistTheme(Brightness.light).colorScheme,
-    );
-    expect(
-      app.darkTheme?.colorScheme,
-      buildPoltergeistTheme(Brightness.dark).colorScheme,
-    );
+    final expected = poltergeistThemesFor(AppAppearance.initial);
+    expect(app.themeMode, expected.themeMode);
+    expect(app.theme?.colorScheme, expected.theme.colorScheme);
+    expect(app.darkTheme?.colorScheme, expected.darkTheme.colorScheme);
+    expect(app.theme?.colorScheme.surface, ThemePresets.vapor.surface);
   });
 }

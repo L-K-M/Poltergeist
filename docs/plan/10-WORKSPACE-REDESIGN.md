@@ -100,9 +100,11 @@ changes how it is presented.
     Transfers tab.
   - The sync-browsing link moved to the pane header.
   - The bandwidth limit moved to the Transfers tab.
-- **The active pane** is marked by a 2 px accent line under its tab bar
-  (ForkLift's orange line, in the app accent) and an accent-tinted selection.
-  The inactive pane's selection is neutral grey.
+- **The active pane** is marked by a 2 px accent line along the top of its
+  tab bar (ForkLift's orange line, in the app accent; above the tabs rather
+  than ForkLift's under them, owner-directed 2026-09-26) and an
+  accent-tinted selection. Both tab bars keep a 1 px separator along their
+  bottom edge. The inactive pane's selection is neutral grey.
 
 ### 3.1 Sizes, splitters, persistence
 

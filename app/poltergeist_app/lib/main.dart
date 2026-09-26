@@ -28,13 +28,14 @@ import 'services/file_stores.dart';
 import 'services/identity_audit_log.dart';
 import 'services/identity_file_reader.dart';
 import 'services/macos_toolbar_band_channel.dart';
-import 'services/os_drag_out.dart' show platformDragOutBackend;
+import 'services/os_drag_out.dart' show DragOutRouter, platformDragOutBackend;
 import 'services/probe_settings_store.dart';
 import 'services/quit_guard.dart';
 import 'services/recent_locations.dart';
 import 'services/secure_master_key.dart';
 import 'services/server_config_source.dart';
 import 'services/server_editor_backend.dart';
+import 'services/semantics_view_routing.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
 import 'services/session_state_store.dart';
@@ -55,11 +56,12 @@ import 'services/workspace_library.dart';
 import 'services/workspace_list_store.dart';
 import 'services/workspace_windows/window_host.dart';
 import 'services/workspace_windows/window_seeds.dart';
+import 'services/workspace_windows/window_titlebar.dart';
 import 'services/workspace_windows/workspace_windows.dart';
 import 'ui/workspace_windows_root.dart';
 
 Future<void> main(List<String> args) async {
-  WidgetsFlutterBinding.ensureInitialized();
+  PoltergeistBinding.ensureInitialized();
   // The Settings window's engine runs this same entrypoint, and gets the
   // Settings sections over the app's models — never a second copy of the
   // stores, the engine session or the window lifecycle below.
@@ -521,14 +523,14 @@ Future<void> main(List<String> args) async {
     bookmarks: bookmarks,
   );
   final dragOutBackend = platformDragOutBackend();
+  // Every window's shell has a drag-out controller of its own over the
+  // one native channel (00 D39).
+  final dragOutRouter = windows == null ? null : DragOutRouter(dragOutBackend);
   // Desktop only: the runners there host the Settings window.
   final settingsWindow =
       Platform.isMacOS || Platform.isLinux || Platform.isWindows
       ? SettingsWindowHost()
       : null;
-  // An extra window has no unified toolbar band on macOS (00 D39).
-  final noToolbarBand = ValueNotifier(false);
-
   // The app for one window, or the single-window app. Built once per
   // window: its parameters must keep their identity across the root's
   // rebuilds.
@@ -607,8 +609,9 @@ Future<void> main(List<String> args) async {
       previewCache: previewCache,
       previewProducer: previewProducer,
       dragOutProducer: dragOutProducer,
-      // The drag-out channel serves the main window's view only.
-      dragOutBackend: main ? dragOutBackend : null,
+      dragOutBackend: window == null
+          ? dragOutBackend
+          : dragOutRouter!.forView(window.viewId),
       initialPreviewThresholdBytes: previewThreshold,
       onPreviewCacheCapacityChanged:
           preferences.savePreviewCacheCapacityBytes,
@@ -618,7 +621,11 @@ Future<void> main(List<String> args) async {
       updateCheck: updateCheck,
       appearance: appearance,
       settingsWindow: settingsWindow,
-      toolbarBand: main || toolbarBand == null ? toolbarBand : noToolbarBand,
+      // An extra window's band is the workspace windows' host's
+      // (WindowTitlebars): macos_window_utils serves the main window.
+      toolbarBand: main || toolbarBand == null
+          ? toolbarBand
+          : WindowTitlebars.instance.bandFor(window.viewId),
       // window_manager sizes the main window only; the runner gives an
       // extra window its minimum itself.
       onContentSizeChanged: main
