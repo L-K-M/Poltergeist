@@ -1348,6 +1348,13 @@ and Séance's root Unlicense.
   active a text-input callback can read the freed tree (Séance's
   docs/macos-accessibility-crash.md). Remove when the engine fixes the
   destruction order.
+- Keyboard compatibility (2026-09-26): key-down/up ingress supplies a
+  left Command bit only when an injected event carries aggregate Command
+  without either side. Existing physical events retain identity, and cloned
+  events retain Flutter's key-equivalent marker. The native keyboard fixture
+  exercises this boundary against the real bundled responders. The same
+  correction is proposed in [Séance #144](https://github.com/L-K-M/Seance/pull/144);
+  its accessibility lifecycle remains unchanged.
 
 ## Settings window runners (D36)
 
