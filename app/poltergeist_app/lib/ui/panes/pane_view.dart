@@ -1957,7 +1957,15 @@ class _PaneSurface extends StatelessWidget {
       onDragUpdate: gestures.onDragUpdate,
       feedback: PaneEntryDragAvatar(drag: drag),
       childWhenDragging: Opacity(opacity: 0.4, child: row),
-      child: row,
+      // Desktop rows handle clicks through raw pointer events. Without a
+      // tap contender, the mouse drag wins the gesture arena on press,
+      // before any movement. Keep it contested until the drag's slop is
+      // crossed; selection and double-click handling stay with the row.
+      child: GestureDetector(
+        excludeFromSemantics: true,
+        onTap: () {},
+        child: row,
+      ),
     );
   }
 }

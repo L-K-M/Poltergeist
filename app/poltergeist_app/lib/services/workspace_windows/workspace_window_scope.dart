@@ -11,7 +11,7 @@ typedef MenuBarSlot = ValueNotifier<List<PlatformMenuItem>>;
 
 /// Tells a window's widgets which workspace window they are in (00 D39).
 /// Absent in the single-window app, where every lookup answers as the one
-/// window with every capability.
+/// window.
 class WorkspaceWindowScope extends InheritedWidget {
   const WorkspaceWindowScope({
     super.key,
@@ -31,10 +31,6 @@ class WorkspaceWindowScope extends InheritedWidget {
 
   static WorkspaceWindowScope? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<WorkspaceWindowScope>();
-
-  /// What the window around [context] supports.
-  static WindowCapabilities capabilitiesOf(BuildContext context) =>
-      maybeOf(context)?.window.capabilities ?? WindowCapabilities.all;
 
   /// Whether the window around [context] is the active one; true in the
   /// single-window app.

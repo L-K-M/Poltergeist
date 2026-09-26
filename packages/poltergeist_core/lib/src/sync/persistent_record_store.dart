@@ -18,6 +18,15 @@ import '../transfer/transfer_journal.dart' show TransferJournalIo;
 /// persisted exactly like `highWaterSeq`), the full-resync reset, and the
 /// displaced-winner resurface for a push that loses server-side.
 abstract interface class SyncRecordStore implements LocalRecordStore {
+  /// Settle only the operation actually sent to the server. A local edit may
+  /// replace it while the push is in flight, even within the same clock tick.
+  /// The identity check and mutation must share the store's write queue.
+  /// Returns a restored remote winner for a rejected, still-current operation.
+  Future<EncryptedRecord?> settlePush(
+    EncryptedRecord sent,
+    PushResult result,
+  );
+
   /// The highest server seq already materialized into the domain stores.
   /// [BookmarkCoordinator.applyPulled] advances it only past records that
   /// were applied or superseded that round — never past a seen-but-deferred
@@ -226,6 +235,34 @@ final class PersistentLocalRecordStore implements SyncRecordStore {
         _dirty.remove(id);
         _displaced.remove(id);
       });
+
+  @override
+  Future<EncryptedRecord?> settlePush(
+    EncryptedRecord sent,
+    PushResult result,
+  ) async {
+    if (result.id != sent.id) {
+      throw ArgumentError('push result must identify the sent record');
+    }
+    EncryptedRecord? restored;
+    await _mutate(() {
+      if (!identical(_records[sent.id], sent) || !_dirty.contains(sent.id)) {
+        return;
+      }
+      if (result.accepted) {
+        _records[sent.id] = sent.withSeq(result.seq);
+        _dirty.remove(sent.id);
+        _displaced.remove(sent.id);
+        return;
+      }
+      restored = _displaced.remove(sent.id);
+      if (restored != null) {
+        _records[sent.id] = restored!;
+        _dirty.remove(sent.id);
+      }
+    });
+    return restored;
+  }
 
   @override
   Future<int> highWaterSeq() async {

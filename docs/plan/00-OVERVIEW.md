@@ -820,13 +820,17 @@ D38 device themes · D39 workspace windows
     in, every value stays editable, and the app repaints as it changes,
     with no Save button. A preset is recognised by its values, not its
     name.
-  - **The default is the app as it was.** The first preset (Poltergeist
-    here, Séance there) leaves every colour Automatic: the shared slate
-    and Finder-light tables, following the system's light or dark or a
-    mode the user picks, with the app's own accent. A test pins it to the
-    theme the app built before themes existed. A palette that sets its
-    own surface takes its brightness from that surface and mixes its
-    Automatic shades from it.
+  - **The first preset is the app as it was.** The first preset
+    (Poltergeist here, Séance there) leaves every colour Automatic: the
+    shared slate and Finder-light tables, following the system's light or
+    dark or a mode the user picks, with the app's own accent. A test pins
+    it to the theme the app built before themes existed, and a partial
+    theme fills its gaps from it. A palette that sets its own surface
+    takes its brightness from that surface and mixes its Automatic shades
+    from it.
+  - **A new device starts in Vapor** (amended 2026-09-26, owner-directed;
+    Séance starts in Terminal). The default and Reset use it; an install
+    that never picked a theme moves to it too.
   - **One stored format for both apps.** A theme is one JSON object with
     Séance's keys and hex forms, decoded leniently (a bad value costs only
     itself, and garbage reads as the default), so Copy theme in one app
@@ -905,7 +909,15 @@ D38 device themes · D39 workspace windows
     embedder hands every view's semantics to the main window's bridge, so
     an extra window sends none rather than overwrite the main window's
     tree), and on Windows the taskbar progress while the main window is
-    hidden. Each is a follow-up, not a design limit.
+    hidden. Each is a follow-up, not a design limit. *2026-09-26: the
+    runners now give an extra window the first five themselves: a drop
+    target on its view reporting on `poltergeist/dropin` by view id, the
+    drag-out channel resolving the view `startDrag` names, and on macOS
+    the unified toolbar and its passthrough (`poltergeist/titlebar`), the
+    Quick Look panel through one host every window forwards to, and its
+    semantics, which the runner's view controller routes by the update's
+    view id while Dart routes the actions back by node. The Windows
+    taskbar progress stays open (STATUS open item 34).*
   - **Session document.** `session.state` keeps its v1 shape and holds the
     first open window, so an older build still restores it; the others go
     in `session.windows`, versioned and fail-closed like it, in the same

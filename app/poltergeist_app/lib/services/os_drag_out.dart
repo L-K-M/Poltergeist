@@ -14,7 +14,8 @@
 ///
 /// A `MethodChannel` named `poltergeist/dragout` using the
 /// `StandardMethodCodec`, on the window's default binary messenger.
-/// Coordinates are logical pixels of the Flutter view, origin top-left
+/// Coordinates are logical pixels of the Flutter view the drag left
+/// (`viewId`), origin top-left
 /// (the same space as `PointerEvent.position`; macOS's `FlutterView` is
 /// flipped, so no conversion is needed there). Unknown keys must be
 /// ignored by both sides, so either end can grow the protocol.
@@ -26,6 +27,7 @@
 /// | key                 | type                     | meaning |
 /// |---------------------|--------------------------|---------|
 /// | `sessionId`         | `String`                 | Dart-minted id; echoed on every callback for this session |
+/// | `viewId`            | `int?`                   | the Flutter view the drag left (00 D39's workspace windows); absent means the main window's, view 0 |
 /// | `position`          | `List<double>` [x, y]    | the pointer, already outside the view bounds; where the native side ends the embedder's press |
 /// | `allowedOperations` | `List<String>`           | subset of `copy`, `link`; never `move` or `delete` (see below) |
 /// | `items`             | `List<Map>`              | one entry per dragged root, in listing order (see below) |
@@ -252,10 +254,14 @@ final class DragOutRequest {
     required this.position,
     required this.allowedOperations,
     this.image,
+    this.viewId,
   });
 
   final String sessionId;
   final List<DragOutItem> items;
+
+  /// The view the drag left; null for the main window's.
+  final int? viewId;
 
   /// The pointer in the view's logical coordinates.
   final Offset position;
@@ -265,6 +271,7 @@ final class DragOutRequest {
 
   Map<String, Object?> toChannel() => {
     'sessionId': sessionId,
+    'viewId': ?viewId,
     'position': [position.dx, position.dy],
     'allowedOperations': [
       for (final offer in DragOutOffer.values)
@@ -542,6 +549,128 @@ final class NoDragOutBackend implements DragOutBackend {
     required int completedBytes,
     int? totalBytes,
   }) {}
+}
+
+/// One native backend shared by every workspace window (00 D39). The
+/// channel has one handler and the OS runs one drag at a time, but each
+/// window's shell owns a drag-out controller of its own, and each mints
+/// its session ids from its own counter. So each window gets the backend
+/// [forView] gives it: its requests carry its view id, its session ids
+/// cross the channel prefixed with that id, and the callbacks for them
+/// come back to its controller alone.
+final class DragOutRouter {
+  DragOutRouter(this._backend) {
+    _backend.delegate = _Callbacks(this);
+  }
+
+  final DragOutBackend _backend;
+  final _views = <int, _ViewDragOutBackend>{};
+
+  /// The backend for the window whose view is [viewId].
+  DragOutBackend forView(int viewId) =>
+      _views[viewId] ??= _ViewDragOutBackend(this, viewId);
+
+  static const _separator = '/';
+
+  static String _wire(int viewId, String sessionId) =>
+      '$viewId$_separator$sessionId';
+
+  /// The view and window-local session id of a [wire] id, or null for an
+  /// id this router did not mint.
+  ({_ViewDragOutBackend view, String sessionId})? _route(String wire) {
+    final split = wire.indexOf(_separator);
+    if (split < 0) return null;
+    final viewId = int.tryParse(wire.substring(0, split));
+    final view = viewId == null ? null : _views[viewId];
+    if (view == null) return null;
+    return (view: view, sessionId: wire.substring(split + 1));
+  }
+}
+
+final class _ViewDragOutBackend implements DragOutBackend {
+  _ViewDragOutBackend(this._router, this._viewId);
+
+  final DragOutRouter _router;
+  final int _viewId;
+  DragOutBackendDelegate? _delegate;
+
+  @override
+  DragOutSupport get support => _router._backend.support;
+
+  /// A window's controller detaches as its window closes: the router lets
+  /// the view go, so a late callback for one of its sessions reads as
+  /// owned by no window.
+  @override
+  set delegate(DragOutBackendDelegate? delegate) {
+    _delegate = delegate;
+    if (delegate == null && identical(_router._views[_viewId], this)) {
+      _router._views.remove(_viewId);
+    }
+  }
+
+  @override
+  Future<DragOutStartResult> startDrag(DragOutRequest request) =>
+      _router._backend.startDrag(
+        DragOutRequest(
+          sessionId: DragOutRouter._wire(_viewId, request.sessionId),
+          items: request.items,
+          position: request.position,
+          allowedOperations: request.allowedOperations,
+          image: request.image,
+          viewId: _viewId,
+        ),
+      );
+
+  @override
+  void reportProgress({
+    required String sessionId,
+    required String promiseId,
+    required int completedBytes,
+    int? totalBytes,
+  }) => _router._backend.reportProgress(
+    sessionId: DragOutRouter._wire(_viewId, sessionId),
+    promiseId: promiseId,
+    completedBytes: completedBytes,
+    totalBytes: totalBytes,
+  );
+}
+
+final class _Callbacks implements DragOutBackendDelegate {
+  _Callbacks(this._router);
+
+  final DragOutRouter _router;
+
+  @override
+  Future<void> fulfilPromise(DragOutPromiseRequest request) async {
+    final route = _router._route(request.sessionId);
+    final delegate = route?.view._delegate;
+    if (route == null || delegate == null) {
+      // The window closed, and its controller with it.
+      throw const DragOutPromiseException(
+        DragOutPromiseFailure.unknown,
+        'no window owns this drag-out session',
+      );
+    }
+    return delegate.fulfilPromise(
+      DragOutPromiseRequest(
+        sessionId: route.sessionId,
+        promiseId: request.promiseId,
+        destinationPath: request.destinationPath,
+      ),
+    );
+  }
+
+  @override
+  void cancelPromise(String sessionId, String promiseId) {
+    final route = _router._route(sessionId);
+    route?.view._delegate?.cancelPromise(route.sessionId, promiseId);
+  }
+
+  @override
+  void sessionEnded(String sessionId, DragOutOperation? operation) {
+    final route = _router._route(sessionId);
+    route?.view._delegate?.sessionEnded(route.sessionId, operation);
+  }
 }
 
 /// The backend main.dart composes for this host: the channel on the

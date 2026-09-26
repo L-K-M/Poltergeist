@@ -1435,9 +1435,11 @@ not behaviour, and is not repeated below.
 - Source: app/seance_app/lib/theme/theme_presets.dart
 - Séance commit: f4d2f71 (Séance #128, merged as 8f15eeb)
 - Ported: 2026-09-25
-- Divergences: the default is `ThemePresets.poltergeist` (stored name
-  `Poltergeist`, accent `poltergeistSeedColor`) in place of Séance's
-  violet `seance`; no preset carries a terminal block. The other nine
+- Divergences: the first preset is `ThemePresets.poltergeist` (stored
+  name `Poltergeist`, accent `poltergeistSeedColor`) in place of
+  Séance's violet `seance`; `ThemePresets.initial` is Vapor where
+  Séance's is Terminal (D38 amendment, 2026-09-26); no preset carries a
+  terminal block. The other nine
   keep Séance's values, Bubblegum's deeper `#E63A91` accent included, so
   a shared preset looks the same and matches itself in both apps.
 - Port-back candidates: none.
