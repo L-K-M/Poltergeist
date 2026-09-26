@@ -124,7 +124,7 @@ void main() {
         'bat', 'cmd', 'com', 'scr', 'ps1', 'js', 'jse', 'vbs', 'vbe',
         'wsf', 'wsh', 'hta', 'exe', 'pif', 'scf', 'cpl', 'msp', 'mst',
         'msi', 'lnk', 'url', 'reg', 'chm', 'msc', 'jar', 'vb', 'ws',
-        'wsc', 'sct', 'application', 'diagcab',
+        'wsc', 'sct', 'application', 'diagcab', 'py', 'pyw', 'pyz', 'pyzw',
       }),
     );
     for (final ext in previewWindowsExecutableExtensions) {
@@ -204,6 +204,7 @@ void main() {
         'run.command',
         'build.tool',
         'Shell.terminal',
+        'Old.term',
         'Evil.app',
         'Flow.workflow',
         'target.fileloc',

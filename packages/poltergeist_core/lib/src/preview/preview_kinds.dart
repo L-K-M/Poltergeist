@@ -176,8 +176,9 @@ final RegExp _safeExtension = RegExp(r'^[A-Za-z0-9_-]{1,16}$');
 /// control-panel spellings that double-click-execute, plus the types
 /// whose default verb runs code anyway — shortcuts (`lnk`, `url`),
 /// installers (`msi`, `application`), registry merges, compiled help,
-/// MMC consoles, troubleshooter packs, and `jar` under an installed
-/// Java runtime. They are KEPT in cache names — preview and Quick Look
+/// MMC consoles, troubleshooter packs, `jar` under an installed Java
+/// runtime, and `py`/`pyw`/`pyz`/`pyzw`, which python.org's installer
+/// associates with its `py` launcher. They are KEPT in cache names — preview and Quick Look
 /// never execute the hash-named copy, and stripping them would break
 /// extension-keyed preview of legitimate scripts — so this list guards
 /// the OPEN boundary instead: [isExecutableLaunchName] reads it for
@@ -189,7 +190,7 @@ const previewWindowsExecutableExtensions = <String>{
   'bat', 'cmd', 'com', 'scr', 'ps1', 'js', 'jse', 'vbs', 'vbe',
   'wsf', 'wsh', 'hta', 'exe', 'pif', 'scf', 'cpl', 'msp', 'mst',
   'msi', 'lnk', 'url', 'reg', 'chm', 'msc', 'jar', 'vb', 'ws',
-  'wsc', 'sct', 'application', 'diagcab',
+  'wsc', 'sct', 'application', 'diagcab', 'py', 'pyw', 'pyz', 'pyzw',
 };
 
 /// The desktop hosts [isExecutableLaunchName] knows. What an OS "open"
@@ -199,13 +200,14 @@ const previewWindowsExecutableExtensions = <String>{
 enum LaunchHost { macos, linux, windows }
 
 /// macOS launch types that run rather than open: Terminal runs
-/// `command`/`tool` scripts and a `terminal` file's CommandString;
+/// `command`/`tool` scripts and a `terminal` or legacy `term` file's
+/// CommandString;
 /// `fileloc`/`inetloc`/`webloc` open their target, which can be a
 /// program or an app's URL scheme; `app`/`workflow` are code bundles;
 /// Jar Launcher runs `jar`; Installer runs `pkg`/`mpkg` scripts.
 const _macosExecutableExtensions = <String>{
   'app', 'command', 'tool', 'terminal', 'workflow', 'fileloc',
-  'inetloc', 'webloc', 'jar', 'pkg', 'mpkg',
+  'inetloc', 'webloc', 'jar', 'pkg', 'mpkg', 'term',
 };
 
 /// Linux launch types that run without an execute bit: file managers
