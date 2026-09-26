@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
@@ -55,6 +57,118 @@ Future<DeleteDecision?> _open(
 }
 
 void main() {
+  for (final confirm in [false, true]) {
+    testWidgets('repeated ${confirm ? 'Confirm' : 'Cancel'} keeps the page '
+        'beneath the dialog', (tester) async {
+      final harness = await _DialogHarness.open(tester);
+      harness.preparation.complete(_confirmation());
+      await tester.pumpAndSettle();
+      final callback = confirm
+          ? tester
+                .widget<FilledButton>(
+                  find.byKey(const ValueKey('delete.confirm')),
+                )
+                .onPressed!
+          : tester
+                .widget<TextButton>(find.byKey(const ValueKey('delete.cancel')))
+                .onPressed!;
+      callback();
+      callback();
+      await tester.pumpAndSettle();
+      expect(find.text('underlying page'), findsOneWidget);
+      expect(
+        await harness.decision,
+        confirm ? isA<DeleteConfirmed>() : isA<DeleteCancelled>(),
+      );
+    });
+  }
+
+  testWidgets('late cancelled preparation cannot pop the underlying page', (
+    tester,
+  ) async {
+    final harness = await _DialogHarness.open(tester);
+    await tester.tap(find.byKey(const ValueKey('delete.cancel')));
+    harness.preparation.complete(null);
+    await tester.pumpAndSettle();
+    expect(find.text('underlying page'), findsOneWidget);
+    expect(await harness.decision, isA<DeleteCancelled>());
+  });
+
+  testWidgets('covered dialog actions cannot answer a newer route', (
+    tester,
+  ) async {
+    final harness = await _DialogHarness.open(tester);
+    harness.preparation.complete(_confirmation());
+    await tester.pumpAndSettle();
+    final cancel = tester
+        .widget<TextButton>(find.byKey(const ValueKey('delete.cancel')))
+        .onPressed!;
+    final confirm = tester
+        .widget<FilledButton>(find.byKey(const ValueKey('delete.confirm')))
+        .onPressed!;
+    final newer = showDialog<void>(
+      context: harness.navigator.currentContext!,
+      builder: (_) => const AlertDialog(title: Text('newer dialog')),
+    );
+    await tester.pumpAndSettle();
+    cancel();
+    confirm();
+    await tester.pumpAndSettle();
+    expect(find.text('newer dialog'), findsOneWidget);
+    expect(harness.cancellation.isCancelled, isFalse);
+    harness.navigator.currentState!.pop();
+    await newer;
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('delete.cancel')));
+    await tester.pumpAndSettle();
+    expect(await harness.decision, isA<DeleteCancelled>());
+    expect(find.text('underlying page'), findsOneWidget);
+  });
+
+  testWidgets('obsolete preparation removes only its covered route', (
+    tester,
+  ) async {
+    final harness = await _DialogHarness.open(tester);
+    final newer = showDialog<void>(
+      context: harness.navigator.currentContext!,
+      builder: (_) => const AlertDialog(title: Text('newer dialog')),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    harness.preparation.complete(null);
+    await tester.pumpAndSettle();
+    expect(find.text('newer dialog'), findsOneWidget);
+    expect(await harness.decision, isA<DeleteCancelled>());
+    harness.navigator.currentState!.pop();
+    await newer;
+    await tester.pumpAndSettle();
+    expect(find.text('underlying page'), findsOneWidget);
+    expect(find.byKey(const ValueKey('delete.dialog')), findsNothing);
+  });
+
+  testWidgets('Back cancels preparation before the exit animation ends', (
+    tester,
+  ) async {
+    final harness = await _DialogHarness.open(tester);
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(harness.cancellation.isCancelled, isTrue);
+    harness.preparation.complete(null);
+    await tester.pumpAndSettle();
+    expect(await harness.decision, isA<DeleteCancelled>());
+    expect(find.text('underlying page'), findsOneWidget);
+  });
+
+  testWidgets('disposing the navigator cancels pending preparation', (
+    tester,
+  ) async {
+    final harness = await _DialogHarness.open(tester);
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(harness.cancellation.isCancelled, isTrue);
+    harness.preparation.completeError(StateError('late failure'));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a remote permanent delete names the items and the server', (
     tester,
   ) async {
@@ -205,4 +319,43 @@ void main() {
       findsOneWidget,
     );
   });
+}
+
+/// A real route beneath the dialog makes an accidental second pop visible.
+class _DialogHarness {
+  final navigator = GlobalKey<NavigatorState>();
+  final preparation = Completer<DeleteConfirmation?>();
+  late final RemoteTransferCancellation cancellation;
+  late final Future<DeleteDecision> decision;
+
+  static Future<_DialogHarness> open(WidgetTester tester) async {
+    final harness = _DialogHarness();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: harness.navigator,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: Text('root page')),
+      ),
+    );
+    unawaited(
+      harness.navigator.currentState!.push<void>(
+        MaterialPageRoute(
+          builder: (_) => const Scaffold(body: Text('underlying page')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    harness.decision = showDeleteConfirmDialog(
+      harness.navigator.currentContext!,
+      locationLabel: 'prod-web',
+      prepare: (cancellation) {
+        harness.cancellation = cancellation;
+        return harness.preparation.future;
+      },
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    return harness;
+  }
 }

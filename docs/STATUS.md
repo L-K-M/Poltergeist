@@ -4,6 +4,22 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
+## Delete-confirmation route lifetime (2026-09-26)
+
+Delete confirmation now completes only its own route, once. Repeated Cancel
+or Delete actions, late cancelled preparation, and callbacks from a covered
+dialog cannot dismiss the page or a newer prompt. Preparation cancels as soon
+as Back removes the dialog, with teardown cancellation as a fallback. If a
+counting walk becomes obsolete while another prompt covers it, only the old
+confirmation route is removed.
+
+Six new widget regressions reproduced the previous failures before the fix.
+The dialog and delete-command suites now pass all 21 tests, including a
+covered-preparation case; the trash/permanent decision and destructive-action
+default are preserved. Validation used Flutter 3.47.3 on macOS with
+`TMPDIR=/private/tmp`; CI uses the repository's 3.47.2 pin. Native assistive
+technology was not exercised by this change.
+
 _Last updated: 2026-09-23. **v1.0.0 IS SHIPPED** — tagged at
 d62f95af after the release pipeline's full first exercise
 (android `--no-pub` registrant fix #189, bash drift gate #190);
