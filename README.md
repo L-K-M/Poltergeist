@@ -36,6 +36,12 @@ Windows, Linux, and Android. Built as a sibling of
   merged row nodes, sort state, live-region completion announcements,
   focus-visible rings — and verifies it with automated semantics tests,
   but Linux screen-reader coverage is not claimed until upstream lands.
+- **Extra windows (desktop).** A window opened with File ▸ New Window
+  does everything the first one does except, for now: take files dropped
+  from other apps, drag files out to other apps, and on macOS show the
+  unified toolbar, the system Quick Look panel (it uses Quick Look in the
+  window), or anything to screen readers. Use the first window for those
+  ([STATUS D39](docs/STATUS.md)).
 - **Windows IME (IMM32).** Text input on Windows uses the legacy IMM32
   path: candidate-window positioning and composition-event delivery have
   known upstream defects (e.g.

@@ -13,12 +13,15 @@ import 'package:poltergeist_app/services/pane_location.dart';
 import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/services/selection_state.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
+import 'package:poltergeist_app/services/workspace_windows/workspace_window_scope.dart';
+import 'package:poltergeist_app/services/workspace_windows/workspace_windows.dart';
 import 'package:poltergeist_app/ui/panes/pane_drop_area.dart';
 import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/pane_controller_test.dart' as controller_test;
+import '../../services/workspace_windows_test.dart' show FakeWindowHost;
 import '../../support/fake_app_transfer_queue.dart';
 import '../../support/test_panes.dart';
 
@@ -179,6 +182,7 @@ void main() {
     bool tickerEnabled = true,
     bool rightTabs = false,
     bool rightHidden = false,
+    WorkspaceWindow? window,
   }) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
@@ -211,6 +215,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        builder: (context, child) => _inWindow(window, child!),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
@@ -739,6 +744,46 @@ void main() {
     expect(queue.enqueuedSpecs, isEmpty);
   });
 
+  dndWidgets("an extra workspace window refuses OS drops: desktop_drop "
+      "reports the main window's (00 D39)", (tester) async {
+    final windows = WorkspaceWindows(
+      host: FakeWindowHost(),
+      quitApplication: () async {},
+      afterFrame: () async {},
+      platform: TargetPlatform.linux,
+    );
+    addTearDown(windows.dispose);
+    await windows.start();
+    await windows.openWindow();
+    await bindLocals();
+    await pumpShell(tester, window: windows.windows.last);
+
+    await _osDropAt(tester, rightPaneBackground(tester), [
+      '/tmp/incoming.txt',
+    ]);
+    expect(queue.enqueuedSpecs, isEmpty);
+  });
+
+  dndWidgets('the main workspace window still takes OS drops', (
+    tester,
+  ) async {
+    final windows = WorkspaceWindows(
+      host: FakeWindowHost(),
+      quitApplication: () async {},
+      afterFrame: () async {},
+      platform: TargetPlatform.linux,
+    );
+    addTearDown(windows.dispose);
+    await windows.start();
+    await bindLocals();
+    await pumpShell(tester, window: windows.windows.single);
+
+    await _osDropAt(tester, rightPaneBackground(tester), [
+      '/tmp/incoming.txt',
+    ]);
+    expect(queue.enqueuedSpecs, hasLength(1));
+  });
+
   dndWidgets('a mobile platform mounts no DropTarget and no row '
       'Draggables', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -938,3 +983,9 @@ void main() {
     expect(queue.enqueuedSpecs, isEmpty);
   });
 }
+
+/// [child] inside [window]'s scope, as the windows root renders it; the
+/// single-window app has none.
+Widget _inWindow(WorkspaceWindow? window, Widget child) => window == null
+    ? child
+    : WorkspaceWindowScope(window: window, active: true, child: child);

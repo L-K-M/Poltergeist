@@ -514,6 +514,47 @@ void main() {
 
     expect(errors, contains(isA<StateError>()));
   });
+  test('another window taking the close skips the whole quit path (00 D39)',
+      () async {
+    final window = FakeWindowAdapter();
+    var guardCalls = 0;
+    var instead = true;
+    final lifecycle = _lifecycle(
+      window: window,
+      confirmClose: () async {
+        guardCalls++;
+        return true;
+      },
+      closeInstead: () async => instead,
+    );
+
+    await lifecycle.prepare();
+    expect(await lifecycle.close(), isFalse);
+
+    expect(guardCalls, 0);
+    expect(window.events, isNot(contains('destroy')));
+    expect(window.callbacksRegistered, isTrue);
+
+    // The last window's close is a quit again, guard first.
+    instead = false;
+    expect(await lifecycle.close(), isTrue);
+    expect(guardCalls, 1);
+    expect(window.events.last, 'destroy');
+  });
+
+  test('saveBounds writes the current bounds for a quit that skips the '
+      'close path', () async {
+    final window = FakeWindowAdapter();
+    final lifecycle = _lifecycle(window: window);
+
+    await lifecycle.saveBounds();
+    expect(await jsonValue(_settingsFile, 'window.width'), isNull);
+
+    await lifecycle.prepare();
+    await lifecycle.saveBounds();
+
+    expect(await jsonValue(_settingsFile, 'window.width'), 1180);
+  });
 }
 
 DesktopWindowLifecycle _lifecycle({
@@ -525,6 +566,7 @@ DesktopWindowLifecycle _lifecycle({
   Duration saveDelay = const Duration(milliseconds: 1),
   FakeDebounceScheduler? debounce,
   Future<bool> Function()? confirmClose,
+  Future<bool> Function()? closeInstead,
   void Function(Object, StackTrace)? onError,
 }) {
   final store = SettingsStore(
@@ -541,6 +583,7 @@ DesktopWindowLifecycle _lifecycle({
     geometrySaveDelay: saveDelay,
     scheduleDebounce: debounce?.schedule,
     confirmClose: confirmClose,
+    closeInstead: closeInstead,
     onError: onError,
   );
 }

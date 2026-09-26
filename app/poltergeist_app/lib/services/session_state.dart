@@ -316,6 +316,41 @@ final class SessionState {
   }
 }
 
+/// The windows open beside the first one (00 D39), each a whole
+/// [SessionState]. It lives under its own key beside the first window's
+/// document, which keeps its v1 shape: a build from before multiple windows
+/// reads that one and restores the first window as it always did.
+final class SessionWindowsState {
+  const SessionWindowsState({required this.windows});
+
+  static const schemaVersion = 1;
+
+  final List<SessionState> windows;
+
+  Map<String, Object?> toJson() => {
+    'version': schemaVersion,
+    'windows': [for (final window in windows) window.toJson()],
+  };
+
+  /// Strict like [SessionState.fromJson]: one malformed window fails the
+  /// whole document, which is then neither restored nor overwritten.
+  factory SessionWindowsState.fromJson(Object? json) {
+    if (json is! Map) throw const FormatException('Invalid session windows');
+    if (json['version'] is! int || json['version'] != schemaVersion) {
+      throw const FormatException('Unsupported session windows schema');
+    }
+    final windows = json['windows'];
+    if (windows is! List) {
+      throw const FormatException('Invalid session windows list');
+    }
+    return SessionWindowsState(
+      windows: List.unmodifiable([
+        for (final window in windows) SessionState.fromJson(window),
+      ]),
+    );
+  }
+}
+
 Map<String, Object?> _entryToJson(RemoteFileEntry entry) => {
   'path': entry.path,
   'name': entry.name,

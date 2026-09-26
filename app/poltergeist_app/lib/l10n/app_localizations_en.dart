@@ -767,6 +767,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tabStripLabel => 'Tabs';
 
   @override
+  String get windowNewLabel => 'New Window';
+
+  @override
+  String get windowCloseLabel => 'Close Window';
+
+  @override
   String get tabNewLabel => 'New Tab';
 
   @override

@@ -37,6 +37,9 @@ class MainFlutterWindow: NSWindow {
   /// Settings in a window of its own (SettingsWindow.swift).
   private var settingsWindow: SettingsWindowHost?
 
+  /// More workspace windows on this engine (WorkspaceWindows.swift).
+  private var workspaceWindows: WorkspaceWindowsHost?
+
   /// The panel's current item set — only ever produced LOCAL paths
   /// (remote previews are materialized into the §5.3 cache first).
   fileprivate var quickLookItems: [QuickLookPreviewItem] = []
@@ -70,6 +73,10 @@ class MainFlutterWindow: NSWindow {
       mainWindow: self,
       messenger: macOSWindowUtilsViewController.flutterViewController.engine
         .binaryMessenger
+    )
+    workspaceWindows = WorkspaceWindowsHost(
+      mainWindow: self,
+      engine: macOSWindowUtilsViewController.flutterViewController.engine
     )
 
     // D15 trash (03 §7.1): FileManager.trashItem delivers to the OS
@@ -296,11 +303,14 @@ class MainFlutterWindow: NSWindow {
     super.awakeFromNib()
   }
 
-  /// The Settings window closes with this one, so closing the app's window
-  /// still leaves no window open and quits the app
-  /// (AppDelegate.applicationShouldTerminateAfterLastWindowClosed).
+  /// The Settings window and any extra workspace window close with this
+  /// one, so closing the app's window still leaves no window open and quits
+  /// the app (AppDelegate.applicationShouldTerminateAfterLastWindowClosed).
+  /// With other workspace windows open, the close button only hides this
+  /// window (DesktopWindowLifecycle), so this runs as the app quits.
   override func close() {
     settingsWindow?.close()
+    workspaceWindows?.closeAll()
     super.close()
   }
 

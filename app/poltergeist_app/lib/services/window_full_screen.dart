@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'workspace_windows/window_host.dart';
+
 /// The window's full-screen state behind 10 §8's View ▸ Enter Full
 /// Screen on Windows and Linux. macOS renders AppKit's own item (⌃⌘F),
 /// which retitles itself, so the command does not register there.
@@ -15,7 +17,8 @@ abstract interface class WindowFullScreen {
   Future<void> toggle();
 }
 
-/// window_manager's full screen for the app's one window. Each toggle
+/// window_manager's full screen for the main window (an extra window's is
+/// [HostWindowFullScreen]). Each toggle
 /// asks the window for its real state first, so a change made outside
 /// the menu (a window-manager shortcut) never inverts it, and the
 /// window's enter/leave events keep the label in step between toggles.
@@ -62,4 +65,36 @@ final class WindowManagerFullScreen
 
   @override
   void onWindowLeaveFullScreen() => _fullScreen = false;
+}
+
+/// An extra workspace window's own full screen (00 D39): window_manager
+/// only knows the main window, so the runner that hosts the window takes
+/// it in and out.
+final class HostWindowFullScreen implements WindowFullScreen {
+  HostWindowFullScreen(this._host, this._viewId, this._platform);
+
+  final WindowHost _host;
+  final int _viewId;
+  final TargetPlatform _platform;
+
+  bool _fullScreen = false;
+
+  @override
+  bool get supported => switch (_platform) {
+    TargetPlatform.linux || TargetPlatform.windows => true,
+    _ => false,
+  };
+
+  @override
+  bool get isFullScreen => _fullScreen;
+
+  /// Asks the window for its real state first, like
+  /// [WindowManagerFullScreen.toggle], so a change made outside the menu
+  /// never inverts it.
+  @override
+  Future<void> toggle() async {
+    final next = !await _host.isFullScreen(_viewId);
+    await _host.setFullScreen(_viewId, fullScreen: next);
+    _fullScreen = next;
+  }
 }

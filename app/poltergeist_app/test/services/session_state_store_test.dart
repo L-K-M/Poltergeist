@@ -109,4 +109,42 @@ void main() {
     await expectLater(store.save(fixture), throwsFormatException);
     expect(settingsJson()['session.state'], 'not-a-map');
   });
+
+  group('the windows beside the first (00 D39)', () {
+    test('load none when none were persisted', () async {
+      expect(await store.loadWindows(), isEmpty);
+    });
+
+    test('saveAll writes both documents, and they load back', () async {
+      await store.saveAll(fixture, [fixture, fixture]);
+
+      final json = settingsJson();
+      expect(json['session.state'], fixture.toJson());
+      expect((json['session.windows'] as Map)['version'], 1);
+      expect(await store.load(), isNotNull);
+      final windows = await store.loadWindows();
+      expect(windows, hasLength(2));
+      expect(windows.first.toJson(), fixture.toJson());
+    });
+
+    test('saveAll with one window empties the list', () async {
+      await store.saveAll(fixture, [fixture]);
+      await store.saveAll(fixture, []);
+
+      expect(await store.loadWindows(), isEmpty);
+    });
+
+    test("a newer build's windows document is neither read nor overwritten",
+        () async {
+      final newer = {'version': 99, 'windows': <Object>[]};
+      await SettingsStore(
+        path: settingsFile.path,
+      ).set('session.windows', newer);
+
+      await expectLater(store.loadWindows(), throwsFormatException);
+      await expectLater(store.saveAll(fixture, []), throwsFormatException);
+      expect(settingsJson()['session.windows'], newer);
+      expect(settingsJson().containsKey('session.state'), isFalse);
+    });
+  });
 }

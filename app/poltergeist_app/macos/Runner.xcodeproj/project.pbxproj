@@ -30,6 +30,8 @@
 		A9D32A0000000000000000B1 /* DragOutChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D32A0000000000000000B2 /* DragOutChannel.swift */; };
 		A9D32A0000000000000000A1 /* PoltergeistFlutterViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A9D32A0000000000000000A2 /* PoltergeistFlutterViewController.m */; };
 		5E77A1C02E8F4B00000000B1 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E77A1C02E8F4B00000000B2 /* SettingsWindow.swift */; };
+		D37A1C02E8F4B00000000C01 /* WorkspaceWindows.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37A1C02E8F4B00000000C02 /* WorkspaceWindows.swift */; };
+		D37A1C02E8F4B00000000C03 /* PoltergeistMultiView.m in Sources */ = {isa = PBXBuildFile; fileRef = D37A1C02E8F4B00000000C04 /* PoltergeistMultiView.m */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 /* End PBXBuildFile section */
 
@@ -77,6 +79,9 @@
 		A9D32A0000000000000000B2 /* DragOutChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOutChannel.swift; sourceTree = "<group>"; };
 		A9D32A0000000000000000A2 /* PoltergeistFlutterViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PoltergeistFlutterViewController.m; sourceTree = "<group>"; };
 		5E77A1C02E8F4B00000000B2 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
+		D37A1C02E8F4B00000000C02 /* WorkspaceWindows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWindows.swift; sourceTree = "<group>"; };
+		D37A1C02E8F4B00000000C04 /* PoltergeistMultiView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PoltergeistMultiView.m; sourceTree = "<group>"; };
+		D37A1C02E8F4B00000000C05 /* PoltergeistMultiView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PoltergeistMultiView.h; sourceTree = "<group>"; };
 		A9D32A0000000000000000A3 /* PoltergeistFlutterViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PoltergeistFlutterViewController.h; sourceTree = "<group>"; };
 		A9D32A0000000000000000A4 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		33CEB47222A05771004F2AC0 /* Flutter-Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Flutter-Debug.xcconfig"; sourceTree = "<group>"; };
@@ -180,6 +185,9 @@
 				A9D32A0000000000000000A2 /* PoltergeistFlutterViewController.m */,
 				5E77A1C02E8F4B00000000B2 /* SettingsWindow.swift */,
 				A9D32A0000000000000000A3 /* PoltergeistFlutterViewController.h */,
+				D37A1C02E8F4B00000000C02 /* WorkspaceWindows.swift */,
+				D37A1C02E8F4B00000000C04 /* PoltergeistMultiView.m */,
+				D37A1C02E8F4B00000000C05 /* PoltergeistMultiView.h */,
 				A9D32A0000000000000000A4 /* Runner-Bridging-Header.h */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
 				33E51914231749380026EE4D /* Release.entitlements */,
@@ -371,6 +379,8 @@
 				A9D32A0000000000000000B1 /* DragOutChannel.swift in Sources */,
 				A9D32A0000000000000000A1 /* PoltergeistFlutterViewController.m in Sources */,
 				5E77A1C02E8F4B00000000B1 /* SettingsWindow.swift in Sources */,
+				D37A1C02E8F4B00000000C01 /* WorkspaceWindows.swift in Sources */,
+				D37A1C02E8F4B00000000C03 /* PoltergeistMultiView.m in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);

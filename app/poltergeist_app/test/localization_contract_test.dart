@@ -267,9 +267,40 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'inspectorTab'",
     "'Invalid session inspector flag'",
     "'Invalid session inspector tab'",
+    // 00 D39's document of the windows open beside the first: its list
+    // key plus its strict-decode diagnostics.
+    "'windows'",
+    "'Invalid session windows'",
+    "'Unsupported session windows schema'",
+    "'Invalid session windows list'",
   },
   // The settings.json key the session document lives under (02 §3).
-  'lib/services/session_state_store.dart': {"'session.state'"},
+  'lib/services/session_state_store.dart': {
+    "'session.state'",
+    // 00 D39: the windows open beside the first, under their own key.
+    "'session.windows'",
+  },
+  // 00 D39's workspace windows: the runner channel's name, the diagnostics
+  // a failed native call carries to the error reporter, and debug labels
+  // for keys and focus scopes — never rendered UI copy.
+  'lib/services/workspace_windows/window_host.dart': {
+    "'poltergeist/windows'",
+    r"'WindowHostException: $message'",
+    "'no window host'",
+    "'the runner answered no view id'",
+  },
+  'lib/services/workspace_windows/workspace_windows.dart': {
+    r"'window $serial navigator'",
+    r"'window $serial messenger'",
+    r"'window $serial'",
+    "'active window navigator'",
+    "'active window messenger'",
+  },
+  // 00 D39's window command ids (D21 plumbing), never rendered.
+  'lib/ui/shell/window_commands.dart': {
+    "'window.new'",
+    "'window.close'",
+  },
   // The workspace document's on-disk schema (02 §3): the session-shape
   // tab fields it reuses plus the persisted lens keys — the same
   // posture as the sibling versioned stores, never rendered UI copy.

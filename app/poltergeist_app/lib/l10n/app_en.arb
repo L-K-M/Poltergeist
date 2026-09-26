@@ -1028,6 +1028,14 @@
   "@tabStripLabel": {
     "description": "Accessible label of a pane's tab strip container (02 §3)."
   },
+  "windowNewLabel": "New Window",
+  "@windowNewLabel": {
+    "description": "Command label: open another workspace window with the default layout (window.new, 00 D39)."
+  },
+  "windowCloseLabel": "Close Window",
+  "@windowCloseLabel": {
+    "description": "Command label: close the current workspace window; the last one quits the app (window.close, 00 D39)."
+  },
   "tabNewLabel": "New Tab",
   "@tabNewLabel": {
     "description": "Command label and button tooltip: open a new tab in the focused pane (tab.new, 02 §3)."

@@ -10,6 +10,7 @@ import '../../services/drag_out_controller.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
+import '../../services/workspace_windows/workspace_window_scope.dart';
 
 /// The D14 spring-load delay (02 §5.1): a folder row held under a drag
 /// for this long opens in place.
@@ -338,6 +339,9 @@ class _PaneDropAreaState extends State<PaneDropArea> {
   /// surfaces) must not swallow drops; a pane without a live listing
   /// (loading, error, connection-lost, disowned rows) accepts nothing.
   bool _osDropEnabled(BuildContext context) =>
+      // desktop_drop reports the main window's drops only, in its
+      // coordinates: another window's zone must not take them (00 D39).
+      WorkspaceWindowScope.capabilitiesOf(context).osDropIn &&
       widget.delegate != null &&
       widget.controller.verbsEnabled &&
       TickerMode.valuesOf(context).enabled &&

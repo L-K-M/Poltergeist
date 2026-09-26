@@ -382,4 +382,34 @@ void main() {
     expect(decoded.panes[0].tabs, hasLength(3));
     expect(decoded.panes[0].tabs[0].kind, SessionTabKind.remote);
   });
+
+  group('SessionWindowsState (00 D39)', () {
+    test('round-trips every window', () {
+      final state = SessionWindowsState(windows: [_fixture(), _fixture()]);
+      final decoded = SessionWindowsState.fromJson(state.toJson());
+      expect(decoded.windows, hasLength(2));
+      expect(decoded.windows.last.toJson(), _fixture().toJson());
+    });
+
+    test('one malformed window fails the whole document', () {
+      final json = SessionWindowsState(windows: [_fixture()]).toJson();
+      (json['windows']! as List).add({'version': 1});
+      expect(
+        () => SessionWindowsState.fromJson(json),
+        throwsFormatException,
+      );
+    });
+
+    test('an unknown schema or a malformed root fails closed', () {
+      expect(
+        () => SessionWindowsState.fromJson({'version': 2, 'windows': []}),
+        throwsFormatException,
+      );
+      expect(
+        () => SessionWindowsState.fromJson({'version': 1}),
+        throwsFormatException,
+      );
+      expect(() => SessionWindowsState.fromJson([]), throwsFormatException);
+    });
+  });
 }

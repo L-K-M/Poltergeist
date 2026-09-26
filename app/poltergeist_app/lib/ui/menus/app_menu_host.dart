@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/registered_command.dart';
+import '../../services/workspace_windows/workspace_window_scope.dart';
+import '../../services/workspace_windows/workspace_windows.dart'
+    show WorkspaceWindow;
 import '../panes/pane_commands.dart' show keyMayRunFrom;
 import 'app_menus.dart';
 import 'menu_shortcut_hint.dart';
@@ -73,10 +76,16 @@ class _AppMenuHostState extends State<AppMenuHost> {
     );
 
     if (platform == TargetPlatform.macOS) {
-      return PlatformMenuBar(
-        menus: _syncedMenus(menus, l10n),
-        child: widget.child,
-      );
+      final synced = _syncedMenus(menus, l10n);
+      // With several windows the root renders the one native menu bar,
+      // and the active window's items go there (00 D39).
+      final window = WorkspaceWindowScope.maybeOf(context);
+      final slot = window?.menuBar;
+      if (slot == null) {
+        return PlatformMenuBar(menus: synced, child: widget.child);
+      }
+      if (window!.active) _publish(slot, synced, window.window);
+      return widget.child;
     }
     if (!widget.showMenuBar) return widget.child;
 
@@ -107,6 +116,23 @@ class _AppMenuHostState extends State<AppMenuHost> {
         Expanded(child: widget.child),
       ],
     );
+  }
+
+  /// Hands [menus] to the root's menu bar after this frame (a slot change
+  /// rebuilds the root, which must not happen mid-build). Unchanged menus
+  /// keep their identity (see [_syncedMenus]), so this is then a no-op.
+  void _publish(
+    MenuBarSlot slot,
+    List<PlatformMenuItem> menus,
+    WorkspaceWindow window,
+  ) {
+    if (identical(slot.value, menus)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Still this window's turn, and still its latest items.
+      if (!mounted || !window.isActive) return;
+      if (!identical(_platformMenus, menus)) return;
+      slot.value = menus;
+    });
   }
 
   /// Serializes [menus] once per content change; a rebuild with an

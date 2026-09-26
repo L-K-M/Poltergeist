@@ -111,6 +111,10 @@ bool FlutterWindow::OnCreate() {
   settings_window_ = std::make_unique<SettingsWindowHost>(
       GetHandle(), flutter_controller_->engine()->messenger());
 
+  // More workspace windows on this engine (workspace_windows.h).
+  workspace_windows_ = std::make_unique<WorkspaceWindowsHost>(
+      GetHandle(), flutter_controller_->engine()->messenger());
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
@@ -127,9 +131,11 @@ void FlutterWindow::OnDestroy() {
   // Tear down in submission order: the channel first (no new trash
   // calls), then the worker (pending jobs finish and join), and only
   // then the engine — a completing MethodResult needs it alive. The
-  // drag-out channel and the settings window go before the engine too.
+  // drag-out channel, the settings window, and the workspace windows go
+  // before the engine too.
   drag_out_ = nullptr;
   settings_window_ = nullptr;
+  workspace_windows_ = nullptr;
   if (trash_channel_) {
     // The channel's destruction alone does not unregister the handler
     // from the engine messenger — clear it explicitly so a late call
@@ -152,6 +158,11 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   // A drag-out session the channel accepted runs here, after its reply.
   if (drag_out_ && drag_out_->HandleWindowMessage(message)) {
     return 0;
+  }
+
+  // The main window's activation, for the workspace windows' active one.
+  if (workspace_windows_) {
+    workspace_windows_->HandleMainWindowMessage(message, wparam);
   }
 
   // Give Flutter, including plugins, an opportunity to handle window messages.

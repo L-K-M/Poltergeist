@@ -8820,6 +8820,85 @@ Settings dialog, which only its widget test covers.
 Validation: `flutter analyze` is clean, and the full app suite passes:
 2739 tests on the merge with main at `b47c3db`, 138 of them new.
 
+## D39: More than one workspace window (2026-09-25)
+
+The owner asked for a "new window" feature so different views,
+connections and actions can run side by side (D39 records the decision;
+it supersedes D13's single window and D25's parked multi-window item).
+
+- **What changed for the user.** On macOS, Linux and Windows, File ▸
+  New Window (⌘N, Ctrl+N) opens a workspace window with a local home tab
+  in each pane, and File ▸ Close Window (⇧⌘W, Ctrl+Shift+W) closes one;
+  so does the close button. Closing the last open window quits through
+  the quit guard, and Quit closes every window. Each window has its own
+  tabs, panes, sidebar state and inspector; bookmarks, the pool, the
+  transfer queue and Settings are the app's. The next launch reopens
+  every window that was open. Phones and tablets are unchanged.
+- **Shape.** Every window is a view on the app's one engine
+  (`runWidget` + `ViewCollection` in `lib/ui/workspace_windows_root.dart`),
+  each rendering its own `PoltergeistApp` and `WorkspaceShell` over the
+  models `main.dart` composes once. `WorkspaceWindows`
+  (`lib/services/workspace_windows/`) keeps the open windows, the active
+  one, and the open, close and quit rules; the runners host the native
+  windows on `poltergeist/windows` (`linux/runner/workspace_windows.cc`,
+  `macos/Runner/WorkspaceWindows.swift` with `PoltergeistMultiView.m`,
+  `windows/runner/workspace_windows.cpp`). The engine calls behind them
+  are D39's: Linux `fl_view_new_for_engine` (public), Windows
+  `FlutterDesktopEngineCreateViewController` and
+  `FlutterDesktopEngineForId` (exported, internal header), macOS
+  `initWithEngine:` after setting the engine's multi-view flag by
+  key-value coding (the private `-enableMultiView` asserts once the
+  implicit view exists, and NSAssert is live in the shipped engine).
+- **App-wide once, not per window.** The lifecycle listener moved out
+  of `PoltergeistApp` into `attachAppSessionLifecycle`, owned by
+  `main.dart` when there are windows: the framework asks every listener
+  whether the app may exit, one after another, so one per window would
+  have asked the quit guard again after its first answer. The quit
+  guard's queue is bound once for the app (a closing window's shell used
+  to unbind it). The probe owner, the preview threshold and the
+  dirty-checkout prompt's guards are shared by every shell. The engine
+  prompts, the quit guard and the server editor take a navigator key
+  that answers for the active window's. On macOS one `PlatformMenuBar`
+  at the root shows the active window's menus. The dirty-checkout
+  prompt and the activity panel's reveal on new work run in the active
+  window only, and the Settings window rebinds to it.
+- **Across windows.** The last-binding close (03 §3.2) asks the other
+  windows' workspaces too, so closing one window's last tab on a server
+  no longer disconnects another window's panes. Closing a window leaves
+  its servers in the pool: its transfers may still be using them.
+- **The first window** is the engine's implicit view, which cannot
+  leave the engine: its close button with another window open hides it
+  (`DesktopWindowLifecycle.closeInstead`) and drops its workspace, and
+  the next New Window shows it again, fresh. An extra window has none of
+  the single-window plugins: no drop-in, no drag-out, and on macOS a
+  standard titlebar, in-window Quick Look, and no semantics (the
+  embedder would hand them to the main window's accessibility bridge;
+  the extra window's view drops them). Open item 34 lists the
+  follow-ups.
+- **Session.** `session.state` keeps its v1 shape for the first open
+  window; `session.windows` holds the rest, strict and fail-closed like
+  it, written in the same `setAll`.
+
+Verified on Linux under Xvfb with openbox, on a release build: Ctrl+N
+opened a second window that rendered its own workspace; Ctrl+T there
+added a tab to that window only; Ctrl+Shift+W closed it and the main
+window kept drawing (no EGL fault, unlike a second engine); the main
+window's close button with an extra window open hid it (`IsUnMapped`)
+while the extra stayed, and Ctrl+N from the extra brought it back with a
+fresh workspace; a relaunch restored both windows with their tabs; Quit
+from the palette with two windows open closed both and the process
+exited. Two things seen there are the baseline's too, checked against a
+build of origin/main: after the last window closes through its close
+button the process stays alive in engine shutdown, and the Settings
+window renders blank under this Xvfb/openbox setup. macOS and Windows
+are compiled by CI only: their first runs are a release-checklist row.
+
+Validation: `flutter analyze` is clean; the full app suite passes, with
+new suites for the window registry, the runner channel, the windows
+root (including the macOS menu bar), the window commands, the runner
+source contract, the multi-window session document, the lifecycle's
+close hook, and OS drops refused in an extra window.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -9671,6 +9750,27 @@ Validation: `flutter analyze` is clean, and the full app suite passes:
     made Android supported with these slices still open; the README's
     known issues name them and the release checklist's Android row
     carries the device checks.
+34. **2026-09-25: D39 — what an extra workspace window lacks.** Each is
+    its own follow-up: drops from other apps (desktop_drop registers on
+    the main view only and reports positions in its coordinates; a
+    per-view drop target with the view id on every event is needed);
+    drag-out (the `poltergeist/dragout` runners hold the main view's
+    controller; `startDrag` needs the view id); on macOS the unified
+    toolbar (macos_window_utils' click passthrough is main-window only),
+    the Quick Look panel (the responder chain accepts in
+    `MainFlutterWindow` only), and accessibility (Flutter 3.47's macOS
+    embedder routes every view's semantics to the implicit view; the
+    extra window sends none until upstream routes by view id); Windows
+    taskbar progress while the main window is hidden; and remembering an
+    extra window's size and place. Cross-window drags within the app are
+    not supported either: a Flutter drag cannot leave its view. From the
+    first review: a window opened from a maximized or full-screen window
+    takes that window's size without its state (every runner copies the
+    size it sees; each should use the restored size instead); an extra
+    window's View ▸ Enter Full Screen label misses a change made outside
+    the menu until the next toggle (the runners report no full-screen
+    events; the toggle itself asks first, so it never inverts); and every
+    window has the same title.
 
 ## Independent audit
 

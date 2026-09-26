@@ -18,6 +18,7 @@ final class SessionStateStore {
     : _store = store;
 
   static const _settingsKey = 'session.state';
+  static const _windowsKey = 'session.windows';
 
   final SettingsStore _store;
   Future<void> _tail = Future<void>.value();
@@ -44,6 +45,32 @@ final class SessionStateStore {
     }
     await _store.set(_settingsKey, state.toJson());
   });
+
+  /// The windows the last session had open beside the first (00 D39),
+  /// empty when none was persisted. Throws [FormatException] like [load].
+  Future<List<SessionState>> loadWindows() => _serialized(() async {
+    final stored = await _store.get<Object>(_windowsKey);
+    if (stored == null) return const <SessionState>[];
+    return SessionWindowsState.fromJson(stored).windows;
+  });
+
+  /// Persists every open window at once: [first] as the v1 document and
+  /// [others] beside it, in one write, so the two never disagree about
+  /// which windows were open. Fails closed like [save] when either stored
+  /// document carries a schema this build cannot decode.
+  Future<void> saveAll(SessionState first, List<SessionState> others) =>
+      _serialized(() async {
+        final stored = await _store.get<Object>(_settingsKey);
+        if (stored != null) SessionState.fromJson(stored);
+        final storedWindows = await _store.get<Object>(_windowsKey);
+        if (storedWindows != null) {
+          SessionWindowsState.fromJson(storedWindows);
+        }
+        await _store.setAll({
+          _settingsKey: first.toJson(),
+          _windowsKey: SessionWindowsState(windows: others).toJson(),
+        });
+      });
 
   /// Serialize store operations so a save can never interleave with a
   /// load (or another save) mid-flight — [SettingsStore] already

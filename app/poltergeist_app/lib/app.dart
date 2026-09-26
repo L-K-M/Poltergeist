@@ -1,7 +1,6 @@
-import 'dart:async' show FutureOr, unawaited;
-import 'dart:ui' show AppExitResponse;
+import 'dart:async' show FutureOr;
 
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:poltergeist_core/poltergeist_core.dart'
@@ -13,8 +12,10 @@ import 'package:poltergeist_core/poltergeist_core.dart'
         defaultLargeDownloadThresholdBytes;
 
 import 'l10n/app_localizations.dart';
+import 'services/app_session_lifecycle.dart';
 import 'services/app_transfer_queue.dart';
 import 'services/bookmark_backup_service.dart';
+import 'services/checkout_prompt_ledger.dart';
 import 'services/checkout_session.dart';
 import 'services/connection_state_bridge.dart';
 import 'services/content_size_reporter.dart';
@@ -34,12 +35,14 @@ import 'services/settings_models.dart' show AppearanceSettingsModel;
 import 'services/settings_window/settings_window_host.dart';
 import 'services/sidebar_controller.dart'
     show CollapsedSectionWriter, PinnedServerWriter, SidebarDensity;
+import 'services/sidebar_probe_owner.dart';
 import 'services/ssh_config_import_setup.dart';
 import 'services/sync_environment.dart';
 import 'services/sync_queue_facade.dart';
 import 'services/transfer_limits_controller.dart';
 import 'services/update_check_controller.dart';
 import 'services/workspace_library.dart';
+import 'services/workspace_windows/workspace_windows.dart';
 import 'theme/app_appearance.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
@@ -110,6 +113,10 @@ class PoltergeistApp extends StatefulWidget {
     this.updateCheck,
     this.settingsWindow,
     this.toolbarBand,
+    this.window,
+    this.probeOwner,
+    this.previewThreshold,
+    this.checkoutPrompts,
     this.appearance,
   });
 
@@ -315,6 +322,19 @@ class PoltergeistApp extends StatefulWidget {
   /// windowed layout.
   final ValueListenable<bool>? toolbarBand;
 
+  /// The workspace window this app renders (00 D39), or null for the
+  /// single-window app. A window's app takes its navigator and messenger
+  /// from the window and leaves the app lifecycle to the windows root,
+  /// which owns the one listener for every window.
+  final WorkspaceWindow? window;
+
+  /// App-wide state the windows share (see the same fields on
+  /// [WorkspaceShell]): borrowed, so a closing window's shell never
+  /// disposes them; null lets a single-window shell own its own.
+  final SidebarProbeOwner? probeOwner;
+  final ValueNotifier<int>? previewThreshold;
+  final CheckoutPromptLedger? checkoutPrompts;
+
   /// This device's theme: what the app is drawn in, and the model behind
   /// Settings → Appearance. Null draws the default theme and leaves the
   /// section out.
@@ -323,6 +343,8 @@ class PoltergeistApp extends StatefulWidget {
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator. The session's coordinator and the
   /// [MaterialApp] must share one key: dialogs render on this navigator.
+  /// With [window] set, the MaterialApp takes the window's own key and
+  /// this is the windows' proxy, which answers for the active window's.
   final GlobalKey<NavigatorState>? navigatorKey;
 
   /// Root snack-bar surface for transient notices (vault-save failures).
@@ -331,10 +353,6 @@ class PoltergeistApp extends StatefulWidget {
   @override
   State<PoltergeistApp> createState() => _PoltergeistAppState();
 }
-
-/// The exit hook's flush budget: long enough for a real disk write,
-/// short enough that a wedged one cannot stall the exit decision.
-const _exitFlushTimeout = Duration(seconds: 2);
 
 class _PoltergeistAppState extends State<PoltergeistApp> {
   AppLifecycleListener? _lifecycleListener;
@@ -367,81 +385,18 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
     }
   }
 
-  /// Engine lifetime follows the app's: `detached` is the last state a
-  /// desktop process sees (the window is gone), so the session shuts the
-  /// engine down there — best-effort orderly teardown before process
-  /// exit. `onExitRequested` covers the window-close path where `detached`
-  /// may never be delivered to Dart before the process is torn down; both
-  /// routes land on the same idempotent shutdown.
+  /// The app's lifecycle listener (`attachAppSessionLifecycle`), unless
+  /// this app is one window of several, whose root owns it.
   void _attachSessionLifecycle() {
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
-    final session = widget.engineSession;
-    final persistence = widget.sessionPersistence;
-    final quitGuard = widget.quitGuard;
-    final checkouts = widget.checkoutSession;
-    if (session == null &&
-        persistence == null &&
-        quitGuard == null &&
-        checkouts == null) {
-      return;
-    }
-    _lifecycleListener = AppLifecycleListener(
-      onStateChange: (state) {
-        session?.forwardLifecycle(state);
-        // 06 §3.3's reconcile-on-resume: every foreground transition
-        // rehashes the managed checkouts and repairs degraded
-        // snapshots — the designed fallback when a watcher missed
-        // events while the app sat backgrounded.
-        if (state == AppLifecycleState.resumed && checkouts != null) {
-          unawaited(
-            checkouts.reconcileOnResume().catchError((
-              Object error,
-              StackTrace stackTrace,
-            ) {
-              FlutterError.reportError(
-                FlutterErrorDetails(exception: error, stack: stackTrace),
-              );
-            }),
-          );
-        }
-      },
-      // The framework awaits this future before exiting — the only exit
-      // hook with a wait semantic, so the pending mirror writes flush
-      // before the process is allowed to die. The session's shutdown
-      // itself is triggered fire-and-forget (idempotent), keeping the
-      // exit decision independent of teardown-path futures.
-      onExitRequested: () async {
-        // The quit guard rides this path too: a platform quit (⌘Q, OS
-        // termination) never reaches the window's close callback, so
-        // without this the journal could exit unflushed and un-warned.
-        // A veto cancels the exit — the same answer the intercepted
-        // close gets, sharing one in-flight decision.
-        if (quitGuard != null && !await quitGuard.confirmClose()) {
-          return AppExitResponse.cancel;
-        }
-        // Flush what is already queued before stopping the engine: the
-        // tails snapshot at call time, so writes racing the shutdown
-        // trigger still land first. The session document (02 §3's
-        // app-quit safe point) flushes in the same bounded wait. Both
-        // are best-effort — the framework awaits this future, so
-        // neither a failed nor a wedged flush may block the exit.
-        try {
-          await Future.wait<void>([
-            if (session != null) session.flushWrites(),
-            if (persistence != null) persistence.flush(),
-            // 02 §8.4's recents share the safe point: a debounced write
-            // still pending at quit must land before the window dies.
-            if (widget.recentLocations != null) widget.recentLocations!.flush(),
-          ]).timeout(_exitFlushTimeout);
-        } on Object catch (error, stackTrace) {
-          FlutterError.reportError(
-            FlutterErrorDetails(exception: error, stack: stackTrace),
-          );
-        }
-        session?.forwardLifecycle(AppLifecycleState.detached);
-        return AppExitResponse.exit;
-      },
+    if (widget.window != null) return;
+    _lifecycleListener = attachAppSessionLifecycle(
+      session: widget.engineSession,
+      persistence: widget.sessionPersistence,
+      quitGuard: widget.quitGuard,
+      checkouts: widget.checkoutSession,
+      recentLocations: widget.recentLocations,
     );
   }
 
@@ -476,8 +431,9 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
     final themes = poltergeistThemesFor(appearance);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      navigatorKey: widget.navigatorKey,
-      scaffoldMessengerKey: widget.scaffoldMessengerKey,
+      navigatorKey: widget.window?.navigatorKey ?? widget.navigatorKey,
+      scaffoldMessengerKey:
+          widget.window?.scaffoldMessengerKey ?? widget.scaffoldMessengerKey,
       onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
       theme: themes.theme,
       darkTheme: themes.darkTheme,
@@ -570,6 +526,10 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       syncTasks: widget.syncTasks,
       updateCheck: widget.updateCheck,
       settingsWindow: widget.settingsWindow,
+      window: widget.window,
+      probeOwner: widget.probeOwner,
+      previewThreshold: widget.previewThreshold,
+      checkoutPrompts: widget.checkoutPrompts,
       appearance: widget.appearance,
     );
     final callback = widget.onContentSizeChanged;
