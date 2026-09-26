@@ -8899,6 +8899,36 @@ root (including the macOS menu bar), the window commands, the runner
 source contract, the multi-window session document, the lifecycle's
 close hook, and OS drops refused in an extra window.
 
+## rsync export: server pairs (2026-09-26)
+
+P2-07. For a pair with a remote side, `buildRsyncCommand` escaped every
+flag value for the remote shell, filter patterns included. rsync sends
+filter rules over its protocol, so the backslashes reached wildmatch:
+the default `.poltergeist*` exclude matched nothing, a pasted Mirror
+could delete the destination's `.poltergeist-trash`, and patterns with
+spaces never matched. On rsync 3.2.4+, which escapes remote args
+itself, the pre-escaped remote path also named a wrong directory (and
+on 3.2.4–3.2.7 a backtick in it reached the remote shell).
+
+- Filter values are only single-quoted now.
+- Commands with a remote side start with
+  `RSYNC_OLD_ARGS=2 RSYNC_PROTECT_ARGS=0`, so every rsync version passes
+  the exporter's own escaping through unchanged (05 §2.1 records why).
+- `--backup-dir` rides the remote command line in both directions: it
+  is remote-escaped for a remote destination, and a pull whose local
+  trash path is not shell-safe falls back to the in-root
+  `.poltergeist-trash/rsync-<ts>` with a note. Verbatim, a split value
+  made the remote sender pull another directory's files, exit 0.
+
+Tests: contract tests in `rsync_export_test.dart` (default and user
+excludes survive for remote pairs, the backup-dir cases, a remote path
+with space, quote, `$` and backtick, no prefix on local pairs), a
+`trash_unsafe_pull` golden, and `rsync_export_exec_test.dart`, which
+runs the generated preview and live lines through real rsync with a
+stand-in `ssh` that keeps OpenSSH's remote-command contract (skipped
+without rsync 3.x). Remote goldens changed; local ones are identical.
+Checked by hand against rsync 3.2.7 and a real sshd on loopback.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

@@ -302,14 +302,29 @@ final _fixtures = <_Fixture>[
   ),
   // A relative trash path under a REMOTE destination: the backup-dir
   // value rides the remote command line, so the remote-shell escape
-  // applies on top of quoting — and the same exclude filters the
-  // source side.
+  // applies on top of quoting. Its exclude is a filter rule, which
+  // never meets the remote shell (P2-07), and it filters the source
+  // side too.
   _f(
     'trash_relative_remote',
     endpoints: _localRemote,
     rules: const SyncRuleSet(
       deletions: DeletionPolicy.trash,
       trashPathRight: 'my trash/dir',
+    ),
+  ),
+  // A pull whose LOCAL trash path the remote shell would re-parse
+  // (rsync forwards --backup-dir both ways): the in-root default takes
+  // its place, with a note.
+  _f(
+    'trash_unsafe_pull',
+    endpoints: const ResolvedSyncEndpoints(
+      left: _remote,
+      right: _localRight,
+    ),
+    rules: const SyncRuleSet(
+      deletions: DeletionPolicy.trash,
+      trashPathRight: '/srv/old files',
     ),
   ),
   _f(
@@ -468,18 +483,24 @@ void main() {
       expect(
         lines[firstCommand],
         startsWith(
-          "# Preview first (matches Poltergeist's plan):  rsync -n -i ",
+          "# Preview first (matches Poltergeist's plan):  "
+          'RSYNC_OLD_ARGS=2 RSYNC_PROTECT_ARGS=0 rsync -n -i ',
         ),
       );
-      expect(lines[firstCommand + 1], startsWith('rsync '));
+      expect(
+        lines[firstCommand + 1],
+        startsWith('RSYNC_OLD_ARGS=2 RSYNC_PROTECT_ARGS=0 rsync '),
+      );
       expect(out.endsWith('\n'), isTrue);
     });
 
     test('never emits the flags §2.1/§11 rule out', () {
       // --delete-excluded would let a Mirror delete inside the in-root
       // trash (the §11 mirror-protection invariant); -s/--protect-args
-      // is unsupported on the peers §2 names; --ignore-errors would
-      // re-admit deletions after I/O failures the executor gates on.
+      // is unsupported on the peers §2 names, and so is --old-args
+      // (the RSYNC_OLD_ARGS variable is the version-neutral spelling);
+      // --ignore-errors would re-admit deletions after I/O failures
+      // the executor gates on.
       for (final fixture in _fixtures) {
         final out = buildRsyncCommand(
           fixture.endpoints,
@@ -496,7 +517,12 @@ void main() {
           );
         }
         final tokens = out.split(RegExp(r'\s+'));
-        for (final banned in ['-s', '--protect-args']) {
+        for (final banned in [
+          '-s',
+          '--protect-args',
+          '--secluded-args',
+          '--old-args',
+        ]) {
           expect(
             tokens,
             isNot(contains(banned)),
@@ -633,7 +659,34 @@ void main() {
       expect(out, contains("'/srv/si\nte'"));
     });
 
-    test('remote-side flag values carry the remote-shell escape', () {
+    test('remote pairs keep filter patterns unescaped (P2-07)', () {
+      final out = buildRsyncCommand(
+        _localRemote,
+        const SyncRuleSet(
+          deletions: DeletionPolicy.trash,
+          trashPathRight: 'my trash/dir',
+          excludeGlobs: ['Private Notes/'],
+        ),
+        engineSkipPaths: const ['odd dir'],
+        now: _now,
+      );
+      // rsync sends filter rules over its own protocol, never through
+      // the remote shell: a backslash here would reach wildmatch and
+      // turn the default `.poltergeist*` exclude into a literal name,
+      // letting a pasted Mirror delete the destination's trash.
+      expect(out, contains("--exclude='*.poltergeist-*'"));
+      expect(out, contains("--exclude='.poltergeist*'"));
+      expect(out, contains("--exclude='Private Notes/'"));
+      expect(out, contains("--exclude='/my trash/dir'"));
+      expect(out, contains("--exclude='/odd dir'"));
+      final filters = RegExp(r"--(?:ex|in)clude='([^']*)'").allMatches(out);
+      expect(filters, isNotEmpty);
+      for (final filter in filters) {
+        expect(filter.group(1), isNot(contains(r'\')));
+      }
+    });
+
+    test('a remote destination backup dir takes the remote escape', () {
       final out = buildRsyncCommand(
         _localRemote,
         const SyncRuleSet(
@@ -643,11 +696,103 @@ void main() {
         engineSkipPaths: const [],
         now: _now,
       );
-      // The remote command line re-parses every forwarded arg — a
-      // space must not split the backup-dir or a filter pattern.
+      // The remote receiver gets the value through the remote shell.
       expect(out, contains(r"--backup-dir='my\ trash/dir'"));
-      expect(out, contains(r"--exclude='/my\ trash/dir'"));
-      expect(out, contains(r"--exclude='\*.poltergeist-\*'"));
+    });
+
+    test('a local destination backup dir renders verbatim on a pull', () {
+      final out = buildRsyncCommand(
+        const ResolvedSyncEndpoints(left: _remote, right: _localRight),
+        const SyncRuleSet(
+          deletions: DeletionPolicy.trash,
+          trashPathRight: '/srv/trash-right',
+        ),
+        engineSkipPaths: const [],
+        now: _now,
+      );
+      expect(out, contains("--backup-dir='/srv/trash-right'"));
+      expect(out, isNot(contains('cannot be passed as --backup-dir')));
+    });
+
+    test('a pull falls back to the in-root trash when the local backup '
+        'dir is not remote-safe', () {
+      final out = buildRsyncCommand(
+        const ResolvedSyncEndpoints(left: _remote, right: _localRight),
+        const SyncRuleSet(
+          deletions: DeletionPolicy.trash,
+          trashPathRight: '/srv/old files',
+        ),
+        engineSkipPaths: const [],
+        now: _now,
+      );
+      // rsync forwards --backup-dir to the remote sender's command
+      // line too: verbatim, the space would split the remote args;
+      // escaped, the local receiver would use a backslashed name.
+      expect(
+        out,
+        contains(
+          "--backup-dir='.poltergeist-trash/rsync-20260922-150407'",
+        ),
+      );
+      expect(out, isNot(contains("--backup-dir='/srv/old")));
+      expect(
+        out,
+        contains(
+          "# note: the destination trash path '/srv/old files' cannot be "
+          'passed as --backup-dir',
+        ),
+      );
+    });
+
+    test('remote pairs pin rsync to the escaping the command carries', () {
+      final out = buildRsyncCommand(
+        const ResolvedSyncEndpoints(
+          left: _localLeft,
+          right: ResolvedRemoteEndpoint(
+            user: 'deploy',
+            host: 'example.com',
+            path: r"/var/www/a b'c$HOME`id`",
+          ),
+        ),
+        const SyncRuleSet(),
+        engineSkipPaths: const [],
+        now: _now,
+      );
+      final lines = out.split('\n');
+      final preview = lines.singleWhere(
+        (l) => l.startsWith('# Preview first'),
+      );
+      final live = lines.singleWhere(
+        (l) => l.isNotEmpty && !l.startsWith('#'),
+      );
+      // rsync 3.2.4+ escapes remote args itself, which would double
+      // the allowlist escape below; RSYNC_OLD_ARGS=2 turns that off,
+      // RSYNC_PROTECT_ARGS=0 keeps a 3.1-era -s default from sending
+      // the escaped path verbatim, and older rsync ignores both.
+      const env = 'RSYNC_OLD_ARGS=2 RSYNC_PROTECT_ARGS=0 ';
+      expect(preview, contains(':  ${env}rsync -n -i '));
+      expect(live, startsWith('${env}rsync '));
+      expect(
+        live,
+        endsWith(
+          r"'deploy@example.com:/var/www/a\ b\'\''c\$HOME\`id\`'",
+        ),
+      );
+      expect(out, contains('# note: RSYNC_OLD_ARGS=2'));
+    });
+
+    test('local pairs carry no environment prefix', () {
+      final out = buildRsyncCommand(
+        _localPair,
+        const SyncRuleSet(deletions: DeletionPolicy.trash),
+        engineSkipPaths: const [],
+        now: _now,
+      );
+      expect(out, isNot(contains('RSYNC_')));
+      final live = out
+          .split('\n')
+          .singleWhere((l) => l.isNotEmpty && !l.startsWith('#'));
+      expect(live, startsWith('rsync '));
     });
 
     test('a local-side filter pattern is not remote-escaped', () {
