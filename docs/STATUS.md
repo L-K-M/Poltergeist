@@ -4,6 +4,26 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
+## Mouse drag activation (2026-09-26)
+
+Clicking or holding a folder or file now selects it without showing a drag
+preview. Desktop rows keep a tap recognizer alongside their raw click
+handlers, so Flutter starts dragging only after pointer movement crosses its
+drag threshold. Immediate selection and double-click opening are preserved.
+
+A mouse-down regression reproduced the premature preview before the fix.
+Five mouse widget tests now cover clicks, holds, pointer jitter, actual
+folder/file drops, and double-click navigation. The change is local to
+Poltergeist's draggable pane rows; Séance has no corresponding draggable
+file-row implementation to port it to.
+
+Validation: all 92 tests across the drop, drag-out, selection, inactive-pane
+double-click, file-open, and context-menu suites pass on Flutter 3.47.3 on
+macOS. Flutter analysis is clean. The broader pane run reached 341 passing
+tests but stalled in the session-lifetime suite. Before/after light-theme
+widget captures show the held-click state; native held-pointer capture was
+not exercised. CI uses the repository's Flutter 3.47.2 pin.
+
 ## Delete-confirmation route lifetime (2026-09-26)
 
 Delete confirmation now completes only its own route, once. Repeated Cancel
