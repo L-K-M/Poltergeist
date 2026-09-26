@@ -74,7 +74,8 @@ final class WindowCapabilities {
 /// What a window's shell registers with its window, so the app can reach
 /// the workspace the window shows.
 abstract interface class WorkspaceWindowContent {
-  /// The window's workspace, or null between rebuilds.
+  /// The window's workspace; null only before the shell builds its first
+  /// one and after it is disposed (a rebuild replaces it synchronously).
   WorkspaceController? get workspace;
 
   /// Puts keyboard focus where a freshly opened window wants it (the
@@ -344,6 +345,11 @@ final class WorkspaceWindows extends ChangeNotifier
     notifyListeners();
     // The subtree goes in this frame; the view after it.
     await _afterFrame();
+    if (_disposed) {
+      // The app is going: the runner takes its windows with it.
+      window._dispose();
+      return;
+    }
     try {
       if (window.isMain) {
         await _host.hide(mainWindowViewId);
@@ -361,11 +367,17 @@ final class WorkspaceWindows extends ChangeNotifier
   /// The main window's close button, as window_manager reports it. True
   /// when it was only this window that closed; false when the app should
   /// quit (it is the only window open), which the caller's quit path does.
+  /// Decided in turn with the other opens and closes: one still under way
+  /// can change how many windows are open.
   Future<bool> closeMainWindowInstead() async {
-    final main = windowForView(mainWindowViewId);
-    if (main == null || _windows.length == 1 || _disposed) return false;
-    await closeWindow(main);
-    return true;
+    var closedInstead = false;
+    await _serialized(() async {
+      final main = windowForView(mainWindowViewId);
+      if (main == null || _windows.length == 1 || _disposed) return;
+      closedInstead = true;
+      await _closeWindow(main);
+    });
+    return closedInstead;
   }
 
   /// Quit: every window closes with the app, after the quit guard.

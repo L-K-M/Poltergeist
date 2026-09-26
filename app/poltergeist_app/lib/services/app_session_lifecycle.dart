@@ -39,7 +39,9 @@ AppLifecycleListener? attachAppSessionLifecycle({
   if (session == null &&
       persistence == null &&
       quitGuard == null &&
-      checkouts == null) {
+      checkouts == null &&
+      recentLocations == null &&
+      exitFlushes.isEmpty) {
     return null;
   }
   return AppLifecycleListener(

@@ -838,11 +838,16 @@ class _WorkspaceShellState extends State<WorkspaceShell>
     // The threshold's live value follows a changed seed — same
     // contract as the other persisted seeds: the settings section's
     // own writes can never arrive through here.
-    if (widget.previewThreshold == null &&
-        widget.initialPreviewThresholdBytes !=
-            oldWidget.initialPreviewThresholdBytes) {
-      _ownPreviewThreshold ??= ValueNotifier(0);
-      _previewThresholdBytes = widget.initialPreviewThresholdBytes;
+    if (widget.previewThreshold == null) {
+      final own = _ownPreviewThreshold;
+      if (own == null) {
+        _ownPreviewThreshold = ValueNotifier(
+          widget.initialPreviewThresholdBytes,
+        );
+      } else if (widget.initialPreviewThresholdBytes !=
+          oldWidget.initialPreviewThresholdBytes) {
+        own.value = widget.initialPreviewThresholdBytes;
+      }
     }
     if (!identical(oldWidget.transferQueue, widget.transferQueue)) {
       // A later-arriving queue seam rebinds the mirror; the persisted

@@ -231,9 +231,10 @@ known-divergent surface.
   when a transfer is running, then close everything. Quit with two
   windows open and relaunch: both come back with their tabs. On macOS
   with VoiceOver on, open a second window: the first window's elements
-  still read correctly. Linux was run under Xvfb with openbox (STATUS
-  D39 section); macOS and Windows are compiled by CI only, so this row
-  is their first run.
+  still read correctly, and the second window reads nothing, which is
+  open item 34's known gap, not a regression. Linux was run under Xvfb
+  with openbox (STATUS D39 section); macOS and Windows are compiled by
+  CI only, so this row is their first run.
 - [ ] OWNER MANUAL QA: theme flip (light/dark) live-restyles listing,
   plan view, and editor, in the default theme and in a preset that
   follows the system (Graphite), while a preset with its own surface

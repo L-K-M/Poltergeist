@@ -235,15 +235,21 @@ void method_call_cb(FlMethodChannel* channel, FlMethodCall* call,
   fl_method_call_respond(call, response, nullptr);
 }
 
-void host_free(gpointer data) {
-  auto* host = static_cast<WorkspaceWindowsHost*>(data);
-  // The extra windows go with the main one. Collected first: each destroy
-  // removes its own entry.
+// The extra windows go with the main one, on its "destroy" while every
+// window is still whole, not in its finalize (host_free), where destroying
+// other toplevels would re-enter GTK. Collected first: each destroy removes
+// its own entry.
+void main_window_destroy_cb(GtkWidget* widget, gpointer user_data) {
+  auto* host = static_cast<WorkspaceWindowsHost*>(user_data);
   GList* windows = g_hash_table_get_values(host->windows);
   for (GList* link = windows; link != nullptr; link = link->next) {
     gtk_widget_destroy(GTK_WIDGET(link->data));
   }
   g_list_free(windows);
+}
+
+void host_free(gpointer data) {
+  auto* host = static_cast<WorkspaceWindowsHost*>(data);
   g_hash_table_destroy(host->windows);
   fl_method_channel_set_method_call_handler(host->channel, nullptr, nullptr,
                                             nullptr);
@@ -272,6 +278,8 @@ void workspace_windows_install(GtkApplication* application,
                                             host, nullptr);
   g_signal_connect(main_window, "focus-in-event",
                    G_CALLBACK(main_window_focus_cb), host);
+  g_signal_connect(main_window, "destroy", G_CALLBACK(main_window_destroy_cb),
+                   host);
 
   g_object_set_data_full(G_OBJECT(main_window), kHostDataKey, host,
                          host_free);

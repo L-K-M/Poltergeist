@@ -9763,7 +9763,14 @@ close hook, and OS drops refused in an extra window.
     extra window sends none until upstream routes by view id); Windows
     taskbar progress while the main window is hidden; and remembering an
     extra window's size and place. Cross-window drags within the app are
-    not supported either: a Flutter drag cannot leave its view.
+    not supported either: a Flutter drag cannot leave its view. From the
+    first review: a window opened from a maximized or full-screen window
+    takes that window's size without its state (every runner copies the
+    size it sees; each should use the restored size instead); an extra
+    window's View ▸ Enter Full Screen label misses a change made outside
+    the menu until the next toggle (the runners report no full-screen
+    events; the toggle itself asks first, so it never inverts); and every
+    window has the same title.
 
 ## Independent audit
 

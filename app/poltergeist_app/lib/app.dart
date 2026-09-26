@@ -329,7 +329,8 @@ class PoltergeistApp extends StatefulWidget {
   final WorkspaceWindow? window;
 
   /// App-wide state the windows share (see the same fields on
-  /// [WorkspaceShell]); null lets a single-window shell own its own.
+  /// [WorkspaceShell]): borrowed, so a closing window's shell never
+  /// disposes them; null lets a single-window shell own its own.
   final SidebarProbeOwner? probeOwner;
   final ValueNotifier<int>? previewThreshold;
   final CheckoutPromptLedger? checkoutPrompts;
@@ -342,6 +343,8 @@ class PoltergeistApp extends StatefulWidget {
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator. The session's coordinator and the
   /// [MaterialApp] must share one key: dialogs render on this navigator.
+  /// With [window] set, the MaterialApp takes the window's own key and
+  /// this is the windows' proxy, which answers for the active window's.
   final GlobalKey<NavigatorState>? navigatorKey;
 
   /// Root snack-bar surface for transient notices (vault-save failures).

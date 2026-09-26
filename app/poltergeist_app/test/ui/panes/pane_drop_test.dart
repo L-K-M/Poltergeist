@@ -21,8 +21,8 @@ import 'package:poltergeist_app/ui/panes/pane_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/pane_controller_test.dart' as controller_test;
-import '../../support/fake_app_transfer_queue.dart';
 import '../../services/workspace_windows_test.dart' show FakeWindowHost;
+import '../../support/fake_app_transfer_queue.dart';
 import '../../support/test_panes.dart';
 
 RemoteFileEntry _entryAt(

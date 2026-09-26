@@ -205,6 +205,52 @@ void main() {
     expect(quits, 0);
   });
 
+  test("the main window's close button decides after a close already under "
+      'way, so the last window leaves the quit to the caller', () async {
+    final frame = Completer<void>();
+    final registry = WorkspaceWindows(
+      host: host,
+      quitApplication: () async => quits++,
+      afterFrame: () => frame.future,
+      platform: TargetPlatform.linux,
+    );
+    addTearDown(registry.dispose);
+    await registry.start();
+    await registry.openWindow();
+
+    final closingExtra = registry.closeWindow(registry.windows.last);
+    final closedInstead = registry.closeMainWindowInstead();
+    frame.complete();
+    await closingExtra;
+
+    // By its turn the main window is the only one open: the caller's
+    // quit path takes it, and the registry does not quit a second time.
+    expect(await closedInstead, isFalse);
+    expect(quits, 0);
+    expect(registry.windows.single.isMain, isTrue);
+  });
+
+  test('a close interrupted by disposal leaves the runner alone', () async {
+    final frame = Completer<void>();
+    final registry = WorkspaceWindows(
+      host: host,
+      quitApplication: () async => quits++,
+      afterFrame: () => frame.future,
+      platform: TargetPlatform.linux,
+    );
+    await registry.start();
+    await registry.openWindow();
+    host.calls.clear();
+
+    final closing = registry.closeWindow(registry.windows.last);
+    await pumpEventQueue();
+    registry.dispose();
+    frame.complete();
+    await closing;
+
+    expect(host.calls, isEmpty);
+  });
+
   test('New Window shows a hidden main window again, fresh, before asking '
       'the runner for another', () async {
     await windows.start(session: _session);

@@ -61,7 +61,7 @@ void main() {
     final macos = runners['macos']!;
     expect(
       macos,
-      contains('PoltergeistFlutterViewController(\n      engine: engine,'),
+      contains(RegExp(r'PoltergeistFlutterViewController\(\s*engine: engine,')),
     );
     expect(macos, contains('PoltergeistEnableMultiView(engine)'));
     expect(macos, isNot(contains('FlutterDartProject')));
@@ -98,10 +98,37 @@ void main() {
     // last visible window's close as a quit.
     final close = windows.indexOf('case WM_CLOSE:');
     final lifecycle = windows.indexOf(
-      'FlutterDesktopEngineProcessExternalWindowMessage(\n            engine_',
+      RegExp(r'FlutterDesktopEngineProcessExternalWindowMessage\(\s*engine_'),
     );
     expect(close, isNonNegative);
     expect(lifecycle, greaterThan(close));
+  });
+
+  test('Linux takes the extra windows down with the main window, before '
+      'its finalize', () {
+    final linux = runners['linux']!;
+    final destroyCallback = linux.indexOf('void main_window_destroy_cb(');
+    final hostFree = linux.indexOf('void host_free(');
+    expect(destroyCallback, isNonNegative);
+    expect(
+      linux.substring(destroyCallback, hostFree),
+      contains('gtk_widget_destroy('),
+    );
+    // host_free runs from the main window's finalize, where destroying
+    // other toplevels would re-enter GTK.
+    final hostFreeBody = linux.substring(
+      hostFree,
+      linux.indexOf('\n}\n', hostFree),
+    );
+    expect(hostFreeBody, isNot(contains('gtk_widget_destroy(')));
+    expect(
+      linux,
+      contains(
+        RegExp(
+          r'g_signal_connect\(main_window, "destroy",\s*G_CALLBACK\(main_window_destroy_cb\)',
+        ),
+      ),
+    );
   });
 
   test('every host is compiled in and installed with the main window', () {
