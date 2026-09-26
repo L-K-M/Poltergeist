@@ -158,6 +158,23 @@ void main() {
     expect(find.text('underlying page'), findsOneWidget);
   });
 
+  testWidgets('repeated dismiss after a preparation error keeps the page', (
+    tester,
+  ) async {
+    final harness = await _DialogHarness.open(tester);
+    harness.preparation.completeError(StateError('counting failed'));
+    await tester.pump();
+    expect(find.textContaining('counting failed'), findsOneWidget);
+    final cancel = tester
+        .widget<TextButton>(find.byKey(const ValueKey('delete.cancel')))
+        .onPressed!;
+    cancel();
+    cancel();
+    await tester.pumpAndSettle();
+    expect(find.text('underlying page'), findsOneWidget);
+    expect(await harness.decision, isA<DeleteCancelled>());
+  });
+
   testWidgets('disposing the navigator cancels pending preparation', (
     tester,
   ) async {

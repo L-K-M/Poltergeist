@@ -148,6 +148,7 @@ class _DeleteDialogState extends State<_DeleteDialog> {
     // leaves an unusable counting dialog behind when that prompt closes.
     _closing = true;
     _cancellation.cancel();
+    // Covered content needs no exit animation; observers receive didRemove.
     Navigator.of(context).removeRoute(route, const DeleteCancelled());
   }
 

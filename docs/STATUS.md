@@ -14,9 +14,9 @@ counting walk becomes obsolete while another prompt covers it, only the old
 confirmation route is removed.
 
 Six new widget regressions reproduced the previous failures before the fix.
-The dialog and delete-command suites now pass all 21 tests, including a
-covered-preparation case; the trash/permanent decision and destructive-action
-default are preserved. Validation used Flutter 3.47.3 on macOS with
+The dialog and delete-command suites now pass all 22 tests, including
+covered-preparation and preparation-error cases; the trash/permanent decision
+and destructive-action default are preserved. Validation used Flutter 3.47.3 on macOS with
 `TMPDIR=/private/tmp`; CI uses the repository's 3.47.2 pin. Native assistive
 technology was not exercised by this change.
 
