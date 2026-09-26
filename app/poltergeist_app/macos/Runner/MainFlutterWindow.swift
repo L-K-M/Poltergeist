@@ -8,6 +8,7 @@ class MainFlutterWindow: NSWindow {
   private var filesChannel: FlutterMethodChannel?
   private var dragOutChannel: DragOutChannel?
   private var windowChannel: FlutterMethodChannel?
+  private var menuChecks: MenuChecks?
 
   /// In full screen, or entering it: set on AppKit's will-enter and
   /// will-exit edges, so the toolbar and the Flutter layout switch as a
@@ -52,6 +53,10 @@ class MainFlutterWindow: NSWindow {
     MainFlutterWindowManipulator.start(mainFlutterWindow: self)
     RegisterGeneratedPlugins(
       registry: macOSWindowUtilsViewController.flutterViewController
+    )
+    menuChecks = MenuChecks(
+      messenger: macOSWindowUtilsViewController.flutterViewController.engine
+        .binaryMessenger
     )
 
     settingsWindow = SettingsWindowHost(

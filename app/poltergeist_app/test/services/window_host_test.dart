@@ -56,6 +56,13 @@ void main() {
     expect(calls.single.arguments, {WindowHostKey.engineId.name: 12345678901});
   });
 
+  test('document create passes its filename as the native window title', () async {
+    answer((_) => 3);
+    final host = MethodChannelWindowHost(engineId: () => 7);
+    expect(await host.create(title: 'config.txt'), 3);
+    expect(calls.single.arguments, {'engineId': 7, 'title': 'config.txt'});
+  });
+
   test('a failed or missing create is a WindowHostException', () async {
     final host = MethodChannelWindowHost(engineId: () => 1);
     await expectLater(host.create(), throwsA(isA<WindowHostException>()));

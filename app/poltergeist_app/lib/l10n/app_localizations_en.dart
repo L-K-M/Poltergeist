@@ -715,6 +715,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneSwapFocusLabel => 'Swap Pane Focus';
 
   @override
+  String get editUndoSelectionLabel => 'Undo Selection';
+
+  @override
+  String get editRedoSelectionLabel => 'Redo Selection';
+
+  @override
+  String get commandDisabledNoSelectionUndo =>
+      'No previous selection to restore in this file list';
+
+  @override
+  String get commandDisabledNoSelectionRedo =>
+      'No selection change to redo in this file list';
+
+  @override
   String get editSelectAllLabel => 'Select All';
 
   @override
@@ -5059,4 +5073,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appQuitLabel => 'Quit';
+
+  @override
+  String get editorUndoLabel => 'Undo';
+
+  @override
+  String get editorRedoLabel => 'Redo';
 }

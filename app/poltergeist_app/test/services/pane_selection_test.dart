@@ -167,6 +167,233 @@ void main() {
     });
   });
 
+  group('selection history', () {
+    test(
+      'undo restores cursor and range anchor, redo restores the mistake',
+      () async {
+        controller = openWithListing([
+          _entry('a'),
+          _entry('b'),
+          _entry('c'),
+          _entry('d'),
+        ]);
+        await openHome(controller);
+        controller.setCursorIndex(0);
+        controller.setCursorIndex(2, update: SelectionUpdate.range);
+        controller.setCursorIndex(3);
+
+        controller.undoSelection();
+        expect(selectedIndices(controller), {0, 1, 2});
+        expect(controller.cursorIndex, 2);
+        expect(controller.canRedoSelection, isTrue);
+        controller.redoSelection();
+        expect(selectedIndices(controller), {3});
+        controller.undoSelection();
+        controller.setCursorIndex(1, update: SelectionUpdate.range);
+        expect(selectedIndices(controller), {
+          0,
+          1,
+        }, reason: 'original anchor survives undo');
+        expect(controller.canRedoSelection, isFalse);
+      },
+    );
+
+    test(
+      'no-op activations preserve redo and clear selection can be undone',
+      () async {
+        controller = openWithListing([_entry('a'), _entry('b')]);
+        await openHome(controller);
+        controller.setCursorIndex(0);
+        controller.setCursorIndex(1);
+        controller.undoSelection();
+        controller.setCursorIndex(0);
+        expect(controller.canRedoSelection, isTrue);
+        controller.clearSelection();
+        expect(controller.canRedoSelection, isFalse);
+        controller.undoSelection();
+        expect(selectedIndices(controller), {0});
+        expect(controller.cursorIndex, 0);
+      },
+    );
+
+    test(
+      'refresh and sorting keep history by identity and never resurrect deleted rows',
+      () async {
+        controller = openWithListing([_entry('a'), _entry('b'), _entry('c')]);
+        await openHome(controller);
+        controller.setCursorIndex(0);
+        controller.setCursorIndex(1, update: SelectionUpdate.toggle);
+        controller.setCursorIndex(2);
+        channel.listings['/home/tester'] = [_entry('b'), _entry('c')];
+        controller.refresh();
+        await settle();
+        controller.sortByColumn(FileSortKey.name);
+        controller.undoSelection();
+        expect(controller.selectedEntries.map((e) => e.name), ['b']);
+        expect(controller.entries[controller.cursorIndex!].name, 'b');
+        channel.listings['/home/tester'] = [
+          _entry('a'),
+          _entry('b'),
+          _entry('c'),
+        ];
+        controller.refresh();
+        await settle();
+        controller.redoSelection();
+        controller.undoSelection();
+        expect(controller.selectedEntries.map((e) => e.name), ['b']);
+      },
+    );
+
+    test(
+      'navigation clears history and cancelled navigation restores it',
+      () async {
+        controller = openWithListing([_entry('a'), _entry('b')]);
+        channel.listings['/home/tester/docs'] = [
+          _entry('nested', parent: '/home/tester/docs'),
+        ];
+        await openHome(controller);
+        controller.setCursorIndex(0);
+        controller.setCursorIndex(1);
+        final hold = _holdCompleter();
+        channel.holdNext = hold;
+        controller.navigate('/home/tester/docs');
+        expect(controller.canUndoSelection, isFalse);
+        controller.cancelNavigation();
+        controller.undoSelection();
+        expect(selectedIndices(controller), {0});
+        hold.complete();
+        await settle();
+        controller.navigate('/home/tester/docs');
+        await settle();
+        expect(controller.canUndoSelection, isFalse);
+        expect(controller.canRedoSelection, isFalse);
+        controller.undoSelection();
+        expect(selectedIndices(controller), isEmpty);
+      },
+    );
+
+    test(
+      'Quick Select cancel preserves history and confirmation adds one step',
+      () async {
+        controller = openWithListing([
+          _entry('a.txt'),
+          _entry('b.txt'),
+          _entry('c.log'),
+        ]);
+        await openHome(controller);
+        controller.setCursorIndex(2);
+        controller.openQuickSelect();
+        controller.changeQuickSelectQuery('*.txt');
+        expect(controller.canUndoSelection, isFalse);
+        controller.changeQuickSelectQuery('a*');
+        controller.cancelQuickSelect();
+        controller.undoSelection();
+        expect(selectedIndices(controller), isEmpty);
+        controller.redoSelection();
+        controller.openQuickSelect();
+        controller.changeQuickSelectQuery('*.txt');
+        controller.changeQuickSelectQuery('a*');
+        controller.confirmQuickSelect();
+        expect(selectedIndices(controller), {0, 2});
+        controller.undoSelection();
+        expect(selectedIndices(controller), {2});
+        controller.redoSelection();
+        expect(selectedIndices(controller), {0, 2});
+      },
+    );
+
+    test(
+      'a cancelled replacement binding restores history and the Quick Select baseline',
+      () async {
+        controller = openWithListing([_entry('a'), _entry('b')]);
+        await openHome(controller);
+        controller.setCursorIndex(0);
+        controller.setCursorIndex(1);
+        controller.openQuickSelect();
+        controller.changeQuickSelectQuery('a');
+        final replacement = controller_test.FakePaneChannel('/home/tester');
+        replacement.listings['/home/tester'] = [_entry('a'), _entry('b')];
+        final hold = _holdCompleter();
+        replacement.holdNext = hold;
+        lanes.nextRemoteChannel = replacement;
+        await controller.connectRemote(_bookmark('replacement'));
+        expect(controller.canUndoSelection, isFalse);
+        controller.cancelNavigation();
+        expect(selectedIndices(controller), {1});
+        expect(controller.quickSelectActive, isFalse);
+        controller.undoSelection();
+        expect(selectedIndices(controller), {0});
+        hold.complete();
+        await settle();
+        lanes.nextRemoteChannel = replacement;
+        await controller.connectRemote(_bookmark('replacement'));
+        await settle();
+        expect(controller.canUndoSelection, isFalse);
+        expect(controller.canRedoSelection, isFalse);
+      },
+    );
+
+    test(
+      'pruning skips indistinguishable steps and empty-list undo is unavailable',
+      () async {
+        controller = openWithListing([_entry('a'), _entry('b')]);
+        await openHome(controller);
+        controller.setCursorIndex(0);
+        controller.setCursorIndex(1, update: SelectionUpdate.toggle);
+        controller.selectAll();
+        channel.listings['/home/tester'] = [];
+        controller.refresh();
+        await settle();
+        expect(controller.canUndoSelection, isFalse);
+        expect(controller.canRedoSelection, isFalse);
+        channel.listings['/home/tester'] = [_entry('a'), _entry('b')];
+        controller.refresh();
+        await settle();
+        expect(controller.canUndoSelection, isFalse);
+        controller.setCursorIndex(1);
+        controller.undoSelection();
+        expect(controller.selectedCount, 0);
+        expect(controller.cursorIndex, isNull);
+      },
+    );
+
+    test(
+      'manual Quick Select previews preserve history and cancel restores cursor and anchor',
+      () async {
+        controller = openWithListing([_entry('a'), _entry('b'), _entry('c')]);
+        await openHome(controller);
+        controller.setCursorIndex(0);
+        controller.setCursorIndex(1, update: SelectionUpdate.range);
+        controller.openQuickSelect();
+        controller.setCursorIndex(2);
+        controller.selectAll();
+        controller.openQuickSelect();
+        controller.cancelQuickSelect();
+        expect(selectedIndices(controller), {0, 1});
+        expect(controller.cursorIndex, 1);
+        controller.setCursorIndex(2, update: SelectionUpdate.range);
+        expect(selectedIndices(controller), {0, 1, 2});
+        controller.undoSelection();
+        controller.undoSelection();
+        expect(selectedIndices(controller), {0});
+      },
+    );
+
+    test('history is bounded to the most recent 100 changes', () async {
+      controller = openWithListing([_entry('a'), _entry('b')]);
+      await openHome(controller);
+      for (var i = 0; i < 105; i++) {
+        controller.setCursorIndex(i % 2);
+      }
+      for (var i = 0; i < 100; i++) {
+        expect(controller.canUndoSelection, isTrue);
+        controller.undoSelection();
+      }
+      expect(controller.canUndoSelection, isFalse);
+      expect(selectedIndices(controller), {0});
+    });
+  });
+
   group('clearSelection (D32 §9)', () {
     test('drops the selection and the cursor, so no verb keeps a hidden '
         'subject', () async {

@@ -70,6 +70,7 @@ import 'adaptive_shell.dart';
 import 'inspector/alerts_view.dart';
 import 'inspector/inspector_view.dart';
 import 'built_in_text_editor.dart';
+import 'editor_checkout_upload.dart';
 import 'compact/compact_browser.dart' show CompactPaneSeams;
 import 'compact/compact_posture.dart';
 import 'compact/compact_workspace.dart';
@@ -539,9 +540,11 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   int get _previewThresholdBytes => _previewThreshold.value;
   set _previewThresholdBytes(int bytes) => _previewThreshold.value = bytes;
 
-  /// Whether this shell's window is the one the user works in; always in
-  /// the single-window app.
-  bool get _isActiveWindow => widget.window?.isActive ?? true;
+  /// Editors share the app's work: the most recent workspace continues
+  /// to observe transfers and checkout changes while a document is active.
+  bool get _ownsAppReactions => widget.window?.isActiveWorkspace ?? true;
+
+  BuildContext get _promptContext => widget.window?.promptContext ?? context;
 
   /// The production Quick Look channel, created once so session
   /// rebuilds share the one native binding (06 §5.1).
@@ -663,7 +666,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
       // With several windows it is the active one that opens: the queue
       // is the app's, and every window would otherwise pop its panel.
       onTasksArrived: () {
-        if (!_compactPosture && _isActiveWindow) {
+        if (!_compactPosture && _ownsAppReactions) {
           _workspace?.setActivityPanelHidden(false);
         }
       },
@@ -1077,7 +1080,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   void _scanDirtyCheckouts() {
     final session = _checkoutListener;
     // One window asks: every window hears the session (00 D39).
-    if (session == null || !_isActiveWindow) return;
+    if (session == null || !_ownsAppReactions) return;
     final dirtyIds = {
       for (final record in session.records)
         if (record.dirty) record.id,
@@ -1119,13 +1122,16 @@ class _WorkspaceShellState extends State<WorkspaceShell>
         _promptedDirtyCheckouts.remove(record.id);
         return;
       }
+      final promptContext = _promptContext;
       showTopToastIn(
-        context,
+        promptContext,
         message: AppLocalizations.of(
-          context,
+          promptContext,
         ).checkoutDirtyUploadPrompt(remoteBasename(current.remotePath)),
         duration: const Duration(seconds: 12),
-        actionLabel: AppLocalizations.of(context).checkoutDirtyUploadAction,
+        actionLabel: AppLocalizations.of(
+          promptContext,
+        ).checkoutDirtyUploadAction,
         onAction: () => unawaited(_uploadDirtyCheckout(current!)),
       );
     });
@@ -1149,14 +1155,18 @@ class _WorkspaceShellState extends State<WorkspaceShell>
         bookmark?.label ?? record.serverId,
       );
       if (uploaded && mounted) {
+        final promptContext = _promptContext;
+        if (!promptContext.mounted) return;
         showTopToastIn(
-          context,
-          message: AppLocalizations.of(context).checkoutUploadSucceeded(name),
+          promptContext,
+          message: AppLocalizations.of(
+            promptContext,
+          ).checkoutUploadSucceeded(name),
         );
       }
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
-      if (mounted) showTopToastIn(context, message: error.toString());
+      if (mounted) showTopToastIn(_promptContext, message: error.toString());
     }
   }
 
@@ -1245,8 +1255,9 @@ class _WorkspaceShellState extends State<WorkspaceShell>
             remotePath: record.remotePath,
             basenameOf: remoteBasename,
             onSaved: () => session.reconcile(record),
-            onUpload: () =>
-                _uploadCheckout(record, bookmark?.label ?? record.serverId),
+            onUpload: _editorUploader(
+              session, record, bookmark?.label ?? record.serverId,
+            ),
           ).catchError((Object error, StackTrace stackTrace) {
             // The fire-and-forget push would otherwise escape the row's
             // reported-lane posture as an unhandled async error.
@@ -2753,7 +2764,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
           remotePath: record.remotePath,
           basenameOf: remoteBasename,
           onSaved: () => session.reconcile(record),
-          onUpload: () => _uploadCheckout(record, bookmark.label),
+          onUpload: _editorUploader(session, record, bookmark.label),
         ),
       );
     } on Object catch (error, stackTrace) {
@@ -2997,7 +3008,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
         remotePath: record.remotePath,
         basenameOf: remoteBasename,
         onSaved: () => session.reconcile(record),
-        onUpload: () => _uploadCheckout(record, bookmark.label),
+        onUpload: _editorUploader(session, record, bookmark.label),
       ),
     );
   }
@@ -3115,63 +3126,34 @@ class _WorkspaceShellState extends State<WorkspaceShell>
       );
       return false;
     }
-    // Keyed on (serverId, remotePath), not the record's id: a reconcile
-    // mid-upload can swap in a record with a fresh id, and an id-keyed
-    // guard would miss a second call on the swapped record. Only the
-    // call that inserted the key removes it — an overlapping second
-    // upload must not clear the first's suppression.
-    final key = _checkoutKey(copy);
-    final ownsKey = _uploadingCheckoutKeys.add(key);
-    try {
-      return await session.uploadLocalCopy(copy);
-    } on RemoteFileException catch (error) {
-      if (error.kind != RemoteFileErrorKind.conflict || !mounted) rethrow;
-      final overwrite = await _confirmRemoteOverwrite(copy, serverLabel);
-      if (!overwrite) return false;
-      return session.uploadLocalCopy(copy, overwriteRemoteChanges: true);
-    } finally {
-      if (ownsKey) _uploadingCheckoutKeys.remove(key);
-    }
+    return uploadEditorCheckout(
+      context: widget.window?.promptContext ?? context,
+      session: session,
+      prompts: _checkoutPrompts,
+      copy: copy,
+      serverLabel: serverLabel,
+    );
   }
 
-  /// 06 §3.4's escalation dialog (02 §10's verb rules — safe default
-  /// first): "Remote file changed" … `Cancel` (default) ·
-  /// `Overwrite Remote Version`. The neutral "(or was deleted)" copy
-  /// matches the typed conflict message — a deleted target has no newer
-  /// version to overwrite. [serverLabel] names the server the remote
-  /// path lives on (the bookmark's label, or its id as the fallback).
-  Future<bool> _confirmRemoteOverwrite(
+  Future<bool> Function(BuildContext) _editorUploader(
+    CheckoutSession session,
     ManagedRemoteFile copy,
     String serverLabel,
-  ) async {
-    if (!mounted) return false;
-    final l10n = AppLocalizations.of(context);
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(l10n.editorConflictTitle),
-        content: Text(
-          l10n.editorConflictBody(
-            remoteBasename(copy.remotePath),
-            serverLabel,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(l10n.editorConflictCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10n.editorConflictOverwrite),
-          ),
-        ],
-      ),
+  ) {
+    // Capture app-owned state now: the editor outlives this shell.
+    final prompts = _checkoutPrompts;
+    return (editorContext) => uploadEditorCheckout(
+      context: editorContext,
+      session: session,
+      prompts: prompts,
+      copy: copy,
+      serverLabel: serverLabel,
     );
-    return accepted ?? false;
   }
 
-  /// Pushes the full-window editor route (06 §2.3), or focuses the live
+  /// Opens a desktop editor window, or the mobile full-window route.
+  /// Reopening a document focuses its live editor.
+  /// On mobile, focuses the live
   /// one when [key]'s editor is already on the stack — §3.1's
   /// one-editor-per-key rule: two editors on one checkout (or one local
   /// path) would share a file and baseline, so the second open surfaces
@@ -3182,8 +3164,34 @@ class _WorkspaceShellState extends State<WorkspaceShell>
     required String? remotePath,
     required String Function(String) basenameOf,
     required Future<void> Function()? onSaved,
-    required Future<bool> Function()? onUpload,
+    required Future<bool> Function(BuildContext)? onUpload,
   }) async {
+    final window = widget.window;
+    if (window != null && window.canOpenWindows) {
+      await window.openEditor(
+        key: key,
+        title: basenameOf(remotePath ?? file.path),
+        builder: (editorWindow) => ValueListenableBuilder<bool>(
+          valueListenable: editorWindow.editorQuitPending,
+          builder: (editorContext, quitPending, _) => BuiltInTextEditorScreen(
+            quitPending: quitPending,
+            file: file,
+            remotePath: remotePath,
+            onSaved: onSaved,
+            onUpload: onUpload == null ? null : () => onUpload(editorContext),
+            onCloseRequested: editorWindow.close,
+            onQuitRequested: editorWindow.quitApplication,
+            onNewWindowRequested: editorWindow.openWindow,
+            onCloseGuardChanged: editorWindow.setEditorCloseGuard,
+            showToast: (toastContext, message) =>
+                showTopToastIn(toastContext, message: message),
+            monoFontFallback: poltergeistMonoFontFamilies,
+            basenameOf: basenameOf,
+          ),
+        ),
+      );
+      return;
+    }
     final existing = _editorRoutes[key];
     if (existing != null && existing.isActive) {
       final navigator = Navigator.of(context);
@@ -3229,7 +3237,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
         file: file,
         remotePath: remotePath,
         onSaved: onSaved,
-        onUpload: onUpload,
+        onUpload: onUpload == null ? null : () => onUpload(routeContext),
         showToast: (toastContext, message) =>
             showTopToastIn(toastContext, message: message),
         monoFontFallback: poltergeistMonoFontFamilies,

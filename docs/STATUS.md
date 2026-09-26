@@ -4,6 +4,39 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
+## Desktop file interactions (2026-09-26)
+
+Show Hidden Files now carries its checked state into the macOS menu. The
+same bridge handles the other registry-backed checkable commands and
+updates when the active pane or window changes. Windows/Linux retain their
+existing checkbox rendering.
+
+Each pane tab keeps a bounded selection undo/redo history. Undo Selection
+and Redo Selection appear in Edit, the palette, and file-list context menus;
+their shortcuts are Cmd/Ctrl+Alt+Z and Cmd/Ctrl+Alt+Shift+Z. History includes
+the cursor and range anchor, survives refresh and sorting by row identity,
+prunes unavailable rows, and resets on navigation. Cancelled navigation
+restores history with the original listing. Quick Select contributes one
+confirmed change, with previews and cancellation kept out of history.
+
+On desktop, Edit in Poltergeist opens a separate document window on the
+existing shared engine. Opening the same document raises its window, even
+from another workspace. The editor retains its own save, upload, conflict,
+and close handling after the source workspace closes. Native close and Quit
+protect unsaved buffers; mobile retains its editor route.
+
+These changes follow the owner's request and amend D17 and the selection
+specification. The menu bridge and selection model are Poltergeist-specific;
+the editor-window seams are recorded in PORTS.md as a Séance port-back
+candidate. Validation details are recorded with the PR.
+
+Validation: 273 affected Flutter tests pass, including remote editing,
+external-editor checkouts, menus, selection, and window lifecycle. The
+macOS debug build and native menu-state XCTest pass. Light-theme widget
+captures cover the selection menu and the route/window editor forms;
+native screenshot capture was unavailable. Local checks use Flutter 3.47.3;
+CI uses the repository's 3.47.2 pin and builds the other platforms.
+
 ## Mouse drag activation (2026-09-26)
 
 Clicking or holding a folder or file now selects it without showing a drag

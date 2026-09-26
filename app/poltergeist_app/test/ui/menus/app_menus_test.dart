@@ -25,6 +25,7 @@ RegisteredCommand _command(
   CommandMenuPlacement? placement,
   List<ShortcutActivator> Function(TargetPlatform)? activators,
   bool Function()? enabled,
+  bool Function()? checked,
   void Function()? onRun,
 }) {
   return RegisteredCommand(
@@ -33,6 +34,7 @@ RegisteredCommand _command(
     label: (l10n) => id,
     activators: activators,
     enabled: enabled ?? () => true,
+    checked: checked,
     menuPlacement: placement,
     run: (_) async => onRun?.call(),
   );
@@ -544,6 +546,58 @@ void main() {
   });
 
   group('PlatformMenuBar branch (macOS)', () {
+    testWidgets('native checkmarks follow the active pane and toggle state', (
+      tester,
+    ) async {
+      _useRecordingMenuDelegate();
+      final hidden = [false, true];
+      var activePane = 0;
+      final commands = [
+        _command(
+          'pane.showHidden',
+          checked: () => hidden[activePane],
+          placement: const CommandMenuPlacement(
+            menu: AppMenuId.view,
+            order: 10,
+          ),
+        ),
+      ];
+      Future<void> onRun(RegisteredCommand command) async {}
+      Widget host() => MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.macOS),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: AppMenuHost(
+          commands: commands,
+          onRun: onRun,
+          child: const SizedBox.expand(),
+        ),
+      );
+      Map<String, Object?> serializedItem() {
+        final bar = tester.widget<PlatformMenuBar>(
+          find.byType(PlatformMenuBar),
+        );
+        final item = _leavesOf(_menuNamed(bar, 'View')).first;
+        return item.toChannelRepresentation(
+          WidgetsBinding.instance.platformMenuDelegate,
+          getId: (_) => 17,
+        ).single;
+      }
+
+      await tester.pumpWidget(host());
+      expect(serializedItem()['checked'], isFalse);
+      hidden[0] = true;
+      await tester.pumpWidget(host());
+      expect(serializedItem()['checked'], isTrue);
+      hidden[0] = false;
+      activePane = 1;
+      await tester.pumpWidget(host());
+      expect(serializedItem()['checked'], isTrue);
+      activePane = 0;
+      await tester.pumpWidget(host());
+      expect(serializedItem()['checked'], isFalse);
+    });
+
     testWidgets('pushes the derived menus to the platform delegate', (
       tester,
     ) async {
@@ -882,6 +936,69 @@ void main() {
       expect(runs, 1);
     });
   });
+
+  for (final (id, shift) in [
+    (kEditUndoSelectionCommandId, false),
+    (kEditRedoSelectionCommandId, true),
+  ]) {
+    testWidgets('$id native shortcut leaves text field focus alone', (
+      tester,
+    ) async {
+      _useRecordingMenuDelegate();
+      var runs = 0;
+      final fieldNode = FocusNode();
+      addTearDown(fieldNode.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.macOS),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: AppMenuHost(
+            commands: [
+              _command(
+                id,
+                activators: (_) => [
+                  SingleActivator(
+                    LogicalKeyboardKey.keyZ,
+                    meta: true,
+                    alt: true,
+                    shift: shift,
+                  ),
+                ],
+                placement: const CommandMenuPlacement(
+                  menu: AppMenuId.edit,
+                  order: 10,
+                ),
+              ),
+            ],
+            onRun: (_) async => runs++,
+            child: Scaffold(body: TextField(focusNode: fieldNode)),
+          ),
+        ),
+      );
+      fieldNode.requestFocus();
+      await tester.pump();
+      final bar = tester.widget<PlatformMenuBar>(find.byType(PlatformMenuBar));
+      final item = _leavesOf(_menuNamed(bar, 'Edit')).single;
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyZ);
+      item.onSelected!();
+      await tester.pump();
+      expect(runs, 0);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyZ);
+      if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+
+      // An explicit menu choice still operates on the file selection.
+      item.onSelected!();
+      await tester.pump();
+      expect(runs, 1);
+    });
+  }
 
   group('registry invariant', () {
     testWidgets('every registered command is menu- or shortcut-reachable '

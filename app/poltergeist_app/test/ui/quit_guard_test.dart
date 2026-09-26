@@ -102,6 +102,19 @@ void main() {
         !isShown(find.byKey(const ValueKey('quitFlush.dialog'))),
   );
 
+  test('an unsaved document vetoes quit before queue mutations or flushing', () async {
+    final queue = FakeAppTransferQueue();
+    final guard = QuitGuard(
+      navigatorKey: GlobalKey<NavigatorState>(),
+      confirmEditorsClose: () async => false,
+    )..bindQueue(() => queue);
+    expect(await guard.confirmClose(), isFalse);
+    expect(queue.flushJournalCalls, 0);
+    expect(queue.pauseTaskCalls, isEmpty);
+    expect(queue.cancelTaskCalls, isEmpty);
+    await queue.close();
+  });
+
   testWidgets('close with active tasks warns and does not destroy', (
     tester,
   ) async {

@@ -42,6 +42,7 @@ const kPaneRowContextMenu = <List<String>>[
     kFileDownloadToCommandId,
   ],
   [kFileDeleteCommandId],
+  [kEditUndoSelectionCommandId, kEditRedoSelectionCommandId],
 ];
 
 /// The empty-area menu: the folder-level verbs — nothing that acts on
@@ -51,6 +52,7 @@ const kPaneEmptyContextMenu = <List<String>>[
   [kSelectionCopyPathCommandId],
   [kViewToggleHiddenCommandId, kViewRefreshCommandId],
   [kEditSelectAllCommandId],
+  [kEditUndoSelectionCommandId, kEditRedoSelectionCommandId],
 ];
 
 /// Resolves [sections] against the registered [commands]: unregistered

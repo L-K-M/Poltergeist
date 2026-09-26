@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../services/checked_platform_menu.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_windows/workspace_window_scope.dart';
 import '../../services/workspace_windows/workspace_windows.dart'
@@ -180,6 +181,7 @@ class _AppMenuHostState extends State<AppMenuHost> {
           command.id,
           command.label(l10n),
           command.enabled(),
+          command.checked?.call(),
           _nativeShortcut(command),
         );
       case AppMenuSubmenuRow(:final title, :final items):
@@ -235,12 +237,21 @@ class _AppMenuHostState extends State<AppMenuHost> {
     AppLocalizations l10n,
   ) {
     final shortcut = _nativeShortcut(command);
+    final onSelected = command.enabled()
+        ? () => _activateNative(command, shortcut)
+        : null;
+    if (command.checked case final checked?) {
+      return CheckedPlatformMenuItem(
+        label: command.label(l10n),
+        checked: checked(),
+        shortcut: shortcut,
+        onSelected: onSelected,
+      );
+    }
     return PlatformMenuItem(
       label: command.label(l10n),
       shortcut: shortcut,
-      onSelected: command.enabled()
-          ? () => _activateNative(command, shortcut)
-          : null,
+      onSelected: onSelected,
     );
   }
 

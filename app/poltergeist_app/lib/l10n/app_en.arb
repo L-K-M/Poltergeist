@@ -951,6 +951,22 @@
   "@paneSwapFocusLabel": {
     "description": "Command label: swap focus between the panes."
   },
+  "editUndoSelectionLabel": "Undo Selection",
+  "@editUndoSelectionLabel": {
+    "description": "Restore the previous selection, cursor, and range anchor in the active file list. This does not undo file operations."
+  },
+  "editRedoSelectionLabel": "Redo Selection",
+  "@editRedoSelectionLabel": {
+    "description": "Reapply a selection change undone in the active file list."
+  },
+  "commandDisabledNoSelectionUndo": "No previous selection to restore in this file list",
+  "@commandDisabledNoSelectionUndo": {
+    "description": "Disabled reason for Undo Selection when no usable history is available."
+  },
+  "commandDisabledNoSelectionRedo": "No selection change to redo in this file list",
+  "@commandDisabledNoSelectionRedo": {
+    "description": "Disabled reason for Redo Selection when no usable redo history is available."
+  },
   "editSelectAllLabel": "Select All",
   "@editSelectAllLabel": {
     "description": "Command label: select every row of the focused pane's listing (edit.selectAll, 02 §2.5)."
@@ -6655,5 +6671,7 @@
   "appQuitLabel": "Quit",
   "@appQuitLabel": {
     "description": "10 §8: the Linux/Windows File menu's Quit row, which closes the window through the same quit guard as the titlebar's close button."
-  }
+  },
+  "editorUndoLabel": "Undo",
+  "editorRedoLabel": "Redo"
 }

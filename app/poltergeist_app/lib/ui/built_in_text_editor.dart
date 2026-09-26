@@ -15,10 +15,14 @@ import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../l10n/app_localizations.dart';
+import '../services/registered_command.dart';
+import 'menus/app_menu_host.dart';
+import 'menus/app_menu_commands.dart';
 import 'editor_syntax.dart';
 
-/// The built-in text editor (06 §2): one document per screen, pushed as a
-/// full-window route. Zero session/SFTP coupling inside the widget — the
+/// The built-in text editor (06 §2): one document per desktop window, or
+/// a full-window route on phones and tablets. No session/SFTP coupling inside
+/// the widget: the
 /// caller wires [onSaved] (the per-copy reconcile) and [onUpload] (the
 /// conflict-aware save-and-upload) for a managed checkout, or leaves
 /// [onUpload] null for a plain local file (the upload UI then vanishes).
@@ -31,6 +35,11 @@ class BuiltInTextEditorScreen extends StatefulWidget {
     this.saveDocument,
     this.onSaved,
     this.onUpload,
+    this.onCloseRequested,
+    this.onQuitRequested,
+    this.onNewWindowRequested,
+    this.quitPending = false,
+    this.onCloseGuardChanged,
     required this.showToast,
     required this.monoFontFallback,
     required this.basenameOf,
@@ -64,6 +73,14 @@ class BuiltInTextEditorScreen extends StatefulWidget {
   /// Returns false when the upload was declined (a cancelled conflict
   /// escalation), true on success; throws on failure.
   final Future<bool> Function()? onUpload;
+
+  /// Native document windows use the same discard guard as route pops.
+  /// Null retains the phone/tablet route and its normal back button.
+  final Future<void> Function()? onCloseRequested;
+  final Future<void> Function()? onQuitRequested;
+  final Future<void> Function()? onNewWindowRequested;
+  final bool quitPending;
+  final void Function(Future<bool> Function()? guard)? onCloseGuardChanged;
 
   /// The top-toast presenter (02 §10) — Séance's `showTopToastIn` hardcode
   /// as an injected seam (06 §2.3).
@@ -100,6 +117,7 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
   bool _loading = true;
   bool _saving = false;
   bool _searchOpen = false;
+  Future<bool>? _discardDecision;
   bool _searchCaseSensitive = false;
   List<TextRange> _matches = const [];
   int _activeMatch = -1;
@@ -133,6 +151,7 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
   @override
   void initState() {
     super.initState();
+    widget.onCloseGuardChanged?.call(_confirmClose);
     _text.addListener(_changed);
     _search.addListener(_searchChanged);
     final initialText = widget.initialText;
@@ -206,6 +225,7 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
 
   @override
   void dispose() {
+    widget.onCloseGuardChanged?.call(null);
     _search.removeListener(_searchChanged);
     _text.removeListener(_changed);
     _text.dispose();
@@ -366,6 +386,15 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
     );
   }
 
+  Future<bool> _confirmClose() {
+    // A pending write/upload owns the document until its bookkeeping has
+    // settled; closing now could hide a failure or its conflict dialog.
+    if (_saving && widget.onCloseRequested != null) return Future.value(false);
+    return _discardDecision ??= _confirmDiscard().whenComplete(
+      () => _discardDecision = null,
+    );
+  }
+
   Future<bool> _confirmDiscard() async {
     if (!_dirty) return true;
     final l10n = AppLocalizations.of(context);
@@ -390,7 +419,7 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
   }
 
   Future<void> _save({bool upload = false}) async {
-    if (_saving || _loading || _error != null) return;
+    if (_saving || _loading || _error != null || widget.quitPending) return;
     final uploadAfterSave = upload && widget.onUpload != null;
     setState(() => _saving = true);
     final value = _text.text;
@@ -457,14 +486,26 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
     final l10n = AppLocalizations.of(context);
     final name = widget.basenameOf(_displayPath);
     final uploadOnSave = widget.onUpload != null;
-    return PopScope(
-      canPop: !_dirty,
+    final editor = PopScope(
+      canPop: !_dirty && (!_saving || widget.onCloseRequested == null),
       onPopInvokedWithResult: (didPop, _) async {
-        if (didPop || !await _confirmDiscard() || !context.mounted) return;
+        if (didPop || !await _confirmClose() || !context.mounted) return;
         Navigator.of(context).pop();
       },
       child: CallbackShortcuts(
         bindings: {
+          if (widget.onNewWindowRequested != null) ...{
+            const SingleActivator(LogicalKeyboardKey.keyN, meta: true):
+                widget.onNewWindowRequested!,
+            const SingleActivator(LogicalKeyboardKey.keyN, control: true):
+                widget.onNewWindowRequested!,
+          },
+          if (widget.onCloseRequested != null) ...{
+            const SingleActivator(LogicalKeyboardKey.keyW, meta: true):
+                widget.onCloseRequested!,
+            const SingleActivator(LogicalKeyboardKey.keyW, control: true):
+                widget.onCloseRequested!,
+          },
           // ⌘S/Ctrl+S is "save and upload" for a server file; hold Shift to
           // deliberately keep a save local-only.
           const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () =>
@@ -507,6 +548,13 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
         },
         child: Scaffold(
           appBar: AppBar(
+            leading: widget.onCloseRequested == null
+                ? null
+                : IconButton(
+                    tooltip: l10n.windowCloseLabel,
+                    onPressed: widget.onCloseRequested,
+                    icon: const Icon(Icons.close),
+                  ),
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -565,7 +613,160 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
         ),
       ),
     );
+    if (widget.onCloseRequested == null) return editor;
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: AppMenuHost(
+        commands: [
+          if (widget.onNewWindowRequested != null)
+            RegisteredCommand(
+              id: 'window.new',
+              scope: CommandScope.app,
+              label: (l10n) => l10n.windowNewLabel,
+              enabled: () => !widget.quitPending,
+              run: (_) => widget.onNewWindowRequested!(),
+              activators: (platform) => [
+                _editorShortcut(platform, LogicalKeyboardKey.keyN),
+              ],
+              menuPlacement: const CommandMenuPlacement(
+                menu: AppMenuId.file,
+                order: 0,
+              ),
+            ),
+          RegisteredCommand(
+            id: 'editor.save',
+            activators: (platform) => [
+              _editorShortcut(platform, LogicalKeyboardKey.keyS),
+            ],
+            scope: CommandScope.editor,
+            label: (l10n) => uploadOnSave
+                ? l10n.editorSaveAndUploadTooltip
+                : l10n.editorSaveLocallyTooltip,
+            enabled: () =>
+                !_loading && !_saving && _error == null && !widget.quitPending,
+            run: (_) => _save(upload: uploadOnSave),
+            menuPlacement: const CommandMenuPlacement(
+              menu: AppMenuId.file,
+              order: 10,
+            ),
+          ),
+          RegisteredCommand(
+            id: 'editor.close',
+            activators: (platform) => [
+              _editorShortcut(platform, LogicalKeyboardKey.keyW),
+            ],
+            scope: CommandScope.editor,
+            label: (l10n) => l10n.windowCloseLabel,
+            run: (_) => widget.onCloseRequested!(),
+            menuPlacement: const CommandMenuPlacement(
+              menu: AppMenuId.file,
+              order: 20,
+            ),
+          ),
+          RegisteredCommand(
+            id: 'editor.find',
+            activators: (platform) => [
+              _editorShortcut(platform, LogicalKeyboardKey.keyF),
+            ],
+            scope: CommandScope.editor,
+            label: (l10n) => l10n.editorFindTooltip,
+            enabled: () => !_loading && _error == null,
+            run: (_) async => _openSearch(),
+            menuPlacement: const CommandMenuPlacement(
+              menu: AppMenuId.edit,
+              order: 10,
+            ),
+          ),
+          ..._textCommands(context),
+          if (Theme.of(context).platform != TargetPlatform.macOS)
+            buildQuitCommand(requestClose: widget.onQuitRequested),
+        ],
+        onRun: (command) async {
+          if (command.enabled()) await command.run(context);
+        },
+        child: editor,
+      ),
+    );
   }
+
+  Iterable<RegisteredCommand> _textCommands(BuildContext context) {
+    final material = MaterialLocalizations.of(context);
+    final l10n = AppLocalizations.of(context);
+    final actions = <(String, String, LogicalKeyboardKey, Intent)>[
+      (
+        'editor.undo',
+        l10n.editorUndoLabel,
+        LogicalKeyboardKey.keyZ,
+        const UndoTextIntent(SelectionChangedCause.keyboard),
+      ),
+      (
+        'editor.redo',
+        l10n.editorRedoLabel,
+        LogicalKeyboardKey.keyZ,
+        const RedoTextIntent(SelectionChangedCause.keyboard),
+      ),
+      (
+        'editor.cut',
+        material.cutButtonLabel,
+        LogicalKeyboardKey.keyX,
+        const CopySelectionTextIntent.cut(SelectionChangedCause.keyboard),
+      ),
+      (
+        'editor.copy',
+        material.copyButtonLabel,
+        LogicalKeyboardKey.keyC,
+        CopySelectionTextIntent.copy,
+      ),
+      (
+        'editor.paste',
+        material.pasteButtonLabel,
+        LogicalKeyboardKey.keyV,
+        const PasteTextIntent(SelectionChangedCause.keyboard),
+      ),
+      (
+        'editor.selectAll',
+        material.selectAllButtonLabel,
+        LogicalKeyboardKey.keyA,
+        const SelectAllTextIntent(SelectionChangedCause.keyboard),
+      ),
+    ];
+    return [
+      for (var i = 0; i < actions.length; i++)
+        RegisteredCommand(
+          id: actions[i].$1,
+          scope: CommandScope.editor,
+          label: (_) => actions[i].$2,
+          enabled: () => !_loading && _error == null && !widget.quitPending,
+          activators: (platform) => [
+            _editorShortcut(
+              platform,
+              actions[i].$3,
+              shift: actions[i].$1 == 'editor.redo',
+            ),
+          ],
+          run: (_) async {
+            final focusContext = FocusManager.instance.primaryFocus?.context;
+            if (focusContext != null)
+              Actions.maybeInvoke(focusContext, actions[i].$4);
+          },
+          menuPlacement: CommandMenuPlacement(
+            menu: AppMenuId.edit,
+            order: 20 + i,
+          ),
+        ),
+    ];
+  }
+
+  static SingleActivator _editorShortcut(
+    TargetPlatform platform,
+    LogicalKeyboardKey key, {
+    bool shift = false,
+  }) => SingleActivator(
+    key,
+    meta: platform == TargetPlatform.macOS,
+    control: platform != TargetPlatform.macOS,
+    shift: shift,
+  );
 
   Widget _searchBar(BuildContext context) {
     final theme = Theme.of(context);
@@ -673,24 +874,37 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         _editorWidth = constraints.maxWidth;
-        return TextField(
-          controller: _text,
-          focusNode: _editorFocus,
-          scrollController: _scroll,
-          autofocus: true,
-          expands: true,
-          maxLines: null,
-          minLines: null,
-          keyboardType: TextInputType.multiline,
-          textAlignVertical: TextAlignVertical.top,
-          autocorrect: false,
-          enableSuggestions: false,
-          smartDashesType: SmartDashesType.disabled,
-          smartQuotesType: SmartQuotesType.disabled,
-          style: _editorTextStyle,
-          decoration: const InputDecoration(
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.all(_editorPadding),
+        return Actions(
+          actions: {
+            if (widget.quitPending) ...{
+              UndoTextIntent: CallbackAction<UndoTextIntent>(
+                onInvoke: (_) => null,
+              ),
+              RedoTextIntent: CallbackAction<RedoTextIntent>(
+                onInvoke: (_) => null,
+              ),
+            },
+          },
+          child: TextField(
+            controller: _text,
+            readOnly: widget.quitPending,
+            focusNode: _editorFocus,
+            scrollController: _scroll,
+            autofocus: true,
+            expands: true,
+            maxLines: null,
+            minLines: null,
+            keyboardType: TextInputType.multiline,
+            textAlignVertical: TextAlignVertical.top,
+            autocorrect: false,
+            enableSuggestions: false,
+            smartDashesType: SmartDashesType.disabled,
+            smartQuotesType: SmartQuotesType.disabled,
+            style: _editorTextStyle,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.all(_editorPadding),
+            ),
           ),
         );
       },
