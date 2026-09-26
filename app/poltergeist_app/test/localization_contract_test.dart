@@ -1360,7 +1360,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // D32's active-pane marker and the tab menu's row keys — plumbing
     // keyed to the strip and tab ids, never authored copy.
     r"'${tabs.paneId}.activeIndicator'",
-    r"'${tabs.paneId}.inactiveSeparator'",
+    r"'${tabs.paneId}.stripSeparator'",
     r"'${tab.id}.menu.close'",
     r"'${tab.id}.menu.closeOthers'",
     r"'${tab.id}.menu.duplicate'",
