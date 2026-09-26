@@ -196,6 +196,8 @@ void main() {
         scheme.surfaceContainerHighest,
       ].map(towardText).toList();
       expect(ladder.first, greaterThan(0));
+      // No shade steps past the text itself.
+      expect(ladder.last, lessThanOrEqualTo(1));
       for (var i = 1; i < ladder.length; i++) {
         expect(ladder[i], greaterThan(ladder[i - 1]), reason: 'step $i');
       }
