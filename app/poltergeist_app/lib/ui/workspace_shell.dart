@@ -45,6 +45,7 @@ import '../services/rsync_endpoints.dart';
 import '../services/server_duplication.dart';
 import '../services/session_persistence.dart';
 import '../services/session_state.dart';
+import '../services/settings_models.dart' show AppearanceSettingsModel;
 import '../services/settings_window/settings_window_host.dart';
 import '../services/settings_window/settings_window_link.dart';
 import '../services/sidebar_controller.dart';
@@ -171,6 +172,7 @@ class WorkspaceShell extends StatefulWidget {
     this.updateCheck,
     this.localVolumes,
     this.settingsWindow,
+    this.appearance,
   });
 
   final double initialPaneRatio;
@@ -432,6 +434,11 @@ class WorkspaceShell extends StatefulWidget {
   /// binds its sections to it. Null keeps the dialogs — mobile, and every
   /// test that does not wire a window.
   final SettingsWindowHost? settingsWindow;
+
+  /// This device's theme, behind Settings → Appearance (the Settings
+  /// window's Appearance tab, and the Settings dialog's section after
+  /// General). Null leaves the section out.
+  final AppearanceSettingsModel? appearance;
 
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
@@ -1425,6 +1432,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     opener: widget.externalOpener,
     previewDownloads: _previewDownloadsSettings,
     backup: widget.bookmarkBackup,
+    appearance: widget.appearance,
     changes: [?widget.updateCheck],
   );
 
@@ -1481,12 +1489,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           enabled: () => !_commandSessionActive,
           openWindow: _openSettingsWindow,
         ),
-      // 02 §9's `app.settings` row registers while the update-check
-      // seam exists — its General section's only row today is D19's
-      // opt-out, so a seam-less boot has nothing to show there.
-      if (widget.updateCheck != null)
+      // 02 §9's `app.settings` row registers while it has a section to
+      // show: D19's update-check opt-out (General's only row today) or
+      // the device's theme (Appearance). A seam-less boot has neither.
+      if (widget.updateCheck != null || widget.appearance != null)
         buildAppSettingsCommand(
-          settings: _generalSettings,
+          settings: widget.updateCheck == null ? null : _generalSettings,
+          appearance: widget.appearance,
           enabled: () => !_commandSessionActive,
           openWindow: _openSettingsWindow,
         ),

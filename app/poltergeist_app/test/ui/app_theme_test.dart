@@ -64,6 +64,8 @@ void main() {
         mid.statusConnected,
         half(dark.statusConnected, light.statusConnected),
       );
+      expect(mid.statusFailed, half(dark.statusFailed, light.statusFailed));
+      expect(mid.statusUnknown, half(dark.statusUnknown, light.statusUnknown));
       expect(mid.sidebarBackground, isNot(dark.sidebarBackground));
       expect(mid.sidebarBackground, isNot(light.sidebarBackground));
 
@@ -78,6 +80,14 @@ void main() {
       expect(between.rowExtent, closeTo(22 + 26 * 0.25, 1e-9));
       expect(between.sidebarRowExtent, closeTo(26 + 22 * 0.25, 1e-9));
 
+      // Corners too: Material's own shapes lerp through the same theme
+      // animation, and the hand-drawn corners that follow the same scale
+      // blend with them.
+      final square = dark.copyWith(cornerScale: 0);
+      final round = dark.copyWith(cornerScale: 2);
+      expect(square.lerp(round, 0.25).cornerScale, 0.5);
+      expect(round.corner(6), 12);
+
       expect(dark.lerp(light, 0), _sameChrome(dark));
       expect(dark.lerp(light, 1), _sameChrome(light));
       expect(dark.lerp(null, 0.5), same(dark));
@@ -87,11 +97,17 @@ void main() {
       final copy = dark.copyWith(
         separator: const Color(0xFF123456),
         rowExtent: 30,
+        cornerScale: 0.5,
       );
       expect(copy.separator, const Color(0xFF123456));
       expect(copy.rowExtent, 30);
+      expect(copy.cornerScale, 0.5);
       expect(
-        copy.copyWith(separator: dark.separator, rowExtent: dark.rowExtent),
+        copy.copyWith(
+          separator: dark.separator,
+          rowExtent: dark.rowExtent,
+          cornerScale: dark.cornerScale,
+        ),
         _sameChrome(dark),
       );
     });
@@ -115,8 +131,11 @@ Matcher _sameChrome(PoltergeistChrome expected) => predicate<PoltergeistChrome>(
       actual.secondaryText == expected.secondaryText &&
       actual.statusConnected == expected.statusConnected &&
       actual.statusConnecting == expected.statusConnecting &&
+      actual.statusFailed == expected.statusFailed &&
+      actual.statusUnknown == expected.statusUnknown &&
       actual.headerHeight == expected.headerHeight &&
       actual.rowExtent == expected.rowExtent &&
-      actual.sidebarRowExtent == expected.sidebarRowExtent,
+      actual.sidebarRowExtent == expected.sidebarRowExtent &&
+      actual.cornerScale == expected.cornerScale,
   'the same chrome, field by field',
 );

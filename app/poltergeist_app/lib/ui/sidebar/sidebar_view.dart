@@ -925,13 +925,13 @@ List<SidebarMenuEntry> _openVerbs(
 /// probe but holds no connection a hollow green ring and one that does
 /// not answer a hollow red ring (Séance's reachability marks), and an
 /// unknown or idle server paints nothing. [appearance] carries the
-/// state's words for the row's semantics and tooltip, dot or not.
+/// state's words for the row's semantics and tooltip, dot or not. The
+/// colours are the chrome's status colours, which a theme palette names.
 @visibleForTesting
 ({ServerIndicatorAppearance appearance, SidebarStatusDot? dot})
 sidebarServerIndicator(
   AppLocalizations l10n,
-  PoltergeistChrome chrome,
-  ColorScheme scheme, {
+  PoltergeistChrome chrome, {
   ServerStatus? status,
   ProbeStatus? probe,
 }) {
@@ -939,9 +939,9 @@ sidebarServerIndicator(
   final dot = switch (appearance.glyph) {
     ServerIndicatorGlyph.connected => SidebarStatusDot(chrome.statusConnected),
     ServerIndicatorGlyph.pending => SidebarStatusDot(chrome.statusConnecting),
-    ServerIndicatorGlyph.failed => SidebarStatusDot(scheme.error),
+    ServerIndicatorGlyph.failed => SidebarStatusDot(chrome.statusFailed),
     ServerIndicatorGlyph.blocked => SidebarStatusDot(
-      scheme.error,
+      chrome.statusFailed,
       style: SidebarDotStyle.blocked,
     ),
     ServerIndicatorGlyph.probe => switch (probe) {
@@ -950,7 +950,7 @@ sidebarServerIndicator(
         style: SidebarDotStyle.ring,
       ),
       ProbeStatus.offline => SidebarStatusDot(
-        scheme.error,
+        chrome.statusFailed,
         style: SidebarDotStyle.ring,
       ),
       ProbeStatus.unknown || null => null,
@@ -970,7 +970,6 @@ _serverIndicator(
 }) => sidebarServerIndicator(
   l10n,
   PoltergeistChrome.of(context),
-  Theme.of(context).colorScheme,
   status: status,
   probe: probe,
 );

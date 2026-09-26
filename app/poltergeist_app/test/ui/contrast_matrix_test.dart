@@ -119,8 +119,9 @@ void main() {
           // WCAG 1.4.11's floor covers meaningful indicators, not
           // decorative separators — D11's quiet chrome stays quiet.
           // The unknown-dot/semantic `outline` IS meaningful, so it is
-          // pinned instead.
+          // pinned instead, as is the unknown dot the chrome paints with it.
           ('outline', scheme.outline, scheme.surface),
+          ('unknown/idle dot', chrome.statusUnknown, scheme.surface),
           // D32 §6's kind glyphs, and every other glyph D34 tints, wear
           // the family hues: family_hues_test.dart pins each hue on every
           // chrome surface and row state.
@@ -174,9 +175,9 @@ void main() {
         final dots = <(String, Color)>[
           ('connected dot and ring', chrome.statusConnected),
           ('connecting', chrome.statusConnecting),
-          ('failed', scheme.error),
-          ('blocked bar', scheme.error),
-          ('unreachable ring', scheme.error),
+          ('failed', chrome.statusFailed),
+          ('blocked bar', chrome.statusFailed),
+          ('unreachable ring', chrome.statusFailed),
         ];
         for (final (dot, color) in dots) {
           for (final (state, surface) in rowStates) {

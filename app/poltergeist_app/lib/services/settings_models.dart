@@ -9,9 +9,26 @@
 import 'package:flutter/foundation.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import '../theme/app_appearance.dart';
+import '../theme/theme_palette.dart';
 import 'bookmark_backup_service.dart'
     show BackupSwitchOutcome, RetainedBackupAccount;
 import 'external_file_opener.dart';
+
+/// The Settings → Appearance section's model: [AppearanceController] in the
+/// app. [value] is the theme the app is drawn in, and what the app's
+/// MaterialApp (and the Settings window's) rebuilds for.
+///
+/// The section edits a copy of its own and hands it back whole: in the
+/// Settings window, [value] trails each write by a round trip to the app.
+abstract interface class AppearanceSettingsModel
+    implements ValueListenable<AppAppearance> {
+  /// Re-themes the app, then persists the theme; a no-op when nothing
+  /// changed. Throws when the write fails, after the app has taken the
+  /// change: the app shows what the section shows, and the next write
+  /// carries it.
+  Future<void> setAppearance(ThemePalette palette, ThemeModePreference mode);
+}
 
 /// The Settings → Editing registry sections' model:
 /// [EditorRegistryController] in the app.
