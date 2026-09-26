@@ -1337,6 +1337,52 @@ void main() {
   // ── Restore Trashed Files ────────────────────────────────────────────
 
   group('restore trashed files', () {
+    test('legacy item-line update backup restores after reopening', () async {
+      await writeFile(leftRoot, 'f.txt', 'new-version');
+      await writeFile(rightRoot, 'f.txt', 'old-version');
+      final plan = makePlan([
+        item(
+          'f.txt',
+          left: await snapOf(leftRoot, 'f.txt'),
+          right: await snapOf(rightRoot, 'f.txt'),
+          suggested: SyncActionType.updateLeftToRight,
+          reason: SyncReason.contentDiffers,
+        ),
+      ], updateRules);
+      final run = await executor.run(plan, pairId: pairId);
+      final backup = run.journal.trashLines.single;
+      final journalFile = File(run.journal.path);
+      final records = [
+        for (final line in await journalFile.readAsLines())
+          if (line.trim().isNotEmpty) jsonDecode(line) as Map<String, dynamic>,
+      ];
+      // Recreate the old on-disk format: only the completed item line
+      // carries the backup; there is no standalone trash record.
+      records.removeWhere((record) => record['type'] == 'trash');
+      final legacyItem = records.singleWhere(
+        (record) => record['type'] == 'item',
+      );
+      legacyItem['trashLocation'] = backup.trashLocation;
+      legacyItem['trashBytes'] = backup.bytes;
+      await journalFile.writeAsString(
+        '${records.map(jsonEncode).join('\n')}\n',
+      );
+      final reopened = await SyncRunJournal.open(journalFile.path);
+      expect(reopened.trashLines, isEmpty);
+      expect(reopened.items.single.trashLocation, backup.trashLocation);
+
+      final report = await restoreTrashedFiles(
+        reopened,
+        fsFor: (side) => side == SyncSide.left ? leftFs : rightFs,
+        rootFor: (side) =>
+            side == SyncSide.left ? leftRoot.path : rightRoot.path,
+      );
+
+      expect(report.restored, ['f.txt']);
+      expect(report.skipped, isEmpty);
+      expect(await File('${rightRoot.path}/f.txt').readAsString(), 'old-version');
+    });
+
     for (final cancelDuringUpload in [false, true]) {
       test(
         '${cancelDuringUpload ? 'cancelled' : 'failed'} update keeps a '

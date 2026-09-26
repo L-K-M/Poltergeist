@@ -56,8 +56,9 @@ contract.
 
 Validation: three regressions failed before the fix: lost mappings after a
 failed or cancelled update, and missing conflict reporting for a recreated
-origin. The executor and journal suites pass afterward (49 tests); the full
-sync suite passes 232 tests with three SSH fixture skips, and sync package
+origin. The executor and journal suites pass afterward (50 tests), including
+a legacy item-line update backup restored after reopening; the full sync
+suite passes 233 tests with three SSH fixture skips, and sync package
 analysis is clean. The remaining crash interval between moving a
 file to trash and recording that move still needs write-ahead recovery; this
 change does not claim to close it.
