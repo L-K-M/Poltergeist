@@ -593,7 +593,8 @@ class PooledConnectionManager implements ConnectionManager {
     // A queued acquisition could only fail the reference check once served;
     // failing it now lets its caller retry against the new endpoint.
     _failWaiters(pool, serverId);
-    if (_holdsChannels(pool, serverId)) {
+    final draining = _holdsChannels(pool, serverId);
+    if (draining) {
       final retired = _retiredPools.putIfAbsent(serverId, () => {});
       retired.removeWhere((earlier) => !_holdsChannels(earlier, serverId));
       retired.add(pool);
@@ -609,9 +610,18 @@ class PooledConnectionManager implements ConnectionManager {
 
     if (pool.references.isNotEmpty) return;
     _abandonPool(pool);
+    // Draining channels keep the clock (the pool's only keepalive): a
+    // quiet pane there must not be left to a NAT or server idle timeout.
+    // Teardown at the last close cancels it.
+    if (draining) _armKeepAlive(pool);
     // Tears down now when nothing is open; otherwise the last close does.
     unawaited(_maybeTearDown(pool).catchError((Object _) {}));
   }
+
+  /// Whether a config edit left [pool] draining channels (see
+  /// [_retireReference]).
+  bool _isDraining(_EndpointPool pool) =>
+      _retiredPools.values.any((pools) => pools.contains(pool));
 
   bool _holdsChannels(_EndpointPool pool, String serverId) =>
       pool.browseByClient.keys.any((key) => key.$1 == serverId) ||
@@ -1637,8 +1647,9 @@ class PooledConnectionManager implements ConnectionManager {
 
   void _pingPoolTransports(_EndpointPool pool) {
     // A detached or blocked pool has nothing to keep alive; teardown and
-    // blocking cancel eagerly, this is the backstop.
-    if (!_isCurrentPool(pool) || pool.blocked) {
+    // blocking cancel eagerly, this is the backstop. A pool an edit
+    // retired still serves its draining channels.
+    if ((!_isCurrentPool(pool) && !_isDraining(pool)) || pool.blocked) {
       _cancelKeepAlive(pool);
       return;
     }

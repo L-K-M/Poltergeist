@@ -96,6 +96,27 @@ void main() {
     });
   });
 
+  test('a draining endpoint keeps its keepalive until the last close', () {
+    fakeAsync((time) {
+      const interval = Duration(seconds: 30);
+      final harness = PoolHarness(
+        policy: const PoolPolicy(keepAliveInterval: interval),
+      )..addServer('s1', host: 'old.example');
+      final pane = browsePane(time, harness, 'old-tab');
+      final old = harness.opener.transports.single;
+
+      _edit(harness, _moved(harness, 's1'));
+      time.elapse(interval * 2);
+      // A quiet pane must not be left to a NAT or server idle timeout.
+      expect(old.pingCalls, 2);
+
+      completeWithoutTimers(time, pane.close());
+      expect(old.closed, isTrue);
+      time.elapse(interval * 2);
+      expect(old.pingCalls, 2);
+    });
+  });
+
   test('a drained endpoint never reconnects for the edited id', () {
     fakeAsync((time) {
       final prober = FakeReconnectProber();
@@ -122,6 +143,81 @@ void main() {
       expect(states, hasLength(2));
     });
   });
+
+  for (final pending in [false, true]) {
+    test('an edit after a transport death never dials the old endpoint '
+        '(${pending ? 'probe in flight' : 'backoff pending'})', () {
+      fakeAsync((time) {
+        final prober = FakeReconnectProber();
+        if (pending) prober.gate = Completer<void>();
+        final harness = PoolHarness(prober: prober)
+          ..addServer('s1', host: 'old.example');
+        final pane = browsePane(time, harness, 'old-tab');
+
+        harness.opener.transports.single.simulateExternalDeath();
+        // The first backoff is at most a second: either still waiting, or
+        // past it with the probe parked on the gate.
+        time.elapse(Duration(milliseconds: pending ? 1500 : 100));
+        expect(prober.calls, pending ? 1 : 0);
+
+        _edit(harness, _moved(harness, 's1'));
+        prober.gate?.complete();
+        time.elapse(const Duration(minutes: 5));
+
+        expect(_dialedHosts(harness), ['old.example']);
+        expect(prober.calls, pending ? 1 : 0);
+        expect(() => pane.fs, _disconnected);
+      });
+    });
+  }
+
+  for (final lease in [false, true]) {
+    test('a ${lease ? 'lease' : 'browse open'} whose first connect lands '
+        'after an edit gets nothing on the shared pool', () {
+      fakeAsync((time) {
+        final harness = PoolHarness()
+          ..addServer('s1', host: 'old.example')
+          ..addServer('s2', host: 'old.example');
+        final states = _watch(harness, 's1');
+        final gate = harness.credentialGate = Completer<void>();
+        Object? staleFailure;
+        final Future<Object> stale = lease
+            ? harness.manager.leaseTransferChannel('s1')
+            : harness.manager.openBrowseChannel('s1', paneTabId: 'stale');
+        stale.then<void>(
+          (_) {},
+          onError: (Object error) {
+            staleFailure = error;
+          },
+        );
+        // The sibling joins the same in-flight first connect.
+        final sibling = harness.manager.openBrowseChannel(
+          's2',
+          paneTabId: 'kept',
+        );
+        time.flushMicrotasks();
+
+        _edit(harness, _moved(harness, 's1'));
+        time.flushMicrotasks();
+        final retiredAt = states.length;
+        expect(states.last, ServerConnectionState.disconnected);
+
+        gate.complete();
+        final kept = completeWithoutTimers(time, sibling);
+        time.flushMicrotasks();
+
+        // The connect landed for the sibling; the retired reference fails
+        // its acquisition check and holds no channel there.
+        expect(staleFailure, _disconnectedError);
+        expect(harness.openChannels.single.fs, same(kept.fs));
+        expect(states.sublist(retiredAt), isEmpty);
+
+        completeWithoutTimers(time, harness.manager.disconnectServer('s1'));
+        expect(harness.opener.transports.single.closed, isFalse);
+        expect(harness.openChannels.single.fs, same(kept.fs));
+      });
+    });
+  }
 
   test('an edit during a first connect never dials the old endpoint', () {
     fakeAsync((time) {
