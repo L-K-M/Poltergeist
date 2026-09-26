@@ -8920,25 +8920,25 @@ pool drains instead of being cut. Panes and leases there keep working
 until they close, queued acquisitions fail `disconnected` so they retry
 on the new endpoint, the pool never reconnects for the edited id (nor
 does a recovery already pending when the edit lands), its keepalive runs
-until the last draining channel closes, and an explicit disconnect or
-bookmark removal still closes what is left.
+until the last draining channel closes (a sibling's disconnect does not
+cut it either), and an explicit disconnect or bookmark removal still
+closes what is left.
 
 Regression tests: `test/connection/pool_config_refresh_test.dart` (open,
 close, edit, open dials the new host, port or user; drain; no reconnect
 to the old endpoint; same-endpoint swap; disconnect after an edit; a
 sibling keeping the shared pool; an edit during a first connect, alone
 or joined by a sibling; an edit after a transport death; the draining
-keepalive; queued acquisitions) and two `engine_host_test.dart` cases
-for the browse and lease requests. Follow-ups: the pane controller's
-Retry and restored-tab resume still rebuild the config from the tab's
-own copy of the bookmark (ignoring the pulled catalog), so they can dial
-a stale endpoint after an edit, and since the engine host adopts every
-request's config, such a request also moves the id's reference back to
-the stale endpoint until the next current one. `ServerConfig.updatedAt`
-cannot order them in the engine: a catalog config and a bookmark's
-embedded identity carry different records' clocks. And a sibling's
-disconnect of a shared pool still tears it down, cutting the moved id's
-draining channels there.
+keepalive; a sibling's disconnect; queued acquisitions) and two
+`engine_host_test.dart` cases for the browse and lease requests.
+Follow-up: the pane controller's Retry and restored-tab resume still
+rebuild the config from the tab's own copy of the bookmark (ignoring the
+pulled catalog), so they can dial a stale endpoint after an edit, and
+since the engine host adopts every request's config, such a request also
+moves the id's reference back to the stale endpoint until the next
+current one. `ServerConfig.updatedAt` cannot order them in the engine: a
+catalog config and a bookmark's embedded identity carry different
+records' clocks.
 
 ## Open items
 

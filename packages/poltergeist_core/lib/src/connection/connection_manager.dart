@@ -672,7 +672,7 @@ class PooledConnectionManager implements ConnectionManager {
   }
 
   /// Closes [serverId]'s channels on [pool], then tears the pool down once
-  /// no reference is left.
+  /// no reference is left and no other id drains there.
   Future<void> _releaseServer(_EndpointPool pool, String serverId) async {
     // Fail this server's queued waiters before any await below: closing
     // channels frees capacity and can resume a waiter for this serverId
@@ -701,12 +701,22 @@ class PooledConnectionManager implements ConnectionManager {
       for (final handle in leases) _closeHandle(pool, handle),
     ]);
 
-    if (pool.references.isEmpty) {
-      // Last reference out: transports down, resolved credentials wiped.
-      await _tearDownPool(pool);
-    } else {
+    if (pool.references.isNotEmpty) {
       await _pumpWaiters(pool);
+      return;
     }
+
+    // With no reference left, any channel still here belongs to an id an
+    // edit moved off ([_retireReference]): it drains on, keepalive
+    // included, and its last close tears the pool down.
+    if (pool.browseByClient.isNotEmpty || pool.leasedTransfer.isNotEmpty) {
+      _armKeepAlive(pool);
+      await _maybeTearDown(pool);
+      return;
+    }
+
+    // Last reference out: transports down, resolved credentials wiped.
+    await _tearDownPool(pool);
   }
 
   @override

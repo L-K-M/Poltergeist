@@ -364,6 +364,41 @@ void main() {
     });
   });
 
+  for (final closeBy in ['closing the pane', 'disconnecting the id']) {
+    test('a sibling disconnect leaves the moved id draining until '
+        '$closeBy', () {
+      fakeAsync((time) {
+        const interval = Duration(seconds: 30);
+        final harness =
+            PoolHarness(policy: const PoolPolicy(keepAliveInterval: interval))
+              ..addServer('s1', host: 'old.example')
+              ..addServer('s2', host: 'old.example');
+        final moved = browsePane(time, harness, 'moved');
+        browsePane(time, harness, 'kept', server: 's2');
+        final shared = harness.opener.transports.single;
+
+        _edit(harness, _moved(harness, 's1'));
+        completeWithoutTimers(time, harness.manager.disconnectServer('s2'));
+
+        // The sibling's channel is gone; the moved id's pane drains on.
+        expect(shared.closed, isFalse);
+        expect(harness.openChannels.single.fs, same(moved.fs));
+        final pings = shared.pingCalls;
+        time.elapse(interval);
+        expect(shared.pingCalls, pings + 1);
+
+        completeWithoutTimers(
+          time,
+          closeBy == 'closing the pane'
+              ? moved.close()
+              : harness.manager.disconnectServer('s1'),
+        );
+        expect(shared.closed, isTrue);
+        expect(harness.openChannels, isEmpty);
+      });
+    });
+  }
+
   test('a sibling keeps the shared pool when one bookmark moves', () {
     fakeAsync((time) {
       final harness = PoolHarness()
