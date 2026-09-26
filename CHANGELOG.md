@@ -153,6 +153,11 @@
 - **Trust before secrets.** Connecting to a server for the first time now
   asks you to approve its host key before it asks for a password. An
   unreachable server fails without asking for a password at all.
+- **Large transfers stay responsive.** A transfer of more than a few
+  thousand files no longer rewrites the transfer journal after every
+  file, which slowed the app, delayed quitting and wore the disk. The
+  journal is compacted only when finished transfers free more space than
+  the rewrite costs.
 - **Fixes:**
   - On a Mac in full screen, the titlebar no longer covers the top of
     the window. It slides in with the menu bar, as in other apps, and
@@ -184,6 +189,15 @@
     could not read the settings file. Pinning or folding afterwards
     used to replace all of them with just that one change; now the
     sidebar keeps them and shows them again.
+- **Mirror leaves alone what it cannot see.** When the source has a
+  symbolic link where the destination has a real folder, a Mirror no
+  longer deletes that folder's contents, and it no longer copies into a
+  link on the destination. Everything under the link is skipped, as the
+  exported rsync command already did. When a folder is to be replaced
+  by a file, its contents belong to that one row: they are no longer
+  deleted while you leave the choice open or keep the folder, no longer
+  count twice toward the deletion limits, and no longer show "changed
+  since preview" after the replace.
 - Pre-1.0 history lives in the commit log and the GitHub pre-releases
   (v0.1.0, v0.2.0).
 

@@ -41,6 +41,11 @@ class ScriptedIo extends TransferJournalIo {
   int rewriteCalls = 0;
   int dirFsyncCalls = 0;
 
+  /// UTF-8 bytes appended to, and rewritten into, the journal. The
+  /// compaction-amortization tests compare the two.
+  int journalAppendBytes = 0;
+  int journalRewriteBytes = 0;
+
   /// Ordered operation log ('append:journal', 'fsync:history', …) — the
   /// ordering tests assert interleavings, not just counts.
   final List<String> ops = [];
@@ -61,6 +66,9 @@ class ScriptedIo extends TransferJournalIo {
     ops.add('append:${_tag(file)}');
     if (appendCalls == failOnAppend) {
       throw const FileSystemException('scripted append failure');
+    }
+    if (_tag(file) == 'journal') {
+      journalAppendBytes += utf8.encode(line).length + 1;
     }
     return super.appendLine(file, line);
   }
@@ -87,6 +95,9 @@ class ScriptedIo extends TransferJournalIo {
   }) async {
     rewriteCalls++;
     ops.add('rewrite:${_tag(file)}');
+    if (_tag(file) == 'journal') {
+      journalRewriteBytes += utf8.encode(contents).length;
+    }
     if (!rewriteStarted.isCompleted) rewriteStarted.complete();
     await rewriteGate?.future;
     return super.atomicRewrite(
@@ -539,6 +550,142 @@ void main() {
           .toList();
       expect(records.single.taskId, 'late');
       await store.shutdown();
+    });
+
+    int journalRewrites(ScriptedIo io) =>
+        io.ops.where((op) => op == 'rewrite:journal').length;
+
+    test('a pending task past the byte threshold never rewrites the '
+        'journal mid-session, where every append used to', () async {
+      final io = ScriptedIo();
+      // The byte trigger scaled down 64x: 2 000 planEntry records are
+      // several times this, as a ~5 000-file task is at the real 4 MiB.
+      const compactBytes = 64 * 1024;
+      final store = await openStore(io: io, compactBytes: compactBytes);
+      final openRewrites = journalRewrites(io);
+      store.appendJournal(
+        enqueued('big', localToRemoteSpec(rootPaths: ['/src'])),
+      );
+      for (var i = 0; i < 2000; i++) {
+        store.appendJournal(
+          fileEntry('big', 'i$i', '/src/IMG_$i.jpg', '/dest/IMG_$i.jpg'),
+        );
+      }
+      await store.flush();
+
+      expect(store.journalFile.lengthSync(), greaterThan(compactBytes));
+      // Nothing is finished, so a rewrite would reproduce the file.
+      expect(journalRewrites(io) - openRewrites, 0);
+      // Restore is unchanged: a crash here replays every item.
+      final reopened = await openStore();
+      expect(reopened.replay.tasks.single.items, hasLength(2000));
+    });
+
+    test('finished tasks beside a large pending task compact once '
+        'dropping them reclaims what the rewrite writes', () async {
+      final io = ScriptedIo();
+      // The finished-task trigger at its most eager.
+      final store = await openStore(io: io, compactFinishedTasks: 1);
+      store.appendJournal(
+        enqueued('big', localToRemoteSpec(rootPaths: ['/src'])),
+      );
+      for (var i = 0; i < 200; i++) {
+        store.appendJournal(
+          fileEntry('big', 'i$i', '/src/IMG_$i.jpg', '/dest/IMG_$i.jpg'),
+        );
+      }
+      await store.flush();
+      final rewritesBefore = journalRewrites(io);
+      final appendedBefore = io.journalAppendBytes;
+      final rewrittenBefore = io.journalRewriteBytes;
+
+      for (var t = 0; t < 200; t++) {
+        store.appendJournal(
+          enqueued('t$t', localToRemoteSpec(rootPaths: ['/r$t'])),
+        );
+        store.appendJournal(
+          TaskStateRecord(taskId: 't$t', state: TransferTaskState.completed),
+        );
+      }
+      await store.flush();
+
+      // The finished tasks still leave the journal, but no rewrite writes
+      // more than the finished records it drops. One rewrite per finished
+      // task used to copy the pending task 200 times.
+      expect(journalRewrites(io) - rewritesBefore, greaterThan(0));
+      expect(
+        io.journalRewriteBytes - rewrittenBefore,
+        lessThanOrEqualTo(io.journalAppendBytes - appendedBefore),
+      );
+      final reopened = await openStore();
+      expect(reopened.replay.tasks.single.taskId, 'big');
+      expect(reopened.replay.tasks.single.items, hasLength(200));
+    });
+
+    test('a finished task past the byte threshold still compacts '
+        'mid-session beside a pending one', () async {
+      final io = ScriptedIo();
+      final store = await openStore(io: io, compactBytes: 16 * 1024);
+      store.appendJournal(
+        enqueued('live', localToRemoteSpec(rootPaths: ['/b'])),
+      );
+      store.appendJournal(fileEntry('live', 'l1', '/b/g', '/dest/g'));
+      store.appendJournal(
+        enqueued('done', localToRemoteSpec(rootPaths: ['/a'])),
+      );
+      for (var i = 0; i < 200; i++) {
+        store.appendJournal(
+          fileEntry('done', 'i$i', '/a/IMG_$i.jpg', '/dest/IMG_$i.jpg'),
+        );
+      }
+      await store.flush();
+      final rewritesBefore = journalRewrites(io);
+
+      store.appendJournal(
+        TaskStateRecord(taskId: 'done', state: TransferTaskState.completed),
+      );
+      await store.flush();
+
+      expect(journalRewrites(io) - rewritesBefore, 1);
+      expect(store.history.single.taskId, 'done');
+      final records = journalLines(store.journalFile)
+          .map(TransferJournalRecord.parse)
+          .toList();
+      expect(records.every((r) => r.taskId == 'live'), isTrue);
+      expect(records, hasLength(2));
+    });
+
+    test('a retried task counts as pending until it finishes again', () async {
+      final io = ScriptedIo();
+      final store = await openStore(io: io, compactFinishedTasks: 2);
+      final openRewrites = journalRewrites(io);
+      void task(String id, int files) {
+        store.appendJournal(
+          enqueued(id, localToRemoteSpec(rootPaths: ['/$id'])),
+        );
+        for (var i = 0; i < files; i++) {
+          store.appendJournal(fileEntry(id, 'i$i', '/$id/f$i', '/dest/f$i'));
+        }
+      }
+
+      void state(String id, TransferTaskState state) =>
+          store.appendJournal(TaskStateRecord(taskId: id, state: state));
+
+      task('a', 60);
+      task('b', 50);
+      state('a', TransferTaskState.failed);
+      state('a', TransferTaskState.queued);
+      state('b', TransferTaskState.completed);
+      await store.flush();
+      // Two tasks finished, but dropping 'b' would rewrite the larger
+      // retried 'a'.
+      expect(journalRewrites(io) - openRewrites, 0);
+
+      state('a', TransferTaskState.completed);
+      await store.flush();
+      expect(journalRewrites(io) - openRewrites, 1);
+      expect(journalLines(store.journalFile), isEmpty);
+      expect(store.history.map((entry) => entry.taskId), ['a', 'b']);
     });
   });
 
