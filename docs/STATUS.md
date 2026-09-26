@@ -79,6 +79,24 @@ analysis is clean. The remaining crash interval between moving a
 file to trash and recording that move still needs write-ahead recovery; this
 change does not claim to close it.
 
+## Sync trash copy durability (2026-09-26)
+
+When a local trash rename crosses filesystems, sync now flushes the copied
+backup before deleting its original. It uses the same file-then-parent
+barrier as queue moves through `TransferJournalIo.flushLocalFile`. A reported
+flush error or cancellation before or during that barrier leaves the original
+intact; the uncommitted trash copy is cleaned up through the existing failure path.
+Same-filesystem renames and remote trash copies keep their existing paths.
+
+Validation: the missing-flush ordering and injected flush-failure regressions
+failed before the fix. The full sync suite, existing local move tests and
+shared barrier tests pass afterward (255 tests, three unconfigured SSH
+fixture skips); analysis of both core and sync is clean. Native power-loss
+behavior was not tested. The existing directory
+flush helper absorbs `FileSystemException`, including unsupported directory
+handles on Windows and directory flush failures on other platforms; this
+patch reuses that policy and does not claim to repair it or add remote fsync.
+
 ## Done
 
 | Area | State |
