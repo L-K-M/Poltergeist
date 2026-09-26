@@ -214,7 +214,8 @@ final class _Differ {
 
     // The other side's entries at a hazard path's match key can never
     // pair safely — they ride the hazard rows as the shared counterpart
-    // instead of becoming orphans (or Mirror deletions).
+    // instead of becoming orphans (or Mirror deletions). The matching
+    // loop below adds a replaceable directory's subtree the same way.
     final absorbedLeft = <String>{};
     final absorbedRight = <String>{};
     for (final path in hazardLeft.keys) {
@@ -300,7 +301,24 @@ final class _Differ {
         items.add(_oneSideItem(leftPath, side: SyncSide.left));
         continue;
       }
-      items.add(_matchedItem(leftPath, rightPath));
+      final item = _matchedItem(leftPath, rightPath);
+      items.add(item);
+
+      // §6 rule 4: a directory a kind change may replace owns its tree.
+      // Its entries ride the row's destinationSubtree instead of
+      // planning rows of their own, which would delete while the kind
+      // conflict is undecided, count twice on the delete rails, and
+      // flip to changed-since-preview once the replace removed them.
+      // A key sorts before every key beneath it, so the parent row is
+      // always built before its descendants come up. A one-way pair
+      // never replaces its source, whose tree plans as usual.
+      final subtree = item.destinationSubtree;
+      if (subtree != null) {
+        final dirOnLeft = item.left!.kind == EntryKind.directory;
+        if (_directionAllows(dirOnLeft ? SyncSide.right : SyncSide.left)) {
+          (dirOnLeft ? absorbedLeft : absorbedRight).addAll(subtree.keys);
+        }
+      }
     }
 
     // Deterministic plan order: path-sorted. The executor re-groups by
@@ -316,6 +334,33 @@ final class _Differ {
       leftFileCount: _fileCount(left),
       rightFileCount: _fileCount(right),
     );
+  }
+
+  /// Match keys of every symlink on either side.
+  late final Set<String> _symlinkKeys = {
+    for (final scan in [left, right])
+      for (final entry in scan.entries.entries)
+        if (entry.value.kind == EntryKind.symlink) _matchKey(entry.key),
+  };
+
+  /// Whether [path] lies strictly beneath a symlink on either side.
+  /// Links are never followed, so whatever the other side holds there
+  /// has no counterpart the scan could see: §3 excludes it on both
+  /// sides like a scan error's subtree. Otherwise a Mirror deletes the
+  /// real directory behind a source-side link, and copies under a
+  /// destination-side link fail rail 7's parent-chain check and gate
+  /// the delete phase. Compared by match key, so a link whose name the
+  /// other side spells in another case or Unicode form still covers it.
+  bool _beneathSymlink(String path) {
+    if (_symlinkKeys.isEmpty) return false;
+    var key = _matchKey(path);
+    var slash = key.lastIndexOf('/');
+    while (slash > 0) {
+      key = key.substring(0, slash);
+      if (_symlinkKeys.contains(key)) return true;
+      slash = key.lastIndexOf('/');
+    }
+    return false;
   }
 
   /// §3's second-class-sensitivity rule: a case-variant hazard asks
@@ -361,10 +406,13 @@ final class _Differ {
     }
 
     // Scan-error mirror (§6 rule 8): this side's entries under a
-    // subtree the other side failed to list are skip rows.
+    // subtree the other side failed to list are skip rows. Entries
+    // beneath a symlink on either side are excluded the same way (§3).
     for (final path in scan.entries.keys) {
       if (excludedOn(side, path)) {
         hazards[path] = SyncReason.scanError;
+      } else if (_beneathSymlink(path)) {
+        hazards[path] = SyncReason.excluded;
       }
     }
 
@@ -479,7 +527,7 @@ final class _Differ {
     }
 
     if (leftSnap.kind != rightSnap.kind) {
-      return _typeDiffersItem(leftPath, leftSnap, rightSnap);
+      return _typeDiffersItem(leftPath, rightPath, leftSnap, rightSnap);
     }
 
     if (leftSnap.kind != EntryKind.file) {
@@ -563,16 +611,20 @@ final class _Differ {
   /// §6 rule 4's kind-change row: the directory side's recursive
   /// contents are captured while the scans are in hand (the executor's
   /// rail-7 set-match and the per-file deletion counting both read it).
+  /// The capture uses that side's own spelling of the path — the one
+  /// its descendants were scanned under — so the subtree is exactly
+  /// the set [build] subsumes.
   SyncItem _typeDiffersItem(
-    String path,
+    String leftPath,
+    String rightPath,
     EntrySnapshot leftSnap,
     EntrySnapshot rightSnap,
   ) {
     Map<String, EntrySnapshot>? subtree;
     if (leftSnap.kind == EntryKind.directory) {
-      subtree = _subtreeOf(left, path);
+      subtree = _subtreeOf(left, leftPath);
     } else if (rightSnap.kind == EntryKind.directory) {
-      subtree = _subtreeOf(right, path);
+      subtree = _subtreeOf(right, rightPath);
     }
 
     final SyncActionType effective;
@@ -594,7 +646,7 @@ final class _Differ {
       );
     }
     return SyncItem(
-      relativePath: path,
+      relativePath: leftPath,
       left: leftSnap,
       right: rightSnap,
       // `suggested` stays conflict: "Reset to suggested" returns the

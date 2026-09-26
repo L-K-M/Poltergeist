@@ -1232,6 +1232,129 @@ void main() {
     });
   });
 
+  // ── Scanned plans end to end ─────────────────────────────────────────
+
+  group('scanned plans', () {
+    Future<SyncPlan> scanAndDiff(SyncRuleSet rules) async {
+      final left = await TreeScanner(
+        leftFs,
+      ).scan(leftRoot.path, side: SyncSide.left, rules: rules);
+      final right = await TreeScanner(
+        rightFs,
+      ).scan(rightRoot.path, side: SyncSide.right, rules: rules);
+      return diffScans(
+        left: left,
+        right: right,
+        pair: SyncPair(
+          id: 'pair-1',
+          name: 'test pair',
+          left: LocalEndpoint(leftRoot.path),
+          right: LocalEndpoint(rightRoot.path),
+          rules: rules,
+        ),
+      );
+    }
+
+    /// A directory outside both roots for links to point at.
+    Future<Directory> linkTarget() async {
+      final target = await Directory.systemTemp.createTemp(
+        'poltergeist-link-target-',
+      );
+      addTearDown(() => target.delete(recursive: true));
+      return target;
+    }
+
+    test('a resolved kind change replaces the directory without a '
+        'conflict', () async {
+      await writeFile(leftRoot, 'p', 'file-now');
+      await writeFile(rightRoot, 'p/inner.txt', 'old');
+      final plan = await scanAndDiff(
+        const SyncRuleSet(
+          direction: SyncDirection.leftToRight,
+          deletions: DeletionPolicy.trash,
+          conflictDefault: ConflictDefault.keepLeft,
+        ),
+      );
+      // One file removed, counted once (05 §6 rule 4).
+      expect(assessDeletions(plan).removals[SyncSide.right], 1);
+
+      final run = await executor.run(
+        plan,
+        pairId: pairId,
+        deleteConfirmationAcknowledged: true,
+      );
+
+      for (final item in plan.items) {
+        expect(item.status, SyncItemStatus.done, reason: item.relativePath);
+      }
+      expect(await File('${rightRoot.path}/p').readAsString(), 'file-now');
+      expect(trashedFile(rightRoot, run.runId, 'inner.txt'), isNotNull);
+    });
+
+    test('an unresolved kind change keeps the directory whole', () async {
+      await writeFile(leftRoot, 'p', 'file-now');
+      await writeFile(rightRoot, 'p/precious.txt', 'keep me');
+      final plan = await scanAndDiff(
+        mirrorRules(deletions: DeletionPolicy.permanent),
+      );
+
+      await executor.run(
+        plan,
+        pairId: pairId,
+        deleteConfirmationAcknowledged: true,
+      );
+
+      expect(
+        await File('${rightRoot.path}/p/precious.txt').readAsString(),
+        'keep me',
+      );
+    });
+
+    test('a Mirror keeps the real directory under a source-side link',
+        () async {
+      if (Platform.isWindows) return; // Link.create needs privileges
+      final target = await linkTarget();
+      await Link('${leftRoot.path}/data').create(target.path);
+      await writeFile(rightRoot, 'data/photo1.jpg', 'one');
+      await writeFile(rightRoot, 'data/sub/photo2.jpg', 'two');
+      final plan = await scanAndDiff(mirrorRules());
+
+      await executor.run(
+        plan,
+        pairId: pairId,
+        deleteConfirmationAcknowledged: true,
+      );
+
+      expect(File('${rightRoot.path}/data/photo1.jpg').existsSync(), isTrue);
+      expect(
+        File('${rightRoot.path}/data/sub/photo2.jpg').existsSync(),
+        isTrue,
+      );
+    });
+
+    test('a destination-side link takes no copies and gates nothing',
+        () async {
+      if (Platform.isWindows) return; // Link.create needs privileges
+      final target = await linkTarget();
+      await Link('${rightRoot.path}/data').create(target.path);
+      await writeFile(leftRoot, 'data/a.txt', 'payload');
+      await writeFile(rightRoot, 'old.txt', 'orphan');
+      final plan = await scanAndDiff(mirrorRules());
+
+      await executor.run(
+        plan,
+        pairId: pairId,
+        deleteConfirmationAcknowledged: true,
+      );
+
+      expect(find(plan, 'data/a.txt')!.status, SyncItemStatus.skipped);
+      expect(File('${target.path}/a.txt').existsSync(), isFalse);
+      // Nothing conflicted, so the delete phase ran.
+      expect(find(plan, 'old.txt')!.status, SyncItemStatus.done);
+      expect(File('${rightRoot.path}/old.txt').existsSync(), isFalse);
+    });
+  });
+
   // ── Retry Failed ─────────────────────────────────────────────────────
 
   group('retry failed', () {
