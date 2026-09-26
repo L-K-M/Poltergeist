@@ -1,7 +1,8 @@
 // Ported from Séance app/seance_app/lib/theme/theme_presets.dart @ f4d2f71; see docs/PORTS.md.
-// Divergence: the default is Poltergeist's teal, not Séance's violet, and
-// no preset carries a terminal block. The other nine keep Séance's values,
-// so a shared preset looks the same in both apps.
+// Divergence: the first preset is Poltergeist's teal, not Séance's violet,
+// a new device starts in Vapor rather than Séance's Terminal, and no
+// preset carries a terminal block. The other nine keep Séance's values, so
+// a shared preset looks the same in both apps.
 import 'dart:ui' show Color;
 
 import 'app_theme.dart' show poltergeistSeedColor;
@@ -15,8 +16,9 @@ import 'theme_palette.dart';
 /// one but the two that follow the system is complete (its own surface,
 /// sidebar, lines, selection and status colours) because a preset that
 /// left the sidebar Automatic would frame a Solarized pane in slate. The
-/// default leaves everything Automatic, which is what reproduces the app as
-/// it looked before themes existed.
+/// first, Poltergeist, leaves everything Automatic, which is what
+/// reproduces the app as it looked before themes existed. A new device
+/// starts in Vapor instead ([initial]).
 ///
 /// Each has to pass `theme_presets_test.dart`: text and secondary text on
 /// its surface and sidebar, the accent and every status colour on its
@@ -29,8 +31,11 @@ import 'theme_palette.dart';
 /// a pasted theme keeps its name in either app. The Appearance section
 /// shows each in the reader's language instead.
 abstract final class ThemePresets {
-  /// The default: Poltergeist's teal over the sibling neutrals, which
-  /// follow the system's light or dark appearance.
+  /// Poltergeist's own look: its teal over the sibling neutrals, which
+  /// follow the system's light or dark appearance. Not what a new device
+  /// starts in ([initial]), but the palette every Automatic colour belongs
+  /// to, so it is what a partial theme is completed from and what a host
+  /// theme with no Poltergeist extensions is drawn in.
   static final ThemePalette poltergeist = ThemePalette(
     name: 'Poltergeist',
     accent: poltergeistSeedColor,
@@ -199,7 +204,7 @@ abstract final class ThemePresets {
   );
 
   /// Every preset, in the order the Appearance section shows them: the two
-  /// that follow the system's light or dark (the default first), then the
+  /// that follow the system's light or dark (Poltergeist first), then the
   /// light ones with surfaces of their own, then the dark ones, then the
   /// loud ones.
   static final List<ThemePalette> all = List.unmodifiable([
@@ -215,6 +220,7 @@ abstract final class ThemePresets {
     highContrast,
   ]);
 
-  /// What a device starts with, and what Reset puts back.
-  static ThemePalette get initial => poltergeist;
+  /// What a device starts with, and what Reset puts back: magenta and
+  /// cyan over violet-black.
+  static ThemePalette get initial => vapor;
 }

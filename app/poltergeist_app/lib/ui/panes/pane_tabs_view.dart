@@ -249,8 +249,9 @@ class PaneTabsView extends StatelessWidget {
 /// The strip's height (D32 §6), including the 2 px active-pane line.
 const _tabStripHeight = 30.0;
 
-/// ForkLift's active-pane marker: a 2 px accent line under the ACTIVE
-/// pane's strip; the inactive pane keeps a 1 px separator.
+/// The active-pane marker: a 2 px accent line along the TOP of the
+/// ACTIVE pane's strip, above its chips. Both strips keep a 1 px
+/// separator along the bottom, between the chips and the pane.
 const _activePaneLineHeight = 2.0;
 
 /// The strip (02 §3): ordered tab chips plus the `tab.new` affordance.
@@ -526,31 +527,40 @@ class _TabStripState extends State<_TabStrip> {
                   ),
                 ],
               ),
-              // D32 §3's active-pane marker, repainted as activity moves
-              // between the panes (the workspace notifies; the strip's
-              // own tab list does not change).
+              // The strip's bottom edge: the one line between the chips
+              // and the pane below, the same on both panes.
               PositionedDirectional(
                 start: 0,
                 end: 0,
                 bottom: 0,
                 child: IgnorePointer(
+                  child: Container(
+                    key: ValueKey('${tabs.paneId}.stripSeparator'),
+                    height: 1,
+                    color: chrome.separator,
+                  ),
+                ),
+              ),
+              // D32 §3's active-pane marker, above the tabs rather than
+              // under them, repainted as activity moves between the
+              // panes (the workspace notifies; the strip's own tab list
+              // does not change). The inactive pane draws nothing here:
+              // the header's divider already bounds the strip's top.
+              PositionedDirectional(
+                start: 0,
+                end: 0,
+                top: 0,
+                child: IgnorePointer(
                   child: ListenableBuilder(
                     listenable: widget.workspace,
                     builder: (context, _) {
-                      final active = identical(
-                        widget.workspace.activePane,
-                        tabs,
-                      );
+                      if (!identical(widget.workspace.activePane, tabs)) {
+                        return const SizedBox.shrink();
+                      }
                       return Container(
-                        key: ValueKey(
-                          active
-                              ? '${tabs.paneId}.activeIndicator'
-                              : '${tabs.paneId}.inactiveSeparator',
-                        ),
-                        height: active ? _activePaneLineHeight : 1,
-                        color: active
-                            ? chrome.activePaneIndicator
-                            : chrome.separator,
+                        key: ValueKey('${tabs.paneId}.activeIndicator'),
+                        height: _activePaneLineHeight,
+                        color: chrome.activePaneIndicator,
                       );
                     },
                   ),

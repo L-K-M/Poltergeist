@@ -1,9 +1,9 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:macos_window_utils/widgets/macos_toolbar_passthrough.dart';
 
 import '../../theme/app_theme.dart';
+import 'window_toolbar_passthrough.dart';
 
 /// Pixels one arrow-key press moves a splitter (02 §1's keyboard resize).
 const shellSplitterKeyStep = 16.0;
@@ -44,7 +44,7 @@ class ShellSplitter extends StatefulWidget {
 
   /// macOS: a full-height splitter crosses the unified toolbar band,
   /// which claims clicks for window drag/zoom. True wraps it in a
-  /// [MacosToolbarPassthrough] so a drag or double-click on its top
+  /// [WindowToolbarPassthrough] so a drag or double-click on its top
   /// segment still resizes or resets instead of moving the window.
   final bool nativeTitlebar;
 
@@ -163,7 +163,7 @@ class _ShellSplitterState extends State<ShellSplitter> {
       ),
     );
     return widget.nativeTitlebar
-        ? MacosToolbarPassthrough(child: splitter)
+        ? WindowToolbarPassthrough(child: splitter)
         : splitter;
   }
 }

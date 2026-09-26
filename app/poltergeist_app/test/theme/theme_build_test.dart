@@ -46,7 +46,7 @@ Map<String, Object> _chromeValues(PoltergeistChrome c) => {
 };
 
 void main() {
-  group('the default palette draws what the app always drew', () {
+  group('the Poltergeist palette draws what the app always drew', () {
     for (final platform in _platforms) {
       for (final brightness in Brightness.values) {
         test('${brightness.name} on ${platform.name}', () {
@@ -77,7 +77,9 @@ void main() {
     });
 
     test('the MaterialApp gets both, following the system', () {
-      final themes = poltergeistThemesFor(AppAppearance.initial);
+      final themes = poltergeistThemesFor(
+        AppAppearance(palette: ThemePresets.poltergeist),
+      );
       expect(themes.themeMode, ThemeMode.system);
       expect(
         themes.theme.copyWith(extensions: const []),
@@ -89,7 +91,7 @@ void main() {
       );
     });
 
-    testWidgets('a chrome looked up without one is the default\'s', (
+    testWidgets('a chrome looked up without one is Poltergeist\'s', (
       tester,
     ) async {
       // PoltergeistChrome.of's fallback, for a harness whose theme carries
@@ -117,6 +119,14 @@ void main() {
       expect(looked.statusFailed, built.statusFailed);
       expect(looked.statusUnknown, built.statusUnknown);
     });
+  });
+
+  test('a new device is drawn in Vapor, whatever the system says', () {
+    final themes = poltergeistThemesFor(AppAppearance.initial);
+    expect(themes.theme, same(themes.darkTheme));
+    expect(themes.theme.brightness, Brightness.dark);
+    expect(themes.theme.colorScheme.surface, ThemePresets.vapor.surface);
+    expect(themes.theme.colorScheme.primary, ThemePresets.vapor.accent);
   });
 
   group('a palette lands where it says', () {
@@ -223,7 +233,7 @@ void main() {
 
     test('another accent gets a selection white text reads on', () {
       final chrome = buildPoltergeistThemeFor(
-        ThemePresets.initial.copyWith(accent: const Color(0xFF7FD1FF)),
+        ThemePresets.poltergeist.copyWith(accent: const Color(0xFF7FD1FF)),
         Brightness.dark,
       ).extension<PoltergeistChrome>()!;
       expect(chrome.onSelection, const Color(0xFFFFFFFF));
@@ -237,7 +247,7 @@ void main() {
 
   group('brightness', () {
     test('a surface decides it; otherwise the mode, then the system', () {
-      final automatic = ThemePresets.initial;
+      final automatic = ThemePresets.poltergeist;
       expect(
         resolveBrightness(
           automatic,
@@ -313,7 +323,7 @@ void main() {
   group('shape and type', () {
     test('the corner scale reaches the components and the chrome', () {
       final theme = buildPoltergeistThemeFor(
-        ThemePresets.initial.copyWith(cornerScale: 0.5),
+        ThemePresets.poltergeist.copyWith(cornerScale: 0.5),
         Brightness.light,
       );
       expect(
@@ -365,7 +375,7 @@ void main() {
 
     test('the interface font reaches the text theme and tooltips', () {
       final theme = buildPoltergeistThemeFor(
-        ThemePresets.initial.withFontFamily('Inter'),
+        ThemePresets.poltergeist.withFontFamily('Inter'),
         Brightness.light,
         platform: TargetPlatform.linux,
       );
