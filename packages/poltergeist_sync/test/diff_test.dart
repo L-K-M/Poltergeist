@@ -256,6 +256,137 @@ void main() {
       );
       expect(itemOf(plan, 'p').effective, SyncActionType.skip);
     });
+
+    group('a replaced directory subsumes its descendants', () {
+      final right = scan({
+        'p': dir,
+        'p/inner.txt': file(size: 3),
+        'p/sub': dir,
+        'p/sub/deep.txt': file(size: 4),
+      });
+
+      test('a resolved replace is one row whose toll counts each file once',
+          () async {
+        final plan = await diffScans(
+          left: scan({'p': file()}),
+          right: right,
+          pair: pair(
+            const SyncRuleSet(
+              direction: SyncDirection.leftToRight,
+              deletions: DeletionPolicy.trash,
+              conflictDefault: ConflictDefault.keepLeft,
+            ),
+          ),
+        );
+        // No separate rows: the parent's pre-delete removes the tree,
+        // so a child row would double-count on the rails and then flip
+        // to a spurious changed-since-preview conflict (05 §6 rule 4).
+        expect(plan.items.map((i) => i.relativePath), ['p']);
+        final item = itemOf(plan, 'p');
+        expect(item.effective, SyncActionType.copyLeftToRight);
+        expect(
+          item.destinationSubtree!.keys,
+          unorderedEquals(['p/inner.txt', 'p/sub', 'p/sub/deep.txt']),
+        );
+        expect(plan.totals.replacedFiles, 2);
+        expect(assessDeletions(plan).removals[SyncSide.right], 2);
+      });
+
+      test('an unresolved kind conflict plans nothing under the directory',
+          () async {
+        final plan = await diffScans(
+          left: scan({'p': file()}),
+          right: right,
+          pair: pair(
+            const SyncRuleSet(
+              direction: SyncDirection.leftToRight,
+              deletions: DeletionPolicy.permanent,
+            ),
+          ),
+        );
+        // Leaving the row undecided must keep the folder whole — its
+        // contents must not delete as orphans of their own.
+        expect(plan.items.map((i) => i.relativePath), ['p']);
+        expect(itemOf(plan, 'p').effective, SyncActionType.conflict);
+        expect(assessDeletions(plan).removals[SyncSide.right], 0);
+      });
+
+      test('keeping the destination directory keeps its contents', () async {
+        final plan = await diffScans(
+          left: scan({'p': file()}),
+          right: right,
+          pair: pair(
+            const SyncRuleSet(
+              direction: SyncDirection.leftToRight,
+              deletions: DeletionPolicy.trash,
+              conflictDefault: ConflictDefault.keepRight,
+            ),
+          ),
+        );
+        expect(plan.items.map((i) => i.relativePath), ['p']);
+        expect(itemOf(plan, 'p').effective, SyncActionType.skip);
+      });
+
+      test('Additive subsumes too — either side may be replaced', () async {
+        final plan = await diffScans(
+          left: scan({'p': file()}),
+          right: right,
+          pair: pair(
+            const SyncRuleSet(direction: SyncDirection.bidirectional),
+          ),
+        );
+        // Copies into a path the other side holds as a file could
+        // never run; the kind decision on `p` owns the whole tree.
+        expect(plan.items.map((i) => i.relativePath), ['p']);
+      });
+
+      test('the subtree follows the directory side\'s own spelling',
+          () async {
+        // NFC on the left, NFD on the right: one match key, but the
+        // right's descendants were scanned under the NFD form.
+        final plan = await diffScans(
+          left: scan({'caf\u00e9': file()}),
+          right: scan({'cafe\u0301': dir, 'cafe\u0301/x.txt': file()}),
+          pair: pair(
+            const SyncRuleSet(
+              direction: SyncDirection.leftToRight,
+              deletions: DeletionPolicy.trash,
+            ),
+          ),
+        );
+        expect(plan.items.map((i) => i.relativePath), ['caf\u00e9']);
+        expect(
+          plan.items.single.destinationSubtree!.keys,
+          ['cafe\u0301/x.txt'],
+        );
+      });
+
+      test('a source-side directory keeps its children as copy rows',
+          () async {
+        // One-way pairs never replace their source: the tree is what a
+        // resolved mkdir fills, so its entries plan as usual.
+        final plan = await diffScans(
+          left: right,
+          right: scan({'p': file()}),
+          pair: pair(
+            const SyncRuleSet(
+              direction: SyncDirection.leftToRight,
+              deletions: DeletionPolicy.trash,
+              conflictDefault: ConflictDefault.keepLeft,
+            ),
+          ),
+        );
+        expect(itemOf(plan, 'p').effective, SyncActionType.makeDirRight);
+        expect(
+          itemOf(plan, 'p/inner.txt').effective,
+          SyncActionType.copyLeftToRight,
+        );
+        expect(
+          itemOf(plan, 'p/sub/deep.txt').effective,
+          SyncActionType.copyLeftToRight,
+        );
+      });
+    });
   });
 
   group('scan-error mirror (05 §6 rule 8)', () {
@@ -461,6 +592,69 @@ void main() {
       final item = itemOf(plan, 'p');
       expect(item.reason, SyncReason.typeDiffers);
       expect(item.effective, SyncActionType.skip);
+    });
+
+    const mirror = SyncRuleSet(
+      direction: SyncDirection.leftToRight,
+      deletions: DeletionPolicy.trash,
+    );
+
+    test('the real directory under a source-side link is never an orphan',
+        () async {
+      final plan = await diffScans(
+        left: scan({'data': link, 'keep.txt': file()}),
+        right: scan({
+          'data': dir,
+          'data/photo1.jpg': file(),
+          'data/sub': dir,
+          'data/sub/photo2.jpg': file(),
+          'keep.txt': file(),
+        }),
+        pair: pair(mirror),
+      );
+      // The link is excluded on both sides like a scan error: its
+      // counterpart tree is skip rows a Mirror can never delete.
+      expect(itemOf(plan, 'data').reason, SyncReason.typeDiffers);
+      expect(itemOf(plan, 'data').effective, SyncActionType.skip);
+      for (final path in [
+        'data/photo1.jpg',
+        'data/sub',
+        'data/sub/photo2.jpg',
+      ]) {
+        final item = itemOf(plan, path);
+        expect(item.effective, SyncActionType.skip, reason: path);
+        expect(item.reason, SyncReason.excluded, reason: path);
+      }
+      expect(assessDeletions(plan).removals[SyncSide.right], 0);
+    });
+
+    test('a destination-side link is never written through', () async {
+      final plan = await diffScans(
+        left: scan({'p': dir, 'p/a.txt': file(), 'p/sub': dir}),
+        right: scan({'p': link}),
+        pair: pair(mirror),
+      );
+      // A copy under the link could only fail rail 7's parent-chain
+      // check and gate the whole delete phase — it plans skip instead.
+      for (final path in ['p/a.txt', 'p/sub']) {
+        final item = itemOf(plan, path);
+        expect(item.effective, SyncActionType.skip, reason: path);
+        expect(item.reason, SyncReason.excluded, reason: path);
+      }
+    });
+
+    test('the exclusion follows the match key across case folding', () async {
+      final plan = await diffScans(
+        left: scan({'Data': link}),
+        right: scan(
+          {'data': dir, 'data/photo.jpg': file()},
+          caseSensitive: false,
+        ),
+        pair: pair(mirror),
+      );
+      expect(itemOf(plan, 'Data').effective, SyncActionType.skip);
+      expect(itemOf(plan, 'data/photo.jpg').effective, SyncActionType.skip);
+      expect(itemOf(plan, 'data/photo.jpg').reason, SyncReason.excluded);
     });
   });
 

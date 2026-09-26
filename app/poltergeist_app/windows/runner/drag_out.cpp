@@ -69,6 +69,7 @@ constexpr char kStartDragMethod[] = "startDrag";
 constexpr char kPromiseProgressMethod[] = "promiseProgress";
 constexpr char kSessionEndedMethod[] = "sessionEnded";
 constexpr char kSessionIdKey[] = "sessionId";
+constexpr char kViewIdKey[] = "viewId";
 constexpr char kPositionKey[] = "position";
 constexpr char kItemsKey[] = "items";
 constexpr char kAllowedOperationsKey[] = "allowedOperations";
@@ -597,6 +598,7 @@ class DropSource final : public IDropSource {
 
 DragOut::DragOut(flutter::BinaryMessenger* messenger, HWND window, HWND view)
     : window_(window),
+      main_view_(view),
       view_(view),
       start_message_(RegisterWindowMessageW(kStartMessageName)),
       alive_(std::make_shared<bool>(true)) {
@@ -633,6 +635,30 @@ DragOut::~DragOut() {
   }
 }
 
+void DragOut::SetViewResolver(std::function<HWND(int64_t)> view_for) {
+  view_for_ = std::move(view_for);
+}
+
+HWND DragOut::ViewFor(const EncodableMap& arguments) const {
+  // The main window's when absent (the protocol's default); the standard
+  // codec sends a Dart int as 32 bits when it fits.
+  const EncodableValue* value = ValueAt(arguments, kViewIdKey);
+  int64_t view_id = 0;
+  if (value == nullptr || value->IsNull()) {
+    view_id = 0;
+  } else if (const auto* narrow = std::get_if<int32_t>(value)) {
+    view_id = *narrow;
+  } else if (const auto* wide = std::get_if<int64_t>(value)) {
+    view_id = *wide;
+  } else {
+    return nullptr;
+  }
+  if (view_id == 0) {
+    return main_view_;
+  }
+  return view_for_ ? view_for_(view_id) : nullptr;
+}
+
 void DragOut::StartDrag(const EncodableValue* arguments,
                         MethodResult& result) {
   const auto* map =
@@ -651,6 +677,11 @@ void DragOut::StartDrag(const EncodableValue* arguments,
   }
   if (session_.has_value()) {
     Refuse(result, kBusyReason);
+    return;
+  }
+  const HWND view = ViewFor(*map);
+  if (view == nullptr) {
+    Refuse(result, kFailedReason, "no workspace window has that view id");
     return;
   }
   if (!ole_initialized_ || start_message_ == 0) {
@@ -694,7 +725,7 @@ void DragOut::StartDrag(const EncodableValue* arguments,
     Refuse(result, kButtonReleasedReason);
     return;
   }
-  if (GetCapture() != view_) {
+  if (GetCapture() != view) {
     Refuse(result, kNoPointerEventReason,
            "the Flutter view does not hold the mouse capture");
     return;
@@ -719,6 +750,7 @@ void DragOut::StartDrag(const EncodableValue* arguments,
     Refuse(result, kFailedReason, "the start message could not be posted");
     return;
   }
+  view_ = view;
   session_ = Session{*session_id, std::move(data), AllowedEffects(*map),
                      position};
   result.Success(

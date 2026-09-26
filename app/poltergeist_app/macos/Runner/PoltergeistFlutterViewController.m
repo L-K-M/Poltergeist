@@ -8,11 +8,37 @@
 // lifetime defect. Reassess on every Flutter upgrade.
 @interface FlutterViewController (PoltergeistAccessibilityLifecycle)
 - (void)notifySemanticsEnabledChanged;
+- (void)updateSemantics:(const void*)update;
 @end
 
 @interface FlutterEngine (PoltergeistAccessibilityLifecycle)
 @property(nonatomic, readonly) BOOL semanticsEnabled;
+- (nullable FlutterViewController*)viewControllerForIdentifier:
+    (FlutterViewIdentifier)viewIdentifier;
 @end
+
+// The head of the embedder's FlutterSemanticsUpdate2 (embedder.h), through
+// the view id its last field carries. The struct is ABI-stable and sized:
+// a producer too old to fill the field says so in struct_size.
+typedef struct {
+  size_t struct_size;
+  size_t node_count;
+  void** nodes;
+  size_t custom_action_count;
+  void** custom_actions;
+  int64_t view_id;
+} PoltergeistSemanticsUpdate;
+
+// The view an update is for; the implicit view when the producer is too old
+// to say.
+static int64_t PoltergeistSemanticsUpdateViewId(const void* update) {
+  const PoltergeistSemanticsUpdate* head = update;
+  if (head->struct_size < offsetof(PoltergeistSemanticsUpdate, view_id) +
+                              sizeof(head->view_id)) {
+    return 0;
+  }
+  return head->view_id;
+}
 
 @interface NSView (PoltergeistAccessibilityLifecycle)
 - (void)setPlatformNode:(void *)node;
@@ -25,6 +51,31 @@
     [self invalidateAccessibilityTextFields];
   }
   [super notifySemanticsEnabledChanged];
+}
+
+// Flutter 3.47's macOS engine hands every view's semantics update to the
+// implicit view's controller (FlutterEngine.mm: "This callback only supports
+// single-view"), although each update names its view. Every view controller
+// is this class, so each routes updates for another view to that view's
+// controller, whose own call then lands here with its own id. The
+// accessibility actions coming back carry no view at all; Dart routes those
+// by node (lib/services/semantics_view_routing.dart). Reassess on every
+// Flutter upgrade, like the guard below.
+- (void)updateSemantics:(const void*)update {
+  const int64_t viewId = PoltergeistSemanticsUpdateViewId(update);
+  if (viewId == self.viewIdentifier) {
+    [super updateSemantics:update];
+    return;
+  }
+  FlutterViewController* target = [self.engine viewControllerForIdentifier:viewId];
+  if (target == nil || target == self) {
+    // The window closed after its frame: nothing shows the tree.
+    return;
+  }
+  // A controller made after semantics were enabled has no accessibility
+  // bridge yet; this creates it (a no-op when it has one).
+  [target notifySemanticsEnabledChanged];
+  [target updateSemantics:update];
 }
 
 - (void)dealloc {

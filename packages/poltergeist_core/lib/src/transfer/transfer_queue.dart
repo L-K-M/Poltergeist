@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:io' show File, Platform;
+import 'dart:io' show Platform;
 
 import 'package:path/path.dart' as p;
 import 'package:seance_core/seance_core.dart';
@@ -112,7 +112,7 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
        remoteTrash = remoteTrash ?? RemoteTrash(),
        _remoteTrashEnabled = remoteTrashEnabled ?? _trashOptedOut,
        flushLocalDestination =
-           flushLocalDestination ?? _flushLocalDestinationDefault,
+           flushLocalDestination ?? const TransferJournalIo().flushLocalFile,
        _maxInFlightFiles = maxInFlightFiles,
        _maxPendingConflicts = maxPendingConflicts,
        downloadLimiter = downloadLimiter ?? BandwidthLimiter(),
@@ -215,20 +215,9 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
   /// before its source is unlinked (00 D26): fsync the landed file's
   /// data, then the destination's containing directory, so a failure or
   /// crash leaves either the original or a durable copy — never
-  /// neither. Injectable for tests; the production default is
-  /// [_flushLocalDestinationDefault].
+  /// neither where the platform supports the barriers. Injectable for
+  /// tests; the production default is [TransferJournalIo.flushLocalFile].
   final Future<void> Function(String destinationPath) flushLocalDestination;
-
-  /// The default [flushLocalDestination]: the journal's own fsync
-  /// primitives (03 §4.6's durability rule, borrowed for D26's move) —
-  /// file data first, then the parent directory so the rename that
-  /// committed the file survives power loss. The directory fsync is a
-  /// no-op on Windows, where dart:io cannot open a directory handle.
-  static Future<void> _flushLocalDestinationDefault(String destinationPath) {
-    const io = TransferJournalIo();
-    final file = File(destinationPath);
-    return io.fsyncFile(file).then((_) => io.fsyncDirectory(file.parent));
-  }
 
   /// The surfaced-conflict bound (the task's "bounded pending-conflict
   /// storage"): at most this many parked items sit in [pendingConflicts]
