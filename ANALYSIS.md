@@ -356,7 +356,7 @@ errors were reported during shutdown). Many failures rejected the Mac
 temp alias `/var`; a controller teardown assertion also occurred. This is not
 a green full-suite claim. Focused implementation checks are separate below.
 
-All nine baseline sidebar captures passed with Arial/Courier substituted
+All nine baseline sidebar capture tests passed, producing ten PNGs, with Arial/Courier substituted
 through the fixtures' font aliases. Light/dark, narrow and phone/sidebar renders
 look coherent without obvious overlapping rows. They do not prove native
 accessibility, complete screen layout, IME behavior or release typography.
