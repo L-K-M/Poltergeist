@@ -286,7 +286,7 @@ void main() {
       expect(pane.cursorIndex, 1);
     }, variant: linux);
 
-    testWidgets('an open composition keeps Down for the input method', (
+    testWidgets('an open composition keeps Down and Esc in the field', (
       tester,
     ) async {
       await pumpApp(tester);
@@ -301,6 +301,10 @@ void main() {
       await tester.pump();
 
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      expect(primaryFocus(), 'header.filter');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(primaryFocus(), 'header.filter');
     }, variant: linux);

@@ -1655,6 +1655,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
     await tester.pumpAndSettle();
     expect(left.location?.path, '/home');
+    expect(left.cursorIndex, isNotNull);
     expect(left.entries[left.cursorIndex!].name, 'tester');
 
     final row = find.text('tester');
