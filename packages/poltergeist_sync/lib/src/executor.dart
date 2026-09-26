@@ -385,8 +385,11 @@ final class SyncExecutor {
     required this.deviceId,
     this.mtimeUnreliableLeft = false,
     this.mtimeUnreliableRight = false,
+    Future<void> Function(String destinationPath)? flushLocalDestination,
     RemoteTrash? trash,
-  }) : _trash = trash ?? RemoteTrash();
+  }) : _trash = trash ?? RemoteTrash(),
+       _flushLocalDestination =
+           flushLocalDestination ?? const TransferJournalIo().flushLocalFile;
 
   final RemoteFileSystem leftFileSystem;
   final RemoteFileSystem rightFileSystem;
@@ -411,6 +414,11 @@ final class SyncExecutor {
   bool mtimeUnreliableRight;
 
   final RemoteTrash _trash;
+
+  /// The local copy-to-trash barrier shared with queue moves. A failed
+  /// flush must leave the source intact. Remote VFS handles have no
+  /// equivalent durability primitive.
+  final Future<void> Function(String destinationPath) _flushLocalDestination;
 
   /// One run at a time per executor — concurrent run/retry calls would
   /// interleave journal appends and share mutable plan state.
@@ -1379,6 +1387,13 @@ final class _RunSession {
         overwrite: false,
       );
       try {
+        if (isLocal) {
+          // A completed upload is still only in the OS cache. Apply
+          // the same barrier as a local queue move before unlinking
+          // the only durable original.
+          await executor._flushLocalDestination(target);
+        }
+        cancellation?.throwIfCancelled();
         await fs.delete(entry);
       } on Object {
         // The item will fail without a trash journal line — remove the
