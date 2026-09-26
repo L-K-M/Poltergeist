@@ -477,6 +477,163 @@ void main() {
     );
   });
 
+  group('the open boundary never executes (06 §5.3)', () {
+    /// Pins the launch guard's host, so the Windows and macOS rules run
+    /// on any CI host.
+    void pinHost(EditorHostPlatform platform) {
+      debugEditorHostPlatform = () => platform;
+      addTearDown(() => debugEditorHostPlatform = null);
+    }
+
+    /// A remote file listed beside the harness's seeds, and seeded on
+    /// the fake remote too so a checkout of it can download.
+    RemoteFileEntry seededListing(String name, List<int> bytes) {
+      final path = '/srv/www/$name';
+      harness.fs.seed(path, bytes);
+      return RemoteFileEntry(
+        path: path,
+        name: name,
+        type: RemoteFileType.file,
+        size: bytes.length,
+        modifiedAt: _now,
+        mode: 0x1a4,
+      );
+    }
+
+    Future<void> mount(WidgetTester tester, List<RemoteFileEntry> entries) =>
+        mountEditorShell(
+          tester,
+          harness,
+          editorRegistry: registry,
+          externalOpener: seams.opener,
+          extraEntries: entries,
+        );
+
+    testWidgets(
+      'Windows: Open on a remote .js refuses from the listing name — no '
+      'download, no OS launch, an Open With router',
+      (tester) async {
+        await tester.runAsync(() async {
+          pinHost(EditorHostPlatform.windows);
+          await mount(tester, [
+            seededListing('app.js', utf8.encode('WScript.Echo(1);\n')),
+          ]);
+          final downloadsBefore = harness.fs.downloadCalls.length;
+
+          await leftPane(tester).openEntry(cursorEntry(tester, 'app.js'));
+          await pollFor(
+            tester,
+            find.text(l10nOf(tester).fileOpenProgramRefused('app.js')),
+          );
+
+          expect(seams.systemOpener.opens, isEmpty);
+          expect(harness.fs.downloadCalls.length, downloadsBefore);
+          expect(
+            find.widgetWithText(TextButton, l10nOf(tester).fileOpenWithLabel),
+            findsWidgets,
+          );
+        });
+      },
+    );
+
+    testWidgets(
+      'Windows: Open With ▸ System default on a remote .exe refuses too',
+      (tester) async {
+        await tester.runAsync(() async {
+          pinHost(EditorHostPlatform.windows);
+          await mount(tester, [
+            seededListing('setup.exe', [0x4d, 0x5a, 0, 0]),
+          ]);
+
+          await leftPane(tester).openInExternalEditor(
+            cursorEntry(tester, 'setup.exe'),
+            editorId: EditorRegistry.systemDefaultId,
+          );
+          await pollFor(
+            tester,
+            find.text(l10nOf(tester).fileOpenProgramRefused('setup.exe')),
+          );
+
+          expect(seams.systemOpener.opens, isEmpty);
+          expect(
+            harness.checkout.copiesFor('b1').containsKey('/srv/www/setup.exe'),
+            isFalse,
+          );
+        });
+      },
+    );
+
+    testWidgets('macOS: a remote .command is refused', (tester) async {
+      await tester.runAsync(() async {
+        pinHost(EditorHostPlatform.macos);
+        await mount(tester, [
+          seededListing('run.command', utf8.encode('#!/bin/sh\n')),
+        ]);
+
+        await leftPane(tester).openEntry(cursorEntry(tester, 'run.command'));
+        await pollFor(
+          tester,
+          find.text(l10nOf(tester).fileOpenProgramRefused('run.command')),
+        );
+
+        expect(seams.systemOpener.opens, isEmpty);
+      });
+    });
+
+    testWidgets(
+      'Windows: a document type still OS-opens its managed copy',
+      (tester) async {
+        await tester.runAsync(() async {
+          pinHost(EditorHostPlatform.windows);
+          await mount(tester, [
+            seededListing('report.pdf', utf8.encode('%PDF-1.7\n')),
+          ]);
+
+          await leftPane(tester).openEntry(cursorEntry(tester, 'report.pdf'));
+          final record = await checkoutOf(tester, '/srv/www/report.pdf');
+          await pollUntil(
+            tester,
+            () => seams.systemOpener.opens.isNotEmpty,
+            reason: 'system opener never fired',
+          );
+
+          expect(
+            seams.systemOpener.opens.single,
+            harness.checkout.localFile(record).path,
+          );
+        });
+      },
+    );
+
+    testWidgets(
+      'the built-in default falling back for a binary copy refuses at the '
+      'opener and keeps the checkout',
+      (tester) async {
+        await tester.runAsync(() async {
+          pinHost(EditorHostPlatform.windows);
+          await registry.setDefault(EditorRegistry.builtInId);
+          await mount(tester, [
+            seededListing('setup.exe', [0x4d, 0x5a, 0, 0]),
+          ]);
+
+          await leftPane(tester).openEntry(cursorEntry(tester, 'setup.exe'));
+          await pollFor(
+            tester,
+            find.text(l10nOf(tester).fileOpenProgramRefused('setup.exe')),
+          );
+
+          expect(seams.systemOpener.opens, isEmpty);
+          // The copy downloaded before the built-in's binary check sent
+          // it to the system default; the refusal leaves it in place.
+          expect(
+            harness.checkout.copiesFor('b1').containsKey('/srv/www/setup.exe'),
+            isTrue,
+          );
+        });
+      },
+    );
+  });
+
   group('local rows (06 §4.2)', () {
     late Directory localDir;
 

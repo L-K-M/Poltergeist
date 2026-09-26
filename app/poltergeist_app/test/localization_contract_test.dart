@@ -2300,6 +2300,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${editor.launchTarget}.'",
     r"'${editor.displayName} is not executable.'",
     "'The selected application has no bundle identifier.'",
+    // The launch refusal's diagnostic toString — the shell renders the
+    // ARB refusal instead; this only reaches logs.
+    r"'ExecutableLaunchRefused: $path'",
     "'Choose a regular executable file.'",
     "'.exe'",
     "'Windows editors must be .exe applications.'",

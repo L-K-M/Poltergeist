@@ -188,6 +188,26 @@ void main() {
       expect(queueEvents.whereType<TransferQueueItemEvent>(), isNotEmpty);
     });
 
+    test('an executable remote mode never reaches the checkout', () async {
+      // The open boundary's POSIX half (06 §5.3): the launch guard
+      // classifies by extension, so an extensionless script must stay
+      // non-executable on disk — `open`/`xdg-open` would run one with
+      // an execute bit.
+      if (Platform.isWindows) return; // POSIX permission bits only
+      s1.addFile(
+        '/home/test/deploy',
+        utf8.encode('#!/bin/sh\necho hi\n'),
+        modifiedAt: DateTime.utc(2026, 7, 10, 12),
+        mode: 0x1ed, // 0755
+      );
+      final entry = await remoteStat('/home/test/deploy');
+      final record = await manager.checkout(serverId: 's1', entry: entry);
+
+      final local = manager.localFile(record);
+      expect((await local.stat()).modeString(), 'rw-------');
+      expect(record.remoteSnapshot.mode, 0x1ed);
+    });
+
     test(
       'a second checkout of the same path dedupes onto the record',
       () async {

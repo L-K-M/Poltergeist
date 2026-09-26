@@ -3661,6 +3661,12 @@ abstract class AppLocalizations {
   /// **'Open'**
   String get openWithConfirmOpen;
 
+  /// 06 §5.3's open-boundary refusal: a remote file whose type this OS runs rather than opens (.exe, .js on Windows, .command on macOS, .desktop on Linux) is never handed to the system default app. Shown with an Open With action where a remote row is the source, so an explicit editor can still open it as a document.
+  ///
+  /// In en, this message translates to:
+  /// **'“{name}” could run as a program on this computer, so it wasn\'t opened with the system default app.'**
+  String fileOpenProgramRefused(String name);
+
   /// 06 §3.3's 12-second action toast when an external editor's save marks a managed checkout dirty (watch → debounce → SHA-256 reconcile).
   ///
   /// In en, this message translates to:

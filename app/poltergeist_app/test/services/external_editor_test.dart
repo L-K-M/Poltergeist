@@ -13,6 +13,15 @@ import 'package:path/path.dart' as p;
 import 'package:poltergeist_app/services/editor_registry_controller.dart';
 import 'package:poltergeist_app/services/external_file_opener.dart';
 import 'package:poltergeist_app/services/settings_store.dart';
+import 'package:poltergeist_core/poltergeist_core.dart';
+
+/// Records what would reach `open`/`xdg-open`/`explorer.exe`.
+final class _RecordingSystemOpener implements LocalFileOpener {
+  final opens = <String>[];
+
+  @override
+  Future<void> open(String path) async => opens.add(path);
+}
 
 ExternalEditorDefinition _editor({
   String id = 'editor.test',
@@ -536,6 +545,54 @@ void main() {
 
       expect(reloaded.registry.editors, isEmpty);
       expect(reloaded.registry.extensionDefaults, isEmpty);
+    });
+  });
+
+  group('openSystemDefault never executes (06 §5.3)', () {
+    late _RecordingSystemOpener systemOpener;
+    late ExternalFileOpener opener;
+
+    setUp(() {
+      systemOpener = _RecordingSystemOpener();
+      opener = ExternalFileOpener(systemOpener: systemOpener);
+      addTearDown(() => debugEditorHostPlatform = null);
+    });
+
+    Future<void> expectRefused(String path) async {
+      await expectLater(
+        opener.openSystemDefault(path),
+        throwsA(
+          isA<ExecutableLaunchRefused>().having((e) => e.path, 'path', path),
+        ),
+      );
+    }
+
+    test('Windows refuses Script Host and program types', () async {
+      debugEditorHostPlatform = () => EditorHostPlatform.windows;
+      await expectRefused(r'C:\checkouts\0a\app.js');
+      await expectRefused(r'C:\checkouts\0b\setup.EXE');
+      await expectRefused(r'C:\checkouts\0c\invoice.pdf.lnk');
+      expect(systemOpener.opens, isEmpty);
+
+      await opener.openSystemDefault(r'C:\checkouts\0d\notes.txt');
+      await opener.openSystemDefault(r'C:\checkouts\0e\report.pdf');
+      expect(systemOpener.opens, hasLength(2));
+    });
+
+    test('macOS refuses its launch types and opens documents', () async {
+      debugEditorHostPlatform = () => EditorHostPlatform.macos;
+      await expectRefused('/checkouts/0a/run.command');
+      await expectRefused('/checkouts/0b/Evil.app');
+      await opener.openSystemDefault('/checkouts/0c/app.js');
+      expect(systemOpener.opens, ['/checkouts/0c/app.js']);
+    });
+
+    test('a host without launch rules refuses every desktop type', () async {
+      debugEditorHostPlatform = () => null;
+      await expectRefused('/checkouts/0a/app.js');
+      await expectRefused('/checkouts/0b/run.command');
+      await expectRefused('/checkouts/0c/app.desktop');
+      expect(systemOpener.opens, isEmpty);
     });
   });
 }

@@ -1217,6 +1217,15 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   ) async {
     try {
       await action();
+    } on ExecutableLaunchRefused catch (refusal) {
+      // 06 §5.3's open boundary: an expected refusal, not a fault.
+      if (!mounted) return;
+      showTopToastIn(
+        context,
+        message: AppLocalizations.of(
+          context,
+        ).fileOpenProgramRefused(p.basename(refusal.path)),
+      );
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
       if (mounted) showTopToastIn(context, message: error.toString());
@@ -2785,10 +2794,26 @@ class _WorkspaceShellState extends State<WorkspaceShell>
         return;
       }
       await _openRemoteEntryWith(pane, entry, editorId);
+    } on ExecutableLaunchRefused {
+      if (mounted) _toastLaunchRefusal(pane, entry);
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
       if (mounted) showTopToastIn(context, message: error.toString());
     }
+  }
+
+  /// 06 §5.3's open-boundary refusal: the file stays unlaunched and, per
+  /// §1's refusal-is-a-router rule, the toast's Open With action offers
+  /// the explicit editor choice that opens it as a document.
+  void _toastLaunchRefusal(PaneController pane, RemoteFileEntry entry) {
+    final l10n = AppLocalizations.of(context);
+    showTopToastIn(
+      context,
+      message: l10n.fileOpenProgramRefused(entry.name),
+      duration: const Duration(seconds: 12),
+      actionLabel: l10n.fileOpenWithLabel,
+      onAction: () => unawaited(_chooseEditorFor(pane, entry)),
+    );
   }
 
   /// The local rows of §4.2's table: the built-in selector rides the
@@ -2835,6 +2860,13 @@ class _WorkspaceShellState extends State<WorkspaceShell>
       await _openBuiltInEditor(pane, entry);
       return;
     }
+    if (editorId == EditorRegistry.systemDefaultId &&
+        widget.externalOpener.launchWouldExecute(entry.name)) {
+      // Refused from the listing name before anything downloads; the
+      // opener checks the checkout's own name again at launch.
+      if (mounted) _toastLaunchRefusal(pane, entry);
+      return;
+    }
     final session = widget.checkoutSession;
     final bookmark = pane.remoteBookmark;
     if (session == null || bookmark == null) {
@@ -2875,6 +2907,10 @@ class _WorkspaceShellState extends State<WorkspaceShell>
     if (editorId == EditorRegistry.systemDefaultId) {
       try {
         await widget.externalOpener.openSystemDefault(file.path);
+      } on ExecutableLaunchRefused {
+        // Not a failed launch: the record may be a reused copy holding
+        // local edits, so it stays (a clean one is inert until reused).
+        rethrow;
       } catch (_) {
         unawaited(session.discard(record));
         rethrow;

@@ -383,6 +383,21 @@ List<String> normalizeEditorExtensions(Iterable<String> values) {
   return result.toList()..sort();
 }
 
+/// An OS default-handler launch [ExternalFileOpener.openSystemDefault]
+/// declined because the handler would run the file as a program (06
+/// §5.3's "never executed" open boundary). Typed so the shell answers
+/// with the localized refusal and its Open With router, never an error
+/// report.
+final class ExecutableLaunchRefused implements Exception {
+  const ExecutableLaunchRefused(this.path);
+
+  /// The file that was not launched.
+  final String path;
+
+  @override
+  String toString() => 'ExecutableLaunchRefused: $path';
+}
+
 /// Opens managed checkouts without ever constructing a shell command.
 final class ExternalFileOpener {
   static const channel = MethodChannel('poltergeist/files');
@@ -405,8 +420,33 @@ final class ExternalFileOpener {
   )?
   executablePicker;
 
-  Future<void> openSystemDefault(String path) =>
-      (systemOpener ?? LocalFileOpener.platform()).open(path);
+  /// Hands a remote-derived copy (a managed checkout or a recovered
+  /// payload; the user's own local files open through the engine, never
+  /// here) to the OS default handler, unless that handler would run it
+  /// as a program (06 §5.3). There is no "run anyway": the refusal is
+  /// final, and an explicit editor choice ([openWith]) still opens the
+  /// file as a document.
+  Future<void> openSystemDefault(String path) async {
+    if (launchWouldExecute(path)) throw ExecutableLaunchRefused(path);
+    await (systemOpener ?? LocalFileOpener.platform()).open(path);
+  }
+
+  /// Whether the OS default handler would run [path] as a program on
+  /// this host. A host with no desktop launch rules (mobile) answers for
+  /// every desktop host, the conservative reading. The shell also asks
+  /// this about a listing name to refuse before anything downloads.
+  bool launchWouldExecute(String path) {
+    final host = switch (currentEditorHostPlatform) {
+      EditorHostPlatform.macos => LaunchHost.macos,
+      EditorHostPlatform.linux => LaunchHost.linux,
+      EditorHostPlatform.windows => LaunchHost.windows,
+      null => null,
+    };
+    if (host != null) return isExecutableLaunchName(path, host: host);
+    return LaunchHost.values.any(
+      (each) => isExecutableLaunchName(path, host: each),
+    );
+  }
 
   Future<void> openWith(String path, ExternalEditorDefinition editor) async {
     if (!editor.isAvailableOnCurrentPlatform) {
