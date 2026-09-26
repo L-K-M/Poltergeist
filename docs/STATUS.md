@@ -8702,10 +8702,128 @@ as is: the backup switch dialog's conflict phase has no Close on the
 desktop, by the 04 §4.4 rule that the user decides each held pin before
 the switch completes (every decision moves it forward).
 
-## D38: More than one workspace window (2026-09-25)
+## Device themes (2026-09-25)
+
+The owner asked whether Vervellum's theming system could come to Séance
+and Poltergeist. Séance built it first
+([Séance #128](https://github.com/L-K-M/Seance/pull/128), merged as
+`8f15eeb`); this ports it so the two behave as one family. The decision is D38, "Device themes", in the decision log.
+
+- **What changed for the user.** Settings has an Appearance section: the
+  tab after General in the Settings window, and the section after General
+  in the Settings dialog the gear opens on phones and tablets (and on a
+  desktop whose runner has no window host). Ten presets (Poltergeist,
+  Graphite, Paper, Newsprint, Solarized, Midnight, Terminal, Vapor,
+  Bubblegum, High contrast) are starting points: picking one copies its
+  values in, and every colour, the four status colours, the interface
+  font and the corner roundness then stay editable, with the app and the
+  Settings window repainting on each change. Colours left Automatic
+  follow System, Light or Dark. Copy theme and Paste theme carry a theme
+  between devices and between the two apps. An install that never opens
+  Appearance looks exactly as before.
+- **The model** (`lib/theme/`): `ThemePalette`, `ThemePresets`,
+  `AppAppearance` and `contrast.dart`, ported from Séance (PORTS.md,
+  "Device themes (D38)"). Same JSON keys, hex forms and lenient decode as
+  Séance, so a theme pastes across. Séance's terminal colours are the one
+  part with no use here, so they are dropped from the model: a pasted
+  Séance theme applies everything but them, a theme copied from here
+  carries none (so one that goes Séance, Poltergeist, Séance comes back
+  with Séance's built-in terminal colours), and an object holding only a
+  terminal block is not a theme. Preset names are stored in English, as
+  Séance stores them, and shown through ARB (`themePreset*`); a palette
+  that matches no preset is shown as "your own colours", never by its
+  stored `Custom`.
+- **Status colours.** The four slots keep Séance's keys and map onto what
+  Poltergeist paints: `online` is `PoltergeistChrome.statusConnected`
+  (the connected dot and ring, the probe's online dot, the connected
+  glyph), `offline` the new `statusFailed` (the failed dot, the blocked
+  host key's no-entry dot, the unreachable ring, the probe's offline dot,
+  the failed and blocked glyphs), `connecting` is `statusConnecting`, and
+  `unknown` the new `statusUnknown` (the probe's unknown dot and the idle
+  glyph; the rail draws no dot for unknown). Automatic is what they
+  always were: the tables' green and amber, and the scheme's error and
+  outline. The dots that painted `scheme.error` and `scheme.outline` now
+  read the chrome, and the scheme's error colours stay the tables' in
+  every palette, since error text has a 4.5:1 floor a status colour does
+  not.
+- **Applying it** (`lib/theme/app_theme.dart`): `buildPoltergeistThemeFor`
+  builds a palette at a brightness, `poltergeistThemesFor` gives a
+  MaterialApp its three theme arguments, and `buildPoltergeistTheme` is
+  the default palette. `theme_build_test.dart` compares the default's
+  whole `ThemeData` and chrome, on all five platforms and both
+  brightnesses, with the pre-theme builder frozen in
+  `test/theme/legacy_theme.dart`. A palette with its own surface takes
+  its brightness from it and mixes its Automatic shades from it, with
+  Séance's ratios. `PoltergeistChrome` gained `cornerScale` and
+  `corner(base)`; at exactly 1 every component keeps the shape it had
+  (the 12 px dialog, 8 px menus, 6 px tooltips, Material's own
+  elsewhere), and any other scale rounds dialogs, cards, menus, popup
+  menus, tooltips, fields, buttons, segmented buttons, chips, bottom
+  sheets, snack bars and the phone sidebar's floating add button. The
+  sidebar kit takes Séance's corner change, so the two kit files again
+  differ only in the header, the chrome import and `_chrome()`. The
+  interface font is a family name handed to the platform (null for its
+  own), in the text theme and the tooltips; the editor and code keep
+  their monospace stack.
+- **Persistence.** `AppPreferences.loadAppearance`/`saveAppearance`,
+  under `theme.palette` (the palette's JSON object) and `theme.mode`.
+  Device-local like the sidebar's density: in no sync or backup record.
+  Garbage under either key reads as the default and costs nothing else.
+  `AppearanceController` (`lib/services/`) holds the value, applies a
+  change before saving it (as Séance's backend does, so a drag does not
+  lag a save behind), and throws on a failed save so the section can say
+  so.
+- **Rebuilding.** The app's MaterialApp listens to the controller alone
+  and builds the workspace outside that listener, so a theme change
+  swaps the themes without rebuilding the shell, and nothing else
+  re-themes the app. The Settings window takes the theme from each
+  snapshot (`SettingsLinkKey.appearance`) into `RemoteSettings.theme`,
+  which notifies only when the theme moved, and writes it back through
+  the new `setAppearance` link method. The section coalesces its writes:
+  one in flight, and whatever changed meanwhile goes as one write after
+  it.
+- **The colour picker** is `lib/ui/color_picker.dart`, ported from
+  Séance's, with an optional preview and an optional opacity slider (the
+  lines and the selection may be translucent). The server colour picker
+  is now a wrapper over it, with its badge preview and hint; Séance's
+  test for it, never ported before, now runs here.
+- **Contrast.** The contrast matrix keeps passing for the default and
+  now pins `statusFailed` and `statusUnknown`. Every preset is held to
+  Séance's preset rules (text and secondary text, the accent, the
+  selection's label, four distinct status colours at 3:1) and, beyond
+  Séance, to the matrix's sidebar row states for its dots. One pair falls
+  short: Solarized's official red `#DC322F` on its own selected pill is
+  2.80:1. The preset keeps it, as Séance's does, because a failed dot is
+  never colour alone (a disc, a ring or a no-entry bar, with its words);
+  the test records the exception.
+- **Not ported from Vervellum:** its backdrop materials, font designs,
+  verdict colours, scrim and card fill (see the decision). **Known
+  limits:** the editor's syntax colours still follow the brightness, not
+  the palette; server badge fills and accent lines are derived per
+  brightness, not per palette; there is no installed-font picker, so the
+  interface font is typed; a hidden Settings window keeps the theme it
+  had until it is shown again, when its snapshot brings the current
+  one.
+
+Verified on Linux under Xvfb, with debug and release builds of this
+change (`GDK_GL=gles`: without it this container's Xvfb draws only the
+Settings window's background, and the base build's too). A settings.json
+holding Séance's copy of Midnight, terminal block included, opened the
+app in Midnight and the Appearance tab with Midnight selected; picking
+Paper re-themed the workspace and the Settings window at once and saved
+Paper with no terminal key; picking Poltergeist brought back the default
+look (the sidebar's pixels match the base build's) and saved only its
+name, accent and corner scale. Not run: macOS, Windows, Android and iOS
+(the release checklist carries a pass per desktop), and the phone-sized
+Settings dialog, which only its widget test covers.
+
+Validation: `flutter analyze` is clean, and the full app suite passes:
+2739 tests on the merge with main at `b47c3db`, 138 of them new.
+
+## D39: More than one workspace window (2026-09-25)
 
 The owner asked for a "new window" feature so different views,
-connections and actions can run side by side (D38 records the decision;
+connections and actions can run side by side (D39 records the decision;
 it supersedes D13's single window and D25's parked multi-window item).
 
 - **What changed for the user.** On macOS, Linux and Windows, File ▸
@@ -8725,7 +8843,7 @@ it supersedes D13's single window and D25's parked multi-window item).
   windows on `poltergeist/windows` (`linux/runner/workspace_windows.cc`,
   `macos/Runner/WorkspaceWindows.swift` with `PoltergeistMultiView.m`,
   `windows/runner/workspace_windows.cpp`). The engine calls behind them
-  are D38's: Linux `fl_view_new_for_engine` (public), Windows
+  are D39's: Linux `fl_view_new_for_engine` (public), Windows
   `FlutterDesktopEngineCreateViewController` and
   `FlutterDesktopEngineForId` (exported, internal header), macOS
   `initWithEngine:` after setting the engine's multi-view flag by
@@ -9632,7 +9750,7 @@ close hook, and OS drops refused in an extra window.
     made Android supported with these slices still open; the README's
     known issues name them and the release checklist's Android row
     carries the device checks.
-34. **2026-09-25: D38 — what an extra workspace window lacks.** Each is
+34. **2026-09-25: D39 — what an extra workspace window lacks.** Each is
     its own follow-up: drops from other apps (desktop_drop registers on
     the main view only and reports positions in its coordinates; a
     per-view drop target with the view id on every event is needed);

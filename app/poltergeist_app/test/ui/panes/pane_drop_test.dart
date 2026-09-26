@@ -745,7 +745,7 @@ void main() {
   });
 
   dndWidgets("an extra workspace window refuses OS drops: desktop_drop "
-      "reports the main window's (00 D38)", (tester) async {
+      "reports the main window's (00 D39)", (tester) async {
     final windows = WorkspaceWindows(
       host: FakeWindowHost(),
       quitApplication: () async {},

@@ -142,7 +142,7 @@ final class DesktopWindowLifecycle {
   /// the window stays up. Null means nothing guards the close.
   final Future<bool> Function()? _confirmClose;
 
-  /// 00 D38: with other workspace windows open, the close button closes
+  /// 00 D39: with other workspace windows open, the close button closes
   /// this window only. Consulted before the quit guard; true means it
   /// took the close (the window is hidden, not destroyed) and the quit
   /// path does not run.
@@ -349,7 +349,7 @@ final class DesktopWindowLifecycle {
 
   /// Saves the window's bounds now, behind any window operation in
   /// flight: the app's exit flush, for a quit that does not come through
-  /// this window's close (00 D38's Quit with several windows, ⌘Q).
+  /// this window's close (00 D39's Quit with several windows, ⌘Q).
   Future<void> saveBounds() {
     if (!_prepared || _closing) return Future.value();
     _cancelScheduledSave?.call();

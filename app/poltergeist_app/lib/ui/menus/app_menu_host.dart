@@ -78,7 +78,7 @@ class _AppMenuHostState extends State<AppMenuHost> {
     if (platform == TargetPlatform.macOS) {
       final synced = _syncedMenus(menus, l10n);
       // With several windows the root renders the one native menu bar,
-      // and the active window's items go there (00 D38).
+      // and the active window's items go there (00 D39).
       final window = WorkspaceWindowScope.maybeOf(context);
       final slot = window?.menuBar;
       if (slot == null) {

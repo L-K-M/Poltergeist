@@ -340,7 +340,7 @@ class _PaneDropAreaState extends State<PaneDropArea> {
   /// (loading, error, connection-lost, disowned rows) accepts nothing.
   bool _osDropEnabled(BuildContext context) =>
       // desktop_drop reports the main window's drops only, in its
-      // coordinates: another window's zone must not take them (00 D38).
+      // coordinates: another window's zone must not take them (00 D39).
       WorkspaceWindowScope.capabilitiesOf(context).osDropIn &&
       widget.delegate != null &&
       widget.controller.verbsEnabled &&

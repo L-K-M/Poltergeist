@@ -1622,6 +1622,244 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsSyncTab => 'Sync';
 
   @override
+  String get settingsAppearanceTab => 'Appearance';
+
+  @override
+  String get appearanceThemeSection => 'Theme';
+
+  @override
+  String get appearanceThemeHelpTitle => 'Themes';
+
+  @override
+  String get appearanceThemeHelp =>
+      'A theme is kept on this device only and never syncs. To use one elsewhere, copy it here and paste it into Poltergeist or Séance on the other device.';
+
+  @override
+  String get appearancePresetFootnote =>
+      'Picking a theme copies its colours here. It is a starting point, not a mode, so everything below stays yours to change.';
+
+  @override
+  String appearancePresetTooltip(String name) {
+    return 'Use the $name theme';
+  }
+
+  @override
+  String get appearanceModeSection => 'Mode';
+
+  @override
+  String get appearanceModeLabel => 'Automatic colours follow';
+
+  @override
+  String get appearanceModeSystem => 'System';
+
+  @override
+  String get appearanceModeLight => 'Light';
+
+  @override
+  String get appearanceModeDark => 'Dark';
+
+  @override
+  String get appearanceModeFixedDark =>
+      'This theme has its own surface, so it is always dark. Set Surface to Automatic to choose a mode.';
+
+  @override
+  String get appearanceModeFixedLight =>
+      'This theme has its own surface, so it is always light. Set Surface to Automatic to choose a mode.';
+
+  @override
+  String get appearanceColoursSection => 'Colours';
+
+  @override
+  String get appearanceColoursHelpTitle => 'Automatic colours';
+
+  @override
+  String get appearanceColoursHelp =>
+      'Automatic colours are the light or dark neutrals Poltergeist ships with, as the mode picks them. Once you give the theme a surface of its own, they are mixed from that surface and the text instead. Lines and the selection may be translucent.';
+
+  @override
+  String get appearanceSlotAccent => 'Accent';
+
+  @override
+  String get appearanceSlotSurface => 'Surface';
+
+  @override
+  String get appearanceSlotSidebar => 'Sidebar';
+
+  @override
+  String get appearanceSlotRaised => 'Headers and bars';
+
+  @override
+  String get appearanceSlotText => 'Text';
+
+  @override
+  String get appearanceSlotSecondaryText => 'Secondary text';
+
+  @override
+  String get appearanceSlotHairline => 'Lines';
+
+  @override
+  String get appearanceSlotSelection => 'Selection';
+
+  @override
+  String get appearanceStatusSection => 'Status colours';
+
+  @override
+  String get appearanceSlotOnline => 'Connected or online';
+
+  @override
+  String get appearanceSlotOffline => 'Failed or offline';
+
+  @override
+  String get appearanceSlotConnecting => 'Connecting';
+
+  @override
+  String get appearanceSlotUnknown => 'Unknown or idle';
+
+  @override
+  String get appearanceStatusFootnote =>
+      'Each status also keeps its own shape and its name, so these colours never have to say it alone.';
+
+  @override
+  String get appearanceAutomatic => 'Automatic';
+
+  @override
+  String appearanceAutomaticSemantics(String label) {
+    return '$label: Automatic';
+  }
+
+  @override
+  String appearanceSwatchTooltip(String label) {
+    return 'Choose the $label colour';
+  }
+
+  @override
+  String appearanceSwatchAutomaticTooltip(String label) {
+    return 'Choose a $label colour (now Automatic)';
+  }
+
+  @override
+  String get appearanceShapeSection => 'Shape and type';
+
+  @override
+  String get appearanceFontLabel => 'Interface font';
+
+  @override
+  String get appearanceFontHint => 'System default';
+
+  @override
+  String get appearanceFontHelper =>
+      'The editor and code keep their monospace font.';
+
+  @override
+  String get appearanceCorners => 'Corners';
+
+  @override
+  String get appearanceCornersSquare => 'Square';
+
+  @override
+  String appearanceCornersPercent(int percent) {
+    return '$percent%';
+  }
+
+  @override
+  String appearanceCornersSemantics(String value) {
+    return 'Corners $value';
+  }
+
+  @override
+  String get appearanceShareSection => 'Share';
+
+  @override
+  String get appearanceCopy => 'Copy theme';
+
+  @override
+  String get appearancePaste => 'Paste theme';
+
+  @override
+  String get appearanceShareFootnote =>
+      'Copies the theme as text you can keep or send. Pasting reads what it can and leaves everything else at the default.';
+
+  @override
+  String get appearanceCopied => 'Theme copied.';
+
+  @override
+  String get appearancePasteNotATheme =>
+      'The clipboard does not hold a theme. Copy one with Copy theme first.';
+
+  @override
+  String get appearanceStartOverSection => 'Start over';
+
+  @override
+  String appearanceReset(String name) {
+    return 'Reset to $name';
+  }
+
+  @override
+  String get appearanceResetTitle => 'Reset the theme?';
+
+  @override
+  String appearanceResetBody(String name) {
+    return 'Every colour, the font and the corners go back to the $name theme. The mode stays as it is.';
+  }
+
+  @override
+  String get appearanceResetCancel => 'Cancel';
+
+  @override
+  String get appearanceResetConfirm => 'Reset';
+
+  @override
+  String appearanceUsingPreset(String name) {
+    return 'Using $name.';
+  }
+
+  @override
+  String get appearanceUsingCustom => 'Using your own colours.';
+
+  @override
+  String appearanceNotSaved(String error) {
+    return 'Appearance not saved: $error';
+  }
+
+  @override
+  String appearanceHelpTooltip(String title) {
+    return 'About $title';
+  }
+
+  @override
+  String get appearanceHelpClose => 'Close';
+
+  @override
+  String get themePresetPoltergeist => 'Poltergeist';
+
+  @override
+  String get themePresetGraphite => 'Graphite';
+
+  @override
+  String get themePresetPaper => 'Paper';
+
+  @override
+  String get themePresetNewsprint => 'Newsprint';
+
+  @override
+  String get themePresetSolarized => 'Solarized';
+
+  @override
+  String get themePresetMidnight => 'Midnight';
+
+  @override
+  String get themePresetTerminal => 'Terminal';
+
+  @override
+  String get themePresetVapor => 'Vapor';
+
+  @override
+  String get themePresetBubblegum => 'Bubblegum';
+
+  @override
+  String get themePresetHighContrast => 'High contrast';
+
+  @override
   String get settingsWindowUnreachable =>
       'Settings could not reach Poltergeist. Close this window and open Settings again.';
 
@@ -3513,27 +3751,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get serverColorPickerTitle => 'Custom colour';
 
   @override
-  String get serverColorPickerHexLabel => 'Hex';
+  String get colorPickerHexLabel => 'Hex';
 
   @override
-  String get serverColorPickerHexError => 'Six hex digits';
+  String get colorPickerHexError => 'Six hex digits';
 
   @override
-  String get serverColorPickerHue => 'Hue';
+  String get colorPickerHue => 'Hue';
 
   @override
-  String get serverColorPickerSaturation => 'Saturation';
+  String get colorPickerSaturation => 'Saturation';
 
   @override
-  String get serverColorPickerBrightness => 'Brightness';
+  String get colorPickerBrightness => 'Brightness';
 
   @override
-  String serverColorPickerDegrees(int degrees) {
+  String colorPickerDegrees(int degrees) {
     return '$degrees degrees';
   }
 
   @override
-  String serverColorPickerPercent(int percent) {
+  String colorPickerPercent(int percent) {
     return '$percent percent';
   }
 
@@ -3542,10 +3780,16 @@ class AppLocalizationsEn extends AppLocalizations {
       'Drawn as picked, with the mark kept legible on it in both themes. Devices running an older version show the nearest of the named colours instead.';
 
   @override
-  String get serverColorPickerCancel => 'Cancel';
+  String get colorPickerOpacity => 'Opacity';
 
   @override
-  String get serverColorPickerUse => 'Use colour';
+  String get colorPickerHexErrorAlpha => 'Six or eight hex digits';
+
+  @override
+  String get colorPickerCancel => 'Cancel';
+
+  @override
+  String get colorPickerUse => 'Use colour';
 
   @override
   String get connectionLogCopied => 'Log copied';

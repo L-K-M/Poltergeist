@@ -1316,13 +1316,13 @@ abstract class AppLocalizations {
   /// **'Tabs'**
   String get tabStripLabel;
 
-  /// Command label: open another workspace window with the default layout (window.new, 00 D38).
+  /// Command label: open another workspace window with the default layout (window.new, 00 D39).
   ///
   /// In en, this message translates to:
   /// **'New Window'**
   String get windowNewLabel;
 
-  /// Command label: close the current workspace window; the last one quits the app (window.close, 00 D38).
+  /// Command label: close the current workspace window; the last one quits the app (window.close, 00 D39).
   ///
   /// In en, this message translates to:
   /// **'Close Window'**
@@ -2538,6 +2538,420 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sync'**
   String get settingsSyncTab;
+
+  /// Tab label for the Appearance section (this device's theme) in the desktop Settings window.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance'**
+  String get settingsAppearanceTab;
+
+  /// Appearance section heading over the theme presets.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme'**
+  String get appearanceThemeSection;
+
+  /// Title of the help dialog behind the Theme heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Themes'**
+  String get appearanceThemeHelpTitle;
+
+  /// Help behind the Theme heading: themes are device-local, and Copy/Paste carries them, into either sibling app.
+  ///
+  /// In en, this message translates to:
+  /// **'A theme is kept on this device only and never syncs. To use one elsewhere, copy it here and paste it into Poltergeist or Séance on the other device.'**
+  String get appearanceThemeHelp;
+
+  /// Small print under the theme presets.
+  ///
+  /// In en, this message translates to:
+  /// **'Picking a theme copies its colours here. It is a starting point, not a mode, so everything below stays yours to change.'**
+  String get appearancePresetFootnote;
+
+  /// Tooltip of a theme preset tile.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the {name} theme'**
+  String appearancePresetTooltip(String name);
+
+  /// Appearance section heading over the light/dark mode switch.
+  ///
+  /// In en, this message translates to:
+  /// **'Mode'**
+  String get appearanceModeSection;
+
+  /// Label above the System/Light/Dark switch: what the theme's Automatic colours follow.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic colours follow'**
+  String get appearanceModeLabel;
+
+  /// Mode switch segment: Automatic colours follow the system's light or dark appearance.
+  ///
+  /// In en, this message translates to:
+  /// **'System'**
+  String get appearanceModeSystem;
+
+  /// Mode switch segment: Automatic colours are always the light ones.
+  ///
+  /// In en, this message translates to:
+  /// **'Light'**
+  String get appearanceModeLight;
+
+  /// Mode switch segment: Automatic colours are always the dark ones.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark'**
+  String get appearanceModeDark;
+
+  /// Why the mode switch is disabled, for a theme with a dark surface of its own.
+  ///
+  /// In en, this message translates to:
+  /// **'This theme has its own surface, so it is always dark. Set Surface to Automatic to choose a mode.'**
+  String get appearanceModeFixedDark;
+
+  /// Why the mode switch is disabled, for a theme with a light surface of its own.
+  ///
+  /// In en, this message translates to:
+  /// **'This theme has its own surface, so it is always light. Set Surface to Automatic to choose a mode.'**
+  String get appearanceModeFixedLight;
+
+  /// Appearance section heading over the accent and interface colours.
+  ///
+  /// In en, this message translates to:
+  /// **'Colours'**
+  String get appearanceColoursSection;
+
+  /// Title of the help dialog behind the Colours heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic colours'**
+  String get appearanceColoursHelpTitle;
+
+  /// Help behind the Colours heading: what Automatic means.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic colours are the light or dark neutrals Poltergeist ships with, as the mode picks them. Once you give the theme a surface of its own, they are mixed from that surface and the text instead. Lines and the selection may be translucent.'**
+  String get appearanceColoursHelp;
+
+  /// Colour row: the accent (buttons, focus, the active pane's marker). Also the colour picker's title.
+  ///
+  /// In en, this message translates to:
+  /// **'Accent'**
+  String get appearanceSlotAccent;
+
+  /// Colour row: the pane and page background.
+  ///
+  /// In en, this message translates to:
+  /// **'Surface'**
+  String get appearanceSlotSurface;
+
+  /// Colour row: the sidebar and the inspector.
+  ///
+  /// In en, this message translates to:
+  /// **'Sidebar'**
+  String get appearanceSlotSidebar;
+
+  /// Colour row: the header toolbar and raised containers.
+  ///
+  /// In en, this message translates to:
+  /// **'Headers and bars'**
+  String get appearanceSlotRaised;
+
+  /// Colour row: body text.
+  ///
+  /// In en, this message translates to:
+  /// **'Text'**
+  String get appearanceSlotText;
+
+  /// Colour row: captions and secondary text.
+  ///
+  /// In en, this message translates to:
+  /// **'Secondary text'**
+  String get appearanceSlotSecondaryText;
+
+  /// Colour row: dividers and outlines.
+  ///
+  /// In en, this message translates to:
+  /// **'Lines'**
+  String get appearanceSlotHairline;
+
+  /// Colour row: the active pane's selected rows.
+  ///
+  /// In en, this message translates to:
+  /// **'Selection'**
+  String get appearanceSlotSelection;
+
+  /// Appearance section heading over the four server status colours.
+  ///
+  /// In en, this message translates to:
+  /// **'Status colours'**
+  String get appearanceStatusSection;
+
+  /// Status colour row: a connected server, and one that answers its probe.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected or online'**
+  String get appearanceSlotOnline;
+
+  /// Status colour row: a failed connection, a blocked host key, and a server that does not answer its probe.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed or offline'**
+  String get appearanceSlotOffline;
+
+  /// Status colour row: a connection being made or remade.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting'**
+  String get appearanceSlotConnecting;
+
+  /// Status colour row: a server whose state is not known yet, or that is idle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown or idle'**
+  String get appearanceSlotUnknown;
+
+  /// Small print under the status colours.
+  ///
+  /// In en, this message translates to:
+  /// **'Each status also keeps its own shape and its name, so these colours never have to say it alone.'**
+  String get appearanceStatusFootnote;
+
+  /// Checkbox beside a colour row: the colour follows the built-in neutrals.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic'**
+  String get appearanceAutomatic;
+
+  /// Screen-reader label of a colour row's Automatic checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'{label}: Automatic'**
+  String appearanceAutomaticSemantics(String label);
+
+  /// Tooltip of a colour row's swatch, which opens the colour picker.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the {label} colour'**
+  String appearanceSwatchTooltip(String label);
+
+  /// Tooltip of the swatch of a colour row that is Automatic; picking a colour turns Automatic off.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a {label} colour (now Automatic)'**
+  String appearanceSwatchAutomaticTooltip(String label);
+
+  /// Appearance section heading over the interface font and corner roundness.
+  ///
+  /// In en, this message translates to:
+  /// **'Shape and type'**
+  String get appearanceShapeSection;
+
+  /// Label of the interface font field.
+  ///
+  /// In en, this message translates to:
+  /// **'Interface font'**
+  String get appearanceFontLabel;
+
+  /// Hint in the empty interface font field: the platform's own face.
+  ///
+  /// In en, this message translates to:
+  /// **'System default'**
+  String get appearanceFontHint;
+
+  /// Helper under the interface font field.
+  ///
+  /// In en, this message translates to:
+  /// **'The editor and code keep their monospace font.'**
+  String get appearanceFontHelper;
+
+  /// Label of the corner roundness slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Corners'**
+  String get appearanceCorners;
+
+  /// Corner roundness slider value at zero.
+  ///
+  /// In en, this message translates to:
+  /// **'Square'**
+  String get appearanceCornersSquare;
+
+  /// Corner roundness slider value: 100% is as designed, 200% very round.
+  ///
+  /// In en, this message translates to:
+  /// **'{percent}%'**
+  String appearanceCornersPercent(int percent);
+
+  /// Screen-reader value of the corner roundness slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Corners {value}'**
+  String appearanceCornersSemantics(String value);
+
+  /// Appearance section heading over Copy theme and Paste theme.
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get appearanceShareSection;
+
+  /// Button: puts the theme on the clipboard as JSON text.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy theme'**
+  String get appearanceCopy;
+
+  /// Button: reads a theme from the clipboard and applies it.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste theme'**
+  String get appearancePaste;
+
+  /// Small print under Copy theme and Paste theme.
+  ///
+  /// In en, this message translates to:
+  /// **'Copies the theme as text you can keep or send. Pasting reads what it can and leaves everything else at the default.'**
+  String get appearanceShareFootnote;
+
+  /// Toast after Copy theme.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme copied.'**
+  String get appearanceCopied;
+
+  /// Toast when Paste theme finds no theme on the clipboard; nothing changes.
+  ///
+  /// In en, this message translates to:
+  /// **'The clipboard does not hold a theme. Copy one with Copy theme first.'**
+  String get appearancePasteNotATheme;
+
+  /// Appearance section heading over the reset button.
+  ///
+  /// In en, this message translates to:
+  /// **'Start over'**
+  String get appearanceStartOverSection;
+
+  /// Button: puts the default theme back, after a confirmation.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset to {name}'**
+  String appearanceReset(String name);
+
+  /// Title of the reset confirmation.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset the theme?'**
+  String get appearanceResetTitle;
+
+  /// Body of the reset confirmation.
+  ///
+  /// In en, this message translates to:
+  /// **'Every colour, the font and the corners go back to the {name} theme. The mode stays as it is.'**
+  String appearanceResetBody(String name);
+
+  /// Dismisses the reset confirmation.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get appearanceResetCancel;
+
+  /// Confirms the reset.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get appearanceResetConfirm;
+
+  /// Beside the reset button: the theme's values are exactly this preset's.
+  ///
+  /// In en, this message translates to:
+  /// **'Using {name}.'**
+  String appearanceUsingPreset(String name);
+
+  /// Beside the reset button: the theme's values match no preset.
+  ///
+  /// In en, this message translates to:
+  /// **'Using your own colours.'**
+  String get appearanceUsingCustom;
+
+  /// Toast when writing the theme to the settings file failed. The app keeps showing the change; the next save carries it.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance not saved: {error}'**
+  String appearanceNotSaved(String error);
+
+  /// Tooltip of the help button beside an Appearance heading.
+  ///
+  /// In en, this message translates to:
+  /// **'About {title}'**
+  String appearanceHelpTooltip(String title);
+
+  /// Closes an Appearance help dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get appearanceHelpClose;
+
+  /// Shown name of the Poltergeist theme preset (the default: Poltergeist's teal, following light or dark). A copied theme stores the English name, the same in Séance, whatever this says.
+  ///
+  /// In en, this message translates to:
+  /// **'Poltergeist'**
+  String get themePresetPoltergeist;
+
+  /// Shown name of the Graphite theme preset (a muted blue-grey accent). A copied theme stores the English name, the same in Séance, whatever this says.
+  ///
+  /// In en, this message translates to:
+  /// **'Graphite'**
+  String get themePresetGraphite;
+
+  /// Shown name of the Paper theme preset (warm and light). A copied theme stores the English name, the same in Séance, whatever this says.
+  ///
+  /// In en, this message translates to:
+  /// **'Paper'**
+  String get themePresetPaper;
+
+  /// Shown name of the Newsprint theme preset (black, white and red). A copied theme stores the English name, the same in Séance, whatever this says.
+  ///
+  /// In en, this message translates to:
+  /// **'Newsprint'**
+  String get themePresetNewsprint;
+
+  /// Shown name of the Solarized theme preset (Solarized dark). A copied theme stores the English name, the same in Séance, whatever this says.
+  ///
+  /// In en, this message translates to:
+  /// **'Solarized'**
+  String get themePresetSolarized;
+
+  /// Shown name of the Midnight theme preset (deep blue). A copied theme stores the English name, the same in Séance, whatever this says.
+  ///
+  /// In en, this message translates to:
+  /// **'Midnight'**
+  String get themePresetMidnight;
+
+  /// Shown name of the Terminal theme preset (green on black). A copied theme stores the English name, the same in Séance, whatever this says.
+  ///
+  /// In en, this message translates to:
+  /// **'Terminal'**
+  String get themePresetTerminal;
+
+  /// Shown name of the Vapor theme preset (magenta and cyan over violet-black). A copied theme stores the English name, the same in Séance, whatever this says.
+  ///
+  /// In en, this message translates to:
+  /// **'Vapor'**
+  String get themePresetVapor;
+
+  /// Shown name of the Bubblegum theme preset (pink and purple). A copied theme stores the English name, the same in Séance, whatever this says.
+  ///
+  /// In en, this message translates to:
+  /// **'Bubblegum'**
+  String get themePresetBubblegum;
+
+  /// Shown name of the High contrast theme preset (black and white with yellow). A copied theme stores the English name, the same in Séance, whatever this says.
+  ///
+  /// In en, this message translates to:
+  /// **'High contrast'**
+  String get themePresetHighContrast;
 
   /// Shown in the desktop Settings window when the app's side of it does not answer.
   ///
@@ -5440,43 +5854,43 @@ abstract class AppLocalizations {
   ///
   /// In en, this message translates to:
   /// **'Hex'**
-  String get serverColorPickerHexLabel;
+  String get colorPickerHexLabel;
 
   /// Error under the hex field when it does not hold six hex digits.
   ///
   /// In en, this message translates to:
   /// **'Six hex digits'**
-  String get serverColorPickerHexError;
+  String get colorPickerHexError;
 
   /// Label of the hue slider.
   ///
   /// In en, this message translates to:
   /// **'Hue'**
-  String get serverColorPickerHue;
+  String get colorPickerHue;
 
   /// Label of the saturation slider.
   ///
   /// In en, this message translates to:
   /// **'Saturation'**
-  String get serverColorPickerSaturation;
+  String get colorPickerSaturation;
 
   /// Label of the brightness slider.
   ///
   /// In en, this message translates to:
   /// **'Brightness'**
-  String get serverColorPickerBrightness;
+  String get colorPickerBrightness;
 
   /// Screen-reader value of the hue slider.
   ///
   /// In en, this message translates to:
   /// **'{degrees} degrees'**
-  String serverColorPickerDegrees(int degrees);
+  String colorPickerDegrees(int degrees);
 
-  /// Screen-reader value of the saturation/brightness sliders.
+  /// Screen-reader value of the saturation, brightness and opacity sliders.
   ///
   /// In en, this message translates to:
   /// **'{percent} percent'**
-  String serverColorPickerPercent(int percent);
+  String colorPickerPercent(int percent);
 
   /// Small print under the colour sliders.
   ///
@@ -5484,17 +5898,29 @@ abstract class AppLocalizations {
   /// **'Drawn as picked, with the mark kept legible on it in both themes. Devices running an older version show the nearest of the named colours instead.'**
   String get serverColorPickerHint;
 
+  /// Label of the opacity slider, shown for colours that may be translucent (a theme's lines and selection).
+  ///
+  /// In en, this message translates to:
+  /// **'Opacity'**
+  String get colorPickerOpacity;
+
+  /// Error under the hex field of a picker that takes opacity, when it holds neither six nor eight hex digits.
+  ///
+  /// In en, this message translates to:
+  /// **'Six or eight hex digits'**
+  String get colorPickerHexErrorAlpha;
+
   /// Dismisses the colour picker without choosing.
   ///
   /// In en, this message translates to:
   /// **'Cancel'**
-  String get serverColorPickerCancel;
+  String get colorPickerCancel;
 
   /// Confirms the picked colour.
   ///
   /// In en, this message translates to:
   /// **'Use colour'**
-  String get serverColorPickerUse;
+  String get colorPickerUse;
 
   /// Toast after the transcript was copied.
   ///

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../l10n/app_localizations.dart';
+import '../theme/app_theme.dart';
 import 'probe_status_dot.dart';
 
 /// What the one composed server indicator paints (02 §4: exactly one
@@ -225,6 +226,7 @@ class ServerStateGlyph extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final chrome = PoltergeistChrome.of(context);
 
     // Probe truth has no paint here: it must render through
     // ProbeStatusDot (via ServerStateIndicator). Reaching for this glyph
@@ -255,12 +257,13 @@ class ServerStateGlyph extends StatelessWidget {
           ServerIndicatorGlyph.connected => _dot(
             ProbeStatusDot.onlineColorOf(context),
           ),
-          ServerIndicatorGlyph.idle => _dot(scheme.outline),
-          ServerIndicatorGlyph.failed => _dot(scheme.error),
+          // The theme's status colours, as the rail's dots paint them.
+          ServerIndicatorGlyph.idle => _dot(chrome.statusUnknown),
+          ServerIndicatorGlyph.failed => _dot(chrome.statusFailed),
           ServerIndicatorGlyph.blocked => Icon(
             Icons.gpp_bad,
             size: 14,
-            color: scheme.error,
+            color: chrome.statusFailed,
           ),
         },
       ),

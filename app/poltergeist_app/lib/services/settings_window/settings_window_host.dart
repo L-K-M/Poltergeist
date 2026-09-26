@@ -37,6 +37,7 @@ final class SettingsWindowSources {
     this.previewDownloads,
     this.backup,
     this.gate = const SyncAccountGate.production(),
+    this.appearance,
     this.changes = const [],
   });
 
@@ -56,9 +57,13 @@ final class SettingsWindowSources {
 
   final SyncAccountGate gate;
 
+  /// This device's theme: the Appearance tab's model, and what the window
+  /// draws itself in, from each snapshot.
+  final AppearanceSettingsModel? appearance;
+
   /// What else moves a value the window shows (the update-check
-  /// controller behind [general]); [editors] and [backup] are listened to
-  /// already.
+  /// controller behind [general]); [editors], [backup] and [appearance]
+  /// are listened to already.
   final List<Listenable> changes;
 }
 
@@ -111,7 +116,12 @@ class SettingsWindowHost {
       listenable.removeListener(_scheduleSnapshot);
     }
     _sources = sources;
-    _listening = [?sources.editors, ?sources.backup, ...sources.changes];
+    _listening = [
+      ?sources.editors,
+      ?sources.backup,
+      ?sources.appearance,
+      ...sources.changes,
+    ];
     for (final listenable in _listening) {
       listenable.addListener(_scheduleSnapshot);
     }
@@ -227,6 +237,7 @@ class SettingsWindowHost {
     final editors = _sources.editors;
     final backup = _sources.backup;
     final gate = _sources.gate;
+    final appearance = _sources.appearance;
     return {
       SettingsLinkKey.general.name: general == null
           ? null
@@ -247,6 +258,9 @@ class SettingsWindowHost {
         SettingsLinkKey.sharedIncludesSeance56Fix.name:
             gate.sharedIncludesSeance56Fix,
       },
+      SettingsLinkKey.appearance.name: appearance == null
+          ? null
+          : encodeAppearance(appearance.value),
     };
   }
 
@@ -322,6 +336,11 @@ class SettingsWindowHost {
         await _require(
           _sources.general,
         )().onCheckForUpdatesChanged(argument! as bool);
+      case SettingsLinkMethod.setAppearance:
+        final appearance = decodeAppearance(map());
+        await _require(
+          _sources.appearance,
+        ).setAppearance(appearance.palette, appearance.mode);
       case SettingsLinkMethod.registerEditor:
         await _require(editors).register(
           ExternalEditorDefinition.fromJson(map().cast<String, dynamic>()),

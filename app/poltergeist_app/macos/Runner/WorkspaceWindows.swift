@@ -1,7 +1,7 @@
 import Cocoa
 import FlutterMacOS
 
-/// The workspace windows' host (00 D38): serves `poltergeist/windows` on the
+/// The workspace windows' host (00 D39): serves `poltergeist/windows` on the
 /// app's engine (the protocol is the library doc of
 /// lib/services/workspace_windows/window_host.dart).
 ///

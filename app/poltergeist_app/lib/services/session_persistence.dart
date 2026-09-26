@@ -57,7 +57,7 @@ final class SessionPersistence {
 
   /// The attached workspaces, one per open window, in the order their
   /// windows opened: the first is persisted as the v1 document, the rest
-  /// beside it (00 D38).
+  /// beside it (00 D39).
   final _workspaces = <WorkspaceController>[];
   final _listened = <WorkspaceController, List<Listenable>>{};
   void Function()? _cancelScheduled;

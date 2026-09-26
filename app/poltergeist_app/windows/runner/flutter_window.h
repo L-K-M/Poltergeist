@@ -44,7 +44,7 @@ class FlutterWindow : public Win32Window {
   // is destroyed first: it relays for the engine's messenger.
   std::unique_ptr<SettingsWindowHost> settings_window_;
 
-  // More workspace windows on this engine (00 D38). Declared after the
+  // More workspace windows on this engine (00 D39). Declared after the
   // controller so it is destroyed first: its windows' views are the
   // engine's.
   std::unique_ptr<WorkspaceWindowsHost> workspace_windows_;

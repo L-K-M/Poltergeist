@@ -337,7 +337,7 @@ scheduling lives in the last column.
 | Resumable transfers | "In v1, an interrupted transfer restarts from the beginning. Picking up where it left off needs protocol plumbing we haven't built yet; the groundwork is planned and resuming is on the v2 list." | D25; D3 notes ranged read as an upstream addition |
 | OS drag-out (promised files) | "Dragging out of Poltergeist onto the desktop requires per-OS 'promised file' machinery; it is v1.x, and the queue exposes the hook from day one." | D14 |
 | Archives (create/extract/browse) | "Local zip create/extract lands in v1.x with slip-safe extraction; browsable and remote-side archives are scheduled later." | D27; 07 |
-| Multi-window | Shipped after v1.0.1: File ▸ New Window opens another workspace window over the same bookmarks, pool, and transfer queue. | D13, D38 |
+| Multi-window | Shipped after v1.0.1: File ▸ New Window opens another workspace window over the same bookmarks, pool, and transfer queue. | D13, D39 |
 | Custom Tools (user scripts) | "Powerful, and it deserves a real cross-platform shell story rather than a macOS-only one. Parked for v2." | D25 |
 | Content search on remotes | "Honest cost: remote content search means scanning every file. We will not ship it until we can show its cost clearly. v2 list." | D25 |
 | Mobile (iOS/Android) | "Desktop first. The architecture keeps mobile hooks (single-pane collapse, scoped file access, suspendable queue), and the constraints memo records what mobile will demand." | D29; 07 memo |

@@ -9,7 +9,7 @@ import 'workspace_windows.dart';
 /// window's bar would clear the menus the next window had just set.
 typedef MenuBarSlot = ValueNotifier<List<PlatformMenuItem>>;
 
-/// Tells a window's widgets which workspace window they are in (00 D38).
+/// Tells a window's widgets which workspace window they are in (00 D39).
 /// Absent in the single-window app, where every lookup answers as the one
 /// window with every capability.
 class WorkspaceWindowScope extends InheritedWidget {

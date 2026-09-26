@@ -7,6 +7,8 @@ import 'package:poltergeist_core/poltergeist_core.dart'
         defaultPreviewCacheCapacityBytes,
         maxGlobalInFlightTransfers;
 
+import '../theme/app_appearance.dart';
+import '../theme/theme_palette.dart';
 import 'double_click_action.dart';
 import 'pane_tabs_controller.dart' show NewTabTarget;
 import 'settings_store.dart';
@@ -35,6 +37,8 @@ const _sidebarPinnedServersKey = 'sidebar.pinnedServers';
 const _previewCacheCapacityKey = 'preview.cacheCapacityBytes';
 const _previewThresholdKey = 'preview.largeDownloadThresholdBytes';
 const _updateChecksEnabledKey = 'updates.checkEnabled';
+const _themePaletteKey = 'theme.palette';
+const _themeModeKey = 'theme.mode';
 
 /// How a server's own Automatic is spelled in the stored overrides; a
 /// fixed cap is stored as its number.
@@ -432,6 +436,39 @@ class AppPreferences {
 
   Future<void> saveUpdateChecksEnabled(bool enabled) =>
       _store.set(_updateChecksEnabledKey, enabled);
+
+  /// This device's theme (00-OVERVIEW's "Device themes"): the palette as
+  /// one JSON object in Séance's format, and the mode its Automatic colours
+  /// follow. Device-local, like the sidebar's density: a theme is chosen
+  /// for the screen and the room in front of it, so it is in no sync or
+  /// backup record, and Copy theme / Paste theme carry it between devices
+  /// on request. Lenient all the way down: a hand-edited palette costs at
+  /// most its own bad values ([ThemePalette.decodeStored]), an unknown mode
+  /// reads as System, and an unreadable store as the default theme, never
+  /// a failed launch.
+  Future<AppAppearance> loadAppearance() async {
+    Object? palette;
+    String? mode;
+    try {
+      palette = await _store.get<Object>(_themePaletteKey);
+      mode = await _store.get<String>(_themeModeKey);
+    } catch (_) {
+      return AppAppearance.initial;
+    }
+    return AppAppearance(
+      palette: ThemePalette.decodeStored(palette),
+      mode: ThemeModePreference.values.firstWhere(
+        (value) => value.name == mode,
+        orElse: () => ThemeModePreference.system,
+      ),
+    );
+  }
+
+  /// Both keys in one write, so a palette never lands without its mode.
+  Future<void> saveAppearance(AppAppearance appearance) => _store.setAll({
+    _themePaletteKey: appearance.palette.toJson(),
+    _themeModeKey: appearance.mode.name,
+  });
 
   /// The §8 "Preview & downloads" cache cap (06 §8): bytes, default
   /// 512 MiB. A missing or corrupt value decodes to the default.

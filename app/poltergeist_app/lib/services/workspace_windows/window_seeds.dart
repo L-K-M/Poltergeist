@@ -3,7 +3,7 @@ import 'dart:async';
 import '../sidebar_controller.dart'
     show CollapsedSectionWriter, PinnedServerWriter, SidebarDensity;
 
-/// What a window opened later starts from (00 D38): the window chrome as
+/// What a window opened later starts from (00 D39): the window chrome as
 /// the user last left it in any window, rather than as the app launched.
 ///
 /// Each value is device-local and persisted as one app-wide setting that

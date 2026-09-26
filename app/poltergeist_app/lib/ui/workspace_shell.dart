@@ -46,6 +46,7 @@ import '../services/rsync_endpoints.dart';
 import '../services/server_duplication.dart';
 import '../services/session_persistence.dart';
 import '../services/session_state.dart';
+import '../services/settings_models.dart' show AppearanceSettingsModel;
 import '../services/settings_window/settings_window_host.dart';
 import '../services/settings_window/settings_window_link.dart';
 import '../services/sidebar_controller.dart';
@@ -179,6 +180,7 @@ class WorkspaceShell extends StatefulWidget {
     this.probeOwner,
     this.previewThreshold,
     this.checkoutPrompts,
+    this.appearance,
   });
 
   final double initialPaneRatio;
@@ -441,7 +443,7 @@ class WorkspaceShell extends StatefulWidget {
   /// test that does not wire a window.
   final SettingsWindowHost? settingsWindow;
 
-  /// The workspace window this shell fills (00 D38), or null for the
+  /// The workspace window this shell fills (00 D39), or null for the
   /// single-window app. With a window the shell registers New Window and
   /// Close Window, leaves out what only the main window supports
   /// ([WorkspaceWindow.capabilities]), and runs the app-wide reactions
@@ -463,6 +465,11 @@ class WorkspaceShell extends StatefulWidget {
   /// The dirty-checkout prompt's guards, shared so the prompt is asked
   /// once whichever window is active. Null keeps them here.
   final CheckoutPromptLedger? checkoutPrompts;
+
+  /// This device's theme, behind Settings → Appearance (the Settings
+  /// window's Appearance tab, and the Settings dialog's section after
+  /// General). Null leaves the section out.
+  final AppearanceSettingsModel? appearance;
 
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
@@ -549,7 +556,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   /// D32: Space is Quick Look on every desktop — the native panel on
   /// macOS, the in-window overlay on Linux and Windows. Touch platforms
   /// have no surface; Space answers on the Info tab there. A window the
-  /// panel does not serve (00 D38) takes the overlay on macOS too.
+  /// panel does not serve (00 D39) takes the overlay on macOS too.
   QuickLookChannel _platformQuickLook() =>
       switch (defaultTargetPlatform) {
         TargetPlatform.macOS when !_capabilities.nativeQuickLook =>
@@ -734,7 +741,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // The Settings window binds the active window's sections (00 D38): the
+    // The Settings window binds the active window's sections (00 D39): the
     // sections are the same models in every window, but a closed window's
     // shell must not stay the one answering.
     final active = WorkspaceWindowScope.activeOf(context);
@@ -921,7 +928,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   }
 
   /// Whether a live binding other than [excluding] keeps [serverId] in the
-  /// pool: in this workspace, or in another window's (00 D38). The
+  /// pool: in this workspace, or in another window's (00 D39). The
   /// last-binding close drops the server's pool reference, which would
   /// disconnect every window's panes on it.
   bool _serverBoundBesides(String serverId, PaneController excluding) =>
@@ -1063,7 +1070,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   /// for a missing or disconnected one.
   void _scanDirtyCheckouts() {
     final session = _checkoutListener;
-    // One window asks: every window hears the session (00 D38).
+    // One window asks: every window hears the session (00 D39).
     if (session == null || !_isActiveWindow) return;
     final dirtyIds = {
       for (final record in session.records)
@@ -1416,7 +1423,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
     // for them. The seed deliberately wins over a restored session's
     // hidden flag — saved chrome intent yields to un-acknowledged work.
     // A window opened later has no such claim: the work is showing in
-    // the window the user came from (00 D38).
+    // the window the user came from (00 D39).
     if ((widget.window?.isLaunchWindow ?? true) &&
         _activity.tasks.any((task) => !task.isTerminal)) {
       workspace.setActivityPanelHidden(false);
@@ -1544,6 +1551,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
     opener: widget.externalOpener,
     previewDownloads: _previewDownloadsSettings,
     backup: widget.bookmarkBackup,
+    appearance: widget.appearance,
     changes: [?widget.updateCheck],
   );
 
@@ -1600,12 +1608,13 @@ class _WorkspaceShellState extends State<WorkspaceShell>
           enabled: () => !_commandSessionActive,
           openWindow: _openSettingsWindow,
         ),
-      // 02 §9's `app.settings` row registers while the update-check
-      // seam exists — its General section's only row today is D19's
-      // opt-out, so a seam-less boot has nothing to show there.
-      if (widget.updateCheck != null)
+      // 02 §9's `app.settings` row registers while it has a section to
+      // show: D19's update-check opt-out (General's only row today) or
+      // the device's theme (Appearance). A seam-less boot has neither.
+      if (widget.updateCheck != null || widget.appearance != null)
         buildAppSettingsCommand(
-          settings: _generalSettings,
+          settings: widget.updateCheck == null ? null : _generalSettings,
+          appearance: widget.appearance,
           enabled: () => !_commandSessionActive,
           openWindow: _openSettingsWindow,
         ),
@@ -1622,7 +1631,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
       if (Theme.of(context).platform
           case TargetPlatform.linux || TargetPlatform.windows)
         buildQuitCommand(requestClose: widget.window?.quitApplication),
-      // 00 D38's File ▸ New Window and Close Window.
+      // 00 D39's File ▸ New Window and Close Window.
       if (widget.window case final window? when window.canOpenWindows)
         ...buildWindowCommands(window: window),
       if (workspace != null && widget.workspaces != null)

@@ -201,7 +201,18 @@ known-divergent surface.
   with it. On Windows the window stays above the workspace. Linux was
   run under Xvfb (STATUS D36 section); macOS and Windows are compiled
   by CI only, so this row is their first run.
-- [ ] OWNER MANUAL QA: more than one workspace window (D38). On each
+- [ ] OWNER MANUAL QA: device themes (D38). On each desktop platform,
+  in the Settings window's Appearance tab: each of the ten presets
+  repaints the workspace and the Settings window at once (sidebar,
+  header, listing, inspector, dialogs and menus), and the rail's status
+  dots take the preset's colours; the corner slider rounds and squares
+  buttons, menus, dialogs and the sidebar's pills live; a font typed in
+  Interface font reaches the interface but not the editor; Copy theme,
+  then Paste theme in Séance, gives Séance the same theme, and a theme
+  copied in Séance pastes here; the theme survives a restart. On a
+  phone, the same from the Settings gear's dialog. Verified by the test
+  suite and on Linux under Xvfb only (STATUS "Device themes").
+- [ ] OWNER MANUAL QA: more than one workspace window (D39). On each
   desktop platform: File ▸ New Window (⌘N / Ctrl+N) opens a window with
   a local home tab in each pane, as the active window, at the size of
   the one it came from; typing and shortcuts go to the window you are
@@ -221,10 +232,12 @@ known-divergent surface.
   windows open and relaunch: both come back with their tabs. On macOS
   with VoiceOver on, open a second window: the first window's elements
   still read correctly. Linux was run under Xvfb with openbox (STATUS
-  D38 section); macOS and Windows are compiled by CI only, so this row
+  D39 section); macOS and Windows are compiled by CI only, so this row
   is their first run.
 - [ ] OWNER MANUAL QA: theme flip (light/dark) live-restyles listing,
-  plan view, and editor; HiDPI scaling at 100 %/150 %/200 % shows no
+  plan view, and editor, in the default theme and in a preset that
+  follows the system (Graphite), while a preset with its own surface
+  (Midnight) stays as it is; HiDPI scaling at 100 %/150 %/200 % shows no
   clipped chrome.
 - [ ] OWNER MANUAL QA: scroll feel — listing, plan view, and editor
   scroll smoothly under native input on each platform (trackpad inertia,

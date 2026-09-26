@@ -13,6 +13,7 @@ import 'app.dart';
 import 'settings_window_app.dart';
 import 'services/app_preferences.dart';
 import 'services/app_session_lifecycle.dart';
+import 'services/appearance_controller.dart';
 import 'services/application_error_reporter.dart';
 import 'services/bookmark_backup_service.dart';
 import 'services/checkout_prompt_ledger.dart';
@@ -189,7 +190,7 @@ Future<void> main(List<String> args) async {
   } on Object catch (error, stack) {
     errorReporter.report(error, stack);
   }
-  // The windows open beside the first one (00 D38), under their own key
+  // The windows open beside the first one (00 D39), under their own key
   // with the same fail-closed decode: a bad document restores none of
   // them and stays on disk.
   var restoredWindows = const <SessionState>[];
@@ -229,7 +230,7 @@ Future<void> main(List<String> args) async {
   } on Object catch (error, stack) {
     errorReporter.report(error, stack);
   }
-  // The desktop runners host more than one workspace window (00 D38):
+  // The desktop runners host more than one workspace window (00 D39):
   // views on this one engine, sharing every model composed here.
   final windows = Platform.isMacOS || Platform.isLinux || Platform.isWindows
       ? WorkspaceWindows(
@@ -247,7 +248,7 @@ Future<void> main(List<String> args) async {
   // 07 §3.5's quit gate: the intercepted close consults the guard, which
   // warns over live transfers and gates the destroy on the journal
   // flush. The workspace shell binds its queue seam onto the guard; with
-  // several windows the composition binds it once, below (00 D38).
+  // several windows the composition binds it once, below (00 D39).
   final quitGuard = QuitGuard(
     navigatorKey: navigatorKey,
     onError: errorReporter.report,
@@ -483,7 +484,14 @@ Future<void> main(List<String> args) async {
   final toolbarBand = Platform.isMacOS ? MacosToolbarBandChannel() : null;
   if (toolbarBand != null) errorReporter.observe(toolbarBand.start());
 
-  // What every window shares beyond the models above (00 D38): the
+  // This device's theme (Settings → Appearance): read before the first
+  // frame, so the app opens in it rather than fading into it.
+  final appearance = AppearanceController(
+    initial: await preferences.loadAppearance(),
+    save: preferences.saveAppearance,
+  );
+
+  // What every window shares beyond the models above (00 D39): the
   // reachability owner (it drives the engine's one probe target set),
   // the live preview threshold, the dirty-checkout prompt's guards, and
   // the chrome a window opened later starts from.
@@ -518,7 +526,7 @@ Future<void> main(List<String> args) async {
       Platform.isMacOS || Platform.isLinux || Platform.isWindows
       ? SettingsWindowHost()
       : null;
-  // An extra window has no unified toolbar band on macOS (00 D38).
+  // An extra window has no unified toolbar band on macOS (00 D39).
   final noToolbarBand = ValueNotifier(false);
 
   // The app for one window, or the single-window app. Built once per
@@ -608,6 +616,7 @@ Future<void> main(List<String> args) async {
       syncEnvironment: syncEnvironment,
       syncTasks: syncTasks,
       updateCheck: updateCheck,
+      appearance: appearance,
       settingsWindow: settingsWindow,
       toolbarBand: main || toolbarBand == null ? toolbarBand : noToolbarBand,
       // window_manager sizes the main window only; the runner gives an
@@ -659,7 +668,7 @@ Future<void> main(List<String> args) async {
   }
 }
 
-/// Quit with several windows open (00 D38): the engine asks the app's
+/// Quit with several windows open (00 D39): the engine asks the app's
 /// lifecycle listener, whose quit guard and exit flush decide, then
 /// closes every window with the process. The same path ⌘Q takes.
 Future<void> _quitApplication() async {

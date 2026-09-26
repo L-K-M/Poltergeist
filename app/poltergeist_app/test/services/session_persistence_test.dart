@@ -266,7 +266,7 @@ void main() {
     expect(decoded.panes[0].tabs.single.listing.single.name, 'a.txt');
   });
 
-  group('several windows (00 D38)', () {
+  group('several windows (00 D39)', () {
     late PaneTabsController otherLeft;
     late PaneTabsController otherRight;
     late WorkspaceController other;

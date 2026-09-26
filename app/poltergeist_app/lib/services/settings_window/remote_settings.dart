@@ -9,6 +9,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import '../../theme/app_appearance.dart';
+import '../../theme/theme_palette.dart';
 import '../../ui/settings/general_settings.dart';
 import '../../ui/settings/preview_settings.dart';
 import '../bookmark_backup_service.dart'
@@ -122,6 +124,10 @@ class RemoteSettings extends ChangeNotifier {
   Map<String, Object?>? _preview;
   RemoteEditorRegistry? _editors;
   RemoteBackupSettings? _backup;
+  late final RemoteAppearanceSettings _appearance = RemoteAppearanceSettings._(
+    _link,
+  );
+  bool _hasAppearance = false;
   SyncAccountGate _gate = const SyncAccountGate.production();
 
   /// The General rows, or null when the app has none.
@@ -158,6 +164,16 @@ class RemoteSettings extends ChangeNotifier {
   /// The Backup section's model, or null when the app has no backup
   /// service.
   BackupSettingsModel? get backup => _backup;
+
+  /// The Appearance tab's model, or null when the app has no theme seam.
+  AppearanceSettingsModel? get appearance =>
+      _hasAppearance ? _appearance : null;
+
+  /// The theme the window draws itself in: the app's, from the latest
+  /// snapshot, or the default theme when the app has no theme seam. One
+  /// notifier for the window's run, so its MaterialApp listens to one
+  /// thing whatever the snapshots say.
+  ValueListenable<AppAppearance> get theme => _appearance;
 
   SyncAccountGate get gate => _gate;
 
@@ -210,6 +226,13 @@ class RemoteSettings extends ChangeNotifier {
       (_backup ??= RemoteBackupSettings._(_link))._apply(backup);
     }
 
+    final appearance = (snapshot[SettingsLinkKey.appearance.name] as Map?)
+        ?.cast<String, Object?>();
+    _hasAppearance = appearance != null;
+    _appearance._apply(
+      appearance == null ? AppAppearance.initial : decodeAppearance(appearance),
+    );
+
     final gate = (snapshot[SettingsLinkKey.gate.name]! as Map)
         .cast<String, Object?>();
     _gate = SyncAccountGate(
@@ -260,8 +283,40 @@ class RemoteSettings extends ChangeNotifier {
     _link.channel.setMethodCallHandler(null);
     unawaited(_tabRequests.close());
     page.dispose();
+    _appearance.dispose();
     super.dispose();
   }
+}
+
+/// [AppearanceSettingsModel] over the link: the app's theme as the latest
+/// snapshot carries it, and writes that run in the app's isolate.
+///
+/// Notifies only when a snapshot moves the theme. Every snapshot passes
+/// through here, and the window's MaterialApp rebuilds for this alone, so
+/// an edit on the Appearance tab re-themes the window it is made in as
+/// well as the app, and nothing else re-themes it.
+final class RemoteAppearanceSettings extends ChangeNotifier
+    implements AppearanceSettingsModel {
+  RemoteAppearanceSettings._(this._link);
+
+  final _Link _link;
+  AppAppearance _value = AppAppearance.initial;
+
+  void _apply(AppAppearance appearance) {
+    if (appearance == _value) return;
+    _value = appearance;
+    notifyListeners();
+  }
+
+  @override
+  AppAppearance get value => _value;
+
+  @override
+  Future<void> setAppearance(ThemePalette palette, ThemeModePreference mode) =>
+      _link.call(
+        SettingsLinkMethod.setAppearance,
+        encodeAppearance(AppAppearance(palette: palette, mode: mode)),
+      );
 }
 
 /// [EditorRegistryModel] over the link.
