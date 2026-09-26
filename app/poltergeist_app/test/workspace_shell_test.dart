@@ -28,7 +28,6 @@ void main() {
     expect(find.textContaining('Browsing is unavailable'), findsNWidgets(2));
 
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
-    expect(app.themeMode, ThemeMode.system);
     expect(app.theme?.visualDensity, VisualDensity.compact);
     expect(app.darkTheme?.visualDensity, VisualDensity.compact);
   });

@@ -10,7 +10,7 @@ import '../../services/drag_out_controller.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
-import '../../services/workspace_windows/workspace_window_scope.dart';
+import 'window_drop_target.dart';
 
 /// The D14 spring-load delay (02 §5.1): a folder row held under a drag
 /// for this long opens in place.
@@ -28,9 +28,9 @@ const paneSpringLoadDelay = Duration(seconds: 1);
 }
 
 /// One pane's drop zone (02 §5.1, D14): the in-app `DragTarget` for
-/// pane↔pane row drags plus the `desktop_drop` `DropTarget` for OS
-/// drop-in, wrapped around the pane body. Owns the hover affordances —
-/// the hovered folder row's highlight (reported to the parent so the
+/// pane↔pane row drags plus the [WindowDropTarget] for OS drop-in,
+/// wrapped around the pane body. Owns the hover affordances — the
+/// hovered folder row's highlight (reported to the parent so the
 /// row itself paints it), the action overlay, the zone border — and
 /// the spring-load timer. Resolution is honest against the virtualized
 /// list: the fixed row extent plus the scroll offset map the drop point
@@ -76,7 +76,7 @@ class PaneDropArea extends StatefulWidget {
   /// row highlight — the highlight state lives on the view, not here.
   final ValueChanged<int?> onHoverFolderRow;
 
-  /// Whether the OS drop-in `DropTarget` mounts at all — false on
+  /// Whether the OS drop-in [WindowDropTarget] mounts at all — false on
   /// platforms `desktop_drop` does not serve (mobile).
   final bool supportsOsDrop;
 
@@ -339,9 +339,6 @@ class _PaneDropAreaState extends State<PaneDropArea> {
   /// surfaces) must not swallow drops; a pane without a live listing
   /// (loading, error, connection-lost, disowned rows) accepts nothing.
   bool _osDropEnabled(BuildContext context) =>
-      // desktop_drop reports the main window's drops only, in its
-      // coordinates: another window's zone must not take them (00 D39).
-      WorkspaceWindowScope.capabilitiesOf(context).osDropIn &&
       widget.delegate != null &&
       widget.controller.verbsEnabled &&
       TickerMode.valuesOf(context).enabled &&
@@ -436,7 +433,7 @@ class _PaneDropAreaState extends State<PaneDropArea> {
       builder: (context, candidateData, rejectedData) => widget.child,
     );
     if (widget.supportsOsDrop) {
-      zone = DropTarget(
+      zone = WindowDropTarget(
         enable: _osDropEnabled(context),
         onDragEntered: (details) => _updateOsHover(details.globalPosition),
         onDragUpdated: (details) => _updateOsHover(details.globalPosition),

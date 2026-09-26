@@ -18,6 +18,24 @@ import 'fake_bookmark_store.dart';
 /// LWW on put, displaced pulled winners behind dirty rivals, monotone
 /// cursors — only the atomic file write is absent.
 final class InMemorySyncRecordStore implements SyncRecordStore {
+  @override
+  Future<EncryptedRecord?> settlePush(
+    EncryptedRecord sent,
+    PushResult result,
+  ) async {
+    if (result.id != sent.id) {
+      throw ArgumentError('push result must identify the sent record');
+    }
+    if (!identical(_records[sent.id], sent) || !_dirty.contains(sent.id)) {
+      return null;
+    }
+    if (result.accepted) {
+      await markSynced(sent.id, result.seq);
+      return null;
+    }
+    return restoreDisplaced(sent.id);
+  }
+
   final _records = <String, EncryptedRecord>{};
   final _dirty = <String>{};
   final _displaced = <String, EncryptedRecord>{};

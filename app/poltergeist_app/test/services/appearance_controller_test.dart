@@ -67,11 +67,14 @@ void main() {
     );
 
     await expectLater(
-      controller.setAppearance(ThemePresets.vapor, ThemeModePreference.system),
+      controller.setAppearance(
+        ThemePresets.midnight,
+        ThemeModePreference.system,
+      ),
       throwsA(isA<StateError>()),
     );
     // Applied before the write: the app shows what the section shows, and
     // the next write carries it.
-    expect(controller.value.palette, ThemePresets.vapor);
+    expect(controller.value.palette, ThemePresets.midnight);
   });
 }

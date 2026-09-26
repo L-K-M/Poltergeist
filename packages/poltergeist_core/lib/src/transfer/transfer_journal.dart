@@ -1175,6 +1175,16 @@ RemoteFileErrorKind? _parseErrorKind(Object? value) {
 class TransferJournalIo {
   const TransferJournalIo();
 
+  /// Flushes a committed local copy before its original can be removed.
+  /// File contents precede the parent directory's rename metadata. The
+  /// [fsyncDirectory] barrier absorbs [FileSystemException]. If that
+  /// barrier fails or is unsupported, only file data is guaranteed flushed.
+  Future<void> flushLocalFile(String path) async {
+    final file = File(path);
+    await fsyncFile(file);
+    await fsyncDirectory(file.parent);
+  }
+
   /// Append one complete line. A fresh open per append is deliberate:
   /// the handle can never point at an inode a rewrite already replaced
   /// (03 §4.6's stale-handle hazard). The write reaches the OS on close —

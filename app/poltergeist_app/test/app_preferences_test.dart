@@ -222,7 +222,8 @@ void main() {
         '"cornerScale":"round"},"theme.mode":"light"}',
       );
       final appearance = await fresh().loadAppearance();
-      expect(appearance.palette.accent, ThemePresets.initial.accent);
+      // The gaps fill from Poltergeist, the all-Automatic preset.
+      expect(appearance.palette.accent, ThemePresets.poltergeist.accent);
       expect(appearance.palette.surface, const Color(0xFF102030));
       expect(appearance.palette.cornerScale, 1);
       expect(appearance.mode, ThemeModePreference.light);
