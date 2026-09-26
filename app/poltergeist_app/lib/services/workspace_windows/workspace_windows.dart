@@ -22,53 +22,14 @@ import '../workspace_controller.dart';
 import 'window_host.dart';
 
 enum WorkspaceWindowKind {
-  /// The engine's implicit view: window_manager's window, which carries the
-  /// plugins that only know one window (OS drop-in, drag-out, the macOS
-  /// unified toolbar and Quick Look panel).
+  /// The engine's implicit view: window_manager's window, and the one the
+  /// plugins that only know one window serve (desktop_drop,
+  /// macos_window_utils). The runners give an extra window the same
+  /// integrations themselves.
   main,
 
   /// A window the runner created on the same engine.
   extra,
-}
-
-/// The per-window platform integrations that only the main window has
-/// today (see [WorkspaceWindowKind.main]); an extra window's shell leaves
-/// them out rather than letting them act on the main window.
-@immutable
-final class WindowCapabilities {
-  const WindowCapabilities({
-    required this.unifiedToolbar,
-    required this.osDropIn,
-    required this.nativeQuickLook,
-  });
-
-  /// The single-window app: everything.
-  static const all = WindowCapabilities(
-    unifiedToolbar: true,
-    osDropIn: true,
-    nativeQuickLook: true,
-  );
-
-  /// An extra window: a native titlebar above the content, no drop-in
-  /// from other apps, and Quick Look in the window.
-  static const extra = WindowCapabilities(
-    unifiedToolbar: false,
-    osDropIn: false,
-    nativeQuickLook: false,
-  );
-
-  /// macOS: the header draws under the empty unified toolbar, whose
-  /// click passthrough (macos_window_utils) serves the main window only.
-  final bool unifiedToolbar;
-
-  /// Files dropped from other apps (desktop_drop) arrive here. The plugin
-  /// listens on the main window and reports positions in its coordinates,
-  /// so any other window must refuse them.
-  final bool osDropIn;
-
-  /// macOS: Space opens the system Quick Look panel, which the main window
-  /// controls; elsewhere the in-window overlay serves.
-  final bool nativeQuickLook;
 }
 
 /// What a window's shell registers with its window, so the app can reach
@@ -91,7 +52,6 @@ final class WorkspaceWindow {
     required this.kind,
     required this.serial,
     required this.restoredSession,
-    required this.capabilities,
     required this.fullScreen,
     required this._owner,
   }) : navigatorKey = GlobalKey<NavigatorState>(
@@ -112,8 +72,6 @@ final class WorkspaceWindow {
   /// The session this window opens with; null opens the default layout
   /// (a local home tab in each pane).
   final SessionState? restoredSession;
-
-  final WindowCapabilities capabilities;
 
   /// The window's own full screen on Linux and Windows, for an extra
   /// window; null for the main window, whose command uses window_manager.
@@ -423,7 +381,6 @@ final class WorkspaceWindows extends ChangeNotifier
       kind: kind,
       serial: _serials++,
       restoredSession: session,
-      capabilities: extra ? WindowCapabilities.extra : WindowCapabilities.all,
       fullScreen: extra ? HostWindowFullScreen(_host, viewId, _platform) : null,
       owner: this,
     );

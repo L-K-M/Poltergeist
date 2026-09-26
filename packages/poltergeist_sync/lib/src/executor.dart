@@ -385,8 +385,11 @@ final class SyncExecutor {
     required this.deviceId,
     this.mtimeUnreliableLeft = false,
     this.mtimeUnreliableRight = false,
+    Future<void> Function(String destinationPath)? flushLocalDestination,
     RemoteTrash? trash,
-  }) : _trash = trash ?? RemoteTrash();
+  }) : _trash = trash ?? RemoteTrash(),
+       _flushLocalDestination =
+           flushLocalDestination ?? const TransferJournalIo().flushLocalFile;
 
   final RemoteFileSystem leftFileSystem;
   final RemoteFileSystem rightFileSystem;
@@ -411,6 +414,11 @@ final class SyncExecutor {
   bool mtimeUnreliableRight;
 
   final RemoteTrash _trash;
+
+  /// The local copy-to-trash barrier shared with queue moves. A failed
+  /// flush must leave the source intact. Remote VFS handles have no
+  /// equivalent durability primitive.
+  final Future<void> Function(String destinationPath) _flushLocalDestination;
 
   /// One run at a time per executor — concurrent run/retry calls would
   /// interleave journal appends and share mutable plan state.
@@ -873,9 +881,6 @@ final class _RunSession {
         // The source must still offer what the preview promised:
         // vanished fails the item (rail 8), a changed stat flips it.
         final liveSource = await _verifySource(srcFs, srcAbs, srcSnapshot);
-        String? trashLocation;
-        String? trashSha;
-        int? trashBytes;
         RemoteFileEntry? expectedTarget;
         if (preDelete) {
           await _verifyDestination(item, destFs, destAbs, destSnapshot!);
@@ -903,9 +908,19 @@ final class _RunSession {
               ),
               item.relativePath,
             );
-            trashLocation = moved.location;
-            trashSha = moved.sha256;
-            trashBytes = destSnapshot.size;
+            // The replacement can fail or be cancelled after the old
+            // version leaves its origin. Persist its recovery mapping
+            // first, independently of the replacement's final outcome.
+            await journal.appendTrash(
+              SyncJournalTrashLine(
+                parentPath: item.relativePath,
+                relativePath: item.relativePath,
+                side: destSide,
+                trashLocation: moved.location,
+                bytes: destSnapshot.size ?? 0,
+                trashContentSha256: moved.sha256,
+              ),
+            );
           } else {
             expectedTarget = liveDest;
           }
@@ -959,9 +974,6 @@ final class _RunSession {
           liveSource,
         );
         return _ItemOutcome(
-          trashLocation: trashLocation,
-          trashBytes: trashBytes,
-          trashSha256: trashSha,
           observedMtimeSecs: stamp.observed,
           setstatIgnored: stamp.ignored,
           bytes: uploaded.size ?? srcSnapshot?.size ?? 0,
@@ -1379,6 +1391,14 @@ final class _RunSession {
         overwrite: false,
       );
       try {
+        cancellation?.throwIfCancelled();
+        if (isLocal) {
+          // A completed upload is still only in the OS cache. Apply
+          // the same barrier as a local queue move before unlinking
+          // the only durable original.
+          await executor._flushLocalDestination(target);
+        }
+        cancellation?.throwIfCancelled();
         await fs.delete(entry);
       } on Object {
         // The item will fail without a trash journal line — remove the
@@ -1687,9 +1707,9 @@ final class _ItemOutcome {
     this.bytes,
   });
 
-  /// Update-backup and delete-phase trash location — the item line's
-  /// `trashLocation` (rail 9's origin map). Pre-delete removals write
-  /// their own per-file trash lines instead.
+  /// Delete-phase trash location, carried by the item line's
+  /// `trashLocation`. Update backups and pre-delete removals write
+  /// their own per-file trash lines before any replacement begins.
   final String? trashLocation;
 
   /// The trashed file's own size — the journal's `trashBytes`, which

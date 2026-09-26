@@ -354,13 +354,16 @@ class ThemePalette {
   };
 
   /// A palette from [json], leniently: a missing or unreadable accent or
-  /// corner scale takes the default preset's, and a missing or unreadable
-  /// Automatic-able colour is Automatic. A blank or missing name is
+  /// corner scale takes the Poltergeist preset's, and a missing or
+  /// unreadable Automatic-able colour is Automatic. The gaps fill from
+  /// Poltergeist rather than from the default ([ThemePresets.initial])
+  /// because Poltergeist is the preset whose colours are all Automatic, so
+  /// a partial theme completes as one look. A blank or missing name is
   /// whatever the values match ([relabelled]), so a hand-written theme that
-  /// says nothing but the default's colours is the default. Keys this model
+  /// says nothing but a preset's colours is that preset. Keys this model
   /// does not have (Séance's `terminal`) are read past.
   factory ThemePalette.fromJson(Map<String, Object?> json) {
-    final fallback = ThemePresets.initial;
+    final fallback = ThemePresets.poltergeist;
     final name = json['name'];
     final named = name is String && name.trim().isNotEmpty;
     final family = json['fontFamily'];
@@ -387,10 +390,13 @@ class ThemePalette {
   }
 
   /// The palette a settings file holds under its key: the default preset
-  /// when it holds nothing usable. Never throws: a theme is not worth a
-  /// failed launch.
+  /// when it holds nothing usable, which includes a map that names none
+  /// of a palette's values. Never throws: a theme is not worth a failed
+  /// launch.
   static ThemePalette decodeStored(Object? json) {
-    if (json is! Map) return ThemePresets.initial;
+    if (json is! Map || !json.keys.any(_valueKeys.contains)) {
+      return ThemePresets.initial;
+    }
     try {
       return ThemePalette.fromJson(json.cast<String, Object?>());
     } catch (_) {

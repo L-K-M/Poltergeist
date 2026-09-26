@@ -62,8 +62,9 @@ final class SyncJournalItemLine {
   final int durationMs;
   final bool userOverridden;
 
-  /// Where this item's previous version went (update backups, and
-  /// delete-phase file/symlink removals under `deletions: trash`).
+  /// Where a delete-phase file/symlink went under `deletions: trash`.
+  /// Older journals also stored update backups here; new updates write
+  /// a separate trash line before starting the replacement.
   final String? trashLocation;
 
   /// The size of the file that went to [trashLocation] — distinct from
@@ -82,8 +83,9 @@ final class SyncJournalItemLine {
   final String? error;
 }
 
-/// One file a rule-4 pre-delete moved to trash (05 §6 rule 4: one line
-/// per removed file under the parent item).
+/// One file backed up before an update or moved by a rule-4 pre-delete.
+/// Its recovery mapping survives even if the parent item's later write
+/// fails (05 §6 rule 4: one line per removed file under the parent item).
 final class SyncJournalTrashLine {
   const SyncJournalTrashLine({
     required this.parentPath,
@@ -94,7 +96,7 @@ final class SyncJournalTrashLine {
     this.trashContentSha256,
   });
 
-  /// The plan item whose removal step produced this line.
+  /// The plan item whose backup or removal step produced this line.
   final String parentPath;
   final String relativePath;
   final SyncSide side;
@@ -395,7 +397,11 @@ final class SyncRunJournal {
       'v': syncJournalSchemaVersion,
       ...fields,
     });
-    return _file.writeAsString('\n$line\n', mode: FileMode.append);
+    return _file.writeAsString(
+      '\n$line\n',
+      mode: FileMode.append,
+      flush: true,
+    );
   }
 
   /// Prunes [syncRunsDirectory] to the newest [keep] journals per pair —

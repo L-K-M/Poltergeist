@@ -433,7 +433,7 @@ class PoltergeistChrome extends ThemeExtension<PoltergeistChrome> {
   static PoltergeistChrome of(BuildContext context) {
     final theme = Theme.of(context);
     return theme.extension<PoltergeistChrome>() ??
-        _chromeFor(ThemePresets.initial, theme.brightness, theme.platform);
+        _chromeFor(ThemePresets.poltergeist, theme.brightness, theme.platform);
   }
 
   @override
@@ -620,14 +620,14 @@ const double _bottomSheetRadius = 28;
 const double _snackBarRadius = 4;
 const double _fabRadius = 16;
 
-/// Poltergeist's theme in the default palette: the teal accent over the
-/// sibling tables, unchanged. [platform] overrides the host platform the
-/// type ramp and row extents are chosen for.
+/// Poltergeist's theme in the Poltergeist preset: the teal accent over the
+/// sibling tables, unchanged, at either brightness. [platform] overrides
+/// the host platform the type ramp and row extents are chosen for.
 ThemeData buildPoltergeistTheme(
   Brightness brightness, {
   TargetPlatform? platform,
 }) => buildPoltergeistThemeFor(
-  ThemePresets.initial,
+  ThemePresets.poltergeist,
   brightness,
   platform: platform,
 );

@@ -131,6 +131,36 @@ final class _SetstatDenyingFs extends LocalFileSystem {
 /// EXDEV — the cross-filesystem trash move shape (05 §8 rail 5's
 /// local fallback trigger).
 final class _ExdevTrashFs extends LocalFileSystem {
+  final List<String> operations = [];
+  void Function()? onUploadCompleted;
+
+  @override
+  Future<RemoteFileEntry> upload(
+    String path,
+    Stream<List<int>> content, {
+    int? length,
+    bool overwrite = false,
+    int? preserveMode,
+    RemoteFileEntry? expectedTarget,
+    RemoteTransferProgress? onProgress,
+    RemoteTransferCancellation? cancellation,
+    bool computeHash = true,
+  }) async {
+    final uploaded = await super.upload(
+      path,
+      content,
+      length: length,
+      overwrite: overwrite,
+      preserveMode: preserveMode,
+      expectedTarget: expectedTarget,
+      onProgress: onProgress,
+      cancellation: cancellation,
+      computeHash: computeHash,
+    );
+    onUploadCompleted?.call();
+    return uploaded;
+  }
+
   @override
   Future<void> rename(
     String oldPath,
@@ -144,6 +174,43 @@ final class _ExdevTrashFs extends LocalFileSystem {
       );
     }
     return super.rename(oldPath, newPath, overwrite: overwrite);
+  }
+
+  @override
+  Future<void> delete(RemoteFileEntry entry) {
+    operations.add('delete:${entry.path}');
+    return super.delete(entry);
+  }
+}
+
+/// Fails after consuming the replacement, when its old destination has
+/// already moved to trash. The callback inspects the persisted recovery
+/// boundary without depending on the executor's in-memory journal.
+final class _FailingUpdateFs extends LocalFileSystem {
+  _FailingUpdateFs(this.beforeFailure);
+
+  final Future<void> Function() beforeFailure;
+
+  @override
+  Future<RemoteFileEntry> upload(
+    String path,
+    Stream<List<int>> content, {
+    int? length,
+    bool overwrite = false,
+    int? preserveMode,
+    RemoteFileEntry? expectedTarget,
+    RemoteTransferProgress? onProgress,
+    RemoteTransferCancellation? cancellation,
+    bool computeHash = true,
+  }) async {
+    await content.drain<void>();
+    await beforeFailure();
+    throw RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'upload',
+      path: path,
+      message: 'Connection lost before the replacement committed.',
+    );
   }
 }
 
@@ -375,10 +442,13 @@ void main() {
       expect(await backup!.readAsString(), 'old-version');
       expect(find(plan, 'new.txt')!.status, SyncItemStatus.done);
       expect(find(plan, 'changed.txt')!.status, SyncItemStatus.done);
-      // The journal item line carries the backup's origin map.
-      final line = run.journal.items.singleWhere(
+      // The backup's origin map precedes the replacement, independently
+      // of whether the update succeeds. Its item carries no duplicate.
+      final line = run.journal.trashLines.single;
+      final outcome = run.journal.items.singleWhere(
         (l) => l.relativePath == 'changed.txt',
       );
+      expect(outcome.trashLocation, isNull);
       // trashLocation is a VFS path — built with remoteJoin, so its
       // separators match however the executor joined it.
       expect(
@@ -391,7 +461,7 @@ void main() {
           '000001-changed.txt',
         ),
       );
-      expect(line.trashBytes, 'old-version'.length);
+      expect(line.bytes, 'old-version'.length);
     });
 
     test('Mirror deletes destination extras into trash', () async {
@@ -937,13 +1007,18 @@ void main() {
 
     test('EXDEV on a trash rename falls back to copy-then-delete',
         () async {
+      final trashFs = _ExdevTrashFs();
       final exdev = SyncExecutor(
         leftFileSystem: leftFs,
-        rightFileSystem: _ExdevTrashFs(),
+        rightFileSystem: trashFs,
         leftRoot: leftRoot.path,
         rightRoot: rightRoot.path,
         syncRunsDirectory: runsDir.path,
         deviceId: deviceId,
+        flushLocalDestination: (path) async {
+          trashFs.operations.add('flush:$path');
+          await const TransferJournalIo().flushLocalFile(path);
+        },
       );
       await writeFile(rightRoot, 'orphan.txt', 'orphan-content');
       final plan = makePlan([
@@ -983,7 +1058,110 @@ void main() {
         line.trashContentSha256,
         sha256.convert(utf8.encode('orphan-content')).toString(),
       );
+      expect(trashFs.operations, [
+        'flush:${line.trashLocation}',
+        'delete:${remoteJoin(rightRoot.path, 'orphan.txt')}',
+      ]);
     });
+
+    test('cancellation after a trash copy skips the local flush', () async {
+      final cancellation = RemoteTransferCancellation();
+      final trashFs = _ExdevTrashFs()
+        ..onUploadCompleted = cancellation.cancel;
+      var flushReached = false;
+      final exdev = SyncExecutor(
+        leftFileSystem: leftFs,
+        rightFileSystem: trashFs,
+        leftRoot: leftRoot.path,
+        rightRoot: rightRoot.path,
+        syncRunsDirectory: runsDir.path,
+        deviceId: deviceId,
+        flushLocalDestination: (_) async => flushReached = true,
+      );
+      await writeFile(rightRoot, 'orphan.txt', 'original-content');
+      final plan = makePlan([
+        item(
+          'orphan.txt',
+          right: await snapOf(rightRoot, 'orphan.txt'),
+          suggested: SyncActionType.deleteRight,
+          reason: SyncReason.onlyOnRight,
+        ),
+      ], mirrorRules());
+
+      final run = await exdev.run(
+        plan,
+        pairId: pairId,
+        deleteConfirmationAcknowledged: true,
+        cancellation: cancellation,
+      );
+
+      expect(flushReached, isFalse);
+      expect(plan.items.single.status, SyncItemStatus.failed);
+      expect(run.cancelled, isTrue);
+      expect(
+        await File('${rightRoot.path}/orphan.txt').readAsString(),
+        'original-content',
+      );
+      expect(trashedFile(rightRoot, run.runId, 'orphan.txt'), isNull);
+      expect(run.journal.hasUnpurgedTrash, isFalse);
+    });
+
+    for (final cancelDuringFlush in [false, true]) {
+      test(
+        'a ${cancelDuringFlush ? 'cancelled' : 'failed'} local trash flush '
+        'keeps the original intact',
+        () async {
+          final trashFs = _ExdevTrashFs();
+          var flushReached = false;
+          final cancellation = RemoteTransferCancellation();
+          final exdev = SyncExecutor(
+            leftFileSystem: leftFs,
+            rightFileSystem: trashFs,
+            leftRoot: leftRoot.path,
+            rightRoot: rightRoot.path,
+            syncRunsDirectory: runsDir.path,
+            deviceId: deviceId,
+            flushLocalDestination: (path) async {
+              flushReached = true;
+              if (cancelDuringFlush) {
+                cancellation.cancel();
+                return;
+              }
+              throw FileSystemException('Injected flush failure', path);
+            },
+          );
+          await writeFile(rightRoot, 'orphan.txt', 'original-content');
+          final plan = makePlan([
+            item(
+              'orphan.txt',
+              right: await snapOf(rightRoot, 'orphan.txt'),
+              suggested: SyncActionType.deleteRight,
+              reason: SyncReason.onlyOnRight,
+            ),
+          ], mirrorRules());
+
+          final run = await exdev.run(
+            plan,
+            pairId: pairId,
+            deleteConfirmationAcknowledged: true,
+            cancellation: cancellation,
+          );
+
+          expect(flushReached, isTrue);
+          expect(plan.items.single.status, SyncItemStatus.failed);
+          expect(run.cancelled, cancelDuringFlush);
+          expect(
+            await File('${rightRoot.path}/orphan.txt').readAsString(),
+            'original-content',
+          );
+          expect(
+            trashFs.operations,
+            isNot(contains('delete:${remoteJoin(rightRoot.path, 'orphan.txt')}')),
+          );
+          expect(run.journal.hasUnpurgedTrash, isFalse);
+        },
+      );
+    }
 
     test('trash uses D15 flat names inside <runId>', () async {
       await writeFile(rightRoot, 'one.txt', '1');
@@ -1303,6 +1481,155 @@ void main() {
   // ── Restore Trashed Files ────────────────────────────────────────────
 
   group('restore trashed files', () {
+    test('legacy item-line update backup restores after reopening', () async {
+      await writeFile(leftRoot, 'f.txt', 'new-version');
+      await writeFile(rightRoot, 'f.txt', 'old-version');
+      final plan = makePlan([
+        item(
+          'f.txt',
+          left: await snapOf(leftRoot, 'f.txt'),
+          right: await snapOf(rightRoot, 'f.txt'),
+          suggested: SyncActionType.updateLeftToRight,
+          reason: SyncReason.contentDiffers,
+        ),
+      ], updateRules);
+      final run = await executor.run(plan, pairId: pairId);
+      final backup = run.journal.trashLines.single;
+      final journalFile = File(run.journal.path);
+      final records = [
+        for (final line in await journalFile.readAsLines())
+          if (line.trim().isNotEmpty) jsonDecode(line) as Map<String, dynamic>,
+      ];
+      // Recreate the old on-disk format: only the completed item line
+      // carries the backup; there is no standalone trash record.
+      records.removeWhere((record) => record['type'] == 'trash');
+      final legacyItem = records.singleWhere(
+        (record) => record['type'] == 'item',
+      );
+      legacyItem['trashLocation'] = backup.trashLocation;
+      legacyItem['trashBytes'] = backup.bytes;
+      await journalFile.writeAsString(
+        '${records.map(jsonEncode).join('\n')}\n',
+      );
+      final reopened = await SyncRunJournal.open(journalFile.path);
+      expect(reopened.trashLines, isEmpty);
+      expect(reopened.items.single.trashLocation, backup.trashLocation);
+
+      final report = await restoreTrashedFiles(
+        reopened,
+        fsFor: (side) => side == SyncSide.left ? leftFs : rightFs,
+        rootFor: (side) =>
+            side == SyncSide.left ? leftRoot.path : rightRoot.path,
+      );
+
+      expect(report.restored, ['f.txt']);
+      expect(report.skipped, isEmpty);
+      expect(await File('${rightRoot.path}/f.txt').readAsString(), 'old-version');
+    });
+
+    for (final cancelDuringUpload in [false, true]) {
+      test(
+        '${cancelDuringUpload ? 'cancelled' : 'failed'} update keeps a '
+        'persisted backup that restores after reopening',
+        () async {
+          await writeFile(leftRoot, 'f.txt', 'new-version');
+          await writeFile(rightRoot, 'f.txt', 'old-version');
+          final plan = makePlan([
+            item(
+              'f.txt',
+              left: await snapOf(leftRoot, 'f.txt'),
+              right: await snapOf(rightRoot, 'f.txt'),
+              suggested: SyncActionType.updateLeftToRight,
+              reason: SyncReason.contentDiffers,
+            ),
+          ], updateRules);
+          final cancellation = RemoteTransferCancellation();
+          late SyncRunJournal beforeFailure;
+          rightFs = _FailingUpdateFs(() async {
+            final journalFile = await runsDir.list().single;
+            beforeFailure = await SyncRunJournal.open(journalFile.path);
+            if (cancelDuringUpload) cancellation.cancel();
+          });
+          final failing = SyncExecutor(
+            leftFileSystem: leftFs,
+            rightFileSystem: rightFs,
+            leftRoot: leftRoot.path,
+            rightRoot: rightRoot.path,
+            syncRunsDirectory: runsDir.path,
+            deviceId: deviceId,
+          );
+
+          final run = await failing.run(
+            plan,
+            pairId: pairId,
+            cancellation: cancellation,
+          );
+
+          expect(plan.items.single.status, SyncItemStatus.failed);
+          expect(run.cancelled, cancelDuringUpload);
+          expect(File('${rightRoot.path}/f.txt').existsSync(), isFalse);
+          expect(beforeFailure.hasUnpurgedTrash, isTrue);
+          final reopened = await SyncRunJournal.open(run.journal.path);
+          final report = await restoreTrashedFiles(
+            reopened,
+            fsFor: (side) => side == SyncSide.left ? leftFs : rightFs,
+            rootFor: (side) =>
+                side == SyncSide.left ? leftRoot.path : rightRoot.path,
+          );
+
+          expect(report.restored, ['f.txt']);
+          expect(report.skipped, isEmpty);
+          expect(
+            await File('${rightRoot.path}/f.txt').readAsString(),
+            'old-version',
+          );
+        },
+      );
+    }
+
+    test('failed update restore preserves a recreated origin', () async {
+      await writeFile(leftRoot, 'f.txt', 'new-version');
+      await writeFile(rightRoot, 'f.txt', 'old-version');
+      final plan = makePlan([
+        item(
+          'f.txt',
+          left: await snapOf(leftRoot, 'f.txt'),
+          right: await snapOf(rightRoot, 'f.txt'),
+          suggested: SyncActionType.updateLeftToRight,
+          reason: SyncReason.contentDiffers,
+        ),
+      ], updateRules);
+      rightFs = _FailingUpdateFs(() async {});
+      final failing = SyncExecutor(
+        leftFileSystem: leftFs,
+        rightFileSystem: rightFs,
+        leftRoot: leftRoot.path,
+        rightRoot: rightRoot.path,
+        syncRunsDirectory: runsDir.path,
+        deviceId: deviceId,
+      );
+      final run = await failing.run(plan, pairId: pairId);
+      await writeFile(rightRoot, 'f.txt', 'later-user-edit');
+
+      final report = await restoreTrashedFiles(
+        await SyncRunJournal.open(run.journal.path),
+        fsFor: (side) => side == SyncSide.left ? leftFs : rightFs,
+        rootFor: (side) =>
+            side == SyncSide.left ? leftRoot.path : rightRoot.path,
+      );
+
+      expect(report.restored, isEmpty);
+      expect(report.skipped.single.relativePath, 'f.txt');
+      expect(
+        await File('${rightRoot.path}/f.txt').readAsString(),
+        'later-user-edit',
+      );
+      expect(
+        await trashedFile(rightRoot, run.runId, 'f.txt')!.readAsString(),
+        'old-version',
+      );
+    });
+
     test('a trashed delete restores to its origin', () async {
       await writeFile(rightRoot, 'd.txt', 'deleted-content');
       final plan = makePlan([

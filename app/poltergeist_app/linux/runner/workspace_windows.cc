@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include "drag_out_channel.h"
+#include "drop_in_channel.h"
 #include "window_title.h"
 
 namespace {
@@ -146,6 +148,11 @@ FlMethodResponse* create_window(WorkspaceWindowsHost* host) {
   auto* key = g_new(gint64, 1);
   *key = view_id;
   g_hash_table_insert(host->windows, key, window);
+
+  // What the main window's plugins give it: drops from other apps and
+  // drags out to them, for this view.
+  drag_out_channel_add_view(view);
+  drop_in_channel_add_view(view);
 
   gtk_widget_realize(GTK_WIDGET(view));
   gtk_widget_grab_focus(GTK_WIDGET(view));

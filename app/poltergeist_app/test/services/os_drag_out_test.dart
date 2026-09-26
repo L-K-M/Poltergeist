@@ -253,4 +253,114 @@ void main() {
       ),
     );
   });
+
+  group('DragOutRouter (00 D39)', () {
+    late List<MethodCall> calls;
+    late DragOutRouter router;
+    late _Delegate main;
+    late _Delegate extra;
+
+    setUp(() {
+      calls = [];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return {'started': true};
+      });
+      router = DragOutRouter(
+        MethodChannelDragOutBackend(
+          support: DragOutSupport.localFilesAndPromises,
+        ),
+      );
+      main = _Delegate();
+      extra = _Delegate();
+      router.forView(0).delegate = main;
+      router.forView(3).delegate = extra;
+    });
+
+    test("a window's drag names its view and a session id of its own", () async {
+      // Both windows' controllers count from 1.
+      final started = await router.forView(3).startDrag(request);
+      await router.forView(0).startDrag(request);
+
+      expect(started, isA<DragOutStarted>());
+      final [fromExtra, fromMain] = [
+        for (final call in calls) call.arguments as Map,
+      ];
+      expect(fromExtra['viewId'], 3);
+      expect(fromMain['viewId'], 0);
+      expect(fromExtra['sessionId'], isNot(fromMain['sessionId']));
+      expect(fromExtra['items'], request.toChannel()['items']);
+      expect(fromExtra['position'], [1500.0, 40.0]);
+      expect(router.forView(3).support, DragOutSupport.localFilesAndPromises);
+    });
+
+    test('callbacks reach the window that started the session, under its '
+        'own id', () async {
+      await router.forView(3).startDrag(request);
+      final wire = (calls.single.arguments as Map)['sessionId'] as String;
+
+      expect(
+        await fromNative('fulfilPromise', {
+          'sessionId': wire,
+          'promiseId': 'p1',
+          'destinationPath': '/Users/tester/Desktop/site',
+        }),
+        isNull,
+      );
+      await fromNative('cancelPromise', {'sessionId': wire, 'promiseId': 'p1'});
+      await fromNative('sessionEnded', {'sessionId': wire, 'operation': 'copy'});
+
+      expect(main.fulfilled, isEmpty);
+      expect(main.ended, isEmpty);
+      expect(extra.fulfilled.single.sessionId, 'dragout-1');
+      expect(extra.fulfilled.single.destinationPath, '/Users/tester/Desktop/site');
+      expect(extra.cancelled, [('dragout-1', 'p1')]);
+      expect(extra.ended, [('dragout-1', DragOutOperation.copy)]);
+    });
+
+    test("a closed window's promise fails as unknown", () async {
+      await router.forView(3).startDrag(request);
+      final wire = (calls.single.arguments as Map)['sessionId'] as String;
+      router.forView(3).delegate = null;
+
+      await expectLater(
+        fromNative('fulfilPromise', {
+          'sessionId': wire,
+          'promiseId': 'p1',
+          'destinationPath': '/tmp/site',
+        }),
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.code,
+            'code',
+            DragOutPromiseFailure.unknown.name,
+          ),
+        ),
+      );
+      await expectLater(
+        fromNative('fulfilPromise', {
+          'sessionId': 'dragout-9',
+          'promiseId': 'p1',
+          'destinationPath': '/tmp/site',
+        }),
+        throwsA(isA<PlatformException>()),
+      );
+    });
+
+    test("progress crosses under the window's wire id", () async {
+      router.forView(3).reportProgress(
+        sessionId: 'dragout-1',
+        promiseId: 'p1',
+        completedBytes: 10,
+        totalBytes: 20,
+      );
+      await pumpEventQueue();
+      final progress = calls.single;
+      expect(progress.method, 'promiseProgress');
+      final arguments = progress.arguments as Map;
+      expect(arguments['sessionId'], isNot('dragout-1'));
+      expect(arguments['sessionId'], endsWith('dragout-1'));
+      expect(arguments['completedBytes'], 10);
+    });
+  });
 }

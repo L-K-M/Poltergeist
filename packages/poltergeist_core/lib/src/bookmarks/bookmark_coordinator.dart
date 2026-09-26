@@ -784,18 +784,21 @@ final class BookmarkCoordinator {
             authFailed = true;
             break;
           }
+          final sentById = {for (final record in dirty) record.id: record};
           for (final result in response.results) {
+            // Unrequested and repeated results cannot settle another edit.
+            final sent = sentById.remove(result.id);
+            if (sent == null) continue;
+            final restored = await _records.settlePush(sent, result);
             if (result.accepted) {
               pushed++;
               progressed = true;
-              await _records.markSynced(result.id, result.seq);
             } else {
               // The push lost server-side LWW: the copy the server actually
               // holds is the displaced pulled winner, so put it back —
               // leaving the losing edit in place would diverge the fleet
               // (04 §3.2's push-ties-or-loses re-check). A rejection with no
               // displaced winner stays dirty for the next pull to reconcile.
-              final restored = await _records.restoreDisplaced(result.id);
               if (restored != null) {
                 progressed = true;
                 switch (await _dispatch(restored, report,
