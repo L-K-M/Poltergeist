@@ -378,7 +378,7 @@ void main() {
 
         await expectLater(
           remote.appearance!.setAppearance(
-            ThemePresets.vapor,
+            ThemePresets.midnight,
             ThemeModePreference.system,
           ),
           throwsA(
@@ -389,9 +389,9 @@ void main() {
             ),
           ),
         );
-        expect(appearance.value.palette, ThemePresets.vapor);
+        expect(appearance.value.palette, ThemePresets.midnight);
         await pumpEventQueue();
-        expect(remote.theme.value.palette, ThemePresets.vapor);
+        expect(remote.theme.value.palette, ThemePresets.midnight);
       },
     );
   });
