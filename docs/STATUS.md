@@ -8899,6 +8899,27 @@ root (including the macOS menu bar), the window commands, the runner
 source contract, the multi-window session document, the lifecycle's
 close hook, and OS drops refused in an extra window.
 
+## Journal compaction pays for itself (2026-09-26)
+
+Mid-session compaction measured the whole transfer journal against its
+4 MiB threshold, but a rewrite keeps every pending task's records and
+drops only the finished tasks'. Once one pending task passed 4 MiB on
+its own (about 5 000 files), every further record rebuilt, rewrote and
+fsynced the whole journal on the UI isolate: 2 000 records at a 64 KiB
+threshold cost 1 691 rewrites. Compaction now waits until the finished
+tasks' records reach the threshold (or 32 tasks finish) and dropping
+them frees at least as many bytes as the rewrite writes. A pending set
+alone never triggers a rewrite, and the journal stays under the larger
+of twice the pending set and the pending set plus 4 MiB. The crash-safe
+ordering, startup and shutdown compaction, and restore are unchanged.
+
+Verification: four new cases in `transfer_persistence_test.dart`'s
+compaction group. A 2 000-record pending task causes no mid-session
+rewrite (1 691 before) and still restores every item; 200 tasks
+finishing beside a pending one never rewrite more bytes than they
+append (8.5 MB for 80 KB before); a large finished task still compacts
+mid-session; and a retried task counts as pending again.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
