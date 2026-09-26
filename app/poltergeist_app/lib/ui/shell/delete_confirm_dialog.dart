@@ -48,30 +48,46 @@ Future<DeleteDecision> showDeleteConfirmDialog(
   prepare,
   required String locationLabel,
 }) async {
-  final decision = await showDialog<DeleteDecision>(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) =>
-        _DeleteDialog(prepare: prepare, locationLabel: locationLabel),
-  );
-  return decision ?? const DeleteCancelled();
+  final cancellation = RemoteTransferCancellation();
+  try {
+    final decision = await showDialog<DeleteDecision>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _DeleteDialog(
+        prepare: prepare,
+        locationLabel: locationLabel,
+        cancellation: cancellation,
+      ),
+    );
+    return decision ?? const DeleteCancelled();
+  } finally {
+    // Back and route removal complete before the reverse animation disposes
+    // the widget. Stop counting as soon as the user leaves the dialog.
+    cancellation.cancel();
+  }
 }
 
 class _DeleteDialog extends StatefulWidget {
-  const _DeleteDialog({required this.prepare, required this.locationLabel});
+  const _DeleteDialog({
+    required this.prepare,
+    required this.locationLabel,
+    required this.cancellation,
+  });
 
   final Future<DeleteConfirmation?> Function(
     RemoteTransferCancellation cancellation,
   )
   prepare;
   final String locationLabel;
+  final RemoteTransferCancellation cancellation;
 
   @override
   State<_DeleteDialog> createState() => _DeleteDialogState();
 }
 
 class _DeleteDialogState extends State<_DeleteDialog> {
-  final _cancellation = RemoteTransferCancellation();
+  RemoteTransferCancellation get _cancellation => widget.cancellation;
+  bool _closing = false;
   DeleteConfirmation? _confirmation;
   Object? _error;
   bool _useServerTrash = false;
@@ -85,9 +101,9 @@ class _DeleteDialogState extends State<_DeleteDialog> {
   Future<void> _run() async {
     try {
       final confirmation = await widget.prepare(_cancellation);
-      if (!mounted) return;
+      if (!mounted || _closing || _cancellation.isCancelled) return;
       if (confirmation == null) {
-        Navigator.of(context).pop(const DeleteCancelled());
+        _preparationCancelled();
         return;
       }
       setState(() {
@@ -97,14 +113,43 @@ class _DeleteDialogState extends State<_DeleteDialog> {
             confirmation.effectiveDisposition == DeleteDisposition.trash;
       });
     } on Object catch (error) {
-      if (!mounted) return;
+      if (!mounted || _closing || _cancellation.isCancelled) return;
       setState(() => _error = error);
     }
   }
 
-  void _cancel() {
+  @override
+  void dispose() {
+    // Navigator teardown need not complete a route's result future.
     _cancellation.cancel();
-    Navigator.of(context).pop(const DeleteCancelled());
+    super.dispose();
+  }
+
+  void _close(DeleteDecision decision) {
+    if (!mounted || _closing || ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    _closing = true;
+    _cancellation.cancel();
+    Navigator.of(context).pop(decision);
+  }
+
+  void _cancel() => _close(const DeleteCancelled());
+
+  void _preparationCancelled() {
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isActive) return;
+    if (route.isCurrent) {
+      _cancel();
+      return;
+    }
+    // Preparation can become obsolete while another prompt covers us.
+    // Remove only our route, so it neither answers the newer prompt nor
+    // leaves an unusable counting dialog behind when that prompt closes.
+    _closing = true;
+    _cancellation.cancel();
+    // Covered content needs no exit animation; observers receive didRemove.
+    Navigator.of(context).removeRoute(route, const DeleteCancelled());
   }
 
   @override
@@ -248,7 +293,7 @@ class _DeleteDialogState extends State<_DeleteDialog> {
                   backgroundColor: theme.colorScheme.error,
                   foregroundColor: theme.colorScheme.onError,
                 ),
-          onPressed: () => Navigator.of(context).pop(
+          onPressed: () => _close(
             DeleteConfirmed(
               disposition: move
                   ? DeleteDisposition.trash
