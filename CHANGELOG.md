@@ -48,8 +48,9 @@
   interface font and how round the corners are; the app repaints as you
   go. Colours left on Automatic follow light or dark as you choose. Copy
   theme and Paste theme carry a theme between devices, and between
-  Poltergeist and Séance; themes do not sync. An existing install looks
-  exactly as before.
+  Poltergeist and Séance; themes do not sync. The app starts in Vapor,
+  magenta and cyan over violet-black; pick Poltergeist for the teal look
+  it had before themes.
 - **A new workspace.** The window is rebuilt in the style of ForkLift and
   Transmit:
   - A calm header: back and forward, the current location, New Folder,
@@ -183,6 +184,15 @@
     could not read the settings file. Pinning or folding afterwards
     used to replace all of them with just that one change; now the
     sidebar keeps them and shows them again.
+- **Mirror leaves alone what it cannot see.** When the source has a
+  symbolic link where the destination has a real folder, a Mirror no
+  longer deletes that folder's contents, and it no longer copies into a
+  link on the destination. Everything under the link is skipped, as the
+  exported rsync command already did. When a folder is to be replaced
+  by a file, its contents belong to that one row: they are no longer
+  deleted while you leave the choice open or keep the folder, no longer
+  count twice toward the deletion limits, and no longer show "changed
+  since preview" after the replace.
 - **Copy as rsync Command is right for server pairs.** For a pair with a
   server side, the copied command backslash-escaped its exclude
   patterns, so rsync ignored them: a pasted Mirror could delete the

@@ -19,11 +19,14 @@ import 'package:poltergeist_app/theme/theme_presets.dart';
 import 'package:poltergeist_app/ui/settings/appearance_settings.dart';
 import 'package:poltergeist_app/ui/settings/general_settings.dart';
 
-/// The Appearance section's model, recording every write.
+/// The Appearance section's model, recording every write. It starts from
+/// Poltergeist, the all-Automatic preset, rather than the Vapor a new
+/// device starts in: most of these tests are about Automatic colours and
+/// the mode they follow.
 final class _FakeAppearance extends ChangeNotifier
     implements AppearanceSettingsModel {
   _FakeAppearance([AppAppearance? initial])
-    : value = initial ?? AppAppearance.initial;
+    : value = initial ?? AppAppearance(palette: ThemePresets.poltergeist);
 
   @override
   AppAppearance value;
@@ -177,7 +180,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(model.writes.last.mode, ThemeModePreference.dark);
-    expect(lastPalette(), ThemePresets.initial);
+    expect(lastPalette(), ThemePresets.poltergeist);
   });
 
   testWidgets('Automatic hands a colour back, and back again restores it', (
@@ -214,7 +217,7 @@ void main() {
     expect(
       lastPalette().text,
       resolvedThemeSlots(
-        ThemePresets.initial,
+        ThemePresets.poltergeist,
         Brightness.light,
       )[ThemeSlot.text],
     );
@@ -311,7 +314,7 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     expect(lastPalette().fontFamily, isNull);
-    expect(lastPalette(), ThemePresets.initial);
+    expect(lastPalette(), ThemePresets.poltergeist);
   });
 
   testWidgets('the corners slider writes the scale', (tester) async {
@@ -355,19 +358,19 @@ void main() {
     await pumpSection(
       tester,
       start: AppAppearance(
-        palette: ThemePresets.vapor,
+        palette: ThemePresets.midnight,
         mode: ThemeModePreference.dark,
       ),
     );
 
-    await tester.tap(find.text('Reset to Poltergeist'));
+    await tester.tap(find.text('Reset to Vapor'));
     await tester.pumpAndSettle();
     expect(find.text('Reset the theme?'), findsOneWidget);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(model.writes, isEmpty);
 
-    await tester.tap(find.text('Reset to Poltergeist'));
+    await tester.tap(find.text('Reset to Vapor'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Reset'));
     await tester.pumpAndSettle();
@@ -551,7 +554,7 @@ void main() {
     expect(tester.getRect(first).top, greaterThan(general.bottom));
     // Scroll to the end: every part laid out without overflowing.
     await tester.scrollUntilVisible(
-      find.text('Reset to Poltergeist'),
+      find.text('Reset to Vapor'),
       200,
       // The dialog's own scroll view: its fields hold scrollables too.
       scrollable: find
@@ -562,7 +565,7 @@ void main() {
           .first,
     );
     await tester.pumpAndSettle();
-    expect(find.text('Reset to Poltergeist'), findsOneWidget);
+    expect(find.text('Reset to Vapor'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

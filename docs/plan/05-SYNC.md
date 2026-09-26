@@ -332,8 +332,12 @@ concurrently in the engine isolate (D8).
   treated as an orphan, so a Mirror run can never delete the real
   counterpart of a source-side symlink (dropping the entry from one
   side only would be the same mirror-wipes-destination shape the
-  scan-error rule above closes). A kind mismatch involving a symlink
-  surfaces as `typeDiffers` (§4) with suggested `skip`, never a
+  scan-error rule above closes). The other side's entries beneath the
+  link path plan as `skip` rows with reason `excluded`, matched by
+  match key so a case or NFC variant of the link's name is covered;
+  this also keeps a destination-side link from receiving copies that
+  rail 7's parent-chain check would fail. A kind mismatch involving a
+  symlink surfaces as `typeDiffers` (§4) with suggested `skip`, never a
   deletion. Scans use `followLinks: false`
   everywhere, matching the transfer queue (03 §4.2).
 - **Ignore rules** are gitignore-style, evaluated during the scan so ignored
@@ -830,7 +834,14 @@ class SyncRunRecord {                    // journal header, JSONL (§8)
    the differ emits no separate items for paths that exist only under
    it — otherwise the parent's pre-delete would remove them first and
    every child item would then flip to a spurious rail-7
-   `changed since preview` conflict. The pre-delete counts **every file
+   `changed since preview` conflict. The differ cannot see a later
+   per-item override, so it subsumes whenever the directory sits on a
+   side the pair may write: a one-way pair's destination, either side
+   in Additive. A one-way pair never replaces its source, so a
+   source-side directory's tree plans as usual (it is what a resolved
+   mkdir fills); in Additive, an override that keeps the directory
+   creates it empty and its contents copy on the next run. The
+   pre-delete counts **every file
    it removes** toward `maxDelete` and the delete-fraction warning
    (never "one item = one deletion"); when `maxDelete` is exhausted
    mid-phase by pre-deletes (they run in the makeDir/copy phase, ahead
