@@ -22,16 +22,21 @@ const _mark = 3.0;
 /// brightness it can be drawn at: its own surface's, or both for the two
 /// that leave the surface Automatic.
 void main() {
-  test('the default comes first and changes nothing', () {
-    final initial = ThemePresets.all.first;
-    expect(initial, same(ThemePresets.initial));
-    expect(initial.name, 'Poltergeist');
-    expect(initial.accent, poltergeistSeedColor);
+  test('Poltergeist comes first and changes nothing', () {
+    final first = ThemePresets.all.first;
+    expect(first, same(ThemePresets.poltergeist));
+    expect(first.name, 'Poltergeist');
+    expect(first.accent, poltergeistSeedColor);
     for (final slot in ThemeSlot.values) {
-      expect(initial.slot(slot), isNull, reason: slot.name);
+      expect(first.slot(slot), isNull, reason: slot.name);
     }
-    expect(initial.fontFamily, isNull);
-    expect(initial.cornerScale, 1);
+    expect(first.fontFamily, isNull);
+    expect(first.cornerScale, 1);
+  });
+
+  test('a new device starts in Vapor', () {
+    expect(ThemePresets.initial, same(ThemePresets.vapor));
+    expect(ThemePresets.all, contains(ThemePresets.initial));
   });
 
   test('ten presets with unique names, each its own match', () {

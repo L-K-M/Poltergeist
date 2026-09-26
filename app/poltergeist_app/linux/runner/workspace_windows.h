@@ -14,7 +14,9 @@
 // "closeRequested"; Dart drops the window's widgets and then asks for
 // "destroy", which removes the view from the engine. Unlike a second engine
 // (the Settings window), a view can go without disposing an engine, so
-// nothing here trips over the EGL display the engines share.
+// nothing here trips over the EGL display the engines share. Each extra
+// view takes drops from other apps (drop_in_channel.h) and starts drags out
+// to them (drag_out_channel.h), as the main window's does.
 //
 // Owned by [main_window]: the extra windows are destroyed with it, as the
 // app quits.

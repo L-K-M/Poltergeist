@@ -61,6 +61,7 @@ import '../services/uuid.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
 import '../services/workspace_state.dart';
+import '../services/workspace_windows/window_host.dart' show mainWindowViewId;
 import '../services/workspace_windows/workspace_window_scope.dart';
 import '../services/workspace_windows/workspace_windows.dart';
 import '../theme/app_theme.dart';
@@ -445,8 +446,7 @@ class WorkspaceShell extends StatefulWidget {
 
   /// The workspace window this shell fills (00 D39), or null for the
   /// single-window app. With a window the shell registers New Window and
-  /// Close Window, leaves out what only the main window supports
-  /// ([WorkspaceWindow.capabilities]), and runs the app-wide reactions
+  /// Close Window, and runs the app-wide reactions
   /// (the dirty-checkout prompt, the activity panel's reveal on new work)
   /// only while its window is the active one.
   final WorkspaceWindow? window;
@@ -539,10 +539,6 @@ class _WorkspaceShellState extends State<WorkspaceShell>
   int get _previewThresholdBytes => _previewThreshold.value;
   set _previewThresholdBytes(int bytes) => _previewThreshold.value = bytes;
 
-  /// What this window supports beyond the shared workspace UI.
-  WindowCapabilities get _capabilities =>
-      widget.window?.capabilities ?? WindowCapabilities.all;
-
   /// Whether this shell's window is the one the user works in; always in
   /// the single-window app.
   bool get _isActiveWindow => widget.window?.isActive ?? true;
@@ -555,13 +551,13 @@ class _WorkspaceShellState extends State<WorkspaceShell>
 
   /// D32: Space is Quick Look on every desktop — the native panel on
   /// macOS, the in-window overlay on Linux and Windows. Touch platforms
-  /// have no surface; Space answers on the Info tab there. A window the
-  /// panel does not serve (00 D39) takes the overlay on macOS too.
+  /// have no surface; Space answers on the Info tab there. Every
+  /// workspace window drives the one panel (00 D39), each by its view.
   QuickLookChannel _platformQuickLook() =>
       switch (defaultTargetPlatform) {
-        TargetPlatform.macOS when !_capabilities.nativeQuickLook =>
-          InAppQuickLook(),
-        TargetPlatform.macOS => MethodChannelQuickLook(),
+        TargetPlatform.macOS => MethodChannelQuickLook(
+          viewId: widget.window?.viewId ?? mainWindowViewId,
+        ),
         TargetPlatform.linux || TargetPlatform.windows => InAppQuickLook(),
         _ => const NoopQuickLookChannel(),
       };
@@ -908,7 +904,12 @@ class _WorkspaceShellState extends State<WorkspaceShell>
     _headerFilterFocus.dispose();
     _connections?.dispose();
     _disposeWorkspace();
-    if (_defaultQuickLook case final InAppQuickLook overlay) overlay.dispose();
+    switch (_defaultQuickLook) {
+      case final InAppQuickLook overlay:
+        overlay.dispose();
+      case final MethodChannelQuickLook panel:
+        panel.dispose();
+    }
     _leftFocus?.dispose();
     _leftFocus = null;
     _rightFocus?.dispose();
@@ -1807,7 +1808,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
                           context,
                           constraints.maxWidth,
                           mac: mac,
-                          unifiedToolbar: mac && _capabilities.unifiedToolbar,
+                          unifiedToolbar: mac,
                           workspace: workspace,
                           leftFocus: leftFocus,
                           rightFocus: rightFocus,

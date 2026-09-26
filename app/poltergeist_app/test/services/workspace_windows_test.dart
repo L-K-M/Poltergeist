@@ -100,7 +100,6 @@ void main() {
     expect(main.viewId, mainWindowViewId);
     expect(main.isLaunchWindow, isTrue);
     expect(main.restoredSession, same(_session));
-    expect(main.capabilities, WindowCapabilities.all);
     expect(main.fullScreen, isNull);
     expect(windows.activeWindow, same(main));
     expect(windows.canOpenWindows, isTrue);
@@ -132,7 +131,6 @@ void main() {
     expect(extra.viewId, 1);
     expect(extra.isLaunchWindow, isFalse);
     expect(extra.restoredSession, isNull);
-    expect(extra.capabilities, WindowCapabilities.extra);
     expect(extra.fullScreen, isNotNull);
     expect(windows.activeWindow, same(extra));
     expect(extra.isActive, isTrue);

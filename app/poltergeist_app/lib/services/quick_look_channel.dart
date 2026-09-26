@@ -5,10 +5,10 @@ import 'package:flutter/services.dart';
 
 /// 06 §5.1's `poltergeist/quicklook` method channel (03 §7.1's channel
 /// naming): the macOS `QLPreviewPanel` surface Space drives. The Swift
-/// side lives in `MainFlutterWindow.swift` — the window overrides
+/// side lives in `QuickLookHost.swift` — every workspace window answers
 /// `acceptsPreviewPanelControl`/`beginPreviewPanelControl`/
-/// `endPreviewPanelControl` and a `QLPreviewPanelDataSource` serves the
-/// produced local paths.
+/// `endPreviewPanelControl` through it, and it serves the produced local
+/// paths as the `QLPreviewPanelDataSource`.
 abstract interface class QuickLookChannel {
   /// Whether the platform serves Quick Look at all — the seam's
   /// availability check, kept async so a plugin answer and a stub share
@@ -39,23 +39,49 @@ abstract interface class QuickLookChannel {
   Stream<void> get onClosed;
 }
 
-/// The production channel: `poltergeist/quicklook` over the window's
-/// binary messenger. The native side emits a bare `closed` method call
-/// as the close edge.
+/// The production channel: `poltergeist/quicklook` over the engine's
+/// binary messenger, one per workspace window (00 D39).
+///
+/// There is one panel for the app, and whichever window last showed
+/// something owns it: every call carries the caller's `viewId`, the
+/// native side answers `isVisible` true only to the owner, ignores a
+/// `hidePreview` from any other window, and reports the close edge as
+/// `closed` with the owner's `viewId`, including when another window takes
+/// the panel over. The channel has one handler, so the instances share it
+/// and route each `closed` to theirs.
 final class MethodChannelQuickLook implements QuickLookChannel {
-  MethodChannelQuickLook() {
-    _channel.setMethodCallHandler((call) async {
-      if (call.method == 'closed') {
-        _closed.add(null);
-      }
-    });
+  MethodChannelQuickLook({this.viewId = 0}) {
+    if (_open.isEmpty) _channel.setMethodCallHandler(_handle);
+    _open[viewId] = this;
   }
 
   static const MethodChannel _channel = MethodChannel(
     'poltergeist/quicklook',
   );
 
+  /// The open instances by view: the one `closed` goes to.
+  static final _open = <int, MethodChannelQuickLook>{};
+
+  static Future<Object?> _handle(MethodCall call) async {
+    if (call.method != 'closed') return null;
+    final arguments = call.arguments;
+    final viewId = arguments is Map ? arguments['viewId'] : null;
+    // A runner without view ids closes the main window's session.
+    _open[viewId is int ? viewId : 0]?._closed.add(null);
+    return null;
+  }
+
+  /// The workspace window's view this instance drives the panel for.
+  final int viewId;
+
   final _closed = StreamController<void>.broadcast();
+
+  /// Stops routing `closed` here: the window's shell is gone.
+  void dispose() {
+    if (identical(_open[viewId], this)) _open.remove(viewId);
+    if (_open.isEmpty) _channel.setMethodCallHandler(null);
+    _closed.close();
+  }
 
   @override
   Future<bool> isAvailable() async {
@@ -73,6 +99,7 @@ final class MethodChannelQuickLook implements QuickLookChannel {
   @override
   Future<void> showPreview(List<String> paths, int index) =>
       _channel.invokeMethod<void>('showPreview', {
+        'viewId': viewId,
         'paths': paths,
         'index': index,
       });
@@ -80,16 +107,19 @@ final class MethodChannelQuickLook implements QuickLookChannel {
   @override
   Future<void> updatePreview(List<String> paths, int index) =>
       _channel.invokeMethod<void>('updatePreview', {
+        'viewId': viewId,
         'paths': paths,
         'index': index,
       });
 
   @override
-  Future<void> hidePreview() => _channel.invokeMethod<void>('hidePreview');
+  Future<void> hidePreview() =>
+      _channel.invokeMethod<void>('hidePreview', {'viewId': viewId});
 
   @override
   Future<bool> isVisible() async =>
-      await _channel.invokeMethod<bool>('isVisible') ?? false;
+      await _channel.invokeMethod<bool>('isVisible', {'viewId': viewId}) ??
+      false;
 
   @override
   Stream<void> get onClosed => _closed.stream;

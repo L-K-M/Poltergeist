@@ -230,11 +230,19 @@ known-divergent surface.
   empty. Closing the last window, and Quit with several open, ask first
   when a transfer is running, then close everything. Quit with two
   windows open and relaunch: both come back with their tabs. On macOS
-  with VoiceOver on, open a second window: the first window's elements
-  still read correctly, and the second window reads nothing, which is
-  open item 34's known gap, not a regression. Linux was run under Xvfb
-  with openbox (STATUS D39 section); macOS and Windows are compiled by
-  CI only, so this row is their first run.
+  with VoiceOver on, open a second window: both windows' elements read
+  correctly, and pressing a button in the second window with VoiceOver
+  acts in that window. In the second window: drop a file from Finder or
+  Explorer onto a pane (it copies there, with the drop label shown
+  while hovering), drag a local row out to the desktop (a copy lands
+  there, never a move), and on macOS drag a remote row out to Finder (a
+  promise downloads there); on macOS the header's buttons, filter field
+  and splitter answer clicks under the toolbar band, the empty band
+  drags and double-click-zooms the window, and Space opens the system
+  Quick Look panel for that window's selection. Linux was run under
+  Xvfb with openbox (STATUS D39 and "Extra windows' integrations");
+  macOS and Windows are compiled by CI only, so this row is their first
+  run.
 - [ ] OWNER MANUAL QA: theme flip (light/dark) live-restyles listing,
   plan view, and editor, in the default theme and in a preset that
   follows the system (Graphite), while a preset with its own surface

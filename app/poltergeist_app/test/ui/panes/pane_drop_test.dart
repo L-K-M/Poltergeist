@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Scene, SemanticsUpdate;
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart'
@@ -12,6 +13,7 @@ import 'package:poltergeist_app/services/pane_drop.dart';
 import 'package:poltergeist_app/services/pane_location.dart';
 import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/services/selection_state.dart';
+import 'package:poltergeist_app/services/window_drop_in.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/services/workspace_windows/workspace_window_scope.dart';
 import 'package:poltergeist_app/services/workspace_windows/workspace_windows.dart';
@@ -76,6 +78,48 @@ Future<void> _osChannel(
     (_) {},
   );
   await tester.pump();
+}
+
+/// An extra window's drag report on `poltergeist/dropin` (00 D39).
+Future<void> _dropIn(
+  WidgetTester tester,
+  String method, {
+  required int viewId,
+  Offset? at,
+  List<String>? paths,
+}) async {
+  await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+    windowDropInChannel.name,
+    const StandardMethodCodec().encodeMethodCall(
+      MethodCall(method, {
+        'viewId': viewId,
+        if (at != null) 'position': [at.dx, at.dy],
+        'paths': ?paths,
+      }),
+    ),
+    (_) {},
+  );
+  await tester.pump();
+}
+
+/// A second view for the test binding: the test view's metrics under
+/// another id, rendering nowhere.
+final class _ExtraView extends TestFlutterView {
+  _ExtraView(TestFlutterView view, {required this.viewId})
+    : super(
+        view: view,
+        platformDispatcher: view.platformDispatcher,
+        display: view.display,
+      );
+
+  @override
+  final int viewId;
+
+  @override
+  void render(Scene scene, {Size? size}) {}
+
+  @override
+  void updateSemantics(SemanticsUpdate update) {}
 }
 
 /// A complete OS drop gesture at [at] carrying [paths].
@@ -183,6 +227,7 @@ void main() {
     bool rightTabs = false,
     bool rightHidden = false,
     WorkspaceWindow? window,
+    int? viewId,
   }) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
@@ -213,8 +258,13 @@ void main() {
             clock: () => DateTime(2026, 9, 15, 10),
           );
 
+    // An extra window's view: another id over the test view's metrics.
+    Widget inView(Widget app) => viewId == null
+        ? app
+        : View(view: _ExtraView(tester.view, viewId: viewId), child: app);
     await tester.pumpWidget(
-      MaterialApp(
+      wrapWithView: viewId == null,
+      inView(MaterialApp(
         builder: (context, child) => _inWindow(window, child!),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -242,7 +292,7 @@ void main() {
             ),
           ),
         ),
-      ),
+      )),
     );
   }
 
@@ -744,29 +794,52 @@ void main() {
     expect(queue.enqueuedSpecs, isEmpty);
   });
 
-  dndWidgets("an extra workspace window refuses OS drops: desktop_drop "
-      "reports the main window's (00 D39)", (tester) async {
-    final windows = WorkspaceWindows(
-      host: FakeWindowHost(),
-      quitApplication: () async {},
-      afterFrame: () async {},
-      platform: TargetPlatform.linux,
-    );
-    addTearDown(windows.dispose);
-    await windows.start();
-    await windows.openWindow();
+  dndWidgets("an extra workspace window takes the drops its own view "
+      "reports, and none of desktop_drop's (00 D39)", (tester) async {
     await bindLocals();
-    await pumpShell(tester, window: windows.windows.last);
+    await pumpShell(tester, viewId: 1);
+    final at = rightPaneBackground(tester);
 
-    await _osDropAt(tester, rightPaneBackground(tester), [
-      '/tmp/incoming.txt',
-    ]);
+    // desktop_drop reports the main window's drags only.
+    await _osDropAt(tester, at, ['/tmp/main-window.txt']);
+    // Another extra window's drag.
+    await _dropIn(tester, 'entered', viewId: 2, at: at);
+    await _dropIn(tester, 'dropped', viewId: 2, at: at, paths: ['/tmp/b']);
+    expect(queue.enqueuedSpecs, isEmpty);
+
+    await _dropIn(tester, 'entered', viewId: 1, at: at);
+    expect(find.text('Copy to /srv/other'), findsOneWidget);
+    await _dropIn(
+      tester,
+      'dropped',
+      viewId: 1,
+      at: at,
+      paths: ['/tmp/incoming.txt'],
+    );
+    expect(find.text('Copy to /srv/other'), findsNothing);
+    expect(queue.enqueuedSpecs, hasLength(1));
+    final spec = queue.enqueuedSpecs.single;
+    expect(spec.operation, TransferOperation.copy);
+    expect(spec.rootPaths, ['/tmp/incoming.txt']);
+    expect(spec.destinationDir, '/srv/other');
+  });
+
+  dndWidgets("an extra window's hover clears when its drag leaves", (
+    tester,
+  ) async {
+    await bindLocals();
+    await pumpShell(tester, viewId: 1);
+
+    final at = rightPaneBackground(tester);
+    await _dropIn(tester, 'entered', viewId: 1, at: at);
+    expect(find.text('Copy to /srv/other'), findsOneWidget);
+    await _dropIn(tester, 'exited', viewId: 1);
+    expect(find.text('Copy to /srv/other'), findsNothing);
     expect(queue.enqueuedSpecs, isEmpty);
   });
 
-  dndWidgets('the main workspace window still takes OS drops', (
-    tester,
-  ) async {
+  dndWidgets('the main workspace window takes OS drops, and no extra '
+      "window's", (tester) async {
     final windows = WorkspaceWindows(
       host: FakeWindowHost(),
       quitApplication: () async {},
@@ -777,10 +850,13 @@ void main() {
     await windows.start();
     await bindLocals();
     await pumpShell(tester, window: windows.windows.single);
+    final at = rightPaneBackground(tester);
 
-    await _osDropAt(tester, rightPaneBackground(tester), [
-      '/tmp/incoming.txt',
-    ]);
+    await _dropIn(tester, 'entered', viewId: 1, at: at);
+    await _dropIn(tester, 'dropped', viewId: 1, at: at, paths: ['/tmp/b']);
+    expect(queue.enqueuedSpecs, isEmpty);
+
+    await _osDropAt(tester, at, ['/tmp/incoming.txt']);
     expect(queue.enqueuedSpecs, hasLength(1));
   });
 

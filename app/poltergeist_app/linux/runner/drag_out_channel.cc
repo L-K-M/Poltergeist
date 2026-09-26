@@ -10,12 +10,17 @@
 // only turns a `startDrag` request into a GTK drag session that serves
 // `text/uri-list`, and reports the session's end.
 //
+// Every workspace window's view is served (00 D39): one channel for the
+// engine, and `startDrag` names the view the drag left (`viewId`, the main
+// window's when absent). Extra windows' views join through
+// drag_out_channel_add_view as the workspace windows' host creates them.
+//
 // GTK needs the press that began the gesture to start a drag, and by the
 // time Dart asks (the pointer has left the window) that event is long
 // gone, so an emission hook keeps a copy of the last primary press on
-// this window. Starting the session also takes the pointer grab, which
-// swallows the real button release: Flutter's embedder would then still
-// believe the button is down and drop the next press. So before the
+// any workspace window. Starting the session also takes the pointer grab,
+// which swallows the real button release: Flutter's embedder would then
+// still believe the button is down and drop the next press. So before the
 // session starts, a synthesized release goes through gtk_main_do_event,
 // the same route a real one takes. It sits at the position Dart sent,
 // which is outside the view, not at the current pointer: it reaches
@@ -35,10 +40,21 @@ namespace {
 
 constexpr char kChannelName[] = "poltergeist/dragout";
 
+// Where the engine keeps its channel, for the views that join later.
+constexpr char kEngineDataKey[] = "poltergeist-drag-out";
+
+// The engine's implicit view: the main window.
+constexpr int64_t kMainViewId = 0;
+
 struct DragOutChannel {
   FlMethodChannel* channel;
+  GtkWidget* main_view;
+  // View id (gint64*, owned) -> an extra window's view (not owned; removed
+  // as the view goes).
+  GHashTable* extra_views;
+  // The view the running session drags from, set as startDrag accepts.
   GtkWidget* view;
-  // Copy of the last primary press on this window, or nullptr.
+  // Copy of the last primary press on a workspace window, or nullptr.
   GdkEvent* last_press;
   gulong press_hook;
   guint press_signal;
@@ -107,6 +123,42 @@ void clear_session(DragOutChannel* self) {
   self->failed = FALSE;
 }
 
+GtkWidget* view_for(DragOutChannel* self, int64_t view_id) {
+  if (view_id == kMainViewId) {
+    return self->main_view;
+  }
+  return GTK_WIDGET(g_hash_table_lookup(self->extra_views, &view_id));
+}
+
+// Whether |toplevel| is one of the workspace windows.
+gboolean is_workspace_window(DragOutChannel* self, GtkWidget* toplevel) {
+  if (toplevel == gtk_widget_get_toplevel(self->main_view)) {
+    return TRUE;
+  }
+  GHashTableIter iter;
+  gpointer view = nullptr;
+  g_hash_table_iter_init(&iter, self->extra_views);
+  while (g_hash_table_iter_next(&iter, nullptr, &view)) {
+    if (toplevel == gtk_widget_get_toplevel(GTK_WIDGET(view))) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+// The view id startDrag names; the main window's when absent, -1 when
+// malformed.
+int64_t view_id_at(FlValue* args) {
+  FlValue* value = fl_value_lookup_string(args, "viewId");
+  if (value == nullptr || fl_value_get_type(value) == FL_VALUE_TYPE_NULL) {
+    return kMainViewId;
+  }
+  if (fl_value_get_type(value) != FL_VALUE_TYPE_INT) {
+    return -1;
+  }
+  return fl_value_get_int(value);
+}
+
 gboolean on_button_press_hook(GSignalInvocationHint* hint,
                               guint n_params,
                               const GValue* params,
@@ -121,7 +173,7 @@ gboolean on_button_press_hook(GSignalInvocationHint* hint,
       event->button.button != GDK_BUTTON_PRIMARY) {
     return TRUE;
   }
-  if (gtk_widget_get_toplevel(widget) != gtk_widget_get_toplevel(self->view)) {
+  if (!is_workspace_window(self, gtk_widget_get_toplevel(widget))) {
     return TRUE;
   }
   g_clear_pointer(&self->last_press, gdk_event_free);
@@ -248,6 +300,11 @@ void start_drag(DragOutChannel* self, FlMethodCall* call) {
     respond(call, refusal("busy", nullptr));
     return;
   }
+  GtkWidget* view = view_for(self, view_id_at(args));
+  if (view == nullptr) {
+    respond(call, refusal("failed", "no workspace window has that view id"));
+    return;
+  }
 
   g_autoptr(GPtrArray) uris = g_ptr_array_new_with_free_func(g_free);
   for (size_t i = 0; i < fl_value_get_length(items); i++) {
@@ -284,9 +341,12 @@ void start_drag(DragOutChannel* self, FlMethodCall* call) {
     return;
   }
   GdkDevice* pointer = gdk_event_get_device(self->last_press);
-  GdkWindow* window = gtk_widget_get_window(self->view);
+  GdkWindow* window = gtk_widget_get_window(view);
   GdkModifierType mask = static_cast<GdkModifierType>(0);
-  if (pointer == nullptr || window == nullptr) {
+  // The press must be the drag's own: in the window the drag left.
+  GdkWindow* pressed = self->last_press->button.window;
+  if (pointer == nullptr || window == nullptr || pressed == nullptr ||
+      gdk_window_get_toplevel(pressed) != gdk_window_get_toplevel(window)) {
     respond(call, refusal("noPointerEvent", nullptr));
     return;
   }
@@ -297,6 +357,7 @@ void start_drag(DragOutChannel* self, FlMethodCall* call) {
     return;
   }
 
+  self->view = view;
   synthesize_release(self, x, y);
 
   GtkTargetList* targets = gtk_target_list_new(nullptr, 0);
@@ -387,8 +448,47 @@ void on_drag_end(GtkWidget* widget,
   clear_session(self);
 }
 
+// An extra window's view went with its window: a session it was running
+// can end no other way.
+void on_extra_view_destroy(GtkWidget* widget, gpointer user_data) {
+  auto* self = static_cast<DragOutChannel*>(user_data);
+  GHashTableIter iter;
+  gpointer view = nullptr;
+  g_hash_table_iter_init(&iter, self->extra_views);
+  while (g_hash_table_iter_next(&iter, nullptr, &view)) {
+    if (view == widget) g_hash_table_iter_remove(&iter);
+  }
+  if (self->view != widget) return;
+  self->view = self->main_view;
+  if (self->session_id == nullptr) return;
+  g_autoptr(FlValue) args = fl_value_new_map();
+  fl_value_set_string_take(args, "sessionId",
+                           fl_value_new_string(self->session_id));
+  fl_value_set_string_take(args, "operation", fl_value_new_string("none"));
+  fl_method_channel_invoke_method(self->channel, "sessionEnded", args, nullptr,
+                                  nullptr, nullptr);
+  clear_session(self);
+}
+
+void connect_view(DragOutChannel* self, GtkWidget* view) {
+  g_signal_connect(view, "drag-data-get", G_CALLBACK(on_drag_data_get), self);
+  g_signal_connect(view, "drag-failed", G_CALLBACK(on_drag_failed), self);
+  g_signal_connect(view, "drag-end", G_CALLBACK(on_drag_end), self);
+}
+
 void on_view_destroy(GtkWidget* widget, gpointer user_data) {
   auto* self = static_cast<DragOutChannel*>(user_data);
+  // Extra windows normally go first (workspace_windows.cc); any left stop
+  // calling into this channel.
+  GHashTableIter iter;
+  gpointer view = nullptr;
+  g_hash_table_iter_init(&iter, self->extra_views);
+  while (g_hash_table_iter_next(&iter, nullptr, &view)) {
+    g_signal_handlers_disconnect_by_data(view, self);
+  }
+  g_hash_table_destroy(self->extra_views);
+  g_object_set_data(G_OBJECT(fl_view_get_engine(FL_VIEW(widget))),
+                    kEngineDataKey, nullptr);
   g_signal_remove_emission_hook(self->press_signal, self->press_hook);
   fl_method_channel_set_method_call_handler(self->channel, nullptr, nullptr,
                                             nullptr);
@@ -402,7 +502,11 @@ void on_view_destroy(GtkWidget* widget, gpointer user_data) {
 
 void drag_out_channel_register(FlView* view) {
   auto* self = g_new0(DragOutChannel, 1);
-  self->view = GTK_WIDGET(view);
+  self->main_view = GTK_WIDGET(view);
+  self->view = self->main_view;
+  self->extra_views =
+      g_hash_table_new_full(g_int64_hash, g_int64_equal, g_free, nullptr);
+  g_object_set_data(G_OBJECT(fl_view_get_engine(view)), kEngineDataKey, self);
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
   self->channel = fl_method_channel_new(
       fl_engine_get_binary_messenger(fl_view_get_engine(view)), kChannelName,
@@ -412,8 +516,18 @@ void drag_out_channel_register(FlView* view) {
   self->press_signal = g_signal_lookup("button-press-event", GTK_TYPE_WIDGET);
   self->press_hook = g_signal_add_emission_hook(
       self->press_signal, 0, on_button_press_hook, self, nullptr);
-  g_signal_connect(view, "drag-data-get", G_CALLBACK(on_drag_data_get), self);
-  g_signal_connect(view, "drag-failed", G_CALLBACK(on_drag_failed), self);
-  g_signal_connect(view, "drag-end", G_CALLBACK(on_drag_end), self);
+  connect_view(self, GTK_WIDGET(view));
   g_signal_connect(view, "destroy", G_CALLBACK(on_view_destroy), self);
+}
+
+void drag_out_channel_add_view(FlView* view) {
+  auto* self = static_cast<DragOutChannel*>(
+      g_object_get_data(G_OBJECT(fl_view_get_engine(view)), kEngineDataKey));
+  const int64_t view_id = fl_view_get_id(view);
+  if (self == nullptr || view_id < 0) return;
+  auto* key = g_new(gint64, 1);
+  *key = view_id;
+  g_hash_table_insert(self->extra_views, key, view);
+  connect_view(self, GTK_WIDGET(view));
+  g_signal_connect(view, "destroy", G_CALLBACK(on_extra_view_destroy), self);
 }
