@@ -827,6 +827,9 @@ jobs:
       - name: Build
         working-directory: app/poltergeist_app
         run: flutter build ${{ matrix.build }}
+      - name: Verify native macOS keyboard compatibility
+        if: matrix.target == 'macos'
+        run: bash scripts/test-macos-keyboard.sh
       # Prove Gradle consumed the synchronized pubspec code in the real APK.
       - name: Verify Android version code
         if: matrix.target == 'android'

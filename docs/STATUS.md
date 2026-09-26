@@ -24,6 +24,26 @@ tests but stalled in the session-lifetime suite. Before/after light-theme
 widget captures show the held-click state; native held-pointer capture was
 not exercised. CI uses the repository's Flutter 3.47.2 pin.
 
+## Injected Command shortcuts on macOS (2026-09-26)
+
+The native view controller preserves Command on synthetic key events that
+omit left/right Command bits. This prevents Easydict's simulated Copy after
+Shift-click from entering file-pane type-ahead as a plain c. Physical
+left/right Command events retain identity, and normalized events preserve
+Flutter's key-equivalent marker for native shortcut routing. The same
+correction is being ported to Séance.
+
+The native regression fails with stock Flutter at the missing-Command
+assertion and passes with the app controller. Six groups cover the real
+keyboard manager/responders, physical modifier sides, repeats, metadata,
+marker preservation, the observed Shift/Copy/release sequence, and controller
+replacement on one engine. The 29 pane-selection/type-ahead widget tests
+pass, analysis is clean, and the macOS release build succeeds with Flutter
+3.47.3; CI exercises its 3.47.2 pin. The fixture starts no Dart application
+and posts no system input. Live Easydict, text-field/menu, and extra-window
+smoke checks remain described in
+[macOS keyboard compatibility](macos-keyboard-compatibility.md).
+
 ## Delete-confirmation route lifetime (2026-09-26)
 
 Delete confirmation now completes only its own route, once. Repeated Cancel
