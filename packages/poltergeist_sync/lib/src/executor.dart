@@ -881,9 +881,6 @@ final class _RunSession {
         // The source must still offer what the preview promised:
         // vanished fails the item (rail 8), a changed stat flips it.
         final liveSource = await _verifySource(srcFs, srcAbs, srcSnapshot);
-        String? trashLocation;
-        String? trashSha;
-        int? trashBytes;
         RemoteFileEntry? expectedTarget;
         if (preDelete) {
           await _verifyDestination(item, destFs, destAbs, destSnapshot!);
@@ -911,9 +908,19 @@ final class _RunSession {
               ),
               item.relativePath,
             );
-            trashLocation = moved.location;
-            trashSha = moved.sha256;
-            trashBytes = destSnapshot.size;
+            // The replacement can fail or be cancelled after the old
+            // version leaves its origin. Persist its recovery mapping
+            // first, independently of the replacement's final outcome.
+            await journal.appendTrash(
+              SyncJournalTrashLine(
+                parentPath: item.relativePath,
+                relativePath: item.relativePath,
+                side: destSide,
+                trashLocation: moved.location,
+                bytes: destSnapshot.size ?? 0,
+                trashContentSha256: moved.sha256,
+              ),
+            );
           } else {
             expectedTarget = liveDest;
           }
@@ -967,9 +974,6 @@ final class _RunSession {
           liveSource,
         );
         return _ItemOutcome(
-          trashLocation: trashLocation,
-          trashBytes: trashBytes,
-          trashSha256: trashSha,
           observedMtimeSecs: stamp.observed,
           setstatIgnored: stamp.ignored,
           bytes: uploaded.size ?? srcSnapshot?.size ?? 0,
@@ -1703,9 +1707,9 @@ final class _ItemOutcome {
     this.bytes,
   });
 
-  /// Update-backup and delete-phase trash location — the item line's
-  /// `trashLocation` (rail 9's origin map). Pre-delete removals write
-  /// their own per-file trash lines instead.
+  /// Delete-phase trash location, carried by the item line's
+  /// `trashLocation`. Update backups and pre-delete removals write
+  /// their own per-file trash lines before any replacement begins.
   final String? trashLocation;
 
   /// The trashed file's own size — the journal's `trashBytes`, which

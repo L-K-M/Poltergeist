@@ -130,6 +130,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'paths'",
     "'index'",
     "'closed'",
+    // Every call names the workspace window it comes from (00 D39).
+    "'viewId'",
   },
   // The macOS toolbar band's `poltergeist/window` channel: method names
   // and a wiring-fault diagnostic that only reaches the runner's reply,
@@ -288,6 +290,16 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'WindowHostException: $message'",
     "'no window host'",
     "'the runner answered no view id'",
+  },
+  // 00 D39's extra windows' integrations: the drop-in and macOS titlebar
+  // channels' names, and the id a header control's passthrough rectangle
+  // goes by on the titlebar channel — wire data, never rendered.
+  'lib/services/window_drop_in.dart': {"'poltergeist/dropin'"},
+  'lib/services/workspace_windows/window_titlebar.dart': {
+    "'poltergeist/titlebar'",
+  },
+  'lib/ui/shell/window_toolbar_passthrough.dart': {
+    r"'passthrough-${_serial++}'",
   },
   'lib/services/workspace_windows/workspace_windows.dart': {
     r"'window $serial navigator'",
@@ -1360,7 +1372,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // D32's active-pane marker and the tab menu's row keys — plumbing
     // keyed to the strip and tab ids, never authored copy.
     r"'${tabs.paneId}.activeIndicator'",
-    r"'${tabs.paneId}.inactiveSeparator'",
+    r"'${tabs.paneId}.stripSeparator'",
     r"'${tab.id}.menu.close'",
     r"'${tab.id}.menu.closeOthers'",
     r"'${tab.id}.menu.duplicate'",
@@ -2798,6 +2810,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'started'",
     "'reason'",
     "'message'",
+    // 00 D39: the view a window's drag left, the separator of the
+    // window-prefixed session ids crossing the channel, and the refusal
+    // a closed window's late promise gets.
+    "'viewId'",
+    "'/'",
+    r"'$viewId$_separator$sessionId'",
+    "'no window owns this drag-out session'",
     "'promiseProgress'",
     "'completedBytes'",
     "'totalBytes'",

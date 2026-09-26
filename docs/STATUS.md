@@ -4,6 +4,22 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
+## Delete-confirmation route lifetime (2026-09-26)
+
+Delete confirmation now completes only its own route, once. Repeated Cancel
+or Delete actions, late cancelled preparation, and callbacks from a covered
+dialog cannot dismiss the page or a newer prompt. Preparation cancels as soon
+as Back removes the dialog, with teardown cancellation as a fallback. If a
+counting walk becomes obsolete while another prompt covers it, only the old
+confirmation route is removed.
+
+Six new widget regressions reproduced the previous failures before the fix.
+The dialog and delete-command suites now pass all 22 tests, including
+covered-preparation and preparation-error cases; the trash/permanent decision
+and destructive-action default are preserved. Validation used Flutter 3.47.3 on macOS with
+`TMPDIR=/private/tmp`; CI uses the repository's 3.47.2 pin. Native assistive
+technology was not exercised by this change.
+
 _Last updated: 2026-09-23. **v1.0.0 IS SHIPPED** — tagged at
 d62f95af after the release pipeline's full first exercise
 (android `--no-pub` registrant fix #189, bash drift gate #190);
@@ -42,6 +58,26 @@ residual (native macOS Quick Look runtime). Open item 23's remaining
 half (remote transfers and remote sync endpoints) closed 2026-09-24
 with the bridged transfer lease (protocol v13 — dated section below);
 the D8 gate re-measurement under the bridge is its recorded residual.
+
+## Sync update backup recovery (2026-09-26)
+
+Updates now journal each trash backup before starting its replacement.
+A failed or cancelled upload therefore keeps a recovery mapping, including
+after reopening the journal; Restore Trashed Files can put the prior version
+back into its absent origin. A file recreated after the failure remains
+protected by the existing post-state checks. Successful updates record one
+mapping, and older item-line backup mappings remain readable. Journal appends
+explicitly flush before returning, matching their documented durability
+contract.
+
+Validation: three regressions failed before the fix: lost mappings after a
+failed or cancelled update, and missing conflict reporting for a recreated
+origin. The executor and journal suites pass afterward (50 tests), including
+a legacy item-line update backup restored after reopening; the full sync
+suite passes 233 tests with three SSH fixture skips, and sync package
+analysis is clean. The remaining crash interval between moving a
+file to trash and recording that move still needs write-ahead recovery; this
+change does not claim to close it.
 
 ## Sync trash copy durability (2026-09-26)
 
@@ -8738,7 +8774,8 @@ and Poltergeist. Séance built it first
   Settings window repainting on each change. Colours left Automatic
   follow System, Light or Dark. Copy theme and Paste theme carry a theme
   between devices and between the two apps. An install that never opens
-  Appearance looks exactly as before.
+  Appearance starts in Vapor (D38 amendment, 2026-09-26; until then it
+  looked exactly as before).
 - **The model** (`lib/theme/`): `ThemePalette`, `ThemePresets`,
   `AppAppearance` and `contrast.dart`, ported from Séance (PORTS.md,
   "Device themes (D38)"). Same JSON keys, hex forms and lenient decode as
@@ -8916,6 +8953,93 @@ new suites for the window registry, the runner channel, the windows
 root (including the macOS menu bar), the window commands, the runner
 source contract, the multi-window session document, the lifecycle's
 close hook, and OS drops refused in an extra window.
+
+## Backup acknowledgement safety (2026-09-26)
+
+Backup replies now settle the exact record sent, inside the persistent store's
+mutation queue. Editing or deleting a bookmark while its previous revision is
+being pushed keeps the replacement dirty, including edits sharing a timestamp.
+A rejected old push cannot restore a displaced winner over the replacement.
+Unrequested and duplicate reply IDs cannot settle other operations.
+
+Three coordinator regressions failed before the fix. Coverage also checks
+reopening and backing up the preserved newer edit, plus a replacement queued
+immediately before settlement. Existing LWW conflict policy and the shared
+Séance wire format are unchanged; equal-version LWW conflicts remain a separate
+revision-policy concern. Séance's core by-ID acknowledgement API needs its own
+compatible upstream extension; this change uses Poltergeist's existing store
+extension without copying shared transport code.
+
+## Extra windows' integrations (2026-09-26)
+
+Open item 34's first five gaps are closed: a window opened with File ▸
+New Window now takes drops from other apps, drags files out to them, and
+on macOS has the unified toolbar, the system Quick Look panel and
+accessibility, like the first window. `WindowCapabilities` is gone: no
+window leaves anything out.
+
+- **Drops from other apps.** desktop_drop still serves the main window.
+  Each extra view gets a drop target from its runner (Linux
+  `drop_in_channel.cc`, Windows `drop_in.cpp`, macOS `DropInView.swift`)
+  that reports on `poltergeist/dropin` with the view's id and positions
+  in its logical pixels (`lib/services/window_drop_in.dart`).
+  `WindowDropTarget` picks desktop_drop's `DropTarget` in view 0 and
+  those reports elsewhere, with desktop_drop's callbacks, so the pane
+  drop zone is written once. Copies only, as desktop_drop offers. The
+  macOS target takes file promises into desktop_drop's staging folder,
+  so the own-drag rules still read them.
+- **Drag-out.** One channel for the engine, one controller per window:
+  `DragOutRouter` gives each window a backend whose `startDrag` names
+  its `viewId` and whose session ids cross prefixed with it, and routes
+  the callbacks back. Each runner resolves the named view (Linux
+  `drag_out_channel_add_view`, Windows `SetViewResolver`, macOS
+  `controllerForView`) and refuses a press that is not in that window.
+  Windows runs every session's loop from the main window's message loop.
+- **macOS unified toolbar.** An extra window is built with the main
+  window's titlebar (full-size content, transparent titlebar, no title,
+  an empty unified toolbar) by `WorkspaceWindow`. `WindowToolbarPassthrough`
+  wraps the header's controls: macos_window_utils' passthrough in view
+  0, and elsewhere rectangles it measures after every frame and sends
+  on `poltergeist/titlebar`, which the host turns into views in a
+  titlebar accessory that forward clicks to the window's Flutter view.
+  The band hides in full screen and reports `toolbarBandChanged`, as
+  MainFlutterWindow does, into the window's own band notifier
+  (`WindowTitlebars`).
+- **Quick Look.** `QuickLookHost.swift` owns the one panel; both window
+  classes forward `acceptsPreviewPanelControl`/begin/end to it. Every
+  call carries the calling window's `viewId`; the window that last
+  showed something owns the panel, `closed` goes to the owner (also when
+  another window takes the panel over), and a control that ends with
+  none begun by the next run-loop turn is a close, so moving between
+  workspace windows keeps the panel open.
+- **Accessibility.** Flutter 3.47's macOS engine hands every view's
+  semantics update to the implicit view's controller although each
+  update carries its `view_id`; `PoltergeistFlutterViewController`
+  forwards an update for another view to that view's controller
+  (creating its bridge first when semantics were on before it existed).
+  Actions come back with no view at all, so `PoltergeistBinding`
+  re-addresses an action the main window's tree does not hold to the
+  view whose tree does; node ids come from one framework counter, so
+  only the roots (id 0 in every view) are ambiguous. The windows root no
+  longer silences an extra view's semantics.
+
+Verified on Linux, on a release build under Xvfb with openbox: Ctrl+N
+opened a second window; a GTK drag source dragging a file onto its right
+pane showed "Copy to /root" on that pane only, and the drop copied the
+file there; dragging the new row out of the second window to a GTK drop
+target delivered `file:///root/dropme-extra.txt` as a copy; the main
+window's drag-out, now through the router, still delivered the same.
+One warning appeared as the second window was created ("Failed to setup
+compositor shaders, unable to make OpenGL context current") without a
+visible effect; this Xvfb has no DRI3, and a baseline build was not run
+to compare. macOS and Windows are compiled by CI only: the release
+checklist's D39 row now carries their checks.
+
+Validation: `flutter analyze` is clean; the full app suite passes, with
+new tests for the drop-in decoder and target, the drag-out router, the
+Quick Look routing, the titlebar channel and passthrough, the semantics
+action routing, extra-window drops in the pane drop zone, and the
+runners' source contract for every new piece.
 
 ## Open items
 
@@ -9768,27 +9892,28 @@ close hook, and OS drops refused in an extra window.
     made Android supported with these slices still open; the README's
     known issues name them and the release checklist's Android row
     carries the device checks.
-34. **2026-09-25: D39 — what an extra workspace window lacks.** Each is
-    its own follow-up: drops from other apps (desktop_drop registers on
-    the main view only and reports positions in its coordinates; a
-    per-view drop target with the view id on every event is needed);
-    drag-out (the `poltergeist/dragout` runners hold the main view's
-    controller; `startDrag` needs the view id); on macOS the unified
-    toolbar (macos_window_utils' click passthrough is main-window only),
-    the Quick Look panel (the responder chain accepts in
-    `MainFlutterWindow` only), and accessibility (Flutter 3.47's macOS
-    embedder routes every view's semantics to the implicit view; the
-    extra window sends none until upstream routes by view id); Windows
-    taskbar progress while the main window is hidden; and remembering an
-    extra window's size and place. Cross-window drags within the app are
-    not supported either: a Flutter drag cannot leave its view. From the
-    first review: a window opened from a maximized or full-screen window
+34. **2026-09-25: D39 — what an extra workspace window lacks.**
+    **2026-09-26:** drops from other apps, drag-out, and on macOS the
+    unified toolbar, the Quick Look panel and accessibility now work in
+    an extra window ("Extra windows' integrations" above); macOS and
+    Windows are compiled by CI only until the release checklist's D39
+    row runs on them. Still open, each its own follow-up: Windows
+    taskbar progress while the main window is hidden; remembering an
+    extra window's size and place; and drags between Poltergeist's own
+    windows. A Flutter drag cannot leave its view, so such a drag leaves
+    as an OS drag: a local item copies into the other window as a drop
+    from another app would, and a remote one (macOS promises) does
+    nothing, since each window's drag-out controller knows only its own
+    sessions and so none claims the drop as its own. From the first
+    review: a window opened from a maximized or full-screen window
     takes that window's size without its state (every runner copies the
     size it sees; each should use the restored size instead); an extra
     window's View ▸ Enter Full Screen label misses a change made outside
     the menu until the next toggle (the runners report no full-screen
     events; the toggle itself asks first, so it never inverts); and every
-    window has the same title.
+    window has the same title. One accessibility edge stays: each
+    view's root node is 0, so a VoiceOver action on an extra window's
+    root (not on any control in it) reaches the main window's root.
 
 ## Independent audit
 
