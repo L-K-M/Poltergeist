@@ -108,7 +108,7 @@ final class WorkspaceWindowsHost: NSObject, NSWindowDelegate {
     case "isAvailable":
       result(available)
     case "create":
-      create(result: result)
+      create(title: (call.arguments as? [String: Any])?["title"] as? String, result: result)
     case "destroy", "activate", "hide", "isFullScreen", "setFullScreen":
       let arguments = call.arguments as? [String: Any]
       guard let viewId = (arguments?["viewId"] as? NSNumber)?.int64Value,
@@ -151,7 +151,7 @@ final class WorkspaceWindowsHost: NSObject, NSWindowDelegate {
     }
   }
 
-  private func create(result: FlutterResult) {
+  private func create(title: String?, result: FlutterResult) {
     guard available else {
       result(FlutterError(
         code: "CREATE_FAILED", message: "this engine takes no more views",
@@ -176,7 +176,7 @@ final class WorkspaceWindowsHost: NSObject, NSWindowDelegate {
       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
       backing: .buffered,
       defer: false)
-    window.title = "Poltergeist"
+    window.title = title ?? "Poltergeist"
     // Poltergeist has its own per-pane tabs (02 §9), as MainFlutterWindow
     // says: no window tabs.
     window.tabbingMode = .disallowed

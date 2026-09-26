@@ -30,6 +30,9 @@ enum WorkspaceWindowKind {
 
   /// A window the runner created on the same engine.
   extra,
+
+  /// A document editor sharing the engine, with its own close guard.
+  editor,
 }
 
 /// What a window's shell registers with its window, so the app can reach
@@ -54,6 +57,8 @@ final class WorkspaceWindow {
     required this.restoredSession,
     required this.fullScreen,
     required this._owner,
+    this.editorKey,
+    this.editorBuilder,
   }) : navigatorKey = GlobalKey<NavigatorState>(
          debugLabel: 'window $serial navigator',
        ),
@@ -64,6 +69,37 @@ final class WorkspaceWindow {
 
   final int viewId;
   final WorkspaceWindowKind kind;
+
+  /// Documents deduplicate app-wide, even when opened from another workspace.
+  final String? editorKey;
+  final Widget Function(WorkspaceWindow window)? editorBuilder;
+  Future<bool> Function()? _editorCloseGuard;
+
+  /// A quit decision freezes every buffer until exit, or until a veto
+  /// releases it. Later dialogs must not invalidate earlier consent.
+  final editorQuitPending = ValueNotifier<bool>(false);
+
+  bool get isActiveWorkspace => identical(_owner.activeWorkspaceWindow, this);
+
+  BuildContext? get promptContext => _owner.navigatorKey.currentContext;
+
+  bool get isEditor => kind == WorkspaceWindowKind.editor;
+
+  /// The mounted editor supplies its in-memory dirty-buffer guard. An
+  /// editor still mounting cannot close before that guard is installed.
+  void setEditorCloseGuard(Future<bool> Function()? guard) =>
+      _editorCloseGuard = guard;
+
+  Future<bool> _confirmEditorClose() async =>
+      !isEditor || (await _editorCloseGuard?.call() ?? false);
+
+  Future<void> activate() => _owner._host.activate(viewId);
+
+  Future<void> openEditor({
+    required String key,
+    String? title,
+    required Widget Function(WorkspaceWindow window) builder,
+  }) => _owner.openEditor(key: key, title: title, builder: builder);
 
   /// Unique for the app's lifetime: the key of the window's widget
   /// subtree, so a main window shown again mounts afresh.
@@ -132,7 +168,10 @@ final class WorkspaceWindow {
     _content?.claimDefaultFocus();
   }
 
-  void _dispose() => focusScope.dispose();
+  void _dispose() {
+    editorQuitPending.dispose();
+    focusScope.dispose();
+  }
 }
 
 /// The app's open workspace windows and the rules between them.
@@ -165,6 +204,7 @@ final class WorkspaceWindows extends ChangeNotifier
   bool _hostAvailable = false;
   bool _started = false;
   bool _disposed = false;
+  bool _quitPending = false;
 
   /// Serializes opening and closing, which both await the runner: two
   /// quick New Windows must not both reuse the hidden main window.
@@ -198,6 +238,22 @@ final class WorkspaceWindows extends ChangeNotifier
       if (_windows.contains(window)) return window;
     }
     return _windows.firstOrNull;
+  }
+
+  WorkspaceWindow? get activeWorkspaceWindow {
+    for (final window in _activation.reversed) {
+      if (!window.isEditor && _windows.contains(window)) return window;
+    }
+    return _windows.where((window) => !window.isEditor).firstOrNull;
+  }
+
+  /// Holds all document buffers stable throughout the quit transaction.
+  /// A successful quit keeps the lock through the lifecycle's exit flush.
+  void setEditorQuitPending(bool pending) {
+    _quitPending = pending;
+    for (final window in _windows) {
+      window.editorQuitPending.value = pending;
+    }
   }
 
   /// Whether New Window can open one: the runner hosts extra windows.
@@ -251,7 +307,7 @@ final class WorkspaceWindows extends ChangeNotifier
       _serialized(() => _openWindow(session));
 
   Future<void> _openWindow(SessionState? session) async {
-    if (!_hostAvailable || _disposed) return;
+    if (!_hostAvailable || _disposed || _quitPending) return;
 
     if (windowForView(mainWindowViewId) == null) {
       final main = _newWindow(
@@ -276,13 +332,63 @@ final class WorkspaceWindows extends ChangeNotifier
       _report(error, stack);
       return;
     }
-    if (_disposed) return;
+    if (_disposed || _quitPending) {
+      await _host.destroy(viewId);
+      return;
+    }
     final window = _newWindow(viewId, WorkspaceWindowKind.extra, session);
     _windows.add(window);
     // The runner already made it key; its report may have arrived before
     // this reply, when there was no window to credit it to.
     _activate(window);
     notifyListeners();
+  }
+
+  /// Opens a document in a native view, or raises its existing editor.
+  /// Editors never reuse the implicit view: it remains available for a
+  /// workspace and its single-window plugins.
+  Future<void> openEditor({
+    required String key,
+    String? title,
+    required Widget Function(WorkspaceWindow window) builder,
+  }) => _serialized(() async {
+    if (!_hostAvailable || _disposed || _quitPending) return;
+    for (final window in _windows) {
+      if (window.editorKey != key) continue;
+      _activate(window);
+      notifyListeners();
+      await _host.activate(window.viewId);
+      return;
+    }
+    final viewId = await _host.create(title: title);
+    if (_disposed || _quitPending) {
+      await _host.destroy(viewId);
+      return;
+    }
+    final window = WorkspaceWindow._(
+      viewId: viewId,
+      kind: WorkspaceWindowKind.editor,
+      serial: _serials++,
+      restoredSession: null,
+      fullScreen: HostWindowFullScreen(_host, viewId, _platform),
+      owner: this,
+      editorKey: key,
+      editorBuilder: builder,
+    );
+    _windows.add(window);
+    _activate(window);
+    notifyListeners();
+  });
+
+  /// Runs before every app quit, including the system Quit command and
+  /// the main window's close path. A single declined editor cancels quit.
+  Future<bool> confirmEditorsClose() async {
+    for (final window in List.of(_windows)) {
+      if (!window.isEditor || !_windows.contains(window)) continue;
+      await _host.activate(window.viewId);
+      if (!await window._confirmEditorClose()) return false;
+    }
+    return true;
   }
 
   /// Close Window and an extra window's close button: closes [window], or
@@ -292,11 +398,14 @@ final class WorkspaceWindows extends ChangeNotifier
       _serialized(() => _closeWindow(window));
 
   Future<void> _closeWindow(WorkspaceWindow window) async {
-    if (!_windows.contains(window) || _disposed) return;
+    if (!_windows.contains(window) || _disposed || _quitPending) return;
     if (_windows.length == 1) {
       await _quitApplication();
       return;
     }
+
+    if (!await window._confirmEditorClose()) return;
+    if (_disposed || _quitPending || !_windows.contains(window)) return;
 
     _windows.remove(window);
     _activation.remove(window);

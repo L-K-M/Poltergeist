@@ -15,8 +15,15 @@ same deliberate scope cut Séance made and tested. It edits the class of file
 an SFTP user actually round-trips: nginx configs, dotfiles, crontabs, YAML,
 small scripts. Concretely:
 
-- One document per editor screen, pushed as a full-window route (Séance's
-  model). No editor tabs, no split editing, no line numbers, no soft-wrap
+- One document per native editor window on desktop (D17's 2026-09-26
+  amendment), leaving the workspace available beside it. Reopening the same
+  local file or remote checkout raises its existing editor across all
+  workspaces. The editor owns its navigator, close guard, and upload/conflict
+  surface, so closing its source workspace does not interrupt editing.
+  Native close and Quit protect unsaved buffers; native close waits for
+  an in-flight save/upload to finish. Phones, tablets, and runners without
+  the window host use the full-window route (Séance's model).
+  No editor tabs, no split editing, no line numbers, no soft-wrap
   toggle, no multiple cursors. The rendering body is a single Flutter
   `TextField` (`expands: true, maxLines: null`) with a custom controller —
   the I/O layer, find logic, and syntax engine are all independent of it, so

@@ -394,7 +394,23 @@ void WorkspaceWindowsHost::Create(
       engine, drop_in_channel_.get(),
       [this](int64_t view_id) { SendEvent(kActivatedEvent, view_id); },
       [this](int64_t view_id) { SendEvent(kCloseRequestedEvent, view_id); });
-  if (!window->Create(kWindowTitle, origin, size) || window->view_id() < 0) {
+  std::wstring title = kWindowTitle;
+  if (arguments != nullptr) {
+    auto entry = arguments->find(flutter::EncodableValue("title"));
+    if (entry != arguments->end()) {
+      if (const auto* utf8 = std::get_if<std::string>(&entry->second)) {
+        const int length = MultiByteToWideChar(
+            CP_UTF8, MB_ERR_INVALID_CHARS, utf8->data(),
+            static_cast<int>(utf8->size()), nullptr, 0);
+        if (length > 0) {
+          title.resize(length);
+          MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8->data(),
+                              static_cast<int>(utf8->size()), title.data(), length);
+        }
+      }
+    }
+  }
+  if (!window->Create(title.c_str(), origin, size) || window->view_id() < 0) {
     result->Error(kCreateFailedError, "the window was not created");
     return;
   }

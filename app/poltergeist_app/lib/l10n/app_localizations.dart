@@ -1220,6 +1220,30 @@ abstract class AppLocalizations {
   /// **'Swap Pane Focus'**
   String get paneSwapFocusLabel;
 
+  /// Restore the previous selection, cursor, and range anchor in the active file list. This does not undo file operations.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo Selection'**
+  String get editUndoSelectionLabel;
+
+  /// Reapply a selection change undone in the active file list.
+  ///
+  /// In en, this message translates to:
+  /// **'Redo Selection'**
+  String get editRedoSelectionLabel;
+
+  /// Disabled reason for Undo Selection when no usable history is available.
+  ///
+  /// In en, this message translates to:
+  /// **'No previous selection to restore in this file list'**
+  String get commandDisabledNoSelectionUndo;
+
+  /// Disabled reason for Redo Selection when no usable redo history is available.
+  ///
+  /// In en, this message translates to:
+  /// **'No selection change to redo in this file list'**
+  String get commandDisabledNoSelectionRedo;
+
   /// Command label: select every row of the focused pane's listing (edit.selectAll, 02 §2.5).
   ///
   /// In en, this message translates to:
@@ -7725,6 +7749,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Quit'**
   String get appQuitLabel;
+
+  /// No description provided for @editorUndoLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get editorUndoLabel;
+
+  /// No description provided for @editorRedoLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Redo'**
+  String get editorRedoLabel;
 }
 
 class _AppLocalizationsDelegate

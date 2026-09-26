@@ -31,17 +31,25 @@ final class QuitGuard {
     required GlobalKey<NavigatorState> navigatorKey,
     void Function(Object, StackTrace)? onError,
     Duration flushTimeout = _defaultFlushTimeout,
+    Future<bool> Function()? confirmEditorsClose,
+    void Function(bool pending)? setEditorQuitPending,
     // Keep the seams private to the guard.
     // ignore: prefer_initializing_formals
   }) : _navigatorKey = navigatorKey,
        // ignore: prefer_initializing_formals
        _onError = onError,
        // ignore: prefer_initializing_formals
-       _flushTimeout = flushTimeout;
+       _flushTimeout = flushTimeout,
+       // ignore: prefer_initializing_formals
+       _confirmEditorsClose = confirmEditorsClose,
+       // ignore: prefer_initializing_formals
+       _setEditorQuitPending = setEditorQuitPending;
 
   final GlobalKey<NavigatorState> _navigatorKey;
   final void Function(Object, StackTrace)? _onError;
   final Duration _flushTimeout;
+  final Future<bool> Function()? _confirmEditorsClose;
+  final void Function(bool pending)? _setEditorQuitPending;
 
   /// The bound queue lookup — the shell binds its live `transferQueue`
   /// seam so a didUpdateWidget rebind is always read fresh.
@@ -65,6 +73,20 @@ final class QuitGuard {
       _inFlight ??= _confirmClose().whenComplete(() => _inFlight = null);
 
   Future<bool> _confirmClose() async {
+    var accepted = false;
+    _setEditorQuitPending?.call(true);
+    try {
+      accepted = await _confirmCloseWhileLocked();
+      return accepted;
+    } finally {
+      if (!accepted) _setEditorQuitPending?.call(false);
+    }
+  }
+
+  Future<bool> _confirmCloseWhileLocked() async {
+    if (!await (_confirmEditorsClose?.call() ?? Future.value(true))) {
+      return false;
+    }
     var queue = _queueLookup?.call();
     final active = [
       for (final task in queue?.tasks ?? const <TransferTask>[])

@@ -36,6 +36,8 @@ const kViewToggleSyncBrowsingCommandId = 'view.toggleSyncBrowsing';
 const kPaneFocusLeftCommandId = 'pane.focusLeft';
 const kPaneFocusRightCommandId = 'pane.focusRight';
 const kPaneSwapFocusCommandId = 'pane.swapFocus';
+const kEditUndoSelectionCommandId = 'edit.undoSelection';
+const kEditRedoSelectionCommandId = 'edit.redoSelection';
 const kEditSelectAllCommandId = 'edit.selectAll';
 const kEditInvertSelectionCommandId = 'edit.invertSelection';
 const kSelectionQuickSelectCommandId = 'selection.quickSelect';
@@ -50,11 +52,7 @@ const kSelectionCopyPathCommandId = 'selection.copyPath';
 const kViewSortByCommandId = 'view.sortBy';
 
 /// The Details columns `view.sortBy` offers, in header order (D32 §6).
-const _sortColumns = [
-  FileSortKey.name,
-  FileSortKey.size,
-  FileSortKey.modified,
-];
+const _sortColumns = [FileSortKey.name, FileSortKey.size, FileSortKey.modified];
 
 /// `selection.copyPath`'s payload for [pane]: the selected rows' paths
 /// in listing order, one per line; else the cursor row's; else the
@@ -744,6 +742,58 @@ List<RegisteredCommand> buildPaneCommands({
       },
     ),
     RegisteredCommand(
+      id: kEditUndoSelectionCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.editUndoSelectionLabel,
+      icon: Icons.undo,
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyZ, meta: true, alt: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyZ, control: true, alt: true),
+        ],
+      ),
+      enabled: () => activeTab()?.canUndoSelection ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoSelectionUndo,
+      run: (_) async => activeTab()?.undoSelection(),
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.edit,
+        order: 10,
+      ),
+    ),
+    RegisteredCommand(
+      id: kEditRedoSelectionCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.editRedoSelectionLabel,
+      icon: Icons.redo,
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(
+            LogicalKeyboardKey.keyZ,
+            meta: true,
+            alt: true,
+            shift: true,
+          ),
+        ],
+        other: const [
+          SingleActivator(
+            LogicalKeyboardKey.keyZ,
+            control: true,
+            alt: true,
+            shift: true,
+          ),
+        ],
+      ),
+      enabled: () => activeTab()?.canRedoSelection ?? false,
+      disabledReason: (l10n) => l10n.commandDisabledNoSelectionRedo,
+      run: (_) async => activeTab()?.redoSelection(),
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.edit,
+        order: 20,
+      ),
+    ),
+    RegisteredCommand(
       id: kEditSelectAllCommandId,
       scope: CommandScope.pane,
       label: (l10n) => l10n.editSelectAllLabel,
@@ -758,12 +808,7 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.selectAll();
       },
-      // 10 §8's Edit menu: Undo/Redo (group 0) and Cut/Copy/Paste
-      // (group 1) come first. Their commands (02 §8.3's `edit.undo`,
-      // `edit.cut`/`edit.copy`/`edit.paste`: rename/trash undo and the
-      // file clipboard) do not exist yet, and a menu renders no
-      // placeholder for a missing command, so the selection section
-      // opens the rendered menu until they land.
+      // Selection undo/redo has its own group before the selection verbs.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.edit,
         order: 60,
@@ -1149,7 +1194,16 @@ bool keyMayRunFrom(
   RegisteredCommand command,
   ShortcutActivator activator,
   FocusNode? focus,
-) => !_listingOnly(command, activator) || _isPaneListing(focus);
+) {
+  // The native menu may receive an otherwise unhandled key equivalent.
+  // Preserve the chord scope's field-first rule for selection history too.
+  if ((command.id == kEditUndoSelectionCommandId ||
+          command.id == kEditRedoSelectionCommandId) &&
+      focus?.context?.findAncestorWidgetOfExactType<EditableText>() != null) {
+    return false;
+  }
+  return !_listingOnly(command, activator) || _isPaneListing(focus);
+}
 
 class CommandChordScope extends StatelessWidget {
   const CommandChordScope({

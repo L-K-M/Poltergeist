@@ -593,6 +593,17 @@ D38 device themes · D39 workspace windows
   surface on Windows/Linux, supplementary to the macOS Quick Look channel.
   Checkout ownership is per **server**, never per pane/tab
   (`CheckoutManager`, specified in 06 and ported per D2).
+  - **Desktop editor windows (2026-09-26, owner-directed).** Edit in
+    Poltergeist opens one native document window per local file or remote
+    checkout, using D39's shared engine. Reopening the same document raises
+    its existing window, including from another workspace. Closing its
+    original workspace leaves the editor and its save/upload callbacks
+    alive. Native close and app Quit consult the editor's unsaved-buffer
+    guard; a pending save/upload prevents a native close. Phones, tablets,
+    and runners without the window host retain the full-window route.
+    Quit freezes document edits and window creation until the decision
+    completes; a veto restores editing, so later dialogs cannot invalidate
+    an earlier document's discard consent.
 - **D28 — Permissions UI.** chmod via octal + checkboxes with recursive
   apply (app-level walker with progress/cancel); chown UI lands once the D3
   `setOwner` addition ships; uid→username shown when the server's `longname`
@@ -667,7 +678,9 @@ D38 device themes · D39 workspace windows
     touch row shows its "⋮". The choice is device-local
     (`sidebar.density`) and set from the bottom bar's switch, a phone
     Home's app bar, or View ▸ Use Compact/Comfortable Sidebar Rows (one
-    item naming the other density: the macOS menu cannot show a check).
+    item naming the other density). Native checked commands, including
+    Show Hidden Files, receive AppKit checkmarks through the menu-state
+    bridge added on 2026-09-26; Flutter's menu API omits that state.
     A phone Home is the Material list when comfortable and the rail's
     touch rows when compact.
   - **The second line** says what each row's tooltip says first: free
