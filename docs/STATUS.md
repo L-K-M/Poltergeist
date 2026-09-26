@@ -43,6 +43,25 @@ half (remote transfers and remote sync endpoints) closed 2026-09-24
 with the bridged transfer lease (protocol v13 — dated section below);
 the D8 gate re-measurement under the bridge is its recorded residual.
 
+## Sync update backup recovery (2026-09-26)
+
+Updates now journal each trash backup before starting its replacement.
+A failed or cancelled upload therefore keeps a recovery mapping, including
+after reopening the journal; Restore Trashed Files can put the prior version
+back into its absent origin. A file recreated after the failure remains
+protected by the existing post-state checks. Successful updates record one
+mapping, and older item-line backup mappings remain readable. Journal appends
+explicitly flush before returning, matching their documented durability
+contract.
+
+Validation: three regressions failed before the fix: lost mappings after a
+failed or cancelled update, and missing conflict reporting for a recreated
+origin. The executor and journal suites pass afterward (49 tests); the full
+sync suite passes 232 tests with three SSH fixture skips, and sync package
+analysis is clean. The remaining crash interval between moving a
+file to trash and recording that move still needs write-ahead recovery; this
+change does not claim to close it.
+
 ## Done
 
 | Area | State |
