@@ -1028,10 +1028,13 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   composed `TransferQueue` rather than Séance's files-pane plumbing,
   and `WorkspaceShell` schedules a frame beside its post-frame re-check
   because a watcher-driven prompt on an idle window would otherwise
-  wait for an unrelated repaint.
+  wait for an unrelated repaint. `openSystemDefault` refuses names the
+  host would run as programs (`ExecutableLaunchRefused`, 06 §5.3), and
+  `launchWouldExecute` exposes the same check to the shell.
 - Port-back candidates: the platform-aware launch-target validation —
   Séance's `File.isAbsolute` decode fails the same synced-Windows case
-  upstream.
+  upstream. The executable-launch refusal, if Séance's remote edit
+  also OS-opens downloaded copies.
 
 ## Preview and Quick Look (M7)
 
