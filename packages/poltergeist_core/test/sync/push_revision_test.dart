@@ -23,7 +23,10 @@ final class _BlockedPush implements SyncApi {
     started.complete();
     await resume.future;
     final response = await server.push(records);
-    return PushResponse(results: [...response.results, ...extraResults]);
+    return PushResponse(
+      results: [...response.results, ...extraResults],
+      latestSeq: response.latestSeq,
+    );
   }
 }
 
