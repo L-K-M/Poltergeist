@@ -1,0 +1,8 @@
+# note: uses your OpenSSH config and known_hosts, not Poltergeist's connections
+# note: RSYNC_OLD_ARGS=2 RSYNC_PROTECT_ARGS=0 keep rsync from escaping the remote path a second time; it is already escaped here for the remote shell, and versions without these variables ignore them
+# note: --delete-delay approximates the plan's delete-after-clean-copy gate — on a partial failure that is not an I/O error rsync may still delete where the executor would not
+# note: --max-delete=500 caps deletions per run — rsync performs up to the cap and stops with an error, where the plan refuses to start at all
+# note: the destination trash path '/srv/old files' cannot be passed as --backup-dir: rsync also hands it to the remote shell, which would re-parse it, so backups go to '.poltergeist-trash/rsync-20260922-150407' inside the destination instead
+# note: rsync is single-stream
+# Preview first (matches Poltergeist's plan):  RSYNC_OLD_ARGS=2 RSYNC_PROTECT_ARGS=0 rsync -n -i -r -p -t --modify-window=2 --delete-delay --max-delete=500 --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' -e 'ssh' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' -- 'deploy@example.com:/var/www/site/' '/srv/site'
+RSYNC_OLD_ARGS=2 RSYNC_PROTECT_ARGS=0 rsync -r -p -t --modify-window=2 --delete-delay --max-delete=500 --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' -e 'ssh' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' -- 'deploy@example.com:/var/www/site/' '/srv/site'

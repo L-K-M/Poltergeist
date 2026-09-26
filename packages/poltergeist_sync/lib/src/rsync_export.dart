@@ -11,18 +11,35 @@
 //   path portion is additionally backslash-escaped against an allowlist
 //   because the remote shell re-parses it (quote twice, once per shell —
 //   never `-s`/`--protect-args`, which the common peers lack);
+// - a command with a remote side runs under [_remoteArgsEnvironment],
+//   so no rsync version adds an escape of its own on top of that one;
 // - positional paths always follow `--` so a `-…` path cannot be read
 //   as bundled options;
-// - when a remote side exists, every forwarded flag value is also
-//   backslash-escaped — rsync without `-s` joins args into one remote
-//   command line the remote shell re-parses, so a space in a backup
-//   dir or a glob char in a pattern would otherwise split or expand;
+// - filter patterns are only single-quoted: rsync sends filter rules
+//   over its own protocol, never through the remote shell, so a
+//   backslash would reach the matcher and change what the rule means.
+//   `--backup-dir` does ride the remote command line, in both
+//   directions (see [_backupDirWord]);
 // - every unrepresentable piece lands as a `# note:` in the leading
 //   comment block — nothing is silently dropped — and untrusted text
 //   reaching a comment is CR/LF-scrubbed so a newline inside a path
 //   or pattern cannot escape the comment into a live shell line.
 import 'ignore.dart';
 import 'plan.dart';
+
+/// The environment every command line with a remote side runs under.
+/// The command already escapes what the remote shell re-parses, which
+/// is right only while rsync passes it through verbatim: rsync 3.2.4+
+/// escapes remote args itself unless RSYNC_OLD_ARGS is 2, and
+/// 3.1–3.2.3 sends them past the shell (so the escape would arrive
+/// literally) when RSYNC_PROTECT_ARGS or its build default turns on
+/// `-s`. rsync before 3.1 and openrsync ignore both variables and
+/// always pass args verbatim. Variables rather than `--old-args`/`--no-s`,
+/// which versions that predate them reject. RSYNC_OLD_ARGS also skips
+/// 3.2.5's check that a remote sender added no top-level names, which
+/// costs nothing here: the source is always a `dir/` spec, whose
+/// implied include is `/**`.
+const _remoteArgsEnvironment = 'RSYNC_OLD_ARGS=2 RSYNC_PROTECT_ARGS=0 ';
 
 /// The OS tag a [ResolvedSyncEndpoint] carries (05 §2.1): the app layer
 /// fills the local side from `Platform.operatingSystem` and the remote
@@ -163,12 +180,37 @@ String buildRsyncCommand(
       : rules.comparison;
   final filters = _filtersFor(rules);
   final trashSkipPaths = _trashSkipPaths(rules);
+  final remote = remoteSides.singleOrNull;
+  final directions = switch (rules.direction) {
+    SyncDirection.leftToRight => const [
+      (SyncSide.left, SyncSide.right),
+    ],
+    SyncDirection.rightToLeft => const [
+      (SyncSide.right, SyncSide.left),
+    ],
+    SyncDirection.bidirectional => const [
+      (SyncSide.left, SyncSide.right),
+      (SyncSide.right, SyncSide.left),
+    ],
+  };
+  // Resolved ahead of the notes: a pull's fallback announces itself.
+  final backupDirs = {
+    for (final (_, destinationSide) in directions)
+      destinationSide: _backupDirWord(destinationSide, endpoints, rules, now),
+  };
 
   final notes = <String>[];
   if (remoteSides.isNotEmpty) {
     notes.add(
       "uses your OpenSSH config and known_hosts, not Poltergeist's "
       'connections',
+    );
+  }
+  if (remote != null) {
+    notes.add(
+      '${_remoteArgsEnvironment.trim()} keep rsync from escaping the '
+      'remote path a second time; it is already escaped here for the '
+      'remote shell, and versions without these variables ignore them',
     );
   }
   if (manualOverrides > 0) {
@@ -253,6 +295,18 @@ String buildRsyncCommand(
       'plan (the safe direction)',
     );
   }
+  if (deletionsTrash || backupsTrash) {
+    for (final backupDir in backupDirs.values) {
+      final unforwardable = backupDir.unforwardable;
+      if (unforwardable == null) continue;
+      notes.add(
+        'the destination trash path ${_sq(unforwardable)} cannot be '
+        'passed as --backup-dir: rsync also hands it to the remote '
+        'shell, which would re-parse it, so backups go to '
+        '${_sq(_defaultBackupDir(now))} inside the destination instead',
+      );
+    }
+  }
   if (rules.deletions == DeletionPolicy.permanent && !backupsTrash) {
     notes.add(
       'pasting runs the real sync — its deletions are permanent (no '
@@ -309,26 +363,15 @@ String buildRsyncCommand(
     return '${lines.join('\n')}\n';
   }
 
-  final remote = remoteSides.singleOrNull;
-  final directions = switch (rules.direction) {
-    SyncDirection.leftToRight => const [
-      (SyncSide.left, SyncSide.right),
-    ],
-    SyncDirection.rightToLeft => const [
-      (SyncSide.right, SyncSide.left),
-    ],
-    SyncDirection.bidirectional => const [
-      (SyncSide.left, SyncSide.right),
-      (SyncSide.right, SyncSide.left),
-    ],
-  };
+  final environment = remote == null ? '' : _remoteArgsEnvironment;
   for (final (sourceSide, destinationSide) in directions) {
     final flags = _flags(
       rules: rules,
       effectiveComparison: effectiveComparison,
       mirror: mirror,
-      backups: deletionsTrash || backupsTrash,
-      backupDir: _backupDir(destinationSide, rules, now),
+      backupDir: deletionsTrash || backupsTrash
+          ? backupDirs[destinationSide]!.word
+          : null,
       remote: remote,
       engineSkipPaths: engineSkipPaths,
       trashSkipPaths: trashSkipPaths,
@@ -342,35 +385,33 @@ String buildRsyncCommand(
       destinationSide == SyncSide.left ? endpoints.left : endpoints.right,
       source: false,
     );
+    final arguments = '$flags -- $source $destination';
     lines.add(
       "# Preview first (matches Poltergeist's plan):  "
-      '${_commentSafe('rsync -n -i $flags -- $source $destination')}',
+      '${_commentSafe('${environment}rsync -n -i $arguments')}',
     );
-    lines.add('rsync $flags -- $source $destination');
+    lines.add('${environment}rsync $arguments');
   }
   return '${lines.join('\n')}\n';
 }
 
 /// The shared flag list for one direction (§2.1) — everything between
-/// `rsync` and `--`, in a fixed order the goldens pin. When a remote
-/// side exists, every forwarded VALUE (backup dir, filter patterns)
-/// gets the remote-shell escape on top of single-quoting — the remote
-/// rsync invocation is one shell line, so an unescaped space would
-/// split the arg and an unescaped `*` could glob-expand against the
-/// remote cwd. `-e` is exempt: it is consumed by the LOCAL rsync.
+/// `rsync` and `--`, in a fixed order the goldens pin. [backupDir] is
+/// the finished word from [_backupDirWord], null without backups.
+/// Filter values are only single-quoted: rsync hands filter rules to
+/// the other side over its protocol, so they never meet a remote shell,
+/// and wildmatch would read a remote-shell escape as a literal
+/// character. `-e` is consumed by the LOCAL rsync.
 String _flags({
   required SyncRuleSet rules,
   required ComparisonMode effectiveComparison,
   required bool mirror,
-  required bool backups,
-  required String backupDir,
+  required String? backupDir,
   required ResolvedRemoteEndpoint? remote,
   required List<String> engineSkipPaths,
   required List<String> trashSkipPaths,
   required List<({String pattern, bool include})> filters,
 }) {
-  String arg(String value) =>
-      _sq(remote == null ? value : _escapeRemotePath(value));
   return [
     '-r',
     '-p',
@@ -386,33 +427,71 @@ String _flags({
       '--delete-delay',
       '--max-delete=${rules.maxDelete}',
     ],
-    if (backups) ...[
+    if (backupDir != null) ...[
       '--backup',
-      '--backup-dir=${arg(backupDir)}',
+      '--backup-dir=$backupDir',
     ],
     if (remote != null)
       remote.port == 22 ? "-e 'ssh'" : '-e ${_sq('ssh -p ${remote.port}')}',
     // Engine-imposed exclusions lead every ruleset filter — rsync is
     // first-match-wins, so nothing downstream can re-admit them (§2.1).
-    for (final path in engineSkipPaths) '--exclude=${arg('/$path')}',
-    for (final path in trashSkipPaths) '--exclude=${arg('/$path')}',
+    for (final path in engineSkipPaths) '--exclude=${_sq('/$path')}',
+    for (final path in trashSkipPaths) '--exclude=${_sq('/$path')}',
     for (final filter in filters)
       filter.include
-          ? '--include=${arg(filter.pattern)}'
-          : '--exclude=${arg(filter.pattern)}',
+          ? '--include=${_sq(filter.pattern)}'
+          : '--exclude=${_sq(filter.pattern)}',
   ].join(' ');
+}
+
+/// The `--backup-dir` word for the direction into [destinationSide].
+/// Unlike filters, rsync forwards this value on the remote rsync's
+/// command line in BOTH directions, so the remote shell re-parses it
+/// even when the local receiver is the one that uses it:
+/// - a remote destination takes the remote-shell escape, and its
+///   receiver gets back exactly the configured value;
+/// - a local destination facing a remote source needs the value
+///   verbatim locally AND unchanged by the remote shell, which only an
+///   allowlist-clean value is. Anything else would split or expand the
+///   remote args (verbatim) or back up into a backslashed name
+///   (escaped), so the in-root default takes its place and
+///   [unforwardable] names the configured value for the note;
+/// - a local pair never meets a remote shell.
+({String word, String? unforwardable}) _backupDirWord(
+  SyncSide destinationSide,
+  ResolvedSyncEndpoints endpoints,
+  SyncRuleSet rules,
+  DateTime now,
+) {
+  final dir = _backupDir(destinationSide, rules, now);
+  final (destination, source) = switch (destinationSide) {
+    SyncSide.left => (endpoints.left, endpoints.right),
+    SyncSide.right => (endpoints.right, endpoints.left),
+  };
+  if (destination is ResolvedRemoteEndpoint) {
+    return (word: _sq(_escapeRemotePath(dir)), unforwardable: null);
+  }
+  if (source is ResolvedLocalEndpoint || _escapeRemotePath(dir) == dir) {
+    return (word: _sq(dir), unforwardable: null);
+  }
+  return (word: _sq(_defaultBackupDir(now)), unforwardable: dir);
 }
 
 /// The destination side's backup-dir (05 §2.1): the configured
 /// `trashPath*` verbatim — rsync resolves a relative value against the
-/// destination root, matching §8 rail 5's resolution — else the in-root
-/// default stamped with [now] (`rsync-<yyyyMMdd-HHmmss>`).
+/// destination root, matching §8 rail 5's resolution — else
+/// [_defaultBackupDir].
 String _backupDir(SyncSide destinationSide, SyncRuleSet rules, DateTime now) {
   final configured = switch (destinationSide) {
     SyncSide.left => rules.trashPathLeft,
     SyncSide.right => rules.trashPathRight,
   };
-  if (configured != null) return configured;
+  return configured ?? _defaultBackupDir(now);
+}
+
+/// The in-root default backup-dir stamped with [now]
+/// (`rsync-<yyyyMMdd-HHmmss>`), allowlist-clean by construction.
+String _defaultBackupDir(DateTime now) {
   String two(int n) => n.toString().padLeft(2, '0');
   return '.poltergeist-trash/rsync-${now.year}${two(now.month)}'
       '${two(now.day)}-${two(now.hour)}${two(now.minute)}'

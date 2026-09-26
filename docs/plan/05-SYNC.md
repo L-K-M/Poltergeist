@@ -89,6 +89,9 @@ emits only its note and no command — a golden variant of its own):
 rsync <flags…> -- SRC DST
 ```
 
+(A pair with a remote side prefixes both lines with an environment
+assignment; see the additional rules below.)
+
 Positional paths always follow `--`, on the dry-run and live lines alike
 (the Additive case's two pairs included), so a path beginning with `-`
 can never be parsed as bundled options — a misparse there could flip
@@ -164,8 +167,9 @@ Additional rules:
   `-s`/`--protect-args`: `-s` is unsupported on exactly the peers §2
   names as common (rsync ≤ 2.6.9, macOS's openrsync), so relying on it
   would break the flagship platform's default client, while
-  double-escaping works on every version — a considered choice,
-  recorded here. IPv6 hosts render **bracketed**
+  double-escaping works on every version once the environment prefix
+  of the next rule keeps rsync's own escaping out of it — a considered
+  choice, recorded here. IPv6 hosts render **bracketed**
   (`'user@[2001:db8::1]:path/'`), or the host's own colons would be
   read as the host/path separator. The two escape layers compose in
   exactly one order: remote-path backslash-escaping against the allowlist
@@ -179,6 +183,46 @@ Additional rules:
   bracketing is
   applied to the host spec before path escaping, and escaping applies
   to the path portion only.
+- The double escape is right only while rsync hands remote args to
+  the remote shell verbatim, which rsync 3.2.4+ no longer does by
+  default: it backslash-escapes them itself, so a pre-escaped path
+  arrives with literal backslashes and names a different directory
+  (on 3.2.4–3.2.7, whose own escape set omits the backtick, a
+  backtick in the path even reached the remote shell live; seen
+  against 3.2.7, P2-07). Every command line with a remote side, the
+  dry-run line included, is therefore prefixed with
+  `RSYNC_OLD_ARGS=2 RSYNC_PROTECT_ARGS=0`: `RSYNC_OLD_ARGS=2` turns
+  3.2.4+'s escaping off entirely (the value `1` keeps escaping option
+  values such as `--backup-dir`, which older versions pass raw, so no
+  one spelling would fit both), `RSYNC_PROTECT_ARGS=0` stops a
+  3.1–3.2.3 build or a user's export from defaulting to `-s` (which
+  would carry the escaped path past the shell verbatim), and older
+  rsync and openrsync ignore both. This is the rsync man page's own
+  recipe for manually quoted commands. Environment variables, not
+  `--old-args`, which versions that predate it reject.
+  `RSYNC_OLD_ARGS` also skips 3.2.5's check that a remote sender added
+  no top-level names it was not asked for; the source is always a
+  `dir/` spec, whose implied include is `/**`, so that check admits
+  every name anyway. A `# note:` names the prefix; the remote goldens
+  pin it and the local ones its absence.
+- Filter values (`--exclude`/`--include`, engine skips and in-root
+  trash excludes included) are single-quoted and nothing more: rsync
+  sends filter rules over its own protocol, never on the remote
+  command line, so a remote-shell backslash would reach wildmatch as
+  a literal character: `.poltergeist\*` matches only a file literally
+  named `.poltergeist*`, which silently voided the trash row's
+  protection of the in-root trash, and a pattern with a space matched
+  nothing (P2-07). `--backup-dir` does ride the remote command line,
+  in **both** directions. A remote destination's value takes the
+  remote-path escape. A pull's local value is used verbatim by the
+  local receiver yet also re-parsed by the remote shell, so only an
+  allowlist-clean value can be passed as is: any other configured
+  `trashPath*` falls back to the in-root default
+  `.poltergeist-trash/rsync-<ts>` with a `# note:` naming it, rather
+  than split the remote args (a split `old files` made the remote
+  sender treat `files` as its working directory and pull its contents
+  into the destination, exit 0) or back up into a backslashed name.
+  Golden fixture: a pull whose local trash path contains a space.
 - A local **Windows** path is not directly runnable by Cygwin/cwRsync/MSYS
   rsync builds (`C:\Users\me\blog` needs `/cygdrive/c/Users/me/blog` or a
   build-specific prefix); the exporter renders the path as-is and emits

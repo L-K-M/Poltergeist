@@ -193,6 +193,16 @@
   deleted while you leave the choice open or keep the folder, no longer
   count twice toward the deletion limits, and no longer show "changed
   since preview" after the replace.
+- **Copy as rsync Command is right for server pairs.** For a pair with a
+  server side, the copied command backslash-escaped its exclude
+  patterns, so rsync ignored them: a pasted Mirror could delete the
+  server's `.poltergeist-trash` folder, and an exclude with a space
+  uploaded what it should skip. Patterns are now passed as written. The
+  command also starts with `RSYNC_OLD_ARGS=2 RSYNC_PROTECT_ARGS=0`, so
+  rsync 3.2.4 and later no longer escape the server path a second time
+  and sync into a wrongly named folder. When a pull's trash folder has
+  a name the server's shell would misread, backups go to
+  `.poltergeist-trash` instead, and a note in the command says so.
 - Pre-1.0 history lives in the commit log and the GitHub pre-releases
   (v0.1.0, v0.2.0).
 
