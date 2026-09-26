@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -15,7 +16,10 @@ void main() {
   late WorkspaceWindows windows;
   late WorkspaceWindow editor;
 
-  Future<void> mount(WidgetTester tester) async {
+  Future<void> mount(
+    WidgetTester tester, {
+    Future<String> Function(File, String)? saveDocument,
+  }) async {
     host = FakeWindowHost();
     windows = WorkspaceWindows(
       host: host,
@@ -30,6 +34,7 @@ void main() {
         builder: (context, pending, _) => BuiltInTextEditorScreen(
           file: File('/config.txt'),
           initialText: 'original',
+          saveDocument: saveDocument,
           quitPending: pending,
           onCloseRequested: window.close,
           onQuitRequested: window.quitApplication,
@@ -75,6 +80,47 @@ void main() {
     expect(windows.windows, hasLength(1));
     expect(host.calls, contains('destroy 1'));
   });
+
+  testWidgets(
+    'a save started from the menu during discard keeps the window open',
+    (tester) async {
+      final saveGate = Completer<String>();
+      var saveStarted = false;
+      await mount(
+        tester,
+        saveDocument: (_, _) {
+          saveStarted = true;
+          return saveGate.future;
+        },
+      );
+      await tester.enterText(find.byType(TextField), 'unsaved');
+      final closing = editor.close();
+      await tester.pumpAndSettle();
+      expect(find.text('Discard unsaved changes?'), findsOneWidget);
+
+      // A Flutter dialog does not disable the native menu. Run the same
+      // registered Save callback that its File menu item invokes.
+      final menu = tester.widget<AppMenuHost>(find.byType(AppMenuHost));
+      final saving = menu.onRun(
+        menu.commands.singleWhere((command) => command.id == 'editor.save'),
+      );
+      await tester.pump();
+      expect(saveStarted, isTrue);
+      await tester.tap(find.widgetWithText(FilledButton, 'Discard'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await closing;
+      final stayedOpenDuringSave = windows.windows.contains(editor);
+      final destroyedDuringSave = host.calls.contains('destroy 1');
+
+      // Release the write before asserting so a failure leaves no pending
+      // save or controller callbacks behind in the test process.
+      saveGate.complete('baseline');
+      await saving;
+      await tester.pumpAndSettle();
+      expect(stayedOpenDuringSave, isTrue);
+      expect(destroyedDuringSave, isFalse);
+    },
+  );
 
   testWidgets('quit freezes buffers and new windows, and a veto unlocks them', (
     tester,

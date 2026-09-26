@@ -19,6 +19,9 @@ The behavior is recorded in plan D17, 02 §2.5, and 06 §1.
   resolve conflicts after the source workspace is removed.
 - Close/quit tests cover unsaved text, pending writes, multiple documents,
   and preventing edits or new windows during an accepted quit decision.
+- A second review reproduced a native-menu save starting while the discard
+  dialog was open. The close guard now rechecks the pending save after the
+  dialog resolves, and the regression keeps the editor alive until it settles.
 - An additional regression reproduced missing checkout upload prompts when
   an editor was the active window. The latest workspace now retains those
   app-wide reactions and presents prompts through the active navigator.

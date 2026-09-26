@@ -23,7 +23,8 @@ On desktop, Edit in Poltergeist opens a separate document window on the
 existing shared engine. Opening the same document raises its window, even
 from another workspace. The editor retains its own save, upload, conflict,
 and close handling after the source workspace closes. Native close and Quit
-protect unsaved buffers; mobile retains its editor route.
+protect unsaved buffers, including a save started from the native menu while
+the discard dialog is open; mobile retains its editor route.
 
 These changes follow the owner's request and amend D17 and the selection
 specification. The menu bridge and selection model are Poltergeist-specific;

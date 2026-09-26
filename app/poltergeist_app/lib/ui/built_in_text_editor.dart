@@ -386,13 +386,16 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
     );
   }
 
-  Future<bool> _confirmClose() {
+  Future<bool> _confirmClose() async {
     // A pending write/upload owns the document until its bookkeeping has
     // settled; closing now could hide a failure or its conflict dialog.
-    if (_saving && widget.onCloseRequested != null) return Future.value(false);
-    return _discardDecision ??= _confirmDiscard().whenComplete(
+    if (_saving && widget.onCloseRequested != null) return false;
+    final discard = await (_discardDecision ??= _confirmDiscard().whenComplete(
       () => _discardDecision = null,
-    );
+    ));
+    // The native Save menu remains available while the discard dialog is
+    // open. A save started there must retain its window until it settles.
+    return discard && (!_saving || widget.onCloseRequested == null);
   }
 
   Future<bool> _confirmDiscard() async {
@@ -746,8 +749,9 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
           ],
           run: (_) async {
             final focusContext = FocusManager.instance.primaryFocus?.context;
-            if (focusContext != null)
+            if (focusContext != null) {
               Actions.maybeInvoke(focusContext, actions[i].$4);
+            }
           },
           menuPlacement: CommandMenuPlacement(
             menu: AppMenuId.edit,
