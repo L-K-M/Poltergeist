@@ -1136,6 +1136,12 @@ the offset; re-list/refresh must not consume it.
 - **Gate.** goUp selects the child; with 80 siblings its row is in the
 viewport; goBack restores the prior cursor; refresh does not re-trigger.
 - **Refs.** Idea: "where was I" folder memory.
+- **Follow-up (pre-existing, found in #224 review).** `goBack()`/`goForward()`
+move `_historyIndex` and then pass `_channel!` to `_issueNavigation` with no
+`_channel == null || connectionLost` guard, unlike `navigate()`. Back or
+Forward on a lost connection throws after the history index has moved.
+Gate: with the channel dropped, Back is a no-op and `historyIndex` is
+unchanged.
 
 ### P4-03, P4-10, P4-11, P4-16 · P2/P3 · Listing keyboard pack
 - **Problems.**
