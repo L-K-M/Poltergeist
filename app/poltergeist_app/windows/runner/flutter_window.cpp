@@ -114,6 +114,12 @@ bool FlutterWindow::OnCreate() {
   // More workspace windows on this engine (workspace_windows.h).
   workspace_windows_ = std::make_unique<WorkspaceWindowsHost>(
       GetHandle(), flutter_controller_->engine()->messenger());
+  // Drags out of an extra window too (00 D39): its session still runs
+  // from this window's message loop.
+  drag_out_->SetViewResolver([this](int64_t view_id) {
+    return workspace_windows_ ? workspace_windows_->ViewFor(view_id)
+                              : nullptr;
+  });
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();

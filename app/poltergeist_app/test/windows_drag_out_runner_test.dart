@@ -79,6 +79,7 @@ void main() {
     expect(valuesOf('Key'), {
       // startDrag arguments.
       'sessionId',
+      'viewId',
       'position',
       'items',
       'allowedOperations',

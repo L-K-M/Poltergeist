@@ -909,7 +909,15 @@ D38 device themes · D39 workspace windows
     embedder hands every view's semantics to the main window's bridge, so
     an extra window sends none rather than overwrite the main window's
     tree), and on Windows the taskbar progress while the main window is
-    hidden. Each is a follow-up, not a design limit.
+    hidden. Each is a follow-up, not a design limit. *2026-09-26: the
+    runners now give an extra window the first five themselves: a drop
+    target on its view reporting on `poltergeist/dropin` by view id, the
+    drag-out channel resolving the view `startDrag` names, and on macOS
+    the unified toolbar and its passthrough (`poltergeist/titlebar`), the
+    Quick Look panel through one host every window forwards to, and its
+    semantics, which the runner's view controller routes by the update's
+    view id while Dart routes the actions back by node. The Windows
+    taskbar progress stays open (STATUS open item 34).*
   - **Session document.** `session.state` keeps its v1 shape and holds the
     first open window, so an older build still restores it; the others go
     in `session.windows`, versioned and fail-closed like it, in the same

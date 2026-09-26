@@ -10,6 +10,8 @@
 #include <flutter/method_channel.h>
 #include <flutter/method_result.h>
 
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -32,9 +34,16 @@
 class DragOut {
  public:
   // |window| is the top-level window that receives the start message;
-  // |view| is the Flutter view's HWND, whose press the session ends.
+  // |view| is the main window's Flutter view HWND, whose press a session
+  // from the main window ends.
   DragOut(flutter::BinaryMessenger* messenger, HWND window, HWND view);
   ~DragOut();
+
+  // Finds an extra workspace window's view HWND by its view id (00 D39),
+  // or nullptr: startDrag names the view the drag left. Without one, only
+  // the main window's drags start. Every session's loop still runs from
+  // |window|'s message loop, the one the app's windows share.
+  void SetViewResolver(std::function<HWND(int64_t)> view_for);
 
   DragOut(const DragOut&) = delete;
   DragOut& operator=(const DragOut&) = delete;
@@ -63,10 +72,15 @@ class DragOut {
 
   void StartDrag(const flutter::EncodableValue* arguments,
                  flutter::MethodResult<flutter::EncodableValue>& result);
+  // The view HWND a startDrag request names, or nullptr.
+  HWND ViewFor(const flutter::EncodableMap& arguments) const;
   void EndEmbedderPress(const LogicalPoint& position);
   void FinishSession(const std::string& session_id, const char* operation);
 
   HWND window_;
+  HWND main_view_;
+  std::function<HWND(int64_t)> view_for_;
+  // The Flutter view of the accepted session: the one whose press it ends.
   HWND view_;
   // A private, registered message: no plugin's WM_APP range can collide.
   UINT start_message_;

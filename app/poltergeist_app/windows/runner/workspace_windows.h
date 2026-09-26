@@ -30,6 +30,10 @@ class WorkspaceFlutterWindow;
 // minimize, full screen), whichever window sent it. They pass them to the
 // engine's lifecycle only.
 //
+// Each extra view takes drops from other apps (drop_in.h), as desktop_drop
+// gives the main window's, and ViewFor lets the drag-out channel start
+// drags from it.
+//
 // Owned by the main window, and destroyed before its engine.
 class WorkspaceWindowsHost {
  public:
@@ -41,6 +45,9 @@ class WorkspaceWindowsHost {
 
   // The main window's messages this host listens to: its activation.
   void HandleMainWindowMessage(UINT message, WPARAM wparam);
+
+  // An extra window's Flutter view HWND by its view id, or nullptr.
+  HWND ViewFor(int64_t view_id) const;
 
  private:
   void HandleMethodCall(
@@ -59,6 +66,10 @@ class WorkspaceWindowsHost {
 
   HWND main_window_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
+  // "poltergeist/dropin": the extra windows' drop targets report on it.
+  // Declared before windows_, so it outlives every window.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      drop_in_channel_;
   std::map<int64_t, std::unique_ptr<WorkspaceFlutterWindow>> windows_;
   std::set<int64_t> pending_show_;
 };

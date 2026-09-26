@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 
+#include "drop_in.h"
 #include "win32_window.h"
 
 // Declared by the engine's flutter_windows_internal.h, which the Flutter
@@ -35,6 +36,7 @@ FlutterDesktopEngineForId(int64_t engine_id);
 namespace {
 
 constexpr char kChannel[] = "poltergeist/windows";
+constexpr char kDropInChannel[] = "poltergeist/dropin";
 
 // WindowHostMethod, WindowHostEvent, and WindowHostKey in Dart.
 constexpr char kIsAvailableMethod[] = "isAvailable";
@@ -98,10 +100,13 @@ std::optional<int64_t> IntArgument(const flutter::EncodableMap* arguments,
 // engine.
 class WorkspaceFlutterWindow : public Win32Window {
  public:
-  WorkspaceFlutterWindow(FlutterDesktopEngineRef engine,
-                         std::function<void(int64_t)> on_activated,
-                         std::function<void(int64_t)> on_close_requested)
+  WorkspaceFlutterWindow(
+      FlutterDesktopEngineRef engine,
+      flutter::MethodChannel<flutter::EncodableValue>* drop_in_channel,
+      std::function<void(int64_t)> on_activated,
+      std::function<void(int64_t)> on_close_requested)
       : engine_(engine),
+        drop_in_channel_(drop_in_channel),
         on_activated_(std::move(on_activated)),
         on_close_requested_(std::move(on_close_requested)) {}
 
@@ -114,6 +119,9 @@ class WorkspaceFlutterWindow : public Win32Window {
   }
 
   int64_t view_id() const { return view_id_; }
+
+  // The Flutter view's HWND, a child of this window.
+  HWND view() const { return view_; }
 
   bool IsFullScreen() const { return full_screen_; }
 
@@ -162,13 +170,21 @@ class WorkspaceFlutterWindow : public Win32Window {
     }
     view_id_ =
         static_cast<int64_t>(FlutterDesktopViewControllerGetViewId(controller_));
-    SetChildContent(FlutterDesktopViewGetHWND(
-        FlutterDesktopViewControllerGetView(controller_)));
+    view_ = FlutterDesktopViewGetHWND(
+        FlutterDesktopViewControllerGetView(controller_));
+    SetChildContent(view_);
+    drop_target_ =
+        ViewDropTarget::Register(drop_in_channel_, view_id_, view_);
     FlutterDesktopViewControllerForceRedraw(controller_);
     return true;
   }
 
   void OnDestroy() override {
+    // Before the view goes: RevokeDragDrop needs its HWND.
+    if (drop_target_ != nullptr) {
+      drop_target_->Revoke();
+      drop_target_ = nullptr;
+    }
     if (controller_ != nullptr) {
       // Removes the view from the engine; the engine stays, the main
       // window's.
@@ -218,9 +234,12 @@ class WorkspaceFlutterWindow : public Win32Window {
 
  private:
   FlutterDesktopEngineRef engine_;
+  flutter::MethodChannel<flutter::EncodableValue>* drop_in_channel_;
   std::function<void(int64_t)> on_activated_;
   std::function<void(int64_t)> on_close_requested_;
   FlutterDesktopViewControllerRef controller_ = nullptr;
+  HWND view_ = nullptr;
+  ViewDropTarget* drop_target_ = nullptr;
   int64_t view_id_ = -1;
   bool full_screen_ = false;
   LONG windowed_style_ = 0;
@@ -236,6 +255,11 @@ WorkspaceWindowsHost::WorkspaceWindowsHost(HWND main_window,
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
                  result) { HandleMethodCall(call, std::move(result)); });
+  // Nothing calls in: the channel only reports.
+  drop_in_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kDropInChannel,
+          &flutter::StandardMethodCodec::GetInstance());
 }
 
 WorkspaceWindowsHost::~WorkspaceWindowsHost() {
@@ -367,7 +391,7 @@ void WorkspaceWindowsHost::Create(
       static_cast<unsigned int>((frame.bottom - frame.top) / scale));
 
   auto window = std::make_unique<WorkspaceFlutterWindow>(
-      engine,
+      engine, drop_in_channel_.get(),
       [this](int64_t view_id) { SendEvent(kActivatedEvent, view_id); },
       [this](int64_t view_id) { SendEvent(kCloseRequestedEvent, view_id); });
   if (!window->Create(kWindowTitle, origin, size) || window->view_id() < 0) {
@@ -413,6 +437,11 @@ HWND WorkspaceWindowsHost::WindowFor(int64_t view_id) const {
   }
   WorkspaceFlutterWindow* window = ExtraWindow(view_id);
   return window == nullptr ? nullptr : window->GetHandle();
+}
+
+HWND WorkspaceWindowsHost::ViewFor(int64_t view_id) const {
+  WorkspaceFlutterWindow* window = ExtraWindow(view_id);
+  return window == nullptr ? nullptr : window->view();
 }
 
 WorkspaceFlutterWindow* WorkspaceWindowsHost::ExtraWindow(

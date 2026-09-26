@@ -8900,6 +8900,77 @@ root (including the macOS menu bar), the window commands, the runner
 source contract, the multi-window session document, the lifecycle's
 close hook, and OS drops refused in an extra window.
 
+## Extra windows' integrations (2026-09-26)
+
+Open item 34's first five gaps are closed: a window opened with File ▸
+New Window now takes drops from other apps, drags files out to them, and
+on macOS has the unified toolbar, the system Quick Look panel and
+accessibility, like the first window. `WindowCapabilities` is gone: no
+window leaves anything out.
+
+- **Drops from other apps.** desktop_drop still serves the main window.
+  Each extra view gets a drop target from its runner (Linux
+  `drop_in_channel.cc`, Windows `drop_in.cpp`, macOS `DropInView.swift`)
+  that reports on `poltergeist/dropin` with the view's id and positions
+  in its logical pixels (`lib/services/window_drop_in.dart`).
+  `WindowDropTarget` picks desktop_drop's `DropTarget` in view 0 and
+  those reports elsewhere, with desktop_drop's callbacks, so the pane
+  drop zone is written once. Copies only, as desktop_drop offers. The
+  macOS target takes file promises into desktop_drop's staging folder,
+  so the own-drag rules still read them.
+- **Drag-out.** One channel for the engine, one controller per window:
+  `DragOutRouter` gives each window a backend whose `startDrag` names
+  its `viewId` and whose session ids cross prefixed with it, and routes
+  the callbacks back. Each runner resolves the named view (Linux
+  `drag_out_channel_add_view`, Windows `SetViewResolver`, macOS
+  `controllerForView`) and refuses a press that is not in that window.
+  Windows runs every session's loop from the main window's message loop.
+- **macOS unified toolbar.** An extra window is built with the main
+  window's titlebar (full-size content, transparent titlebar, no title,
+  an empty unified toolbar) by `WorkspaceWindow`. `WindowToolbarPassthrough`
+  wraps the header's controls: macos_window_utils' passthrough in view
+  0, and elsewhere rectangles it measures after every frame and sends
+  on `poltergeist/titlebar`, which the host turns into views in a
+  titlebar accessory that forward clicks to the window's Flutter view.
+  The band hides in full screen and reports `toolbarBandChanged`, as
+  MainFlutterWindow does, into the window's own band notifier
+  (`WindowTitlebars`).
+- **Quick Look.** `QuickLookHost.swift` owns the one panel; both window
+  classes forward `acceptsPreviewPanelControl`/begin/end to it. Every
+  call carries the calling window's `viewId`; the window that last
+  showed something owns the panel, `closed` goes to the owner (also when
+  another window takes the panel over), and a control that ends with
+  none begun by the next run-loop turn is a close, so moving between
+  workspace windows keeps the panel open.
+- **Accessibility.** Flutter 3.47's macOS engine hands every view's
+  semantics update to the implicit view's controller although each
+  update carries its `view_id`; `PoltergeistFlutterViewController`
+  forwards an update for another view to that view's controller
+  (creating its bridge first when semantics were on before it existed).
+  Actions come back with no view at all, so `PoltergeistBinding`
+  re-addresses an action the main window's tree does not hold to the
+  view whose tree does; node ids come from one framework counter, so
+  only the roots (id 0 in every view) are ambiguous. The windows root no
+  longer silences an extra view's semantics.
+
+Verified on Linux, on a release build under Xvfb with openbox: Ctrl+N
+opened a second window; a GTK drag source dragging a file onto its right
+pane showed "Copy to /root" on that pane only, and the drop copied the
+file there; dragging the new row out of the second window to a GTK drop
+target delivered `file:///root/dropme-extra.txt` as a copy; the main
+window's drag-out, now through the router, still delivered the same.
+One warning appeared as the second window was created ("Failed to setup
+compositor shaders, unable to make OpenGL context current") without a
+visible effect; this Xvfb has no DRI3, and a baseline build was not run
+to compare. macOS and Windows are compiled by CI only: the release
+checklist's D39 row now carries their checks.
+
+Validation: `flutter analyze` is clean; the full app suite passes, with
+new tests for the drop-in decoder and target, the drag-out router, the
+Quick Look routing, the titlebar channel and passthrough, the semantics
+action routing, extra-window drops in the pane drop zone, and the
+runners' source contract for every new piece.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -9751,27 +9822,28 @@ close hook, and OS drops refused in an extra window.
     made Android supported with these slices still open; the README's
     known issues name them and the release checklist's Android row
     carries the device checks.
-34. **2026-09-25: D39 — what an extra workspace window lacks.** Each is
-    its own follow-up: drops from other apps (desktop_drop registers on
-    the main view only and reports positions in its coordinates; a
-    per-view drop target with the view id on every event is needed);
-    drag-out (the `poltergeist/dragout` runners hold the main view's
-    controller; `startDrag` needs the view id); on macOS the unified
-    toolbar (macos_window_utils' click passthrough is main-window only),
-    the Quick Look panel (the responder chain accepts in
-    `MainFlutterWindow` only), and accessibility (Flutter 3.47's macOS
-    embedder routes every view's semantics to the implicit view; the
-    extra window sends none until upstream routes by view id); Windows
-    taskbar progress while the main window is hidden; and remembering an
-    extra window's size and place. Cross-window drags within the app are
-    not supported either: a Flutter drag cannot leave its view. From the
-    first review: a window opened from a maximized or full-screen window
+34. **2026-09-25: D39 — what an extra workspace window lacks.**
+    **2026-09-26:** drops from other apps, drag-out, and on macOS the
+    unified toolbar, the Quick Look panel and accessibility now work in
+    an extra window ("Extra windows' integrations" above); macOS and
+    Windows are compiled by CI only until the release checklist's D39
+    row runs on them. Still open, each its own follow-up: Windows
+    taskbar progress while the main window is hidden; remembering an
+    extra window's size and place; and drags between Poltergeist's own
+    windows. A Flutter drag cannot leave its view, so such a drag leaves
+    as an OS drag: a local item copies into the other window as a drop
+    from another app would, and a remote one (macOS promises) does
+    nothing, since each window's drag-out controller knows only its own
+    sessions and so none claims the drop as its own. From the first
+    review: a window opened from a maximized or full-screen window
     takes that window's size without its state (every runner copies the
     size it sees; each should use the restored size instead); an extra
     window's View ▸ Enter Full Screen label misses a change made outside
     the menu until the next toggle (the runners report no full-screen
     events; the toggle itself asks first, so it never inverts); and every
-    window has the same title.
+    window has the same title. One accessibility edge stays: each
+    view's root node is 0, so a VoiceOver action on an extra window's
+    root (not on any control in it) reaches the main window's root.
 
 ## Independent audit
 

@@ -49,8 +49,11 @@ private struct ActiveSession {
 ///   view that received it is often not Flutter's either: desktop_drop
 ///   lays a full-size overlay over the FlutterView, and
 ///   macos_window_utils forwards toolbar clicks from views of its own. A
-///   local event monitor keeps this window's latest primary press and
-///   drag, whichever view they hit.
+///   local event monitor keeps the workspace windows' latest primary
+///   press and drag, whichever view they hit.
+/// * Every workspace window's drag comes here (00 D39): `startDrag` names
+///   the view it left (`viewId`, the main window's when absent), and
+///   `controllerForView` finds an extra window's controller.
 /// * The session swallows the real mouse-up, so Flutter's embedder would
 ///   still believe the button is down and drop the next click. A
 ///   synthetic mouse-up reaches the FlutterViewController first, at the
@@ -100,6 +103,10 @@ final class DragOutChannel: NSObject {
   private weak var flutterViewController: FlutterViewController?
   private var eventMonitor: Any?
 
+  /// An extra workspace window's controller by its view id, or nil
+  /// (WorkspaceWindowsHost). Without it only the main window drags out.
+  var controllerForView: ((Int64) -> FlutterViewController?)?
+
   private var lastDown: NSEvent?
   private var lastDragged: NSEvent?
   private var activeSession: ActiveSession?
@@ -147,9 +154,19 @@ final class DragOutChannel: NSObject {
     }
   }
 
+  /// The controller of the workspace window [window] is, or nil.
+  private func controller(in window: NSWindow?) -> FlutterViewController? {
+    guard let window else { return nil }
+    if let main = flutterViewController, main.view.window === window {
+      return main
+    }
+    guard let extra = window.contentViewController as? FlutterViewController,
+          controllerForView?(extra.viewIdentifier) === extra else { return nil }
+    return extra
+  }
+
   private func record(_ event: NSEvent) {
-    guard let window = flutterViewController?.view.window,
-          event.window === window else { return }
+    guard controller(in: event.window) != nil else { return }
     switch event.type {
     case .leftMouseDown:
       lastDown = event
@@ -226,9 +243,17 @@ final class DragOutChannel: NSObject {
       result(Self.refusal("buttonReleased", nil))
       return
     }
-    guard let controller = flutterViewController,
+    // The window the drag left; the main window's when Dart names none.
+    let viewId = (args["viewId"] as? NSNumber)?.int64Value ?? 0
+    let named = viewId == 0 ? flutterViewController : controllerForView?(viewId)
+    guard let controller = named,
           let window = controller.view.window else {
       result(Self.refusal("failed", "the Flutter view is not in a window"))
+      return
+    }
+    // The press must be the drag's own: in the window it left.
+    guard event.window === window else {
+      result(Self.refusal("noPointerEvent", nil))
       return
     }
     let view = controller.view

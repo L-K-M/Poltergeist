@@ -170,10 +170,9 @@ void main() {
 
     expect(_fileItems(delegate.menus), ['run 0']);
 
-    // An extra window on macOS renders into a view that sends no semantics
-    // (the embedder would hand them to the main window's bridge).
-    expect(seenViews[1]!.viewId, 1);
-    expect(seenViews[1], isNot(same(views[1])));
+    // Every window renders into its own view, semantics included: the
+    // runner routes each view's tree to its own window.
+    expect(seenViews[1], same(views[1]));
     expect(seenViews[mainWindowViewId], same(tester.view));
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 }
