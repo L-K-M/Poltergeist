@@ -4,6 +4,7 @@ import 'dart:ui' show Scene, SemanticsUpdate;
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -329,6 +330,84 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 60));
   }
+
+  for (final name in ['docs', 'report.txt']) {
+    dndWidgets('mouse click on $name never starts a drag', (tester) async {
+      await bindLocals();
+      await pumpShell(tester);
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text(name)),
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pump();
+      expect(find.byType(PaneEntryDragAvatar), findsNothing);
+      expect(left.selectedEntries.single.name, name);
+
+      // Holding and pointer jitter must remain a click, too.
+      await tester.pump(const Duration(seconds: 1));
+      await gesture.moveBy(
+        Offset(computeHitSlop(PointerDeviceKind.mouse, null) / 2, 0),
+      );
+      await tester.pump();
+      expect(find.byType(PaneEntryDragAvatar), findsNothing);
+      await endDrag(tester, gesture);
+
+      expect(find.byType(PaneEntryDragAvatar), findsNothing);
+      expect(left.location!.path, '/home/tester');
+      expect(queue.enqueuedSpecs, isEmpty);
+    });
+
+    dndWidgets('mouse drag on $name starts only after movement', (
+      tester,
+    ) async {
+      await bindLocals();
+      await pumpShell(tester);
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text(name)),
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pump();
+      expect(find.byType(PaneEntryDragAvatar), findsNothing);
+
+      await gesture.moveBy(const Offset(40, 0));
+      await tester.pump();
+      expect(find.byType(PaneEntryDragAvatar), findsOneWidget);
+      expect(queue.enqueuedSpecs, isEmpty);
+
+      await gesture.moveTo(rightPaneBackground(tester));
+      await tester.pump();
+      await endDrag(tester, gesture);
+
+      expect(find.byType(PaneEntryDragAvatar), findsNothing);
+      expect(queue.enqueuedSpecs, hasLength(1));
+      expect(queue.enqueuedSpecs.single.rootPaths, ['/home/tester/$name']);
+      expect(queue.enqueuedSpecs.single.destinationDir, '/srv/other');
+    });
+  }
+
+  dndWidgets('mouse double-click still opens a draggable folder', (
+    tester,
+  ) async {
+    await bindLocals();
+    await pumpShell(tester);
+    final at = tester.getCenter(find.text('docs'));
+
+    for (var click = 0; click < 2; click++) {
+      final gesture = await tester.startGesture(
+        at,
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pump();
+      expect(find.byType(PaneEntryDragAvatar), findsNothing);
+      await endDrag(tester, gesture);
+    }
+
+    expect(left.location!.path, '/home/tester/docs');
+    expect(find.text('nested.txt'), findsOneWidget);
+    expect(queue.enqueuedSpecs, isEmpty);
+  });
 
   dndWidgets('a row drag onto the other pane’s background enqueues a '
       'same-filesystem move into its current directory', (tester) async {
