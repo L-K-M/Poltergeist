@@ -211,4 +211,22 @@ void main() {
       expect((await records.getRecord('bookmark:other'))!.seq, isNull);
     },
   );
+
+  test(
+    'duplicate results do not inflate progress or replace the first sequence',
+    () async {
+      await coordinator.onBookmarkSaved(bookmark('first'));
+      final blocked = _BlockedPush(
+        FakeSyncApi(),
+      )..extraResults = [PushResult(id: 'bookmark:a', seq: 99, accepted: true)];
+      final round = coordinator.runRound(blocked);
+      await blocked.started.future;
+      blocked.resume.complete();
+      final outcome = await round;
+
+      expect(outcome.pushed, 1);
+      expect((await records.getRecord('bookmark:a'))!.seq, 1);
+      expect(await records.dirtyRecords(), isEmpty);
+    },
+  );
 }
