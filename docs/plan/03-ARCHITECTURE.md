@@ -1401,7 +1401,11 @@ app-provided support directory (`EngineConfig`, §5):
   live journal crosses a finished-task/size threshold within a long session
   (the same crash-safe ordering below — history append first, atomic rewrite
   second — so a session moving hundreds of thousands of files does not grow
-  an unbounded journal and a post-crash replay stays short); first append
+  an unbounded journal and a post-crash replay stays short; mid-session the
+  size threshold measures only finished tasks' records, and the rewrite
+  waits until dropping them frees at least as many bytes as it writes,
+  because it copies the pending tasks' records verbatim and a large pending
+  task alone must never cause a rewrite per append); first append
   finished tasks to the history file keyed by task id (idempotent —
   replay skips ids already present in history), then rewrite the
   journal to just the pending tasks **with their full record set**

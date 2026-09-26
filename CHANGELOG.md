@@ -153,6 +153,11 @@
 - **Trust before secrets.** Connecting to a server for the first time now
   asks you to approve its host key before it asks for a password. An
   unreachable server fails without asking for a password at all.
+- **Large transfers stay responsive.** A transfer of more than a few
+  thousand files no longer rewrites the transfer journal after every
+  file, which slowed the app, delayed quitting and wore the disk. The
+  journal is compacted only when finished transfers free more space than
+  the rewrite costs.
 - **Fixes:**
   - On a Mac in full screen, the titlebar no longer covers the top of
     the window. It slides in with the menu bar, as in other apps, and

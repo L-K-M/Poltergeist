@@ -22,7 +22,8 @@
 ///   never land behind the malformed line). Both mutations fsync the
 ///   containing directory.
 /// - Compaction runs at startup replay, on clean shutdown, and mid-session
-///   once the journal crosses a finished-task/size threshold: finished
+///   once the journal crosses a finished-task/size threshold and the
+///   rewrite would drop at least as many bytes as it writes: finished
 ///   tasks append to history first (idempotent by task id — ids already
 ///   in history are skipped), history is flushed and fsynced, then the
 ///   journal is atomically rewritten to the pending tasks' full record
@@ -50,10 +51,11 @@ const int journalFsyncEveryRecords = 64;
 const Duration journalFsyncInterval = Duration(milliseconds: 250);
 
 /// Mid-session compaction triggers: once this many tasks have finished
-/// since the last rewrite, or the live journal has grown past this many
-/// bytes, finished tasks migrate to history and the journal rewrites to
-/// the pending set (03 §4.6 — a long session must not grow an unbounded
-/// journal, and post-crash replay stays short).
+/// since the last rewrite, or the finished tasks' records have grown past
+/// this many bytes, finished tasks migrate to history and the journal
+/// rewrites to the pending set (03 §4.6 — a long session must not grow an
+/// unbounded journal, and post-crash replay stays short). Either trigger
+/// waits while the pending set outweighs what the rewrite would drop.
 const int journalCompactFinishedTasks = 32;
 const int journalCompactBytes = 4 * 1024 * 1024;
 
@@ -99,6 +101,9 @@ class FileTransferPersistence implements TransferPersistence {
       0,
       (sum, task) => sum + task.encodedBytes,
     );
+    _reclaimableBytes = liveTasks.values
+        .where((task) => task.isFinished)
+        .fold(0, (sum, task) => sum + task.encodedBytes);
   }
 
   /// The live-queue journal file.
@@ -140,6 +145,10 @@ class FileTransferPersistence implements TransferPersistence {
   bool _closed = false;
 
   int _journalBytes = 0;
+
+  /// The share of [_journalBytes] held by finished tasks: all that a
+  /// compaction can drop, since it rewrites the pending tasks' records.
+  int _reclaimableBytes = 0;
   int _recordsSinceFsync = 0;
   int _finishedSinceCompact = 0;
   Timer? _fsyncTimer;
@@ -238,9 +247,10 @@ class FileTransferPersistence implements TransferPersistence {
       await _io.appendLine(journalFile, line);
       // Byte-accurate accounting: String.length is UTF-16 code units and
       // journaled paths are commonly non-ASCII.
-      _journalBytes += utf8.encode(line).length + 1;
+      final lineBytes = utf8.encode(line).length + 1;
+      _journalBytes += lineBytes;
       _recordsSinceFsync++;
-      _applyToLive(record, line);
+      _applyToLive(record, line, lineBytes);
       if (record is TaskStateRecord &&
           (record.state == TransferTaskState.completed ||
               record.state == TransferTaskState.failed ||
@@ -353,13 +363,17 @@ class FileTransferPersistence implements TransferPersistence {
 
   /// Keeps the replay model current with each appended record so
   /// compaction never re-reads the file mid-session.
-  void _applyToLive(TransferJournalRecord record, String line) {
+  void _applyToLive(TransferJournalRecord record, String line, int lineBytes) {
     final task = _liveTasks.putIfAbsent(
       record.taskId,
       () => _LiveTask(record.taskId),
     );
-    task.records.add((record, line));
+    // A retry flips a finished task back to pending, so the task's whole
+    // size leaves the reclaimable share and re-enters it by its new state.
+    if (task.isFinished) _reclaimableBytes -= task.encodedBytes;
+    task.addRecord(record, line, lineBytes);
     _applyRecord(task, record);
+    if (task.isFinished) _reclaimableBytes += task.encodedBytes;
   }
 
   /// The one record→model mapping, shared by the live append path and
@@ -482,9 +496,21 @@ class FileTransferPersistence implements TransferPersistence {
     });
   }
 
-  bool _shouldCompact() =>
-      _finishedSinceCompact >= _compactFinishedTasks ||
-      _journalBytes >= _compactBytes;
+  /// A mid-session rewrite copies every pending task's records and drops
+  /// only the finished tasks', so it runs only when it drops at least as
+  /// many bytes as it writes. Measuring the whole journal would make a
+  /// pending task that alone crosses [_compactBytes] rewrite and fsync
+  /// the file on every append. This way rewriting never costs more than
+  /// the records it removes, and the file stays under the larger of twice
+  /// the pending set and the pending set plus [_compactBytes].
+  bool _shouldCompact() {
+    final pendingBytes = _journalBytes - _reclaimableBytes;
+    if (_reclaimableBytes == 0 || _reclaimableBytes < pendingBytes) {
+      return false;
+    }
+    return _finishedSinceCompact >= _compactFinishedTasks ||
+        _reclaimableBytes >= _compactBytes;
+  }
 
   /// 03 §4.6's compaction: finished tasks append to history first
   /// (idempotent — ids already present are skipped), history flushes and
@@ -515,6 +541,7 @@ class FileTransferPersistence implements TransferPersistence {
     await _io.atomicRewrite(journalFile, text);
     _journalBytes = utf8.encode(text).length;
     _liveTasks.removeWhere((_, task) => task.isFinished);
+    _reclaimableBytes = 0;
     _finishedSinceCompact = 0;
     _recordsSinceFsync = 0;
   }
@@ -733,7 +760,7 @@ class FileTransferPersistence implements TransferPersistence {
       // Keep the raw line so a journal rewrite replays the record
       // verbatim — fields a newer build added (and this build's strict
       // decode ignored) are not silently stripped by re-encoding.
-      task.records.add((record, line));
+      task.addRecord(record, line, utf8.encode(line).length + 1);
       _applyRecord(task, record);
     }
     return tasks;
@@ -841,8 +868,14 @@ class _LiveTask {
   /// "terminal" for restore purposes is the same set.
   bool get isTerminal => isFinished;
 
-  int get encodedBytes =>
-      records.fold(0, (sum, record) => sum + utf8.encode(record.$2).length + 1);
+  /// The UTF-8 bytes [records] occupy in the journal, newlines included,
+  /// kept current so the compaction trigger never re-encodes a task.
+  int encodedBytes = 0;
+
+  void addRecord(TransferJournalRecord record, String line, int lineBytes) {
+    records.add((record, line));
+    encodedBytes += lineBytes;
+  }
 }
 
 class _RestoredItemMutable {
