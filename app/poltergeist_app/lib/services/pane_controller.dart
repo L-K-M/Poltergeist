@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart' show basicLocaleListResolution;
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../l10n/app_localizations.dart';
+import '../theme/app_theme.dart' show isDesktopPlatform;
 import 'double_click_action.dart';
 import 'drag_out_controller.dart' show DragOutLeftOut;
 import 'engine_session.dart';
@@ -57,6 +58,10 @@ const _connectionLostError = RemoteFileException(
   operation: 'reconnect',
   message: '',
 );
+
+/// One stop on a tab's navigation trail (02 §2.1) with the row the user
+/// left the cursor on there, which Back and Forward re-select (P4-02).
+typedef _TrailStop = ({PaneLocation location, String? cursorPath});
 
 /// The last quiescent state, captured on every not-loading → loading
 /// transition (02 §2.8): Esc-cancel restores exactly this, never a
@@ -131,7 +136,7 @@ class _BindingRollback {
   final List<RemoteFileEntry> sortedListing;
   final RemoteFileException? error;
   final SelectionState<_RowKey> selection;
-  final List<PaneLocation> history;
+  final List<_TrailStop> history;
   final int historyIndex;
   final String filterQuery;
   final bool filterFieldOpen;
@@ -612,6 +617,14 @@ class PaneController extends ChangeNotifier {
   /// select path by every invalidation.
   bool _renameAfterSelect = false;
 
+  /// The row the next accepted listing re-selects (P4-02): the folder
+  /// `go.enclosing` climbed out of, or the row a Back/Forward stop
+  /// remembers. Set by the location change that wants it and kept by
+  /// same-location re-lists issued before anything was accepted, so a
+  /// refresh or watch re-list mid-load still lands on it; spent by the
+  /// first accept and dropped with every cancelled listing.
+  String? _revealOnAccept;
+
   /// The Get Info inspector's on-demand folder-size session (02 §2.6):
   /// the walk's live or terminal snapshot, keyed by target path so the
   /// panel only ever shows a measure started for ITS target. One
@@ -675,7 +688,7 @@ class PaneController extends ChangeNotifier {
   /// by construction — the trail lives on the per-tab controller and
   /// never reaches a persistence surface (ghost-tab reopen deliberately
   /// starts an empty trail, the same data-loss rule as the filter).
-  final List<PaneLocation> _history = <PaneLocation>[];
+  final List<_TrailStop> _history = <_TrailStop>[];
   int _historyIndex = -1;
 
   /// 02 §2.1's path-field session (`go.editPath`/`go.toFolder`): the
@@ -1041,7 +1054,7 @@ class PaneController extends ChangeNotifier {
   /// location: a cancelled first listing leaves the location null while
   /// the channel stays live, and a null location on a remote pane must
   /// never mint a local one.
-  void navigate(String path) {
+  void navigate(String path, {String? reveal}) {
     if (_disposed || _channel == null || connectionLost) return;
     final serverId = _pendingRemote?.id;
     _issueNavigation(
@@ -1050,6 +1063,7 @@ class PaneController extends ChangeNotifier {
           : LocalPaneLocation(path),
       path,
       _channel!,
+      reveal: reveal,
     );
   }
 
@@ -1204,12 +1218,14 @@ class PaneController extends ChangeNotifier {
   }
 
   /// Navigates to the parent folder; the root is its own parent (no-op).
+  /// The folder it climbs out of is re-selected once the parent lists
+  /// (P4-02), so ⌘↓ goes straight back in and ↓ to the next sibling.
   void goUp() {
     final current = _location;
     if (current == null) return;
     final parent = paneParentPath(current.path);
     if (parent == current.path) return;
-    navigate(parent);
+    navigate(parent, reveal: current.path);
   }
 
   /// Browses the binding's home (02 §8.3's `go.home`): the user's home
@@ -1297,6 +1313,7 @@ class PaneController extends ChangeNotifier {
     final answered = _answeredGeneration;
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
+    _revealOnAccept = null;
     _snapshot = null;
     notifyListeners();
     // No re-list here: that would re-enter the loading state the user
@@ -1337,25 +1354,59 @@ class PaneController extends ChangeNotifier {
   /// index so a later Forward still names where the user was heading.
   void goBack() {
     if (_disposed || !canGoBack) return;
-    _historyIndex--;
-    _issueNavigation(
-      _history[_historyIndex],
-      _history[_historyIndex].path,
-      _channel!,
-      historyTraversal: true,
-    );
+    _traverseHistory(-1);
   }
 
   /// Forward (Alt+Right / ⌘]): [goBack]'s mirror.
   void goForward() {
     if (_disposed || !canGoForward) return;
-    _historyIndex++;
+    _traverseHistory(1);
+  }
+
+  /// Walks the trail by [step] and reissues the stop it lands on. The
+  /// stop re-selects the row the user left there — or, walking back to
+  /// an ancestor with nothing remembered, the folder on the way down to
+  /// where the user stood (P4-02).
+  void _traverseHistory(int step) {
+    _rememberCursor();
+    final from = _location?.path;
+    _historyIndex += step;
+    final stop = _history[_historyIndex];
+    final path = stop.location.path;
     _issueNavigation(
-      _history[_historyIndex],
-      _history[_historyIndex].path,
+      stop.location,
+      path,
       _channel!,
       historyTraversal: true,
+      reveal: stop.cursorPath ?? (from == null ? null : _childToward(path, from)),
     );
+  }
+
+  /// Records the cursor row on the trail stop the pane stands on. Rows
+  /// an in-flight navigation already disowned keep what the stop held.
+  void _rememberCursor() {
+    if (_staleRows || _historyIndex < 0 || _historyIndex >= _history.length) {
+      return;
+    }
+    final stop = _history[_historyIndex];
+    if (stop.location != _location) return;
+    final cursor = cursorIndex;
+    _history[_historyIndex] = (
+      location: stop.location,
+      cursorPath: cursor == null ? null : _entries[cursor].path,
+    );
+  }
+
+  /// The child of [ancestor] that [path] is, or lies under; null when
+  /// [path] is not below [ancestor].
+  static String? _childToward(String ancestor, String path) {
+    var node = path;
+    while (true) {
+      final parent = paneParentPath(node);
+      if (parent == node) return null;
+      if (parent == ancestor) return node;
+      node = parent;
+    }
   }
 
   /// Whether the path field can open: a bound pane with a live channel.
@@ -1595,14 +1646,14 @@ class PaneController extends ChangeNotifier {
     final origin = _historyIndex.clamp(0, _history.length - 1);
     for (var delta = 0; delta < _history.length; delta++) {
       final below = origin - delta;
-      if (below >= 0 && _history[below] == location) {
+      if (below >= 0 && _history[below].location == location) {
         _historyIndex = below;
         return;
       }
       final above = origin + delta;
       if (above != below &&
           above < _history.length &&
-          _history[above] == location) {
+          _history[above].location == location) {
         _historyIndex = above;
         return;
       }
@@ -1644,6 +1695,21 @@ class PaneController extends ChangeNotifier {
     if (identical(before, _selection)) return;
     // Moving on from the file that failed to open retires its error.
     if (_error is OpenEntryError) _error = null;
+    notifyListeners();
+  }
+
+  /// Bumped by [requestCursorReveal]; the view scrolls the cursor row
+  /// into view on each change.
+  int get cursorRevealGeneration => _cursorRevealGeneration;
+  int _cursorRevealGeneration = 0;
+
+  /// Asks the view to scroll the cursor row into view — for cursor
+  /// moves made outside the listing, such as the header filter handing
+  /// focus back (P4-01), where the view sees no key event to react to.
+  /// The scroll position stays the view's; this only counts requests.
+  void requestCursorReveal() {
+    if (_disposed || cursorIndex == null) return;
+    _cursorRevealGeneration++;
     notifyListeners();
   }
 
@@ -3186,6 +3252,7 @@ class PaneController extends ChangeNotifier {
     _renameSession = null;
     _pendingRenameSelectPath = null;
     _renameAfterSelect = false;
+    _revealOnAccept = null;
     _endFolderSize();
     _endEnclosedApply();
     _noticeTimer?.cancel();
@@ -3478,9 +3545,11 @@ class PaneController extends ChangeNotifier {
   void _cancelListing() {
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
-    // A cancelled listing can never consume a pending rename re-select.
+    // A cancelled listing can never consume a pending rename re-select
+    // or return re-select.
     _pendingRenameSelectPath = null;
     _renameAfterSelect = false;
+    _revealOnAccept = null;
   }
 
   /// The browse target of the in-flight or last-failed local open —
@@ -3549,6 +3618,7 @@ class PaneController extends ChangeNotifier {
     String path,
     AppBrowseChannel channel, {
     bool historyTraversal = false,
+    String? reveal,
   }) {
     // Quick Select ends BEFORE the navigation snapshot and the selection
     // reset: the restored baseline is what a later Esc-cancel restores,
@@ -3586,6 +3656,7 @@ class PaneController extends ChangeNotifier {
       _renameInFlight = false;
     }
     if (!historyTraversal && target != _location) {
+      _rememberCursor();
       // 02 §2.1's branch semantics: a user-driven navigation to a new
       // location truncates the forward entries and records the target
       // at issue time — an interrupted or failed navigation stays in
@@ -3597,8 +3668,8 @@ class PaneController extends ChangeNotifier {
       if (_historyIndex < _history.length - 1) {
         _history.removeRange(_historyIndex + 1, _history.length);
       }
-      if (_history.isEmpty || _history.last != target) {
-        _history.add(target);
+      if (_history.isEmpty || _history.last.location != target) {
+        _history.add((location: target, cursorPath: null));
       }
       _historyIndex = _history.length - 1;
     }
@@ -3622,6 +3693,7 @@ class PaneController extends ChangeNotifier {
       // governs presentation only, never interaction eligibility.
       _staleRows = true;
       _selection = SelectionState<_RowKey>.begin(rows: const []);
+      _revealOnAccept = reveal;
     }
     _location = target;
     _issuedGeneration++;
@@ -3662,6 +3734,7 @@ class PaneController extends ChangeNotifier {
       // publishing so listeners never see owned rows flagged stale.
       _staleRows = false;
       _applyEntries(_filteredListing());
+      _applyReveal();
       final renameSelect = _pendingRenameSelectPath;
       final renameAfterSelect = _renameAfterSelect;
       _pendingRenameSelectPath = null;
@@ -3739,6 +3812,24 @@ class PaneController extends ChangeNotifier {
       _error = PaneFaultException(PaneFault.listFolder, operation: 'list');
       notifyListeners();
     }
+  }
+
+  /// Spends [_revealOnAccept] on the listing just accepted: its row
+  /// takes the cursor unless something already holds it. Desktop only —
+  /// D32 §9's touch rows never gain a verb subject the user did not
+  /// pick, and the compact listing draws a selected row as a checked
+  /// selection.
+  void _applyReveal() {
+    final reveal = _revealOnAccept;
+    _revealOnAccept = null;
+    if (reveal == null ||
+        _selection.cursorKey != null ||
+        !isDesktopPlatform(defaultTargetPlatform)) {
+      return;
+    }
+    final index = _entries.indexWhere((entry) => entry.path == reveal);
+    if (index < 0) return;
+    _selection = _selection.activate(_rowKeys[index], SelectionUpdate.single);
   }
 
   /// Adopts [entries] as the pane's VISIBLE rows (already through the

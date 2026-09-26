@@ -2020,6 +2020,7 @@ class _WorkspaceShellState extends State<WorkspaceShell>
         filterField: _HeaderFilterField(
           workspace: workspace,
           focusNode: _headerFilterFocus,
+          onReturnToListing: () => _focusPane(workspace.activePane),
         ),
         menuButton: mac
             ? null
@@ -4308,11 +4309,20 @@ class _HeaderTitle extends StatelessWidget {
 /// D32 §4's filter field: filters the active pane's listing as the user
 /// types (the pane's own strip no longer opens for ⌘F), shows `12 of
 /// 348` while a query is active, and Esc clears it back to the listing.
+/// Esc, Enter, and ↓ all hand keyboard focus back to that listing
+/// (P4-01), so the arrows, Space, and Enter act on the results at once.
 class _HeaderFilterField extends StatefulWidget {
-  const _HeaderFilterField({required this.workspace, required this.focusNode});
+  const _HeaderFilterField({
+    required this.workspace,
+    required this.focusNode,
+    required this.onReturnToListing,
+  });
 
   final WorkspaceController workspace;
   final FocusNode focusNode;
+
+  /// Moves focus to the active pane's listing.
+  final VoidCallback onReturnToListing;
 
   @override
   State<_HeaderFilterField> createState() => _HeaderFilterFieldState();
@@ -4372,6 +4382,51 @@ class _HeaderFilterFieldState extends State<_HeaderFilterField> {
     super.dispose();
   }
 
+  /// Ends the edit on the listing instead of stranding focus on the
+  /// route scope, placing the cursor per [landing] and scrolling it
+  /// into view.
+  void _returnToListing(_FilterExitCursor landing) {
+    final pane = _bound;
+    if (pane != null && pane.entries.isNotEmpty) {
+      switch (landing) {
+        case _FilterExitCursor.keep:
+          break;
+        case _FilterExitCursor.firstIfUnset:
+          if (pane.cursorIndex == null) pane.setCursorIndex(0);
+        case _FilterExitCursor.first:
+          pane.setCursorIndex(0);
+      }
+    }
+    widget.onReturnToListing();
+    pane?.requestCursorReveal();
+  }
+
+  static const _escape = SingleActivator(LogicalKeyboardKey.escape);
+  static const _down = SingleActivator(LogicalKeyboardKey.arrowDown);
+
+  /// Esc clears the query; ↓ steps into the results' first row. An open
+  /// input-method composition owns both keys: the desktop engines offer
+  /// a key to the framework first, so declining here is what lets ↓
+  /// walk the candidates and Esc cancel the composition.
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    final composing = _text.value.composing;
+    if (composing.isValid && !composing.isCollapsed) {
+      return KeyEventResult.ignored;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    if (_escape.accepts(event, keyboard)) {
+      _bound?.clearFilter();
+      _text.clear();
+      _returnToListing(_FilterExitCursor.keep);
+      return KeyEventResult.handled;
+    }
+    if (_down.accepts(event, keyboard)) {
+      _returnToListing(_FilterExitCursor.first);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -4381,14 +4436,10 @@ class _HeaderFilterFieldState extends State<_HeaderFilterField> {
     final active = pane != null && pane.filterActive;
     return SizedBox(
       height: 28,
-      child: CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.escape): () {
-            pane?.clearFilter();
-            _text.clear();
-            widget.focusNode.unfocus();
-          },
-        },
+      child: Focus(
+        canRequestFocus: false,
+        skipTraversal: true,
+        onKeyEvent: _onKey,
         child: TextField(
           key: const ValueKey('header.filter'),
           controller: _text,
@@ -4397,6 +4448,12 @@ class _HeaderFilterFieldState extends State<_HeaderFilterField> {
           style: theme.textTheme.bodyMedium,
           textAlignVertical: TextAlignVertical.center,
           onChanged: (value) => pane?.setFilterQuery(value),
+          // Enter keeps the query and hands the results over; with no
+          // cursor yet the first match takes it, so Enter-then-Space
+          // previews it. Supplying this also replaces the default
+          // unfocus, which parks focus on the route scope.
+          onEditingComplete: () =>
+              _returnToListing(_FilterExitCursor.firstIfUnset),
           decoration: InputDecoration(
             isDense: true,
             filled: true,
@@ -4431,4 +4488,16 @@ class _HeaderFilterFieldState extends State<_HeaderFilterField> {
       ),
     );
   }
+}
+
+/// Where the cursor lands when the header filter hands focus back.
+enum _FilterExitCursor {
+  /// Esc: wherever it stood.
+  keep,
+
+  /// Enter: on the first match when no row holds it.
+  firstIfUnset,
+
+  /// ↓: on the first row of the results.
+  first,
 }

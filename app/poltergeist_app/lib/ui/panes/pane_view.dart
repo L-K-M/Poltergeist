@@ -255,6 +255,7 @@ class _PaneViewState extends State<PaneView> {
   bool _renameWasActive = false;
   String? _revealedLocationPath;
   List<RemoteFileEntry>? _revealedEntries;
+  late int _cursorRevealSeen = widget.controller.cursorRevealGeneration;
   // D14's drop plumbing: the listing's ListView key (row hit-testing
   // resolves through its render box) and the folder row a live drag
   // hover targets, reported up from the drop zone so the row paints
@@ -320,6 +321,7 @@ class _PaneViewState extends State<PaneView> {
       _renameWasActive = false;
       _revealedLocationPath = null;
       _revealedEntries = null;
+      _cursorRevealSeen = widget.controller.cursorRevealGeneration;
       // A pane that swaps controllers mid-drag keeps no hover row — the
       // index belongs to the old listing's geometry — and no armed
       // double-click either.
@@ -342,9 +344,10 @@ class _PaneViewState extends State<PaneView> {
   /// A navigation that lands while the viewport keeps its old offset
   /// leaves the TOP of the new listing off-screen (key-event reveals
   /// cannot fix what the user has not touched). Scroll a genuinely new
-  /// location to its top — but never a cancel-restore: the restored
-  /// listing is the same unmodifiable instance, so it keeps the user's
-  /// place.
+  /// location to its top — or, when it arrives with a cursor (the folder
+  /// `go.enclosing` or Back returned from, P4-02), centre that row — but
+  /// never a cancel-restore: the restored listing is the same
+  /// unmodifiable instance, so it keeps the user's place.
   void _syncReveal() {
     final path = widget.controller.location?.path;
     final entries = widget.controller.entries;
@@ -360,10 +363,33 @@ class _PaneViewState extends State<PaneView> {
     if (!pathChanged || path == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_disposed || !mounted || !_scrollController.hasClients) return;
-      if (_scrollController.offset > 0) {
+      final cursor = widget.controller.cursorIndex;
+      if (cursor != null) {
+        _centerRow(cursor);
+      } else if (_scrollController.offset > 0) {
         _scrollController.jumpTo(0);
       }
     });
+  }
+
+  /// Scrolls row [index] to the middle of the viewport, clamped to the
+  /// list's ends, so the siblings on both sides of it show too.
+  void _centerRow(int index) {
+    final position = _scrollController.position;
+    final extent = _rowExtent();
+    final target = (index * extent - (position.viewportDimension - extent) / 2)
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    if (target != position.pixels) _scrollController.jumpTo(target);
+  }
+
+  /// Scrolls the cursor into view when a surface outside the listing
+  /// asked for it ([PaneController.requestCursorReveal]) — the listing's
+  /// own keys reveal their moves themselves.
+  void _syncCursorReveal() {
+    final generation = widget.controller.cursorRevealGeneration;
+    if (generation == _cursorRevealSeen) return;
+    _cursorRevealSeen = generation;
+    _revealCursor();
   }
 
   void _revealCursor() {
@@ -1140,6 +1166,7 @@ class _PaneViewState extends State<PaneView> {
       builder: (context, _) {
         _syncGrace(_graceBusy());
         _syncReveal();
+        _syncCursorReveal();
         _syncQuickSelectFocus();
         _syncPathFieldFocus();
         _syncRenameFocus();
