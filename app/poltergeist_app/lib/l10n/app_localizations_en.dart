@@ -174,6 +174,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get connectionRetry => 'Retry';
 
   @override
+  String get connectionJumpHostUnsupported =>
+      'This server connects through a jump host, which Poltergeist does not support yet.';
+
+  @override
   String get vaultSaveFailed =>
       'Could not save the secret to the vault. The connection will continue.';
 

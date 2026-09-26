@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:ui' show Locale;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
+import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/double_click_action.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
@@ -1130,6 +1132,52 @@ void main() {
     // channel open was ever attempted against an empty host.
     expect(faults.single, isA<ArgumentError>());
     expect(lanes.calls.where((c) => c.startsWith('openBrowse')), isEmpty);
+    controller.dispose();
+  });
+
+  test('a jump-routed catalog server is refused before any dial', () async {
+    final lanes = FakePaneLanes();
+    final faults = <Object>[];
+    final controller = PaneController(
+      paneTabId: 'pane.right',
+      lanes: lanes,
+      onError: (error, _) => faults.add(error),
+    );
+    final now = DateTime.utc(2026, 9, 26);
+    final catalogOpen = Bookmark(
+      id: 'db',
+      kind: BookmarkKind.remotePath,
+      label: 'db',
+      server: const BookmarkServerRef(serverConfigId: 'db'),
+      sortKey: '',
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    await controller.connectRemote(
+      catalogOpen,
+      // The pinned opener would dial db.internal directly, around the
+      // bastion Séance routes it through (X-05).
+      resolvedConfig: const ServerConfig(
+        id: 'db',
+        label: 'db',
+        host: 'db.internal',
+        username: 'ops',
+        jumpHostId: 'bastion',
+        createdAt: 0,
+        updatedAt: 0,
+      ),
+    );
+
+    expect(lanes.calls.where((c) => c.startsWith('openBrowse')), isEmpty);
+    expect(controller.phase, PanePhase.connectingRemote);
+    expect(controller.error?.kind, RemoteFileErrorKind.unsupported);
+    expect(
+      controller.error?.message,
+      lookupAppLocalizations(const Locale('en')).connectionJumpHostUnsupported,
+    );
+    // An expected refusal, not a fault report.
+    expect(faults, isEmpty);
     controller.dispose();
   });
 

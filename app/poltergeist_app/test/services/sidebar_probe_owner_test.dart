@@ -252,6 +252,27 @@ void main() {
     expect(settings.calls, isNot(contains('remove:b2')));
   });
 
+  test('a jump-routed catalog server is never probed', () async {
+    ServerConfig pulled(String id, {String? jumpHostId}) => ServerConfig(
+      id: id,
+      label: id,
+      host: '$id.internal',
+      username: 'ops',
+      jumpHostId: jumpHostId,
+      createdAt: 0,
+      updatedAt: 0,
+    );
+    owner.forwardLifecycle(AppLifecycleState.resumed);
+    owner.syncCatalog([pulled('web'), pulled('db', jumpHostId: 'bastion')]);
+    owner.noteVisible('web');
+    owner.noteVisible('db');
+    await pump();
+
+    // The probe would dial db directly, around its bastion (X-05).
+    expect(settings.calls, ['write:web']);
+    expect(bridge.targets.map((target) => target.id), ['web']);
+  });
+
   test('noteRemoved purges the record and drops the target', () async {
     owner.forwardLifecycle(AppLifecycleState.resumed);
     owner.syncFavorites([_remoteFavorite('b1')]);

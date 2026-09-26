@@ -8899,6 +8899,37 @@ root (including the macOS menu bar), the window commands, the runner
 source contract, the multi-window session document, the lifecycle's
 close hook, and OS drops refused in an extra window.
 
+## Jump-host servers: route kept, never dialed directly (2026-09-26)
+
+Review findings X-02 and X-05. Since the D4 amendment, Poltergeist
+writes Séance's `serverConfig` records, and the pinned model (v0.9.1)
+already carries `jumpHostId`.
+
+- **X-02.** The ported editor rebuilt the config on save without
+  `jumpHostId`, so renaming a jump-routed server pushed a record that
+  dropped the route on every device, Séance included. `_formConfig` now
+  keeps it (Séance #131's fix). The other writers (duplication, the
+  store's re-stamp, the tombstone revive, pull apply) already carried it.
+  Keys the pinned model does not know (X-03) are still dropped; that
+  needs `ServerConfig` to round-trip unknown keys upstream, then a pin
+  bump.
+- **X-05.** The pinned opener ignores `jumpHostId` and dials the host
+  directly. `refuseJumpHostRoute` (`lib/services/jump_host_guard.dart`)
+  now fails a jump-routed config before the engine sees it, as a typed
+  `unsupported` error with an ARB sentence, in the pane's connect and in
+  `AppServerConfigSource.configFor` (transfers, checkouts, previews,
+  sync runs). The editor's Test connection reports the same sentence as
+  a failed trial without calling the delegate, and the sidebar no longer
+  probes such a server. This matches 01 §4 differentiator 8 (not
+  connectable until D10), so no plan edit.
+
+Tests: the editor keeps `jumpHostId` on an edit (failed before the fix),
+and `saveServer` seals it into the pushed record. The pane, the config
+source and the editor's test refuse a jump-routed server without
+dialing, and the probe owner skips it (all four failed before the fix).
+Validation: `flutter analyze` is clean, and the full app suite passes
+(2792 tests, 6 of them new).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

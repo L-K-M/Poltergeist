@@ -9,6 +9,7 @@ import 'double_click_action.dart';
 import 'drag_out_controller.dart' show DragOutLeftOut;
 import 'engine_session.dart';
 import 'folder_size.dart';
+import 'jump_host_guard.dart';
 import 'listing_filter.dart';
 import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
@@ -1003,10 +1004,14 @@ class PaneController extends ChangeNotifier {
         // catalog lookup — the pulled config carries the fields an
         // embedded identity cannot express (jumpHostId). Embedded
         // identities still derive theirs.
+        final config = resolvedConfig ?? serverConfigForBookmark(bookmark);
+        // A route this build cannot execute is refused before the engine
+        // would dial it directly, as a typed failure the pane shows.
+        refuseJumpHostRoute(config, operation: 'connect');
         final channel = await lanes.openBrowseChannel(
           serverId: bookmark.id,
           paneTabId: paneTabId,
-          config: resolvedConfig ?? serverConfigForBookmark(bookmark),
+          config: config,
         );
         if (_disposed || attempt != _bindAttempt) {
           await _closeChannel(channel);

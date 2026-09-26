@@ -5,6 +5,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../l10n/app_localizations.dart';
 import 'engine_session.dart' show serverConfigForBookmark;
+import 'jump_host_guard.dart';
 
 /// The app's answer to "what does this serverId dial" for the bridged
 /// transfer lease (protocol v13): a transfer, a checkout, a preview, or a
@@ -59,8 +60,20 @@ final class AppServerConfigSource implements ServerConfigSource {
     return serverId;
   }
 
+  /// Every lease dials what this answers, so a route this build cannot
+  /// execute is refused here: a transfer, checkout, preview, or sync run
+  /// reaches a server no pane opened (a task restored after a relaunch),
+  /// and must not dial it directly either.
   @override
   Future<ServerConfig?> configFor(String serverId) async {
+    final config = await _resolve(serverId);
+    if (config != null) {
+      refuseJumpHostRoute(config, operation: 'resolve server');
+    }
+    return config;
+  }
+
+  Future<ServerConfig?> _resolve(String serverId) async {
     final registered = _adHoc[serverId];
     if (registered != null) return registered;
     final endpointRef = _refs[serverId];

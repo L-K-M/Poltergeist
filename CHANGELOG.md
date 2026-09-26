@@ -183,6 +183,13 @@
     could not read the settings file. Pinning or folding afterwards
     used to replace all of them with just that one change; now the
     sidebar keeps them and shows them again.
+- **Servers behind a jump host stay behind it.** Editing a Séance
+  server in Poltergeist no longer deletes its jump host (ProxyJump) from
+  the record both apps share, which removed it in Séance too.
+  Poltergeist cannot connect through a jump host yet, so opening such a
+  server, testing it in its editor, or transferring to it now says so
+  instead of connecting to the server directly, around the jump host.
+  Its sidebar row no longer checks whether it is online either.
 - Pre-1.0 history lives in the commit log and the GitHub pre-releases
   (v0.1.0, v0.2.0).
 
