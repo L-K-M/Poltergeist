@@ -75,12 +75,15 @@ void main() {
     addTearDown(main.dispose);
     final extra = MethodChannelQuickLook(viewId: 1);
     var mainClosed = 0;
+    var extraClosed = 0;
     main.onClosed.listen((_) => mainClosed++);
+    extra.onClosed.listen((_) => extraClosed++);
     extra.dispose();
 
     await closed({'viewId': 1});
     await closed({'viewId': 0});
     await pumpEventQueue();
     expect(mainClosed, 1);
+    expect(extraClosed, 0);
   });
 }

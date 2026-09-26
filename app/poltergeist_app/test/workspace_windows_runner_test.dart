@@ -200,10 +200,11 @@ void main() {
       expect(runners['windows'], contains('ViewDropTarget::Register('));
       // Revoked before the view goes, which RevokeDragDrop needs.
       final windows = runners['windows']!;
-      expect(
-        windows.indexOf('drop_target_->Revoke();'),
-        lessThan(windows.indexOf('FlutterDesktopViewControllerDestroy(')),
-      );
+      final revoke = windows.indexOf('drop_target_->Revoke();');
+      final destroy = windows.indexOf('FlutterDesktopViewControllerDestroy(');
+      expect(revoke, isNonNegative, reason: 'the Revoke call is missing');
+      expect(destroy, isNonNegative, reason: 'the destroy call is missing');
+      expect(revoke, lessThan(destroy));
       expect(
         _read('windows/runner/flutter_window.cpp'),
         contains('drag_out_->SetViewResolver('),
@@ -279,10 +280,13 @@ void main() {
       );
       expect(controller, contains('- (void)updateSemantics:(const void*)update {'));
       // A late view has no bridge until told semantics are on.
-      expect(
-        controller.indexOf('[target notifySemanticsEnabledChanged];'),
-        lessThan(controller.indexOf('[target updateSemantics:update];')),
+      final notify = controller.indexOf(
+        '[target notifySemanticsEnabledChanged];',
       );
+      final update = controller.indexOf('[target updateSemantics:update];');
+      expect(notify, isNonNegative, reason: 'the notify call is missing');
+      expect(update, isNonNegative, reason: 'the forwarding call is missing');
+      expect(notify, lessThan(update));
       expect(controller, contains('offsetof(PoltergeistSemanticsUpdate, view_id)'));
     });
   });

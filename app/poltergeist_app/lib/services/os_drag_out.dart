@@ -597,8 +597,16 @@ final class _ViewDragOutBackend implements DragOutBackend {
   @override
   DragOutSupport get support => _router._backend.support;
 
+  /// A window's controller detaches as its window closes: the router lets
+  /// the view go, so a late callback for one of its sessions reads as
+  /// owned by no window.
   @override
-  set delegate(DragOutBackendDelegate? delegate) => _delegate = delegate;
+  set delegate(DragOutBackendDelegate? delegate) {
+    _delegate = delegate;
+    if (delegate == null && identical(_router._views[_viewId], this)) {
+      _router._views.remove(_viewId);
+    }
+  }
 
   @override
   Future<DragOutStartResult> startDrag(DragOutRequest request) =>

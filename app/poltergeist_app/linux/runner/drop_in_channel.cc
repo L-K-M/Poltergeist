@@ -119,11 +119,18 @@ gboolean on_focus_in(GtkWidget* widget, GdkEventFocus* event,
   return FALSE;
 }
 
+// XDG_CURRENT_DESKTOP is a colon-separated list of desktop names.
 gboolean is_kde_session() {
   const gchar* desktop = g_getenv("XDG_CURRENT_DESKTOP");
   if (desktop == nullptr) return FALSE;
   g_autofree gchar* lower = g_ascii_strdown(desktop, -1);
-  return strcmp(lower, "kde") == 0 || strcmp(lower, "plasma") == 0;
+  g_auto(GStrv) names = g_strsplit(lower, ":", -1);
+  for (gchar** name = names; *name != nullptr; name++) {
+    if (strcmp(*name, "kde") == 0 || strcmp(*name, "plasma") == 0) {
+      return TRUE;
+    }
+  }
+  return FALSE;
 }
 
 FlMethodChannel* engine_channel(FlEngine* engine) {
@@ -143,7 +150,11 @@ FlMethodChannel* engine_channel(FlEngine* engine) {
 
 void drop_in_channel_add_view(FlView* view) {
   const int64_t view_id = fl_view_get_id(view);
-  if (view_id < 0) return;
+  // A second registration would free the context the first one's signal
+  // handlers still use.
+  if (view_id < 0 || g_object_get_data(G_OBJECT(view), kEngineDataKey)) {
+    return;
+  }
   auto* self = g_new0(ViewDropIn, 1);
   self->channel = engine_channel(fl_view_get_engine(view));
   self->view_id = view_id;

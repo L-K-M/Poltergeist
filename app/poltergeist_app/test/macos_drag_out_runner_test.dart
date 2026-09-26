@@ -245,10 +245,12 @@ void main() {
       ];
       expect(starts, hasLength(4));
       expect(starts.last['viewId'], 2);
-      for (final arguments in starts) {
-        expect(arguments.keys.toSet().union(windowOnly), {
-          ...reads.keys,
+      for (final (index, arguments) in starts.indexed) {
+        expect(arguments.keys.toSet(), {
+          ...reads.keys.where((key) => !windowOnly.contains(key)),
           ...unreadOnMac,
+          // Only the extra window's drag, the last, names its view.
+          if (index == starts.length - 1) ...windowOnly,
         });
         reads.forEach((key, cast) {
           final value = arguments[key];

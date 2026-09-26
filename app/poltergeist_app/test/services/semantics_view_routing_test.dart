@@ -55,6 +55,10 @@ void main() {
 
   test('every root is 0, so a root action stays with the main window', () {
     expect(route(0, 0), 0);
+    // Whatever order the trees come in.
+    trees = {3: trees[3], 2: null, 0: trees[0]};
+    expect(route(0, 0), 0);
+    expect(route(0, extraButton.id), 3);
   });
 
   test('a node no tree holds stays where it was addressed', () {
