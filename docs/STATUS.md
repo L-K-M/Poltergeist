@@ -9032,6 +9032,47 @@ revision-policy concern. Séance's core by-ID acknowledgement API needs its own
 compatible upstream extension; this change uses Poltergeist's existing store
 extension without copying shared transport code.
 
+## Edited servers reach the next connection (2026-09-26)
+
+The pool kept the config a serverId's reference resolved first for the
+whole session, so after an edit to a server or bookmark (local or
+synced) new tabs, transfer leases and sync runs kept dialing the old
+host, port and user with the old credential reference until an explicit
+Disconnect or a restart. The invalidation the manager's comment
+promised was never built.
+
+Every browse open and lease already carries the app's current config, so
+the engine host now hands it to the new
+`PooledConnectionManager.updateServerConfig` before acquiring; no
+protocol change. The same endpoint (`PoolKey`) takes the config in
+place: the next first connect uses it, and live transports keep their
+resolved credentials, as for any sibling bookmark (03 §3.5). A new
+endpoint retires the reference: the next acquisition resolves the new
+config, the id's status reads `disconnected` until then, and the old
+pool drains instead of being cut. Panes and leases there keep working
+until they close, queued acquisitions fail `disconnected` so they retry
+on the new endpoint, the pool never reconnects for the edited id (nor
+does a recovery already pending when the edit lands), its keepalive runs
+until the last draining channel closes (a sibling's disconnect does not
+cut it either), and an explicit disconnect or bookmark removal still
+closes what is left.
+
+Regression tests: `test/connection/pool_config_refresh_test.dart` (open,
+close, edit, open dials the new host, port or user; drain; no reconnect
+to the old endpoint; same-endpoint swap; disconnect after an edit; a
+sibling keeping the shared pool; an edit during a first connect, alone
+or joined by a sibling; an edit after a transport death; the draining
+keepalive; a sibling's disconnect; queued acquisitions) and two
+`engine_host_test.dart` cases for the browse and lease requests.
+Follow-up: the pane controller's Retry and restored-tab resume still
+rebuild the config from the tab's own copy of the bookmark (ignoring the
+pulled catalog), so they can dial a stale endpoint after an edit, and
+since the engine host adopts every request's config, such a request also
+moves the id's reference back to the stale endpoint until the next
+current one. `ServerConfig.updatedAt` cannot order them in the engine: a
+catalog config and a bookmark's embedded identity carry different
+records' clocks.
+
 ## Extra windows' integrations (2026-09-26)
 
 Open item 34's first five gaps are closed: a window opened with File ▸

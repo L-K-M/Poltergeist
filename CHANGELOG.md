@@ -150,6 +150,12 @@
   remote managed checkouts, previews, and remote sync endpoints now run
   through the engine's bridged transfer lease. 1.0.0 failed these tasks
   with `unsupported`.
+- **Edited servers connect where you pointed them.** Changing a server's
+  host, port or user name used to take effect only after Disconnect or a
+  restart: new tabs, transfers and syncs kept connecting to the old
+  address. They now use the new details, and tabs and transfers already
+  open on the old address keep working until they close. A new key file
+  or password is used the next time the server connects.
 - **Trust before secrets.** Connecting to a server for the first time now
   asks you to approve its host key before it asks for a password. An
   unreachable server fails without asking for a password at all.

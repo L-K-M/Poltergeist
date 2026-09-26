@@ -264,7 +264,7 @@ class EngineHost {
       case final OpenBrowseChannelRequest request:
         _guard(request.requestId, () async {
           _rejectIfShuttingDown();
-          _servers[request.serverId] = request.config;
+          _adoptServerConfig(request.serverId, request.config);
           final channel = await _manager.openBrowseChannel(
             request.serverId,
             paneTabId: request.paneTabId,
@@ -333,7 +333,7 @@ class EngineHost {
           // server (a restored task, a sync run): the config rides along.
           final config = request.config;
           if (config != null) {
-            _servers[request.serverId] = config;
+            _adoptServerConfig(request.serverId, config);
           } else if (!_servers.containsKey(request.serverId)) {
             // No config from the app and none from a browse open: there
             // is nothing to dial, and inventing one would be worse.
@@ -463,6 +463,15 @@ class EngineHost {
 
   void _respond(int requestId, EngineResult result) {
     _events.send(ResponseEvent(requestId: requestId, result: result));
+  }
+
+  /// Every connection-bearing request carries the app's current config for
+  /// its server, so adopting it here is what makes a bookmark edit, local
+  /// or synced, reach the next connection instead of the session's first.
+  /// The map goes first: a retired reference re-resolves through it.
+  void _adoptServerConfig(String serverId, ServerConfig config) {
+    _servers[serverId] = config;
+    _manager.updateServerConfig(serverId, config);
   }
 
   Future<ServerConfig> _resolveKnownServer(String serverId) async {
