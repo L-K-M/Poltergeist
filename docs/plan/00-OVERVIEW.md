@@ -820,13 +820,17 @@ D38 device themes · D39 workspace windows
     in, every value stays editable, and the app repaints as it changes,
     with no Save button. A preset is recognised by its values, not its
     name.
-  - **The default is the app as it was.** The first preset (Poltergeist
-    here, Séance there) leaves every colour Automatic: the shared slate
-    and Finder-light tables, following the system's light or dark or a
-    mode the user picks, with the app's own accent. A test pins it to the
-    theme the app built before themes existed. A palette that sets its
-    own surface takes its brightness from that surface and mixes its
-    Automatic shades from it.
+  - **The first preset is the app as it was.** The first preset
+    (Poltergeist here, Séance there) leaves every colour Automatic: the
+    shared slate and Finder-light tables, following the system's light or
+    dark or a mode the user picks, with the app's own accent. A test pins
+    it to the theme the app built before themes existed, and a partial
+    theme fills its gaps from it. A palette that sets its own surface
+    takes its brightness from that surface and mixes its Automatic shades
+    from it.
+  - **A new device starts in Vapor** (amended 2026-09-26, owner-directed;
+    Séance starts in Terminal). The default and Reset use it; an install
+    that never picked a theme moves to it too.
   - **One stored format for both apps.** A theme is one JSON object with
     Séance's keys and hex forms, decoded leniently (a bad value costs only
     itself, and garbage reads as the default), so Copy theme in one app

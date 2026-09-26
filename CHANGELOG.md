@@ -48,8 +48,9 @@
   interface font and how round the corners are; the app repaints as you
   go. Colours left on Automatic follow light or dark as you choose. Copy
   theme and Paste theme carry a theme between devices, and between
-  Poltergeist and Séance; themes do not sync. An existing install looks
-  exactly as before.
+  Poltergeist and Séance; themes do not sync. The app starts in Vapor,
+  magenta and cyan over violet-black; pick Poltergeist for the teal look
+  it had before themes.
 - **A new workspace.** The window is rebuilt in the style of ForkLift and
   Transmit:
   - A calm header: back and forward, the current location, New Folder,

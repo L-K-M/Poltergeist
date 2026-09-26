@@ -64,17 +64,17 @@ void main() {
   });
 
   group('lenient decode', () {
-    test('an empty object is the default, named for it', () {
+    test('an empty object is Poltergeist, the all-Automatic preset', () {
       final palette = ThemePalette.fromJson(const {});
-      expect(palette.name, ThemePresets.initial.name);
-      expect(palette.accent, ThemePresets.initial.accent);
+      expect(palette.name, ThemePresets.poltergeist.name);
+      expect(palette.accent, ThemePresets.poltergeist.accent);
       for (final slot in ThemeSlot.values) {
         expect(palette.slot(slot), isNull, reason: slot.name);
       }
       expect(palette.fontFamily, isNull);
       expect(palette.cornerScale, 1);
-      // Its values are the default's, so it is that preset again.
-      expect(palette.matchingPreset, same(ThemePresets.initial));
+      // Its values are Poltergeist's, so it is that preset again.
+      expect(palette.matchingPreset, same(ThemePresets.poltergeist));
     });
 
     test('a bad value costs only itself', () {
@@ -89,12 +89,12 @@ void main() {
         'fontFamily': 12,
       });
       expect(palette.name, 'Mine');
-      expect(palette.accent, ThemePresets.initial.accent);
+      expect(palette.accent, ThemePresets.poltergeist.accent);
       expect(palette.surface, const Color(0xFF102030));
       expect(palette.text, isNull);
       expect(palette.sidebar, isNull);
       expect(palette.online, const Color(0xFF00FF00));
-      expect(palette.cornerScale, ThemePresets.initial.cornerScale);
+      expect(palette.cornerScale, ThemePresets.poltergeist.cornerScale);
       expect(palette.fontFamily, isNull);
     });
 
@@ -207,12 +207,26 @@ void main() {
         42,
         const ['#FFFFFF'],
         {1: 'non-string key'},
+        // A map, but one that says nothing about how anything looks.
+        const <String, Object?>{},
+        const {'name': 'Mine'},
       ]) {
         expect(
           ThemePalette.decodeStored(stored),
           ThemePresets.initial,
           reason: '$stored',
         );
+      }
+    });
+
+    test('any one value is enough for a stored theme to be read', () {
+      // Every key the stored form holds but the name: a stored map with
+      // only one of them is still a theme, not a stray map the default
+      // replaces, so a key the gate forgets fails here.
+      final full = ThemePresets.paper.withFontFamily('Inter').toJson();
+      for (final key in full.keys.where((key) => key != 'name')) {
+        final decoded = ThemePalette.decodeStored({key: full[key]});
+        expect(decoded.toJson()[key], full[key], reason: key);
       }
     });
 
@@ -288,7 +302,7 @@ void main() {
     });
 
     test('Automatic values are left out of the stored form', () {
-      final json = ThemePresets.initial.toJson();
+      final json = ThemePresets.poltergeist.toJson();
       expect(json.keys, unorderedEquals(['name', 'accent', 'cornerScale']));
     });
   });

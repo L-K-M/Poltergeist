@@ -8720,7 +8720,8 @@ and Poltergeist. Séance built it first
   Settings window repainting on each change. Colours left Automatic
   follow System, Light or Dark. Copy theme and Paste theme carry a theme
   between devices and between the two apps. An install that never opens
-  Appearance looks exactly as before.
+  Appearance starts in Vapor (D38 amendment, 2026-09-26; until then it
+  looked exactly as before).
 - **The model** (`lib/theme/`): `ThemePalette`, `ThemePresets`,
   `AppAppearance` and `contrast.dart`, ported from Séance (PORTS.md,
   "Device themes (D38)"). Same JSON keys, hex forms and lenient decode as
