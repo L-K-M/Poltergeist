@@ -742,7 +742,19 @@ counterpart is ported here.
   identity bookmark becomes a plain path field (not sandboxed). Field
   set, credential planning, exclusion confirmation, monotonic
   `updatedAt`, and the vault-first save order are upstream's.
-- Port-back candidates: the delegate seam (see the backend entry).
+- Jump routes (X-02, X-05), 2026-09-26: `_formConfig` carries
+  `jumpHostId` over from the saved config, the one-line fix
+  [Séance #131](https://github.com/L-K-M/Seance/pull/131) made after the
+  pin. Without it every save pushed the server without its route, which
+  wins last-write-wins on Séance's devices too. New divergence: Test
+  connection refuses a jump-routed server with the ARB sentence the
+  connect paths use (`lib/services/jump_host_guard.dart`) and never calls
+  the delegate. The pinned `runConnectionTest` tests the host directly and
+  adds a note, which here would send the form's credential around the
+  bastion. Drop the refusal once the pin executes jump hosts (D10).
+- Port-back candidates: the delegate seam (see the backend entry). The
+  jump-route fix is upstream already; the test refusal is not a
+  candidate, because Séance main executes jump routes since #131.
 
 ## app/poltergeist_app/test/services/server_duplication_test.dart
 
@@ -762,6 +774,9 @@ counterpart is ported here.
 - Divergences: upstream boots real services around `AppState`; the port
   drives the same editor surface through a fake `ServerEditorDelegate`,
   so cases about vault plumbing collapse into delegate assertions.
+  2026-09-26: two cases for the jump-route entry above: an edit keeps
+  `jumpHostId`, and Test connection refuses a jump-routed server without
+  calling the delegate.
 - Port-back candidates: none.
 
 ## app/poltergeist_app/lib/ui/top_toast.dart

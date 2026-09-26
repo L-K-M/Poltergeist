@@ -1057,6 +1057,10 @@ class _ServerEditorState extends State<_ServerEditor> {
       username: _user.text.trim(),
       authMethod: _auth,
       secretRef: secretRef,
+      // ProxyJump editing is not exposed yet; preserve the saved route.
+      // Séance reads this same record, so dropping it here would take the
+      // route away on every device (Séance #131's fix, X-02).
+      jumpHostId: existing?.jumpHostId,
       // Blank reads as "no file referenced", not as a path made of nothing:
       // the validator blocks an empty path, and a caller that ever reached
       // here without it would otherwise ask the SSH layer to read `''`.
@@ -1103,6 +1107,27 @@ class _ServerEditorState extends State<_ServerEditor> {
       secretRef: widget.existing?.secretRef,
       now: DateTime.now().millisecondsSinceEpoch,
     );
+    // Refused like a real connect (jump_host_guard.dart): the pinned opener
+    // would authenticate straight to the host, around the bastion the route
+    // names, with whatever credential the form holds. The pinned
+    // `runConnectionTest` tests anyway and only notes the skipped jump host;
+    // a trial is still a dial.
+    if (config.jumpHostId != null) {
+      final summary = AppLocalizations.of(
+        context,
+      ).connectionJumpHostUnsupported;
+      setState(() {
+        _testing = false;
+        // Nothing was dialed, so the transcript is the summary alone: it
+        // ends with the summary, as every failed trial's does.
+        _testResult = ConnectionTestResult(
+          ok: false,
+          summary: summary,
+          log: summary,
+        );
+      });
+      return;
+    }
     final ConnectionTestResult result;
     try {
       result = await widget.delegate.testConnection(

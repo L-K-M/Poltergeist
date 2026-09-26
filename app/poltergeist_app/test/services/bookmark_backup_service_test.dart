@@ -593,6 +593,28 @@ void main() {
       expect(h.service.catalog!.byId('web'), isNotNull);
     });
 
+    test('saveServer seals a jump route into the pushed record', () async {
+      // The editor hands over the route it does not show (X-02); the
+      // re-stamp and the seal must carry it on to Séance's devices.
+      await h.enrollSharedDirectly();
+      await h.service.saveServer(ServerConfig(
+        id: 'db',
+        label: 'db',
+        host: 'db.internal',
+        username: 'u',
+        jumpHostId: 'bastion',
+        createdAt: 1,
+        updatedAt: 1,
+      ));
+
+      final record = (await h.records.dirtyRecords()).single;
+      final opened = await RecordCrypto(
+        RecordCodec(h.credentials.vaultKey!),
+      ).open(record);
+      expect(opened.data['jumpHostId'], 'bastion');
+      expect((await h.servers.byId('db'))!.jumpHostId, 'bastion');
+    });
+
     test('deleteServer drops the row and seals the tombstone', () async {
       await h.enrollSharedDirectly();
       await h.service.saveServer(config('web'));

@@ -5,8 +5,10 @@
 // endpoint leasing under its registered id and releasing on demand.
 
 import 'dart:io';
+import 'dart:ui' show Locale;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/server_config_source.dart';
 import 'package:poltergeist_app/services/sync_environment.dart';
 import 'package:poltergeist_app/services/sync_state_store.dart';
@@ -134,6 +136,41 @@ void main() {
               .having((e) => e.message, 'message', contains('label-b3')),
         ),
       );
+    });
+
+    test('a jump-routed catalog server refuses the lease typed', () async {
+      // A transfer, checkout, preview, or sync run restored after a
+      // relaunch leases without a pane: the pinned opener would dial the
+      // host directly, around the bastion (X-05).
+      const pulled = ServerConfig(
+        id: 'cfg-db',
+        label: 'db',
+        host: 'db.internal',
+        username: 'ops',
+        jumpHostId: 'bastion',
+        createdAt: 0,
+        updatedAt: 0,
+      );
+      final source = AppServerConfigSource(
+        bookmarks: _Bookmarks([
+          _bookmark('b4', const BookmarkServerRef(serverConfigId: 'cfg-db')),
+        ]),
+        catalogLookup: (id) => id == 'cfg-db' ? pulled : null,
+      );
+      final endpoint = source.registerEndpoint(
+        const BookmarkServerRef(serverConfigId: 'cfg-db'),
+      );
+      final refusal = isA<RemoteFileException>()
+          .having((e) => e.kind, 'kind', RemoteFileErrorKind.unsupported)
+          .having(
+            (e) => e.message,
+            'message',
+            lookupAppLocalizations(
+              const Locale('en'),
+            ).connectionJumpHostUnsupported,
+          );
+      await expectLater(source.configFor('b4'), throwsA(refusal));
+      await expectLater(source.configFor(endpoint), throwsA(refusal));
     });
 
     test('an unknown id (Quick Connect) answers null', () async {

@@ -400,6 +400,12 @@ abstract class AppLocalizations {
   /// **'Retry'**
   String get connectionRetry;
 
+  /// Why a synced server whose route runs through a jump host (ProxyJump) is refused instead of dialed directly: shown on the pane's connection error, a failed transfer or sync row, and the server editor's connection test (D10).
+  ///
+  /// In en, this message translates to:
+  /// **'This server connects through a jump host, which Poltergeist does not support yet.'**
+  String get connectionJumpHostUnsupported;
+
   /// Transient notice when saving a prompted secret failed.
   ///
   /// In en, this message translates to:
