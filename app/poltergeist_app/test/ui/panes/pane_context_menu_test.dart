@@ -160,6 +160,8 @@ void main() {
       kSelectionTransferToOtherPaneCommandId,
       kSelectionMoveToOtherPaneCommandId,
       kFileDeleteCommandId,
+      kEditUndoSelectionCommandId,
+      kEditRedoSelectionCommandId,
     ];
     for (final id in ids) {
       expect(item(id), findsOneWidget, reason: id);
@@ -207,6 +209,8 @@ void main() {
     expect(item(kViewToggleHiddenCommandId), findsOneWidget);
     expect(item(kViewRefreshCommandId), findsOneWidget);
     expect(item(kEditSelectAllCommandId), findsOneWidget);
+    expect(item(kEditUndoSelectionCommandId), findsOneWidget);
+    expect(item(kEditRedoSelectionCommandId), findsOneWidget);
     // Nothing that acts on a selection the press did not land on.
     expect(anyItem(kGoOpenCommandId), findsNothing);
     expect(anyItem(kFileDeleteCommandId), findsNothing);

@@ -23,12 +23,15 @@ import 'package:poltergeist_app/services/external_file_opener.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/registered_command.dart';
 import 'package:poltergeist_app/services/session_state.dart';
+import 'package:poltergeist_app/services/workspace_windows/workspace_windows.dart';
+import 'package:poltergeist_app/ui/editor_window_app.dart';
 import 'package:poltergeist_app/ui/built_in_text_editor.dart';
 import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
 import 'package:poltergeist_app/ui/workspace_shell.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
+import '../../services/workspace_windows_test.dart' show FakeWindowHost;
 import '../../support/fake_bookmark_store.dart';
 import '../../support/shell_menus.dart';
 
@@ -462,6 +465,7 @@ Future<void> mountEditorShell(
   WidgetTester tester,
   EditorCheckoutHarness harness, {
   Key? boundaryKey,
+  WorkspaceWindow? window,
   ThemeData? theme,
   EditorRegistryController? editorRegistry,
   ExternalFileOpener? externalOpener,
@@ -485,6 +489,7 @@ Future<void> mountEditorShell(
     supportedLocales: AppLocalizations.supportedLocales,
     navigatorKey: harness.navigatorKey,
     home: WorkspaceShell(
+      window: window,
       bookmarks: harness.bookmarks,
       engineSession: harness.engine,
       transferQueue: TransferQueueAdapter(harness.queue),
@@ -583,6 +588,68 @@ void main() {
   tearDown(() async {
     await harness.close();
   });
+
+  testWidgets(
+    'desktop editing opens another window and leaves the workspace visible',
+    (tester) async {
+      await tester.runAsync(() async {
+        final host = FakeWindowHost();
+        final windows = WorkspaceWindows(
+          host: host,
+          quitApplication: () async {},
+          afterFrame: () async {},
+        );
+        await windows.start();
+        await mountEditorShell(tester, harness, window: windows.windows.single);
+        final pane = leftPane(tester);
+        await pane.editInBuiltInEditor(
+          pane.entries.firstWhere((e) => e.name == 'config.txt'),
+        );
+        for (var i = 0; i < 20 && windows.windows.length == 1; i++) {
+          await tester.pump();
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        expect(windows.windows, hasLength(2));
+        expect(host.calls, ['create 1']);
+        expect(find.byType(BuiltInTextEditorScreen), findsNothing);
+        expect(find.byType(WorkspaceShell), findsOneWidget);
+
+        // A second open raises the same document, including before its
+        // view mounts, rather than making another buffer for the checkout.
+        await pane.editInBuiltInEditor(
+          pane.entries.firstWhere((e) => e.name == 'config.txt'),
+        );
+        await tester.pump();
+        expect(windows.windows, hasLength(2));
+        expect(host.calls, ['create 1', 'activate 1']);
+
+        // Mount the document's own app and remove its source workspace.
+        // Its save and conflict hooks must no longer depend on that shell.
+        final editorWindow = windows.windows.last;
+        await tester.pumpWidget(EditorWindowApp(window: editorWindow));
+        expect(await windows.closeMainWindowInstead(), isTrue);
+        await pollFor(tester, editorField);
+        harness.fs.seed(
+          remoteConfigPath,
+          utf8.encode('server rewrite\n'),
+          modifiedAt: DateTime.utc(2026, 3, 3),
+        );
+        await tester.enterText(editorField, 'window edit\n');
+        await tester.pump();
+        await tester.tap(find.byTooltip('Save and upload'));
+        await pollFor(tester, find.text('Remote file changed'));
+        expect(harness.fs.uploadCalls, isEmpty);
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.tap(
+          find.widgetWithText(FilledButton, 'Overwrite Remote Version'),
+        );
+        await pollFor(tester, find.text('Saved and uploaded.'));
+        expect(utf8.decode(harness.fs.bytes(remoteConfigPath)!), 'window edit\n');
+        await tester.pumpWidget(const SizedBox());
+        windows.dispose();
+      });
+    },
+  );
 
   testWidgets(
     'a remote file opens through file.editBuiltIn, edits, and '

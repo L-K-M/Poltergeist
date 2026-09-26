@@ -242,6 +242,165 @@ void main() {
     expect(invert.enabled(), isFalse);
   });
 
+  testWidgets('selection history commands follow the active pane and tab', (
+    tester,
+  ) async {
+    final lanes = controller_test.FakePaneLanes();
+    final left = PaneController(paneTabId: 'left.1', lanes: lanes);
+    final otherTab = PaneController(paneTabId: 'left.2', lanes: lanes);
+    final right = PaneController(paneTabId: 'right.1', lanes: lanes);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final second = leftStrip.addTab(otherTab);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
+    addTearDown(workspace.dispose);
+    for (final pane in [left, otherTab, right]) {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('a'),
+        _entry('b'),
+        _entry('c'),
+      ];
+      lanes.nextLocalChannel = channel;
+      await pane.openLocalHome();
+      await tester.pump();
+    }
+    left.setCursorIndex(0);
+    left.setCursorIndex(1);
+    otherTab.setCursorIndex(2);
+    right.setCursorIndex(0);
+    await tester.pumpWidget(
+      MaterialApp(home: const Scaffold(body: SizedBox())),
+    );
+    final context = tester.element(find.byType(Scaffold));
+    final commands = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    );
+    final undo = commands.firstWhere(
+      (c) => c.id == kEditUndoSelectionCommandId,
+    );
+    final redo = commands.firstWhere(
+      (c) => c.id == kEditRedoSelectionCommandId,
+    );
+    expect(undo.menuPlacement?.menu, AppMenuId.edit);
+    expect(undo.activators!(TargetPlatform.macOS), [
+      const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, alt: true),
+    ]);
+    expect(redo.activators!(TargetPlatform.linux), [
+      const SingleActivator(
+        LogicalKeyboardKey.keyZ,
+        control: true,
+        alt: true,
+        shift: true,
+      ),
+    ]);
+    workspace.setActivePane(leftStrip);
+    expect(undo.enabled(), isTrue);
+    expect(redo.enabled(), isFalse);
+    await undo.run(context);
+    expect(left.cursorIndex, 0);
+    expect(otherTab.cursorIndex, 2);
+    expect(right.cursorIndex, 0);
+    expect(redo.enabled(), isTrue);
+    leftStrip.activateTab(second);
+    await tester.pump();
+    expect(redo.enabled(), isFalse);
+    await undo.run(context);
+    expect(otherTab.selectedCount, 0);
+    expect(left.cursorIndex, 0);
+    workspace.setActivePane(rightStrip);
+    await undo.run(context);
+    expect(right.selectedCount, 0);
+    await redo.run(context);
+    expect(right.cursorIndex, 0);
+    expect(otherTab.selectedCount, 0);
+  });
+
+  testWidgets(
+    'selection undo and redo chords leave focused text fields alone',
+    (tester) async {
+      final lanes = controller_test.FakePaneLanes();
+      final pane = PaneController(paneTabId: 'left.1', lanes: lanes);
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [_entry('a'), _entry('b')];
+      lanes.nextLocalChannel = channel;
+      await pane.openLocalHome();
+      await tester.pump();
+      pane.setCursorIndex(0);
+      pane.setCursorIndex(1);
+      final workspace = WorkspaceController(
+        left: testPaneStrip(pane),
+        right: testPaneStrip(
+          PaneController(paneTabId: 'right.1', lanes: lanes),
+        ),
+      );
+      addTearDown(workspace.dispose);
+      final field = FocusNode();
+      final sibling = FocusNode();
+      addTearDown(field.dispose);
+      addTearDown(sibling.dispose);
+      final commands = buildPaneCommands(
+        workspace: workspace,
+        focusLeft: () {},
+        focusRight: () {},
+        swapFocus: () {},
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CommandChordScope(
+            commands: commands,
+            child: Scaffold(
+              body: Column(
+                children: [
+                  TextField(focusNode: field),
+                  Focus(focusNode: sibling, child: const SizedBox(height: 10)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      final context = tester.element(find.byType(Scaffold));
+      final primary = Theme.of(context).platform == TargetPlatform.macOS
+          ? LogicalKeyboardKey.metaLeft
+          : LogicalKeyboardKey.controlLeft;
+      Future<void> chord({bool redo = false}) async {
+        await tester.sendKeyDownEvent(primary);
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+        if (redo) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+        if (redo) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+        await tester.sendKeyUpEvent(primary);
+        await tester.pump();
+      }
+
+      field.requestFocus();
+      await tester.pump();
+      await chord();
+      expect(pane.cursorIndex, 1);
+      sibling.requestFocus();
+      await tester.pump();
+      await chord();
+      expect(pane.cursorIndex, 0);
+      field.requestFocus();
+      await tester.pump();
+      await chord(redo: true);
+      expect(pane.cursorIndex, 0);
+      sibling.requestFocus();
+      await tester.pump();
+      await chord(redo: true);
+      expect(pane.cursorIndex, 1);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.linux,
+    }),
+  );
+
   testWidgets('quick select is registered, pane-scoped, and resolves the '
       'active pane at invocation', (tester) async {
     final lanes = controller_test.FakePaneLanes();

@@ -269,6 +269,9 @@ List<String> _desktopFile(TargetPlatform platform) {
 
 const _desktopMenus = <AppMenuId, List<String>>{
   AppMenuId.edit: [
+    'Undo Selection Ctrl+Alt+Z',
+    'Redo Selection Ctrl+Alt+Shift+Z',
+    _divider,
     'Select All Ctrl+A',
     'Invert Selection Ctrl+Shift+I',
     'Quick Select Ctrl+E',
@@ -379,6 +382,9 @@ const _macMenus = <String, List<String>>{
     'Close Tab ⌘W',
   ],
   'Edit': [
+    'Undo Selection ⌥⌘Z',
+    'Redo Selection ⌥⇧⌘Z',
+    _divider,
     'Select All ⌘A',
     'Invert Selection ⇧⌘I',
     'Quick Select ⌘E',

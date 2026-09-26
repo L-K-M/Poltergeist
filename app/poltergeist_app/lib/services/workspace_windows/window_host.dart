@@ -38,7 +38,7 @@ enum WindowHostMethod {
 enum WindowHostEvent { activated, closeRequested }
 
 /// The keys of the argument maps, both directions.
-enum WindowHostKey { viewId, engineId, fullScreen }
+enum WindowHostKey { viewId, engineId, fullScreen, title }
 
 /// What the runner reports about the windows it hosts.
 abstract interface class WindowHostListener {
@@ -60,7 +60,7 @@ abstract interface class WindowHost {
   /// Opens a new native window whose view renders on this engine, and
   /// answers with the view's id. It becomes the active window. Throws a
   /// [WindowHostException] when the runner could not create it.
-  Future<int> create();
+  Future<int> create({String? title});
 
   /// Closes an extra window for good. Its view leaves the engine with it.
   Future<void> destroy(int viewId);
@@ -127,12 +127,15 @@ final class MethodChannelWindowHost implements WindowHost {
   }
 
   @override
-  Future<int> create() async {
+  Future<int> create({String? title}) async {
     final Object? viewId;
     try {
       viewId = await _channel.invokeMethod<Object>(
         WindowHostMethod.create.name,
-        {WindowHostKey.engineId.name: _engineId()},
+        {
+          WindowHostKey.engineId.name: _engineId(),
+          WindowHostKey.title.name: ?title,
+        },
       );
     } on PlatformException catch (error) {
       throw WindowHostException(error.message ?? error.code);
@@ -198,7 +201,7 @@ final class UnavailableWindowHost implements WindowHost {
   Future<bool> isAvailable() async => false;
 
   @override
-  Future<int> create() async =>
+  Future<int> create({String? title}) async =>
       throw const WindowHostException('no window host');
 
   @override

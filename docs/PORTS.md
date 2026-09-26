@@ -965,8 +965,16 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   and upload verbs — save-and-upload on a managed checkout rides the
   composed queue and surfaces the typed `conflict` as 06 §3.4's
   overwrite dialog; cancel keeps the local save and uploads nothing.
-- Port-back candidates: none — the seams exist so Poltergeist's
-  checkout pipeline owns the conflict authority.
+  Since 2026-09-26, optional close/quit callbacks host the same editor in a
+  D39 native window. The editor registers its dirty-buffer guard with the
+  window manager and owns its document menus; mobile retains the route.
+  Native close refuses an in-flight save/upload and concurrent close
+  attempts share the discard question. Quit freezes the open buffers until
+  exit or cancellation so earlier confirmations remain valid.
+- Port-back candidates: separate editor windows and native close guards
+  apply to Séance too, but require its own window ownership and checkout
+  integration. This task changes Poltergeist; the shared document I/O,
+  syntax, and conflict rules remain unchanged.
 
 ## Editor tests and captures (M7)
 
@@ -1348,6 +1356,13 @@ and Séance's root Unlicense.
   active a text-input callback can read the freed tree (Séance's
   docs/macos-accessibility-crash.md). Remove when the engine fixes the
   destruction order.
+- Keyboard compatibility (2026-09-26): key-down/up ingress supplies a
+  left Command bit only when an injected event carries aggregate Command
+  without either side. Existing physical events retain identity, and cloned
+  events retain Flutter's key-equivalent marker. The native keyboard fixture
+  exercises this boundary against the real bundled responders. The same
+  correction is proposed in [Séance #144](https://github.com/L-K-M/Seance/pull/144);
+  its accessibility lifecycle remains unchanged.
 
 ## Settings window runners (D36)
 

@@ -197,7 +197,10 @@ final class SelectionState<Key extends Object> {
     final rowList = List<Key>.of(rows);
     _rejectDuplicates(rowList);
 
-    final present = rowList.toSet();
+    return _withRows(rowList, rowList.toSet());
+  }
+
+  SelectionState<Key> _withRows(List<Key> rowList, Set<Key> present) {
     return SelectionState._(
       rows: rowList,
       selection: _selection.where(present.contains).toSet(),
@@ -209,6 +212,12 @@ final class SelectionState<Key extends Object> {
           : null,
     );
   }
+
+  bool _sameSelection(SelectionState<Key> other) =>
+      cursorKey == other.cursorKey &&
+      anchorKey == other.anchorKey &&
+      _selection.length == other._selection.length &&
+      _selection.containsAll(other._selection);
 
   // Duplicate identities would make ranges and toggles ambiguous.
   static void _rejectDuplicates(List<Object?> rows) {
@@ -224,4 +233,79 @@ final class SelectionState<Key extends Object> {
     }
     return index;
   }
+}
+
+/// Bounded, immutable selection history for one listing owner. Navigation
+/// starts a new history; a cancelled navigation can restore this value with
+/// its selection snapshot. Neither rows changing nor previews record steps.
+final class SelectionHistory<Key extends Object> {
+  const SelectionHistory.empty() : _undo = const [], _redo = const [];
+
+  const SelectionHistory._(this._undo, this._redo);
+
+  static const _limit = 100;
+  final List<SelectionState<Key>> _undo;
+  final List<SelectionState<Key>> _redo;
+
+  bool canUndo(SelectionState<Key> current) =>
+      _undo.any((state) => !state._sameSelection(current));
+
+  bool canRedo(SelectionState<Key> current) =>
+      _redo.any((state) => !state._sameSelection(current));
+
+  /// Records a user change, preserving redo for true no-ops (including a
+  /// repeated range gesture that constructs an equivalent state).
+  SelectionHistory<Key> record(
+    SelectionState<Key> before,
+    SelectionState<Key> after,
+  ) {
+    if (before._sameSelection(after)) return this;
+    return SelectionHistory._(_push(_undo, before), const []);
+  }
+
+  ({SelectionHistory<Key> history, SelectionState<Key> selection})? undo(
+    SelectionState<Key> current,
+  ) {
+    final index = _undo.lastIndexWhere((s) => !s._sameSelection(current));
+    if (index < 0) return null;
+    return (
+      history: SelectionHistory._(
+        _undo.sublist(0, index),
+        _push(_redo, current),
+      ),
+      selection: _undo[index],
+    );
+  }
+
+  ({SelectionHistory<Key> history, SelectionState<Key> selection})? redo(
+    SelectionState<Key> current,
+  ) {
+    final index = _redo.lastIndexWhere((s) => !s._sameSelection(current));
+    if (index < 0) return null;
+    return (
+      history: SelectionHistory._(
+        _push(_undo, current),
+        _redo.sublist(0, index),
+      ),
+      selection: _redo[index],
+    );
+  }
+
+  /// Prunes every step immediately so a disappeared row cannot reappear in
+  /// an old selection later. All states share one new row list and presence
+  /// set during pruning, keeping large directory refreshes bounded.
+  SelectionHistory<Key> withRows(Iterable<Key> rows) {
+    if (_undo.isEmpty && _redo.isEmpty) return this;
+    final rowList = List<Key>.of(rows);
+    final present = rowList.toSet();
+    return SelectionHistory._(
+      [for (final state in _undo) state._withRows(rowList, present)],
+      [for (final state in _redo) state._withRows(rowList, present)],
+    );
+  }
+
+  static List<SelectionState<Key>> _push<Key extends Object>(
+    List<SelectionState<Key>> stack,
+    SelectionState<Key> state,
+  ) => [...stack.skip(stack.length >= _limit ? 1 : 0), state];
 }

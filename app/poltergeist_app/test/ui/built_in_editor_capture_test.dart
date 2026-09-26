@@ -59,8 +59,8 @@ Future<void> _loadRealFonts() async {
   }
 }
 
-ThemeData _captureTheme() {
-  final base = buildPoltergeistTheme(Brightness.dark);
+ThemeData _captureTheme({Brightness brightness = Brightness.dark}) {
+  final base = buildPoltergeistTheme(brightness);
   return base.copyWith(
     textTheme: base.textTheme.apply(fontFamily: 'DejaVu Sans'),
     primaryTextTheme: base.primaryTextTheme.apply(fontFamily: 'DejaVu Sans'),
@@ -93,6 +93,46 @@ Future<void> Function(String name) _capture(WidgetTester tester) {
 }
 
 void main() {
+  testWidgets('captures the standalone editor window in the light theme', (
+    tester,
+  ) async {
+    await tester.runAsync(_loadRealFonts);
+    tester.view.physicalSize = const Size(1100, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    for (final separateWindow in [false, true]) {
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: const ValueKey('capture.editor'),
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: _captureTheme(brightness: Brightness.light),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: BuiltInTextEditorScreen(
+              file: File('/Users/lmathis/Projects/poltergeist/config.yaml'),
+              initialText:
+                  '# Poltergeist development settings\n'
+                  'server:\n  host: staging.example.com\n  port: 22\n\n'
+                  'transfers:\n  concurrent: 3\n  verify_checksums: true\n',
+              onCloseRequested: separateWindow ? () async {} : null,
+              onQuitRequested: separateWindow ? () async {} : null,
+              onNewWindowRequested: separateWindow ? () async {} : null,
+              showToast: (context, message) =>
+                  showTopToastIn(context, message: message),
+              monoFontFallback: const ['DejaVu Sans Mono'],
+              basenameOf: remoteBasename,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _capture(tester)(
+        separateWindow ? 'editor-window-light' : 'editor-route-light',
+      );
+    }
+  });
+
   testWidgets('captures the find bar mid-search', (tester) async {
     await tester.runAsync(_loadRealFonts);
 

@@ -17,6 +17,7 @@ import 'services/appearance_controller.dart';
 import 'services/application_error_reporter.dart';
 import 'services/bookmark_backup_service.dart';
 import 'services/checkout_prompt_ledger.dart';
+import 'services/checked_platform_menu.dart';
 import 'services/checkout_session.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/dock_progress.dart';
@@ -59,6 +60,7 @@ import 'services/workspace_windows/window_seeds.dart';
 import 'services/workspace_windows/window_titlebar.dart';
 import 'services/workspace_windows/workspace_windows.dart';
 import 'ui/workspace_windows_root.dart';
+import 'ui/editor_window_app.dart';
 
 Future<void> main(List<String> args) async {
   PoltergeistBinding.ensureInitialized();
@@ -68,6 +70,10 @@ Future<void> main(List<String> args) async {
   if (args.contains(settingsWindowArgument)) {
     await runSettingsWindow();
     return;
+  }
+  if (Platform.isMacOS) {
+    WidgetsBinding.instance.platformMenuDelegate =
+        CheckedPlatformMenuDelegate();
   }
 
   final supportDirectory = await getApplicationSupportDirectory();
@@ -252,6 +258,8 @@ Future<void> main(List<String> args) async {
   // flush. The workspace shell binds its queue seam onto the guard; with
   // several windows the composition binds it once, below (00 D39).
   final quitGuard = QuitGuard(
+    confirmEditorsClose: windows?.confirmEditorsClose,
+    setEditorQuitPending: windows?.setEditorQuitPending,
     navigatorKey: navigatorKey,
     onError: errorReporter.report,
   );
@@ -655,11 +663,13 @@ Future<void> main(List<String> args) async {
       exitFlushes: [windowLifecycle.saveBounds],
     );
     quitGuard.bindQueue(() => composedQueue);
-    final apps = Expando<PoltergeistApp>();
+    final apps = Expando<Widget>();
     runWidget(
       WorkspaceWindowsRoot(
         windows: windows,
-        buildWindow: (window) => apps[window] ??= buildApp(window),
+        buildWindow: (window) => apps[window] ??= window.isEditor
+            ? EditorWindowApp(window: window, appearance: appearance)
+            : buildApp(window),
       ),
     );
   }

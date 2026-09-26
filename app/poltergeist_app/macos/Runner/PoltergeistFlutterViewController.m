@@ -1,4 +1,49 @@
 #import "PoltergeistFlutterViewController.h"
+#import <IOKit/hidsystem/IOLLEvent.h>
+
+// Flutter marks shortcuts received by its text input plugin so an unhandled
+// event can continue to the native menus. These selectors are runtime-only;
+// the native keyboard regression checks them against the bundled engine.
+@interface NSEvent (PoltergeistKeyEquivalent)
+- (BOOL)isKeyEquivalent;
+- (void)markAsKeyEquivalent;
+@end
+
+static NSEvent* PoltergeistNormalizeCommandModifier(NSEvent* event) {
+  const NSEventModifierFlags flags = event.modifierFlags;
+  const NSEventModifierFlags commandSides =
+      NX_DEVICELCMDKEYMASK | NX_DEVICERCMDKEYMASK;
+  if (!(flags & NSEventModifierFlagCommand) || (flags & commandSides)) {
+    // Identity matters to Flutter's detection of redispatched events.
+    return event;
+  }
+
+  // Tools such as Easydict send Command+C with only the aggregate Command
+  // flag. Flutter 3.47 synchronizes modifiers from the left/right bits and
+  // otherwise delivers a plain c, replacing the pane's range selection.
+  // Supply a deterministic side only when the source did not specify one.
+  // Flutter releases it when the next event no longer carries Command.
+  NSEvent* normalized =
+      [NSEvent keyEventWithType:event.type
+                      location:event.locationInWindow
+                 modifierFlags:flags | NX_DEVICELCMDKEYMASK
+                     timestamp:event.timestamp
+                  windowNumber:event.windowNumber
+                       context:nil
+                    characters:event.characters ?: @""
+   charactersIgnoringModifiers:event.charactersIgnoringModifiers ?: @""
+                     isARepeat:event.isARepeat
+                       keyCode:event.keyCode];
+  if (normalized == nil) {
+    return event;
+  }
+  if ([event respondsToSelector:@selector(isKeyEquivalent)] &&
+      [event isKeyEquivalent] &&
+      [normalized respondsToSelector:@selector(markAsKeyEquivalent)]) {
+    [normalized markAsKeyEquivalent];
+  }
+  return normalized;
+}
 
 // Ported from Séance (app/seance_app/macos/Runner/SeanceFlutterViewController.m
 // at 15d0fdd; docs/PORTS.md). Flutter exposes these Objective-C selectors at
@@ -45,6 +90,14 @@ static int64_t PoltergeistSemanticsUpdateViewId(const void* update) {
 @end
 
 @implementation PoltergeistFlutterViewController
+
+- (void)keyDown:(NSEvent*)event {
+  [super keyDown:PoltergeistNormalizeCommandModifier(event)];
+}
+
+- (void)keyUp:(NSEvent*)event {
+  [super keyUp:PoltergeistNormalizeCommandModifier(event)];
+}
 
 - (void)notifySemanticsEnabledChanged {
   if (!self.engine.semanticsEnabled) {

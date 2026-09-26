@@ -106,10 +106,18 @@ void first_frame_cb(FlView* view, gpointer user_data) {
   gtk_window_present(GTK_WINDOW(toplevel));
 }
 
-FlMethodResponse* create_window(WorkspaceWindowsHost* host) {
+FlMethodResponse* create_window(WorkspaceWindowsHost* host, FlMethodCall* call) {
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(host->application));
-  window_title_apply(window, kWindowTitle);
+  FlValue* arguments = fl_method_call_get_args(call);
+  FlValue* title = arguments != nullptr &&
+                          fl_value_get_type(arguments) == FL_VALUE_TYPE_MAP
+                      ? fl_value_lookup_string(arguments, "title")
+                      : nullptr;
+  window_title_apply(window, title != nullptr &&
+                                     fl_value_get_type(title) == FL_VALUE_TYPE_STRING
+                                 ? fl_value_get_string(title)
+                                 : kWindowTitle);
   // The main window's size: a new window looks like the one it came from.
   gint width = 0;
   gint height = 0;
@@ -187,7 +195,7 @@ FlMethodResponse* handle(WorkspaceWindowsHost* host, FlMethodCall* call) {
         fl_method_success_response_new(fl_value_new_bool(TRUE)));
   }
   if (strcmp(method, kCreateMethod) == 0) {
-    return create_window(host);
+    return create_window(host, call);
   }
 
   const bool known = strcmp(method, kDestroyMethod) == 0 ||

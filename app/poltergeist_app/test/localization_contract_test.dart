@@ -15,6 +15,18 @@ const _generatedDartSuffixes = {'.freezed.dart', '.g.dart', '.mocks.dart'};
 
 // Technical literals are reviewed per file so an allowlist cannot hide UI copy.
 const _allowedTechnicalLiterals = <String, Set<String>>{
+  // Flutter menu serialization and the AppKit checkmark channel protocol.
+  'lib/services/checked_platform_menu.dart': {
+    "'checked'",
+    "'flutter/menu'",
+    "'poltergeist/menu_checks'",
+    "'Menu.setMenus'",
+    "'id'",
+    "'children'",
+    "'0'",
+    "'setChecked'",
+    r"'${item['id']}'",
+  },
   // View schema keys and validation diagnostics, never rendered UI copy.
   'lib/services/view_preferences_store.dart': {
     "'view.preferences'",
@@ -1145,7 +1157,20 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // carries the same literal); its accessible name is the ARB tooltip
   // editorMatchCaseTooltip, so translating the glyph itself would be
   // wrong.
+  'lib/ui/editor_checkout_upload.dart': {
+    r"'${copy.serverId}|${copy.remotePath}'",
+  },
   'lib/ui/built_in_text_editor.dart': {
+    "'window.new'",
+    "'editor.save'",
+    "'editor.close'",
+    "'editor.find'",
+    "'editor.undo'",
+    "'editor.redo'",
+    "'editor.cut'",
+    "'editor.copy'",
+    "'editor.paste'",
+    "'editor.selectAll'",
     "''",
     "'\\n'",
     "'Aa'",
@@ -1335,6 +1360,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.focusLeft'",
     "'pane.focusRight'",
     "'pane.swapFocus'",
+    "'edit.undoSelection'",
+    "'edit.redoSelection'",
     "'edit.selectAll'",
     "'edit.invertSelection'",
     "'selection.quickSelect'",

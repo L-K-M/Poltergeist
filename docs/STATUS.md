@@ -4,6 +4,40 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
+## Desktop file interactions (2026-09-26)
+
+Show Hidden Files now carries its checked state into the macOS menu. The
+same bridge handles the other registry-backed checkable commands and
+updates when the active pane or window changes. Windows/Linux retain their
+existing checkbox rendering.
+
+Each pane tab keeps a bounded selection undo/redo history. Undo Selection
+and Redo Selection appear in Edit, the palette, and file-list context menus;
+their shortcuts are Cmd/Ctrl+Alt+Z and Cmd/Ctrl+Alt+Shift+Z. History includes
+the cursor and range anchor, survives refresh and sorting by row identity,
+prunes unavailable rows, and resets on navigation. Cancelled navigation
+restores history with the original listing. Quick Select contributes one
+confirmed change, with previews and cancellation kept out of history.
+
+On desktop, Edit in Poltergeist opens a separate document window on the
+existing shared engine. Opening the same document raises its window, even
+from another workspace. The editor retains its own save, upload, conflict,
+and close handling after the source workspace closes. Native close and Quit
+protect unsaved buffers, including a save started from the native menu while
+the discard dialog is open; mobile retains its editor route.
+
+These changes follow the owner's request and amend D17 and the selection
+specification. The menu bridge and selection model are Poltergeist-specific;
+the editor-window seams are recorded in PORTS.md as a Séance port-back
+candidate. Validation details are recorded with the PR.
+
+Validation: 273 affected Flutter tests pass, including remote editing,
+external-editor checkouts, menus, selection, and window lifecycle. The
+macOS debug build and native menu-state XCTest pass. Light-theme widget
+captures cover the selection menu and the route/window editor forms;
+native screenshot capture was unavailable. Local checks use Flutter 3.47.3;
+CI uses the repository's 3.47.2 pin and builds the other platforms.
+
 ## Mouse drag activation (2026-09-26)
 
 Clicking or holding a folder or file now selects it without showing a drag
@@ -23,6 +57,27 @@ macOS. Flutter analysis is clean. The broader pane run reached 341 passing
 tests but stalled in the session-lifetime suite. Before/after light-theme
 widget captures show the held-click state; native held-pointer capture was
 not exercised. CI uses the repository's Flutter 3.47.2 pin.
+
+## Injected Command shortcuts on macOS (2026-09-26)
+
+The native view controller preserves Command on synthetic key events that
+omit left/right Command bits. This prevents Easydict's simulated Copy after
+Shift-click from entering file-pane type-ahead as a plain c. Physical
+left/right Command events retain identity, and normalized events preserve
+Flutter's key-equivalent marker for native shortcut routing. The same
+correction is proposed in [Séance #144](https://github.com/L-K-M/Seance/pull/144).
+
+The native regression fails with stock Flutter at the missing-Command
+assertion and passes with the app controller. Seven groups cover the real
+keyboard manager/responders, physical modifier sides, repeats, metadata,
+marker preservation, the observed Shift/Copy/release sequence, and controller
+replacement on one engine, and unhandled-event redispatch identity. The 29
+pane-selection/type-ahead widget tests
+pass, analysis is clean, and the macOS release build succeeds with Flutter
+3.47.3; CI exercises its 3.47.2 pin. The fixture starts no Dart application
+and posts no system input. Live Easydict, text-field/menu, and extra-window
+smoke checks remain described in
+[macOS keyboard compatibility](macos-keyboard-compatibility.md).
 
 ## Delete-confirmation route lifetime (2026-09-26)
 
@@ -8974,6 +9029,27 @@ root (including the macOS menu bar), the window commands, the runner
 source contract, the multi-window session document, the lifecycle's
 close hook, and OS drops refused in an extra window.
 
+## Journal compaction pays for itself (2026-09-26)
+
+Mid-session compaction measured the whole transfer journal against its
+4 MiB threshold, but a rewrite keeps every pending task's records and
+drops only the finished tasks'. Once one pending task passed 4 MiB on
+its own (about 5 000 files), every further record rebuilt, rewrote and
+fsynced the whole journal on the UI isolate: 2 000 records at a 64 KiB
+threshold cost 1 691 rewrites. Compaction now waits until the finished
+tasks' records reach the threshold (or 32 tasks finish) and dropping
+them frees at least as many bytes as the rewrite writes. A pending set
+alone never triggers a rewrite, and the journal stays under the larger
+of twice the pending set and the pending set plus 4 MiB. The crash-safe
+ordering, startup and shutdown compaction, and restore are unchanged.
+
+Verification: four new cases in `transfer_persistence_test.dart`'s
+compaction group. A 2 000-record pending task causes no mid-session
+rewrite (1 691 before) and still restores every item; 200 tasks
+finishing beside a pending one never rewrite more bytes than they
+append (8.5 MB for 80 KB before); a large finished task still compacts
+mid-session; and a retried task counts as pending again.
+
 ## Backup acknowledgement safety (2026-09-26)
 
 Backup replies now settle the exact record sent, inside the persistent store's
@@ -8989,6 +9065,47 @@ Séance wire format are unchanged; equal-version LWW conflicts remain a separate
 revision-policy concern. Séance's core by-ID acknowledgement API needs its own
 compatible upstream extension; this change uses Poltergeist's existing store
 extension without copying shared transport code.
+
+## Edited servers reach the next connection (2026-09-26)
+
+The pool kept the config a serverId's reference resolved first for the
+whole session, so after an edit to a server or bookmark (local or
+synced) new tabs, transfer leases and sync runs kept dialing the old
+host, port and user with the old credential reference until an explicit
+Disconnect or a restart. The invalidation the manager's comment
+promised was never built.
+
+Every browse open and lease already carries the app's current config, so
+the engine host now hands it to the new
+`PooledConnectionManager.updateServerConfig` before acquiring; no
+protocol change. The same endpoint (`PoolKey`) takes the config in
+place: the next first connect uses it, and live transports keep their
+resolved credentials, as for any sibling bookmark (03 §3.5). A new
+endpoint retires the reference: the next acquisition resolves the new
+config, the id's status reads `disconnected` until then, and the old
+pool drains instead of being cut. Panes and leases there keep working
+until they close, queued acquisitions fail `disconnected` so they retry
+on the new endpoint, the pool never reconnects for the edited id (nor
+does a recovery already pending when the edit lands), its keepalive runs
+until the last draining channel closes (a sibling's disconnect does not
+cut it either), and an explicit disconnect or bookmark removal still
+closes what is left.
+
+Regression tests: `test/connection/pool_config_refresh_test.dart` (open,
+close, edit, open dials the new host, port or user; drain; no reconnect
+to the old endpoint; same-endpoint swap; disconnect after an edit; a
+sibling keeping the shared pool; an edit during a first connect, alone
+or joined by a sibling; an edit after a transport death; the draining
+keepalive; a sibling's disconnect; queued acquisitions) and two
+`engine_host_test.dart` cases for the browse and lease requests.
+Follow-up: the pane controller's Retry and restored-tab resume still
+rebuild the config from the tab's own copy of the bookmark (ignoring the
+pulled catalog), so they can dial a stale endpoint after an edit, and
+since the engine host adopts every request's config, such a request also
+moves the id's reference back to the stale endpoint until the next
+current one. `ServerConfig.updatedAt` cannot order them in the engine: a
+catalog config and a bookmark's embedded identity carry different
+records' clocks.
 
 ## Extra windows' integrations (2026-09-26)
 
