@@ -9061,6 +9061,32 @@ Quick Look routing, the titlebar channel and passthrough, the semantics
 action routing, extra-window drops in the pane drop zone, and the
 runners' source contract for every new piece.
 
+## Mirror safety under links and kind changes (2026-09-26)
+
+Review slice P2 found two places where the differ planned what 05
+forbids. P2-02: 05 §3 excludes a symlink path on both sides, but only
+the link's own row was a skip, so a source-side link over a real
+destination folder planned a delete for every file in it, and a
+destination-side link over a source folder planned copies that failed
+rail 7's parent-chain check and gated the delete phase. The rsync
+exporter already excluded the path, so engine and export disagreed.
+Entries beneath a link on either side (matched by match key, so case
+and NFC spellings are covered) are now skip rows with reason
+`excluded`. P2-03: a `typeDiffers` directory's descendants were still
+emitted as rows of their own, so they deleted while the kind conflict
+was unresolved (for good under `permanent`), counted twice on rails
+3 and 4, and flipped to `changed since preview` after a resolved
+replace. They now ride the parent's `destinationSubtree` whenever the
+directory's side is one the pair may write (05 §6 rule 4, clarified
+there). The subtree is captured under the directory side's own
+spelling of the path, so it is exactly the subsumed set.
+
+Verification: new `diff_test.dart` cases (three symlink shapes, five
+subsumption shapes, plus a source-side directory that keeps its copy
+rows) and a `scanned plans` group in `executor_test.dart` that scans
+real trees, diffs and runs them. All but the source-side guard failed
+before the fix. `dart test packages/poltergeist_sync` passes.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
