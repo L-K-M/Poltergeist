@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The active pane's accent line is above its tabs.** The coloured line
+  that shows which pane is active now runs along the top of that pane's
+  tab bar instead of under the tabs, so it no longer sits between a tab
+  and the folder it shows.
 - **Simultaneous transfers per server.** The Transfers popover, next to
   the bandwidth limits, sets how many files move to or from each server
   at once: Automatic (up to 6, the app's total) or 1 to 5. A server's
