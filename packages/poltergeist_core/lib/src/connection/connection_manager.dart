@@ -222,6 +222,11 @@ class PooledConnectionManager implements ConnectionManager {
   final Map<String, _ServerReference> _references = {};
   final Map<String, Future<_ServerReference>> _pendingReferences = {};
   final Map<PoolKey, _EndpointPool> _pools = {};
+
+  /// Pools a config edit moved a serverId off while its channels there were
+  /// still open ([updateServerConfig]): they drain rather than being cut,
+  /// and an explicit disconnect of the id still reaches them.
+  final Map<String, Set<_EndpointPool>> _retiredPools = {};
   final Map<PoolKey, _HostKeyIncident> _incidents = {};
 
   /// Which bookmark ids own the incident for each blocked endpoint — the
@@ -553,15 +558,78 @@ class PooledConnectionManager implements ConnectionManager {
     return connected;
   }
 
+  /// Adopts [config] as what [serverId] connects with from now on. A
+  /// reference otherwise keeps the config it first resolved, so an edited
+  /// bookmark would go on dialing its old endpoint with its old credential
+  /// reference until an explicit disconnect.
+  ///
+  /// The same endpoint ([PoolKey]) takes the edit in place: the pool's next
+  /// first connect uses it, while transports already authenticated keep
+  /// serving on the credentials they resolved, as they do for a sibling
+  /// bookmark with other credentials (03 §3.5). A different endpoint
+  /// retires the reference: the next acquisition resolves afresh, so the
+  /// resolver must already answer [config]. The old pool drains instead of
+  /// being cut, since an edit must never kill a running transfer: this
+  /// id's panes and leases there keep working until they close, but
+  /// nothing new is acquired there and it never reconnects for this id.
+  void updateServerConfig(String serverId, ServerConfig config) {
+    // Unresolved ids read the resolver when they first connect.
+    final reference = _references[serverId];
+    if (reference == null) return;
+
+    if (reference.pool.key == PoolKey.of(config)) {
+      reference.config = config;
+      return;
+    }
+    _retireReference(reference);
+  }
+
+  void _retireReference(_ServerReference reference) {
+    final serverId = reference.serverId;
+    final pool = reference.pool;
+    _references.remove(serverId);
+    pool.references.remove(serverId);
+
+    // A queued acquisition could only fail the reference check once served;
+    // failing it now lets its caller retry against the new endpoint.
+    _failWaiters(pool, serverId);
+    if (_holdsChannels(pool, serverId)) {
+      final retired = _retiredPools.putIfAbsent(serverId, () => {});
+      retired.removeWhere((earlier) => !_holdsChannels(earlier, serverId));
+      retired.add(pool);
+    }
+
+    // The id's status now speaks for its new endpoint, which nothing has
+    // dialed yet: panes still on the old pool must not wait for its
+    // recovery. The next acquisition publishes the new pool's transitions.
+    const disconnected = ServerStatus(ServerConnectionState.disconnected);
+    if (_currentStatusOf(serverId) != disconnected) {
+      _emit(serverId, disconnected);
+    }
+
+    if (pool.references.isNotEmpty) return;
+    _abandonPool(pool);
+    // Tears down now when nothing is open; otherwise the last close does.
+    unawaited(_maybeTearDown(pool).catchError((Object _) {}));
+  }
+
+  bool _holdsChannels(_EndpointPool pool, String serverId) =>
+      pool.browseByClient.keys.any((key) => key.$1 == serverId) ||
+      pool.leasedTransfer.any((handle) => handle.leaseServerId == serverId);
+
   @override
   Future<void> disconnectServer(String serverId) async {
     final pending = _pendingReferences.remove(serverId);
     final reference = _references.remove(serverId);
+    final retired = _retiredPools.remove(serverId) ?? const <_EndpointPool>{};
     if (reference == null) {
-      if (pending == null) return;
-
       // Removing the pending identity invalidates its eventual resolution.
-      _emit(serverId, const ServerStatus(ServerConnectionState.disconnected));
+      if (pending != null) {
+        _emit(serverId, const ServerStatus(ServerConnectionState.disconnected));
+      }
+      await Future.wait([
+        for (final pool in retired) _releaseServer(pool, serverId),
+      ]);
       return;
     }
 
@@ -569,23 +637,33 @@ class PooledConnectionManager implements ConnectionManager {
     pool.references.remove(serverId);
     _emit(serverId, const ServerStatus(ServerConnectionState.disconnected));
     _lastStatuses.remove(serverId);
+    if (pool.references.isEmpty) _abandonPool(pool);
 
-    // Abandon the pool before cleanup: new sessions must not join its
-    // pending connects, and idle timers must not outlive its last reference.
-    if (pool.references.isEmpty) {
-      _cancelReconnect(pool);
-      _cancelKeepAlive(pool);
-      for (final slot in pool.transports) {
-        _cancelIdleTimer(slot);
-      }
-      if (identical(_pools[pool.key], pool)) _pools.remove(pool.key);
+    await Future.wait([
+      _releaseServer(pool, serverId),
+      for (final earlier in retired) _releaseServer(earlier, serverId),
+    ]);
+  }
 
-      // An in-flight first connect cannot serve anyone anymore: dismiss
-      // its resolution so the resolver's prompt closes instead of parking
-      // on an answer the pool will reject as stale.
-      pool._resolution?.dismiss();
+  /// Abandon the pool before cleanup: new sessions must not join its
+  /// pending connects, and idle timers must not outlive its last reference.
+  void _abandonPool(_EndpointPool pool) {
+    _cancelReconnect(pool);
+    _cancelKeepAlive(pool);
+    for (final slot in pool.transports) {
+      _cancelIdleTimer(slot);
     }
+    if (identical(_pools[pool.key], pool)) _pools.remove(pool.key);
 
+    // An in-flight first connect cannot serve anyone anymore: dismiss its
+    // resolution so the resolver's prompt closes instead of parking on an
+    // answer the pool will reject as stale.
+    pool._resolution?.dismiss();
+  }
+
+  /// Closes [serverId]'s channels on [pool], then tears the pool down once
+  /// no reference is left.
+  Future<void> _releaseServer(_EndpointPool pool, String serverId) async {
     // Fail this server's queued waiters before any await below: closing
     // channels frees capacity and can resume a waiter for this serverId
     // mid-teardown, letting it acquire a channel the disconnect must
@@ -1011,6 +1089,10 @@ class PooledConnectionManager implements ConnectionManager {
     final resolution = _PoolResolution();
     pool._resolution = resolution;
 
+    // One attempt verifies, resolves, and dials the same config, even if an
+    // edit swaps the reference's copy while it awaits.
+    final config = reference.config;
+
     try {
       // Serialize vault access with first connect; joining bookmarks need
       // only metadata. Never open with a secret returned to a retired pool.
@@ -1021,12 +1103,12 @@ class PooledConnectionManager implements ConnectionManager {
       // resolver may prompt for a password. A pinned endpoint skips it —
       // its key is trusted or a changed-key incident either way, and the
       // authenticated connect below re-checks it.
-      await _preflightHostKey(pool, reference.config, observation);
+      await _preflightHostKey(pool, config, observation);
       if (!_isCurrentTrustEpoch(pool, trustEpoch) || pool.references.isEmpty) {
         _throwIfBlocked(pool);
         throw _disconnectedAcquisition();
       }
-      final resolved = await _resolveCredentials(reference.config, resolution);
+      final resolved = await _resolveCredentials(config, resolution);
       // The resolution finished — retire its scope now, not at the end of
       // the whole connect: a last-reference disconnect during the transport
       // handshake must not fire `dismissed` for a resolution that already
@@ -1039,7 +1121,7 @@ class PooledConnectionManager implements ConnectionManager {
       }
 
       final transport = await _openTransport(
-        config: reference.config,
+        config: config,
         credentials: resolved.credentials,
         tofu: _observingTofu(observation),
         onHostKey: _hostKeyPrompterFor(pool, ConnectPrompting.enabled),
@@ -1977,14 +2059,21 @@ class PooledConnectionManager implements ConnectionManager {
       throw _disconnectedAcquisition();
     }
 
-    // Configs are cached per serverId for the session; bookmark edits
-    // invalidate them (M5's store owns that).
+    // The reference keeps this config until [updateServerConfig] refreshes
+    // or retires it.
     final key = PoolKey.of(config);
     final pool = _pools.putIfAbsent(
       key,
       () => _EndpointPool(key, _incidents[key]),
     );
     final reference = _ServerReference(serverId, config, pool);
+
+    // Edited back onto a pool it drains from: those channels are current
+    // again, not leftovers a disconnect must chase separately.
+    final retired = _retiredPools[serverId];
+    if (retired != null && retired.remove(pool) && retired.isEmpty) {
+      _retiredPools.remove(serverId);
+    }
 
     // A bookmark joining a blocked endpoint carries the block's record:
     // the endpoint stays blocked while any of its bookmarks still exists
@@ -2131,7 +2220,9 @@ class _PoolResolution implements CredentialResolutionScope {
 
 class _ServerReference {
   final String serverId;
-  final ServerConfig config;
+
+  /// Swapped in place by a same-endpoint edit ([updateServerConfig]).
+  ServerConfig config;
   final _EndpointPool pool;
 
   _ServerReference(this.serverId, this.config, this.pool);

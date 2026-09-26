@@ -388,6 +388,68 @@ void main() {
     });
   });
 
+  test('an edited config reaches the next connect of its server', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+    final first = await h.openWithDefaults();
+    await h.call(
+      (id) =>
+          CloseBrowseChannelRequest(requestId: id, channelId: first.channelId),
+    );
+
+    // The bookmark was re-pointed; the next open carries the edit.
+    final opened = h.call(
+      (id) => OpenBrowseChannelRequest(
+        requestId: id,
+        serverId: 'srv-1',
+        paneTabId: 'tab-2',
+        config: _config().copyWith(host: 'new.example.com'),
+      ),
+    );
+    await h.pumping();
+    final credential = h.takePrompt();
+    expect((credential.data as CredentialPromptData).host, 'new.example.com');
+    h.reply(credential, _credentials);
+    await h.pumping();
+    h.reply(h.takePrompt(), const HostKeyPromptReply(accepted: true));
+
+    expect(await opened, isA<BrowseChannelOpened>());
+    expect(
+      [for (final call in h.opener.calls) call.config.host],
+      ['example.com', 'new.example.com'],
+    );
+  });
+
+  test('a lease with an edited config dials it while the old pane keeps '
+      'listing', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+    final pane = await h.openWithDefaults();
+
+    final leased = h.call(
+      (id) => LeaseTransferChannelRequest(
+        requestId: id,
+        serverId: 'srv-1',
+        config: _config().copyWith(host: 'new.example.com'),
+      ),
+    );
+    await h.pumping();
+    final credential = h.takePrompt();
+    expect((credential.data as CredentialPromptData).host, 'new.example.com');
+    h.reply(credential, _credentials);
+    await h.pumping();
+    h.reply(h.takePrompt(), const HostKeyPromptReply(accepted: true));
+
+    expect(await leased, isA<TransferLeaseGranted>());
+    expect(
+      [for (final call in h.opener.calls) call.config.host],
+      ['example.com', 'new.example.com'],
+    );
+    // The pane opened before the edit drains on its own endpoint.
+    expect(await h.list(pane.channelId, '/home/test'), isA<DirectoryListed>());
+    expect(h.opener.transports.first.closed, isFalse);
+  });
+
   test(
     'probe service skips live pools and resumes probing after close',
     () async {

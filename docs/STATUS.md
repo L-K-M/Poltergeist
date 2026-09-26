@@ -8899,6 +8899,38 @@ root (including the macOS menu bar), the window commands, the runner
 source contract, the multi-window session document, the lifecycle's
 close hook, and OS drops refused in an extra window.
 
+## Edited servers reach the next connection (2026-09-26)
+
+The pool kept the config a serverId's reference resolved first for the
+whole session, so after an edit to a server or bookmark (local or
+synced) new tabs, transfer leases and sync runs kept dialing the old
+host, port and user with the old credential reference until an explicit
+Disconnect or a restart. The invalidation the manager's comment
+promised was never built.
+
+Every browse open and lease already carries the app's current config, so
+the engine host now hands it to the new
+`PooledConnectionManager.updateServerConfig` before acquiring; no
+protocol change. The same endpoint (`PoolKey`) takes the config in
+place: the next first connect uses it, and live transports keep their
+resolved credentials, as for any sibling bookmark (03 §3.5). A new
+endpoint retires the reference: the next acquisition resolves the new
+config, the id's status reads `disconnected` until then, and the old
+pool drains instead of being cut. Panes and leases there keep working
+until they close, queued acquisitions fail `disconnected` so they retry
+on the new endpoint, the pool never reconnects for the edited id, and an
+explicit disconnect or bookmark removal still closes what is left.
+
+Regression tests: `test/connection/pool_config_refresh_test.dart` (open,
+close, edit, open dials the new host, port or user; drain; no reconnect
+to the old endpoint; same-endpoint swap; disconnect after an edit; a
+sibling keeping the shared pool; an edit during a first connect; queued
+acquisitions) and two `engine_host_test.dart` cases for the browse and
+lease requests. Follow-up: the pane controller's Retry and restored-tab
+resume still rebuild the config from the tab's own copy of the bookmark
+(ignoring the pulled catalog), so they can dial a stale endpoint after
+an edit.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

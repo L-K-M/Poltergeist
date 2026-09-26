@@ -179,6 +179,12 @@
     could not read the settings file. Pinning or folding afterwards
     used to replace all of them with just that one change; now the
     sidebar keeps them and shows them again.
+- **Edited servers connect where you pointed them.** Changing a server's
+  host, port or user name used to take effect only after Disconnect or a
+  restart: new tabs, transfers and syncs kept connecting to the old
+  address. They now use the new details, and tabs and transfers already
+  open on the old address keep working until they close. A new key file
+  or password is used the next time the server connects.
 - Pre-1.0 history lives in the commit log and the GitHub pre-releases
   (v0.1.0, v0.2.0).
 
