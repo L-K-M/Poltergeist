@@ -4,6 +4,28 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
+## Upload permissions on ACL-managed servers (2026-09-28)
+
+Ordinary local-to-server uploads now follow Séance's permission policy: new
+files use the server's defaults and inherited ACL, while replacements keep
+the existing destination mode. The queue no longer requests a chmod to the
+local source mode, which could abort an otherwise writable new upload after
+all bytes were sent. Local executable bits are therefore not automatically
+copied. Downloads, remote copies, local copies, managed edits, and sync keep
+their existing permission behavior. Required destination-mode preservation
+and real write failures still fail without deleting a move's source.
+
+Bridged regressions reproduced the upload failure and replacement-mode
+change before the fix. All seven now pass, including executable downloads
+and safe move failure. Shared-adapter contract tests exercise SFTP mode
+denial, temporary-file cleanup, and destination preservation. Core and sync
+analysis are clean; 1,702 core tests and 249 sync tests pass, with 24 and 3
+environment skips respectively. Flutter analysis and 33 affected app tests
+pass on Flutter 3.47.3; the dependency-boundary guard passes. Borg's transfer
+history confirms that all bytes were sent before the reported failure, but
+the exact rejected server operation and a live retry remain unverified.
+This aligns an existing Séance behavior, so no upstream port is needed.
+
 ## Restored delete identity safety (2026-09-28)
 
 Restored delete tasks now stat each pending path without following links and

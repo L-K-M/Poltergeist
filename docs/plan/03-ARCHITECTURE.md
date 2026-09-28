@@ -1117,6 +1117,15 @@ non-negotiable:
   recovery (§4.6). Completed
   files stay in place on failure (documented Séance behavior, kept).
 
+Ordinary queued local→remote uploads use the server's default permissions
+and inherited ACL for new files, matching Séance's upload behavior. They do
+not request the local source mode, including executable bits: a server may
+allow file creation and writes while denying chmod. Replacements retain the
+existing remote file's mode through the shared adapter; a denied required
+mode change still fails rather than silently relaxing those permissions.
+Downloads, remote→remote copies, local copies, managed edits, and sync keep
+their existing source-mode or explicit preservation contracts.
+
 Local→local tasks run the same two phases over two `LocalFileSystem`
 endpoints — D26's streamed copy with progress, cancellation, and mtime
 preservation falls out of the one code path. A local→local *move* tries

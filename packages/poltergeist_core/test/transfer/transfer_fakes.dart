@@ -121,6 +121,9 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   Object? Function(String path)? listFailure;
   Object? Function(String path)? downloadFailure;
   Object? Function(String path)? uploadFailure;
+
+  /// A server may allow writes while denying chmod on the staged upload.
+  Object? Function(String path, int mode)? uploadModeFailure;
   Object? Function(RemoteFileEntry entry)? deleteFailure;
   Object? Function(String oldPath, String newPath)? renameFailure;
 
@@ -584,8 +587,13 @@ class FakeTreeFileSystem implements RemoteFileSystem {
           !_matchesExpected(path, atCommit, expectedTarget)) {
         throw _conflict('upload', path);
       }
-      addFile(path, collected.toBytes());
-      if (preserveMode != null) modes[path] = preserveMode;
+      final mode = preserveMode ?? existing?.mode;
+      if (mode != null) {
+        final failure = uploadModeFailure?.call(path, mode);
+        if (failure != null) throw failure;
+      }
+      addFile(path, collected.toBytes(), mode: mode);
+      if (mode != null) modes[path] = mode;
       return entryAt(path)!;
     } finally {
       activeUploads--;

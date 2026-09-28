@@ -3197,7 +3197,15 @@ class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
                       length: file.source.size,
                       overwrite: overwrite,
                       expectedTarget: expectedTarget,
-                      preserveMode: file.source.mode,
+                      // Ordinary uploads follow Séance: use server defaults
+                      // for a new file and retain a replaced target's mode.
+                      // ACL-managed servers may allow writes but deny chmod
+                      // of a local mode, aborting an otherwise valid upload.
+                      preserveMode:
+                          task.source is LocalFsLocation &&
+                              task.destination is ServerFsLocation
+                          ? null
+                          : file.source.mode,
                       cancellation: attempt,
                       onProgress: (transferred, total) =>
                           _onFileProgress(runtime, item, transferred, total),
