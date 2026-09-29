@@ -45,6 +45,17 @@ cached row when menu enablement or preview listeners request them. The
 activation-watch regression covers switching away before arming completes,
 as well as dropping a listing response that arrives after deactivation.
 
+Desktop listings prebuild one row beyond the viewport, reducing work when
+mounting a tab while retaining the next row for accessibility scrolling.
+Mobile keeps Flutter's default cache. Modified-time formatting reuses parsed
+patterns for the current explicit locale, without caching dates or relative
+labels. Regression coverage checks scrolling and selection at two text
+scales, successive accessibility reveals, mobile cache behavior, and locale
+switches. All 161 affected pane tests pass and Flutter analysis is clean.
+On the calibrated Linux CPU, the combined change measured
+48.694 ms against unchanged controls of 53.156 and 52.841 ms; full production
+verification is recorded with the PR.
+
 Regressions reproduced the stale-history scope failure and unnecessary
 background refresh before the fixes. The paint regression reproduced an
 opposite-pane repaint before isolation and none afterward. All 133 affected

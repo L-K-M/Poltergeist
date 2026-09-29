@@ -12,6 +12,7 @@ import 'package:flutter/gestures.dart'
         kSecondaryMouseButton,
         kTouchSlop;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -1876,6 +1877,12 @@ class _PaneSurface extends StatelessWidget {
           key: listAreaKey,
           controller: scrollController,
           itemExtent: extent,
+          // Keep the next row available to accessibility traversal without
+          // constructing a full offscreen band each time a desktop tab mounts.
+          // Touch scrolling retains Flutter's default cache.
+          scrollCacheExtent: isDesktopPlatform(Theme.of(context).platform)
+              ? ScrollCacheExtent.pixels(extent)
+              : null,
           itemCount: controller.entries.length,
           itemBuilder: (context, index) => _buildRow(context, index),
         ),

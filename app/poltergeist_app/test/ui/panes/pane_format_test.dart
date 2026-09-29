@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 import 'package:poltergeist_app/ui/panes/pane_format.dart';
 import 'package:poltergeist_core/poltergeist_core.dart'
     show RemoteFileEntry, RemoteFileType;
@@ -109,6 +110,55 @@ void main() {
         ),
         '—',
       );
+    });
+
+    test('explicit locales survive repeated calls and locale switches', () {
+      final originalLocale = Intl.defaultLocale;
+      addTearDown(() => Intl.defaultLocale = originalLocale);
+      final dates = [
+        DateTime(2026, 9, 15, 14, 32),
+        DateTime(2026, 9, 14, 23),
+        DateTime(2026, 9, 10, 14, 32),
+        DateTime(2026, 9, 16, 14, 32),
+      ];
+      const expected = {
+        'en': [
+          'T(2:32\u202fPM)',
+          'Y(11:00\u202fPM)',
+          '9/10/2026 2:32\u202fPM',
+          '9/16/2026 2:32\u202fPM',
+        ],
+        'de': [
+          'T(14:32)',
+          'Y(23:00)',
+          '10.9.2026 14:32',
+          '16.9.2026 14:32',
+        ],
+        'fr': [
+          'T(14:32)',
+          'Y(23:00)',
+          '10/09/2026 14:32',
+          '16/09/2026 14:32',
+        ],
+      };
+      for (final locale in ['en', 'de', 'fr', 'en']) {
+        Intl.defaultLocale = locale == 'en' ? 'fr' : 'en';
+        for (var repeat = 0; repeat < 2; repeat++) {
+          for (var i = 0; i < dates.length; i++) {
+            expect(
+              formatPaneModified(
+                dates[i],
+                now: now,
+                localeName: locale,
+                today: (t) => 'T($t)',
+                yesterday: (t) => 'Y($t)',
+              ),
+              expected[locale]![i],
+              reason: '$locale, ${dates[i]}, repeat $repeat',
+            );
+          }
+        }
+      }
     });
 
     // DST-boundary coverage is untestable in this container (fixed UTC
