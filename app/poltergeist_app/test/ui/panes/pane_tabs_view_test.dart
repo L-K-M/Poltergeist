@@ -108,6 +108,8 @@ void main() {
     try {
       left.activateTab(next);
       await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
 
       expect(paints, greaterThan(0));
       expect(oppositePaints, 0);
@@ -342,7 +344,8 @@ void main() {
     await tester.pump();
     expect(selected('report.txt'), isFalse);
     await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
     expect(field, findsNothing);
     expect(controllerA.quickSelectActive, isFalse);
     expect(selected('report.txt'), isFalse);

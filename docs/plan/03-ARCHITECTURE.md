@@ -2090,8 +2090,14 @@ dependency (3 years stale).
 Policy, fixed: watch **only the directory shown by each pane's active
 tab**, non-recursively — one watcher per pane, retargeted on tab switch
 and navigation, dropped when the pane shows a launcher or remote location;
-background tabs are not watched (their listing refreshes on activation).
-Debounced 300 ms into a refresh. Watcher failure is never silent: inotify
+background tabs are not watched. Activating a cached local tab shows its
+accepted rows immediately and coalesces its refresh for 300 ms, so rapidly
+passing through tabs does not start scans that will be discarded. Remaining
+on the tab arms its watch before re-listing; this covers changes made while
+it was inactive or awaiting refresh. Deactivation cancels the pending
+refresh. Explicit navigation and Refresh bypass this delay.
+Directory changes are debounced 300 ms into a refresh. Watcher failure is
+never silent: inotify
 `IN_Q_OVERFLOW`, `IN_DELETE_SELF`/`IN_UNMOUNT`, or a backend
 invalidated-watch error triggers an immediate rescan, and a watched path
 that vanishes out from under its watcher retargets or drops the watcher

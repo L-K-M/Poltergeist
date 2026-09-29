@@ -15,7 +15,15 @@ Automatic local watch refreshes are retired when their tab leaves the
 foreground. Their cached rows and selection remain intact, late responses
 skip sorting and rebuilding inactive listings, and activation still re-arms
 the watch before re-listing. Explicit navigation and refresh continue in
-background tabs. The P4 collector logs scheduling, build, and raster phases
+background tabs. Cached local tab activation now coalesces for 300 ms,
+matching the ordinary watch debounce, so rapidly skipped tabs do not start
+obsolete scans. The accepted rows remain usable while the tab settles;
+navigation and explicit Refresh start immediately. Deactivation, disposal,
+and binding changes cancel delayed work, while watch-before-list preserves
+freshness. Nine fake-clock regressions cover that policy; seven failed
+before the change, and all nine pass afterward.
+
+The P4 collector logs scheduling, build, and raster phases
 to distinguish regressions. Manual CI dispatch accepts `skip_m0=true` to
 collect all D12 scenarios without the historical M0 SSH measurement shards.
 

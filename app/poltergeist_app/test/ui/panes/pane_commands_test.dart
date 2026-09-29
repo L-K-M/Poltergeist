@@ -315,6 +315,8 @@ void main() {
     await undo.run(context);
     expect(right.selectedCount, 0);
     await redo.run(context);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
     expect(right.cursorIndex, 0);
     expect(otherTab.selectedCount, 0);
   });

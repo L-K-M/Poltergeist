@@ -1052,6 +1052,8 @@ void main() {
 
     expect(rightStrip.activeTab, secondTab);
     await endDrag(tester, gesture);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
   });
 
   dndWidgets('a hover gone refused mid-drag cancels the tab activation', (

@@ -222,6 +222,8 @@ void main() {
       leftStrip.activateTab(leftStrip.tabs.first);
       await tester.pump();
       expect(rig.workspace.syncBrowsing.suspended, isFalse);
+      await tester.pump(const Duration(milliseconds: 300));
+      await settle(tester);
       expect(
         find.byKey(const ValueKey('pane.left.tab1.syncChip')),
         findsOneWidget,

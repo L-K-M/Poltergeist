@@ -186,6 +186,8 @@ void main() {
     expect(right.tabs, contains(tab));
     expect(left.tabs, isEmpty);
     expect(identical(right.activeTab, tab), isTrue);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
     // The moved tab's listing renders in the right pane's view.
     expect(
       find.descendant(
