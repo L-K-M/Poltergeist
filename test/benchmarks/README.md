@@ -19,6 +19,14 @@ committed
 provenance below), so a declared tier-B scope runs the per-run
 fingerprint-drift evaluation plus per-scenario trend lines.
 
+The tier-A collector job pins standalone Dart to `3.13.4`, matching
+`budgets.json`'s recorded calibration. A floating `stable` SDK can turn
+every tier-A comparison into a controlled-axis drift skip when a patch
+release arrives. Change this benchmark runtime only with a deliberate
+calibration update; ordinary Dart CI continues to test the latest stable
+SDK. The workflow contract tests require the exact pin to match the
+calibration's version.
+
 ## Invocation
 
 ```

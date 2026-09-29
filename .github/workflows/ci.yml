@@ -419,7 +419,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dart-lang/setup-dart@v1
         with:
-          sdk: stable
+          # Match budgets.json's calibration; update through recalibration.
+          sdk: '3.13.4'
       - name: Resolve workspace
         run: dart pub get
       # runnerImage is a controlled fingerprint axis: record the runner

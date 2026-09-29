@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -11,6 +12,7 @@ void main() {
   late String guard;
   late YamlList integrationPaths;
   late YamlMap jobs;
+  late String calibratedDartVersion;
 
   setUpAll(() async {
     final workspace = await Isolate.resolvePackageUri(
@@ -26,6 +28,13 @@ void main() {
             )
             as YamlMap;
     jobs = workflow['jobs'] as YamlMap;
+    final budgets = jsonDecode(
+      await File.fromUri(
+        workspace.resolve('../test/benchmarks/budgets.json'),
+      ).readAsString(),
+    ) as Map<String, dynamic>;
+    calibratedDartVersion =
+        budgets['calibratedFingerprint']['dartVersion'] as String;
     final detection = jobs['detect_integration'] as YamlMap;
     final steps = (detection['steps'] as YamlList).cast<YamlMap>();
     final changes = steps.singleWhere((step) => step['id'] == 'changes');
@@ -33,6 +42,24 @@ void main() {
     integrationPaths = filters['integration'] as YamlList;
     guard =
         steps.singleWhere((step) => step['id'] == 'fixture')['run'] as String;
+  });
+
+  test('benchmark SDK matches calibration while ordinary CI follows stable', () {
+    final calibratedSdk = RegExp(
+      r'^(\d+\.\d+\.\d+)\s',
+    ).firstMatch(calibratedDartVersion)?.group(1);
+    expect(calibratedSdk, isNotNull);
+
+    String sdkFor(String job) => (jobs[job]['steps'] as YamlList)
+        .cast<YamlMap>()
+        .singleWhere(
+          (step) => '${step['uses']}'.startsWith('dart-lang/setup-dart@'),
+        )['with']['sdk'] as String;
+
+    expect(sdkFor('bench'), calibratedSdk);
+    expect(sdkFor('bench'), matches(r'^\d+\.\d+\.\d+$'));
+    expect(sdkFor('dart'), 'stable');
+    expect(sdkFor('dart_tools'), 'stable');
   });
 
   test('ordinary Dart contracts are required on all three native OSes', () {

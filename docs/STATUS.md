@@ -11,6 +11,12 @@ so pull requests are graded on the scenarios they actually run. Tier-B
 enforcement, historical drift counts, thresholds, and baselines are unchanged.
 Only a clean main-branch tier-B observation may clear stale history.
 
+The tier-A benchmark job pins Dart to its calibrated `3.13.4` runtime,
+preventing stable SDK updates from silently disabling its comparisons.
+A workflow regression requires the exact SDK pin to match the committed
+calibration; runtime changes require a deliberate calibration update.
+Ordinary Dart CI stays on latest stable, and the budgets are unchanged.
+
 Automatic local watch refreshes are retired when their tab leaves the
 foreground. Their cached rows and selection remain intact, late responses
 skip sorting and rebuilding inactive listings, and activation still re-arms
