@@ -1,5 +1,11 @@
 # Poltergeist
 
+> [!IMPORTANT]
+> Poltergeist moved to https://github.com/L-K-M/Hauntware. This repository is
+> archived and gets no updates. Download from
+> https://github.com/L-K-M/Hauntware/releases (`poltergeist-*` and `poltergeist_*.deb` assets);
+> file issues there.
+
 A cross-platform two-pane SFTP file transfer client for macOS,
 Windows, Linux, and Android. Built as a sibling of
 [Séance](https://github.com/L-K-M/Seance).
